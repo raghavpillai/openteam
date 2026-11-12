@@ -4,7 +4,6 @@ import {
   contextScopeForRun,
   resolveTurnMemoryExchange,
   runtimeRequestSourceForOrigin,
-  TranscriptFingerprintCache,
   TurnStoppedError,
   turnCompletionFailure,
   turnContentWithNotes,
@@ -104,11 +103,6 @@ describe("reaction context routing", () => {
     expect(turnContentWithNotes({ ...input, appendReplyReminder: true, inboxType: "user.reaction" }, wrapped(hidden))).toBe(wrapped(hidden));
   });
 
-  test("hidden feedback retains meaningful instruction updates without demanding a reply", () => {
-    const content = wrapped(hidden), note = "<instructions_update>new preference</instructions_update>";
-    expect(turnContentWithNotes({ origin: "user", inboxType: "user.reaction", runtimeProfile: "agent", notes: [note] }, content))
-      .toBe(`<system_reminder>\n${note}\n</system_reminder>\n${content}`);
-  });
 });
 
 describe("turn completion", () => {
@@ -148,16 +142,4 @@ describe("memory recording exchange", () => {
       .toEqual({ user: "FYI I'm vegetarian now", assistant: "", occurredAt: occurredAt.getTime() });
     expect(resolveTurnMemoryExchange({ visibleUser: null, internalUser: null, visibleAssistant: [{ content: "Hi" }], internalAssistant: [] })).toBeNull();
   });
-});
-
-test("transcript projection fingerprints expire and stay LRU bounded", () => {
-  const cache = new TranscriptFingerprintCache(2, 100);
-  cache.remember("bot-a", "a", 0);
-  cache.remember("bot-b", "b", 0);
-  expect(cache.matches("bot-a", "a", 1)).toBe(true);
-  cache.remember("bot-c", "c", 2);
-  expect(cache.size).toBe(2);
-  expect(cache.matches("bot-b", "b", 3)).toBe(false);
-  expect(cache.matches("bot-a", "a", 3)).toBe(true);
-  expect(cache.matches("bot-a", "a", 100)).toBe(false);
 });

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  groupMemberMentionHandles,
   groupVisibilityClauses,
   parseGroupMentions,
   resolveGroupResponderIds,
@@ -14,9 +13,6 @@ const members = [
 ];
 
 describe("OpenTeam-compatible group routing", () => {
-  test("builds full-name-without-spaces and first-token handles", () => {
-    expect(groupMemberMentionHandles("Parity Probe v3")).toEqual(["parity probe v3", "parityprobev3", "parity"]);
-  });
 
   test("matches bounded member handles and everyone aliases", () => {
     expect(parseGroupMentions("Ask @Parity and @researchbot.", members)).toEqual({

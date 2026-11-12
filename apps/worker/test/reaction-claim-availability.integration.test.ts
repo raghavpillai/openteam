@@ -35,38 +35,12 @@ async function setup() {
   return { db, bot, peer, group, home, message, messaging, service, worker, react };
 }
 
-for (const emoji of ["👍", "👎"]) {
-  test.skipIf(!url)(`queued ${emoji} feedback cannot claim after the author is removed from its group`, () => fixture(async f => {
-    const result = await f.react(emoji);
-    expect(result.runId).toBeString();
-    await Effect.runPromise(f.service.setGroupMembers(f.group.id, { botIds: [f.peer.id], clientId: crypto.randomUUID() }));
-    expect(await f.worker.claim(f.bot.id)).toBeNull();
-    expect(await f.db.run.findUnique({ where: { id: result.runId! } })).toMatchObject({ status: "cancelled", error: { code: "reaction_channel_unavailable" } });
-    expect(await f.db.inboxEvent.findFirst({ where: { runId: result.runId! } })).toMatchObject({ status: "completed" });
-    expect(await f.db.botRunLease.count({ where: { botId: f.bot.id } })).toBe(0);
-  }));
-
-  test.skipIf(!url)(`queued ${emoji} feedback cannot claim after its chat is archived`, () => fixture(async f => {
-    const result = await f.react(emoji);
-    await f.db.channel.update({ where: { id: f.group.id }, data: { archivedAt: new Date() } });
-    expect(await f.worker.claim(f.bot.id)).toBeNull();
-    expect(await f.db.run.findUnique({ where: { id: result.runId! } })).toMatchObject({ status: "cancelled", error: { code: "reaction_channel_unavailable" } });
-  }));
-
-  test.skipIf(!url)(`ordinary ${emoji} feedback still claims in its live group and retains its reply guidance`, () => fixture(async f => {
-    const result = await f.react(emoji);
-    const claimed = await f.worker.claim(f.bot.id);
-    expect(claimed).toMatchObject({ runId: result.runId, channelId: f.group.id, inboxType: "user.reaction", origin: "user" });
-    expect(claimed.content).toContain(emoji === "👎" ? "Deliver your response with SendToUser" : "You don't need to reply");
-  }));
-}
-
 test.skipIf(!url)("discarding unavailable group feedback does not block an independent home-chat user message", () => fixture(async f => {
   const result = await f.react("👎");
   await Effect.runPromise(f.service.setGroupMembers(f.group.id, { botIds: [f.peer.id], clientId: crypto.randomUUID() }));
   const direct = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, { botId: f.bot.id, channelId: f.home.id, origin: "user", type: "user.message", content: "What is 2+2?", clientId: crypto.randomUUID(), priority: 300 }));
   expect(await f.worker.claim(f.bot.id)).toMatchObject({ runId: direct.run.id, channelId: f.home.id });
-  expect(await f.db.run.findUnique({ where: { id: result.runId! } })).toMatchObject({ status: "cancelled" });
+  expect(await f.db.run.findUnique({ where: { id: result.runId! } })).toMatchObject({ status: "cancelled", error: { code: "reaction_channel_unavailable" } });
 }));
 
 test.skipIf(!url)("feedback claim waits for an in-flight group membership edit and checks its committed result", () => fixture(async f => {

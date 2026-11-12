@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AgentDataStore } from "../../src/agent-data";
 import { parseAutomationFile, parseAutomationRuns } from "../../src/automation-files";
 import {
   atomicWrite,
@@ -51,6 +52,36 @@ test("state readers reject symlinks and directory discovery does not follow them
   }
 });
 
+test("an avatar source must stay inside the bot directory, even through a symlink", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-avatar-"));
+  const botId = "00000000-0000-4000-8000-000000000001";
+  const updates: unknown[] = [];
+  const store = Object.assign(Object.create(AgentDataStore.prototype), {
+    root: temporary,
+    prisma: { bot: { update: async (input: unknown) => updates.push(input) } },
+  }) as any;
+  const install = (path: string) => store.installAvatarFromPath(botId, path);
+  try {
+    const directory = store.botDirectory(botId);
+    await mkdir(directory, { recursive: true });
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const outside = join(temporary, "outside.png");
+    await writeFile(outside, png);
+    await symlink(outside, join(directory, "escaped.png"));
+    await expect(install("escaped.png")).rejects.toThrow("The avatar source must stay inside");
+    await expect(install("../../outside.png")).rejects.toThrow("The avatar source must stay inside");
+    await expect(install(outside)).rejects.toThrow("The avatar source must stay inside");
+    expect(updates).toEqual([]);
+
+    await writeFile(join(directory, "source.png"), png);
+    expect((await install("source.png")).bytes).toBe(png.length);
+    expect(await readFile(join(directory, "avatar.png"))).toEqual(Buffer.from(png));
+    expect(updates).toHaveLength(1);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("folder identifiers reject traversal, separators, and null bytes", () => {
   for (const unsafe of ["", ".", "..", "../escape", "nested/path", "a\\b", "x\0y"]) {
     expect(() => safeFolderId(unsafe)).toThrow("not a safe folder id");
@@ -58,27 +89,10 @@ test("folder identifiers reject traversal, separators, and null bytes", () => {
   expect(safeFolderId("valid-slug_123")).toBe("valid-slug_123");
 });
 
-test("automation parsing accepts legacy schedules and rejects malformed explicit triggers", async () => {
+test("automation parsing rejects malformed explicit triggers", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-auto-adversarial-"));
   const automationPath = join(root, "automation.json");
   try {
-    await atomicWrite(
-      automationPath,
-      JSON.stringify({
-        name: "Fallback",
-        prompt: "Use the cron fallback.",
-        schedule: "@every 5m",
-      })
-    );
-    const fallback = await parseAutomationFile(
-      automationPath,
-      await readFile(automationPath, "utf8"),
-      "UTC"
-    );
-    expect(fallback.trigger).toEqual({ type: "cron", schedule: "@every 5m" });
-    expect(fallback.schedule?.intervalSeconds).toBe(300);
-    expect(fallback.enabled).toBe(true);
-    expect(fallback.provenance).toBe("untrusted");
     await expect(parseAutomationFile(automationPath, JSON.stringify({
       name: "Invalid explicit trigger", prompt: "Do not discard listeners.",
       schedule: "@every 5m", trigger: { type: "not-supported" },

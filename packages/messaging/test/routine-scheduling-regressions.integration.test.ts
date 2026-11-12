@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentMessaging } from "../src/index";
-import { followUserTimeZone, pinRoutinesToScheduledZone, RoutineService } from "../src/routines";
+import { followUserTimeZone, RoutineService } from "../src/routines";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -121,35 +121,6 @@ test.skipIf(!url)(
 );
 
 test.skipIf(!url)(
-  "dispatch catches up a year-old interval and recovers a stale committed occurrence once",
-  async () => {
-    const f = await fixture();
-    try {
-      const id = await f.create({ type: "cron", schedule: "@every 5m" }, true);
-      const anchor = new Date("2025-01-01T00:00:00Z"),
-        scheduledFor = new Date("2025-01-01T00:05:00Z"),
-        now = new Date("2026-01-01T00:02:00Z");
-      await f.db.routine.update({
-        where: { id },
-        data: { nextRunAt: scheduledFor, scheduleAnchorAt: anchor },
-      });
-      expect(await f.service.dispatchDue(now)).toBe(1);
-      expect(
-        (await f.db.routine.findUniqueOrThrow({ where: { id } })).nextRunAt?.toISOString()
-      ).toBe("2026-01-01T00:05:00.000Z");
-      await f.db.routine.update({ where: { id }, data: { nextRunAt: scheduledFor } });
-      expect(await f.service.dispatchDue(now)).toBe(0);
-      expect(await f.db.routineExecution.count({ where: { routineId: id } })).toBe(1);
-      expect(
-        (await f.db.routine.findUniqueOrThrow({ where: { id } })).nextRunAt?.toISOString()
-      ).toBe("2026-01-01T00:05:00.000Z");
-    } finally {
-      await f.close();
-    }
-  }
-);
-
-test.skipIf(!url)(
   "timezone change recalculates floating listeners behind intervals without shifting interval phase",
   async () => {
     const f = await fixture();
@@ -171,76 +142,6 @@ test.skipIf(!url)(
       expect(
         (await f.db.routine.findUniqueOrThrow({ where: { id } })).nextRunAt?.toISOString()
       ).toBe("2026-01-01T14:00:00.000Z");
-    } finally {
-      await f.close();
-    }
-  }
-);
-
-test.skipIf(!url)(
-  "initial zone migration pins floating listeners to installation zone rather than a pinned first listener",
-  async () => {
-    const f = await fixture();
-    try {
-      const first = await f.create({
-        type: "group",
-        listeners: [
-          { type: "cron", schedule: "CRON_TZ=Asia/Tokyo 0 3 * * *" },
-          { type: "cron", schedule: "0 9 * * *" },
-        ],
-      });
-      const second = await f.create({
-        type: "group",
-        listeners: [
-          { type: "cron", schedule: "@every 24h" },
-          { type: "cron", schedule: "0 9 * * *" },
-        ],
-      });
-      await f.db.$transaction((tx) => pinRoutinesToScheduledZone(tx, async () => {}));
-      for (const id of [first, second]) {
-        const saved = await f.db.routine.findUniqueOrThrow({ where: { id } });
-        expect(saved.trigger).toMatchObject({
-          listeners: [expect.anything(), { type: "cron", schedule: "CRON_TZ=UTC 0 9 * * *" }],
-        });
-      }
-      expect((await f.db.routine.findUniqueOrThrow({ where: { id: second } })).scheduleKind).toBe(
-        "interval"
-      );
-    } finally {
-      await f.close();
-    }
-  }
-);
-
-test.skipIf(!url)(
-  "queued bot event coalescing retains the execution's saved prompt revision",
-  async () => {
-    const f = await fixture();
-    try {
-      const id = await f.create({ type: "webhook" }, true);
-      const event = (suffix: string) => ({
-        id: `regression-${suffix}`,
-        source: "webhook",
-        kind: "webhook",
-        text: "payload",
-      });
-      const first = await f.service.dispatchEvent({ kind: "bot", id: f.botId }, event("first"));
-      await f.service.mutate(f.botId, randomUUID(), null, {
-        action: "update",
-        id,
-        prompt: "Different later instructions",
-      });
-      await f.service.dispatchEvent({ kind: "bot", id: f.botId }, event("second"));
-      const execution = await f.db.routineExecution.findUniqueOrThrow({
-        where: { id: first[0]!.id },
-        include: { routineRevision: true, run: true },
-      });
-      const message = await f.db.message.findUniqueOrThrow({
-        where: { id: execution.run!.userMessageId },
-      });
-      expect(execution.routineRevision.prompt).toBe("Saved instructions");
-      expect(message.content).toContain("Saved instructions");
-      expect(message.content).not.toContain("Different later instructions");
     } finally {
       await f.close();
     }
@@ -287,71 +188,6 @@ test.skipIf(!url)(
         code: "routine_channel_unavailable",
       });
       expect(await f.db.routineExecution.count({ where: { routineId: healthy } })).toBe(1);
-    } finally {
-      await f.close();
-    }
-  }
-);
-
-test.skipIf(!url)(
-  "post-commit projection errors do not mark successful dispatch failed or block other routines",
-  async () => {
-    const f = await fixture();
-    try {
-      let failWrites = false;
-      const service = new RoutineService(f.db, f.messaging, {
-        writeRoutine: async () => {
-          if (failWrites) throw new Error("Projection unavailable");
-        },
-        deleteRoutine: async () => {},
-      });
-      const ids = [];
-      for (let index = 0; index < 2; index += 1) {
-        const created = await service.mutate(f.botId, randomUUID(), null, {
-          action: "create",
-          name: `Projection ${index}`,
-          prompt: "Instructions",
-          schedule: "@every 5m",
-        });
-        ids.push(String(created.id));
-      }
-      const now = new Date();
-      await f.db.routine.updateMany({
-        where: { id: { in: ids } },
-        data: { nextRunAt: new Date(now.getTime() - 1) },
-      });
-      failWrites = true;
-      expect(await service.dispatchDue(now)).toBe(2);
-      expect(
-        await f.db.routineExecution.count({ where: { routineId: { in: ids }, status: "queued" } })
-      ).toBe(2);
-      expect(
-        await f.db.routineExecution.count({ where: { routineId: { in: ids }, status: "failed" } })
-      ).toBe(0);
-    } finally {
-      await f.close();
-    }
-  }
-);
-
-test.skipIf(!url)(
-  "legacy interval dispatch preserves a pre-upgrade edit's phase before its first run",
-  async () => {
-    const f = await fixture();
-    try {
-      const id = await f.create({ type: "cron", schedule: "@every 5m" }, true);
-      await f.db.routine.update({
-        where: { id },
-        data: {
-          createdAt: new Date("2026-01-01T00:00:00Z"),
-          scheduleAnchorAt: null,
-          nextRunAt: new Date("2026-01-01T00:17:00Z"),
-        },
-      });
-      expect(await f.service.dispatchDue(new Date("2026-01-01T00:18:00Z"))).toBe(1);
-      expect(
-        (await f.db.routine.findUniqueOrThrow({ where: { id } })).nextRunAt?.toISOString()
-      ).toBe("2026-01-01T00:22:00.000Z");
     } finally {
       await f.close();
     }

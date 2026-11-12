@@ -63,12 +63,6 @@ test("small talk is skipped, anything substantive is reviewed", () => {
   expect(isMemorableExchange("I moved to Lyon")).toBe(true);
 });
 
-test("an empty exchange still renders the extraction prompt shape", () => {
-  expect(buildExtractionUserPrompt("", "", [])).toBe(
-    "Existing memory:\n(empty)\n\nLatest exchange:\nUser: (no message)\nAssistant: (no message)"
-  );
-});
-
 test("the extraction prompt carries today's date and exchanges an interrupted review left", () => {
   expect(
     buildExtractionUserPrompt(

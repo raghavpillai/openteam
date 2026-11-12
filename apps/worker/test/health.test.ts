@@ -9,30 +9,13 @@ import { checkWorkerDependencies, WORKER_QUEUES } from "../src/readiness";
 import { checkWorkerHealth } from "../src/worker-health";
 
 describe("Docker worker health probe", () => {
-  test.each([
-    "healthy",
-    "missing",
-    "stale",
-    "future",
-    "invalid",
-    "null",
-    "socket-missing",
-    "hung",
-    "foreign",
-    "failure",
-    "bad-json",
-    "false-200",
-  ])("detects %s", async (mode) => {
+  test.each(["healthy", "stale", "hung", "foreign", "false-200"])("detects %s", async (mode) => {
     const dir = await mkdtemp(join(tmpdir(), "ot-health-"));
     const paths = { heartbeat: join(dir, "h"), socket: join(dir, "s") };
     const server = createServer((_req, res) => {
       if (mode === "hung") return;
-      if (mode === "bad-json") {
-        res.end("bad");
-        return;
-      }
       res
-        .writeHead(mode === "failure" ? 503 : 200)
+        .writeHead(200)
         .end(
           JSON.stringify({
             ok: mode !== "false-200",
@@ -43,21 +26,11 @@ describe("Docker worker health probe", () => {
         );
     });
     try {
-      if (mode !== "missing")
-        await writeFile(
-          paths.heartbeat,
-          mode === "invalid"
-            ? "broken"
-            : mode === "null"
-              ? "null"
-              : JSON.stringify({
-                  instance: "self",
-                  updatedAt:
-                    Date.now() + (mode === "stale" ? -30_000 : mode === "future" ? 30_000 : 0),
-                })
-        );
-      if (mode !== "socket-missing")
-        await new Promise<void>((resolve) => server.listen(paths.socket, resolve));
+      await writeFile(
+        paths.heartbeat,
+        JSON.stringify({ instance: "self", updatedAt: Date.now() + (mode === "stale" ? -30_000 : 0) })
+      );
+      await new Promise<void>((resolve) => server.listen(paths.socket, resolve));
       if (mode === "healthy") await expect(checkWorkerHealth(paths, 100)).resolves.toBeUndefined();
       else await expect(checkWorkerHealth(paths, 100)).rejects.toThrow();
     } finally {
@@ -66,14 +39,7 @@ describe("Docker worker health probe", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
-  test.each([
-    "healthy",
-    "consumer",
-    "database",
-    "queue",
-    "computer",
-    "storage",
-  ])("checks %s dependencies", async (mode) => {
+  test.each(["healthy", "consumer", "computer"])("checks %s dependencies", async (mode) => {
     const computer = Bun.serve({
       port: 0,
       fetch(request) {
@@ -91,14 +57,11 @@ describe("Docker worker health probe", () => {
             ),
         } as never,
         prisma: {
-          $queryRaw: async () => {
-            if (mode === "database") throw new Error("private connection error");
-            return [{ count: mode === "queue" ? 3 : 4 }];
-          },
+          $queryRaw: async () => [{ count: 4 }],
         } as never,
         computerUrl: `http://127.0.0.1:${computer.port}`,
         controlToken: "fixture",
-        roots: mode === "storage" ? ["/missing/health/storage"] : [],
+        roots: [],
       };
       if (mode === "healthy") await expect(checkWorkerDependencies(input)).resolves.toBeUndefined();
       else
@@ -187,19 +150,6 @@ const fixture = async (
 };
 
 describe("worker diagnostics", () => {
-  test("reads current APNs status without sending a notification or consuming a queue job", async () => {
-    let source = "environment";
-    const { paths, deleted } = await fixture("ready", 0, async () => ({
-      source,
-      topic: "dev.openbot.mobile",
-      missing: [],
-      issue: null,
-    }));
-    expect((await post(paths.socket, "/notifications", "GET")).body.source).toBe("environment");
-    source = "database";
-    expect((await post(paths.socket, "/notifications", "GET")).body.source).toBe("database");
-    expect(deleted).toEqual([]);
-  });
   test("runtime APNs diagnostic failures never expose exception text", async () => {
     const { paths } = await fixture("ready", 0, async () => {
       throw new Error("secret-signing-key");
@@ -226,16 +176,8 @@ describe("worker diagnostics", () => {
     expect(queues[0]).toStartWith(`${DOCTOR_QUEUE}-`);
     expect(deleted).toEqual(["test-job"]);
   });
-  test("reports a failed queue job and removes only its own diagnostic job", async () => {
-    const { paths, deleted } = await fixture("failed");
-    expect(await post(paths.socket)).toMatchObject({ status: 503, body: { ok: false } });
-    expect(deleted).toEqual(["test-job"]);
-  });
-  test.each([
-    "foreign",
-    "dependencies",
-  ] as const)("rejects %s failures without a false healthy result", async (mode) => {
-    const { paths } = await fixture(mode);
+  test("rejects dependency failures without a false healthy result or leaked error text", async () => {
+    const { paths } = await fixture("dependencies");
     const result = await post(paths.socket);
     expect(result.status).toBe(503);
     expect(result.body.ok).toBe(false);

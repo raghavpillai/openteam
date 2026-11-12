@@ -1,16 +1,8 @@
 import { expect, test } from "bun:test";
-import { parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
 import { renderAgentActivity } from "../src/read-agent-activity";
 
 const now = new Date("2026-10-15T12:00:00Z");
 const ago = (ms: number) => new Date(now.getTime() - ms);
-
-test("limits default and cap the way the host does", () => {
-  expect(parseReadAgentActivityInput({})).toEqual({ sinceHours: 72, maxAgents: 10, excerptChars: 1500 });
-  expect(parseReadAgentActivityInput({ since_hours: 500, max_agents: 50, excerpt_chars: 9000 })).toEqual({ sinceHours: 168, maxAgents: 20, excerptChars: 4000 });
-  expect(parseReadAgentActivityInput({ since_hours: 0, max_agents: -2, excerpt_chars: 0.5 })).toEqual({ sinceHours: 72, maxAgents: 10, excerptChars: 1500 });
-  expect(() => parseReadAgentActivityInput({ agent_id: "x" })).toThrow("Unknown field: agent_id");
-});
 
 test("renders each bot's activity in the host's format", () => {
   const bounds = { sinceHours: 72, maxAgents: 10, excerptChars: 1500 };

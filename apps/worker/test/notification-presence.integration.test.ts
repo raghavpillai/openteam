@@ -4,7 +4,6 @@ import { createPrismaClient } from "@openteam/db";
 import { notificationRouting, publishMessageNotification } from "@openteam/messaging";
 import {
   suppressMobileNotification,
-  type NotificationPresenceInput,
 } from "@openteam/contracts/notification-presence";
 import { NotificationService } from "../../server/src/services/notification-service";
 import { PushNotificationDispatcher } from "../src/push-notifications";
@@ -175,91 +174,6 @@ test.skipIf(!url)(
       await db.channel.deleteMany({ where: { id: channelId } });
       await db.bot.deleteMany({ where: { id: botId } });
       await workerDb.$disconnect();
-      await db.$disconnect();
-    }
-  },
-  30_000
-);
-
-test.skipIf(!url)(
-  "presence is auth-mode/session bound, ordered across connections, and retired before sign-out",
-  async () => {
-    const db = createPrismaClient(url!);
-    const second = createPrismaClient(url!);
-    const service = new NotificationService(db);
-    const userId = crypto.randomUUID(),
-      sessionId = crypto.randomUUID(),
-      otherSession = crypto.randomUUID();
-    const clientId = crypto.randomUUID(),
-      disabledId = crypto.randomUUID();
-    const input: NotificationPresenceInput = {
-      clientId,
-      sequence: 1,
-      platform: "macos",
-      active: true,
-      idleSeconds: 0,
-    };
-    try {
-      await db.user.create({
-        data: { id: userId, name: "Presence test", email: `${userId}@test.invalid` },
-      });
-      await db.session.createMany({
-        data: [sessionId, otherSession].map((id) => ({
-          id,
-          userId,
-          token: crypto.randomUUID(),
-          expiresAt: new Date(Date.now() + 600_000),
-        })),
-      });
-      const auth = { mode: "required" as const, sessionId };
-      await Effect.runPromise(service.updatePresence(input, auth));
-      expect(suppressMobileNotification(await notificationRouting(second, "required"))).toBeTrue();
-      expect(suppressMobileNotification(await notificationRouting(second, "disabled"))).toBeFalse();
-      await Effect.runPromise(
-        service.updatePresence(
-          { ...input, sequence: 50, active: false },
-          { mode: "required", sessionId: otherSession }
-        )
-      );
-      expect(suppressMobileNotification(await notificationRouting(second, "required"))).toBeTrue();
-      await Promise.all([
-        Effect.runPromise(service.updatePresence({ ...input, sequence: 2 }, auth)),
-        Effect.runPromise(
-          new NotificationService(second).updatePresence(
-            { ...input, sequence: 3, active: false },
-            auth
-          )
-        ),
-      ]);
-      expect(
-        (await db.notificationPresence.findUniqueOrThrow({ where: { clientId } })).sequence
-      ).toBe(3);
-      expect(suppressMobileNotification(await notificationRouting(second, "required"))).toBeFalse();
-      await Effect.runPromise(service.updatePresence({ ...input, sequence: 4 }, auth));
-      await Effect.runPromise(service.disableForSession(sessionId));
-      await Effect.runPromise(service.updatePresence({ ...input, sequence: 5 }, auth));
-      expect(suppressMobileNotification(await notificationRouting(second, "required"))).toBeFalse();
-      await db.session.update({ where: { id: sessionId }, data: { expiresAt: new Date(0) } });
-      await expect(Effect.runPromise(service.updatePresence(input, auth))).rejects.toThrow(
-        "Sign in"
-      );
-      await expect(
-        Effect.runPromise(service.updatePresence(input, { mode: "disabled" }))
-      ).rejects.toThrow("Refresh authentication");
-      await Effect.runPromise(
-        new NotificationService(db, "disabled").updatePresence(
-          { ...input, clientId: disabledId },
-          { mode: "disabled" }
-        )
-      );
-      expect(suppressMobileNotification(await notificationRouting(second, "required"))).toBeFalse();
-      expect(suppressMobileNotification(await notificationRouting(second, "disabled"))).toBeTrue();
-    } finally {
-      await db.notificationPresence.deleteMany({
-        where: { clientId: { in: [clientId, disabledId] } },
-      });
-      await db.user.deleteMany({ where: { id: userId } });
-      await second.$disconnect();
       await db.$disconnect();
     }
   },

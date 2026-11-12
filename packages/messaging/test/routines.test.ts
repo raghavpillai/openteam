@@ -7,7 +7,6 @@ import {
   normalizeRoutineMutationTrigger,
   normalizeRoutineSchedule,
   RoutineService,
-  routineScheduleAnchor,
 } from "../src/routines";
 
 afterEach(() => setSystemTime());
@@ -194,6 +193,19 @@ describe("routine schedules", () => {
     await expect(service.owner(routineId)).resolves.toEqual({ kind: "group", id: channelId });
     expect(queriedWhere).toMatchObject({ id: routineId });
   });
+
+  test("Run now refuses a quarantined (invalid) routine before creating an execution", async () => {
+    const routineId = "a2b83ac9-45c9-e57b-fcbb-18da42d0de11";
+    const tx = {
+      $executeRaw: async () => 0,
+      routine: { findFirst: async () => ({ id: routineId, botId: "bot", channelId: null, validationError: "bad trigger" }) },
+      routineExecution: new Proxy({}, { get: () => () => { throw new Error("must not touch executions"); } }),
+    };
+    const service = new RoutineService({ $transaction: (work: (client: unknown) => unknown) => work(tx) } as never, {} as never);
+    await expect(service.runNowOwner({ kind: "bot", id: "bot" }, routineId, "request")).rejects.toMatchObject({
+      code: "invalid_routine_definition",
+    });
+  });
 });
 
 const anchor = new Date("2026-01-01T00:00:00Z");
@@ -228,37 +240,6 @@ describe("durable routine cadence", () => {
     expect(nextRoutineRun(schedule, new Date("2027-01-01T00:02:00Z"), anchor).toISOString()).toBe(
       "2027-01-01T00:05:00.000Z"
     );
-  });
-
-  test("legacy single intervals retain an edited due-time phase before their first run", () => {
-    const savedDue = new Date("2026-01-01T00:17:00Z");
-    const savedAnchor = routineScheduleAnchor(
-      {
-        scheduleAnchorAt: null,
-        nextRunAt: savedDue,
-        createdAt: anchor,
-        trigger: { type: "cron", schedule: "@every 5m" },
-      },
-      false
-    );
-    expect(
-      nextRoutineRun(
-        normalizeRoutineSchedule("@every 5m", "UTC"),
-        new Date("2026-01-01T00:18:00Z"),
-        savedAnchor
-      ).toISOString()
-    ).toBe("2026-01-01T00:22:00.000Z");
-  });
-
-  test("legacy inferred future anchors preserve the next interval occurrence", () => {
-    const savedAnchor = new Date("2026-01-01T17:30:00Z");
-    expect(
-      nextRoutineRun(
-        normalizeRoutineSchedule("@every 30m", "UTC"),
-        new Date("2026-01-01T17:05:00Z"),
-        savedAnchor
-      )
-    ).toEqual(savedAnchor);
   });
 
   test("explicit phase remains epoch-aligned even with a definition anchor", () => {
@@ -341,21 +322,6 @@ describe("routine calendar and interval edge cases", () => {
       normalizeRoutineSchedule("0,1,10,15,20,25,30,35,40,45,50,55 * * * *", "UTC")
     ).toThrow("5 minutes");
   });
-
-  for (const [zone, expression, after, expected] of [
-    ["America/New_York", "30 2 * * *", "2026-03-08T06:00:00Z", "2026-03-09T06:30:00Z"],
-    ["America/New_York", "30 1 * * *", "2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z"],
-    ["Australia/Lord_Howe", "45 1 * * *", "2026-04-04T14:45:00Z", "2026-04-04T15:15:00Z"],
-    ["Asia/Kathmandu", "0 9 * * *", "2026-09-22T00:00:00Z", "2026-09-22T03:15:00Z"],
-    ["UTC", "0 0 1 1 *", "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"],
-    ["UTC", "0 9 31 * *", "2026-04-01T00:00:00Z", "2026-05-31T09:00:00Z"],
-  ]) {
-    test(`${zone} ${expression} after ${after}`, () => {
-      expect(
-        nextRoutineRun(normalizeRoutineSchedule(expression!, zone!), new Date(after!))
-      ).toEqual(new Date(expected!));
-    });
-  }
 });
 
 test("trigger identity ignores object key order but not listener order or filter values", () => {

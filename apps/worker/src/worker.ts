@@ -78,7 +78,7 @@ export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
 export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
 
-export const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
+const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
   event.type === "turn.completed";
 
 interface TranscriptFingerprintEntry {
@@ -87,7 +87,7 @@ interface TranscriptFingerprintEntry {
 }
 
 /** Small per-process LRU used only to suppress duplicate transcript uploads. */
-export class TranscriptFingerprintCache {
+class TranscriptFingerprintCache {
   private readonly entries = new Map<string, TranscriptFingerprintEntry>();
 
   constructor(
@@ -250,7 +250,7 @@ export const wakeResetsSelfSummaryCount = (inboxType: string): boolean =>
 const REVIVAL_WAKES = new Set(["subagent.completed", "subagent.failed", "shell.completed"]);
 
 /** The delivery note a background result started from a group room carries. */
-export const groupRoomRevivalNote = (roomName: string): string =>
+const groupRoomRevivalNote = (roomName: string): string =>
   `This work belongs to group room ${JSON.stringify(roomName)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.`;
 
 interface RevivalWake {

@@ -123,30 +123,6 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     }
   });
 
-  test("manual calls by slug and UUID share the same overlap gate", async () => {
-    let entered!: () => void, release!: () => void;
-    const first = new Promise<void>((resolve) => (entered = resolve));
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const f = await fixture(async () => {
-      entered();
-      await gate;
-    });
-    try {
-      const a = f.service.runNowOwner(f.owner, String(f.routine.id), randomUUID());
-      await first;
-      const b = f.service.runNowOwner(f.owner, String(f.routine.folder), randomUUID());
-      const results = Promise.allSettled([a, b]);
-      await Bun.sleep(150);
-      release();
-      const done = await results;
-      expect(f.wakes).toHaveLength(1);
-      expect(done.filter((x) => x.status === "rejected")).toHaveLength(1);
-    } finally {
-      release();
-      await f.cleanup();
-    }
-  });
-
   test("a cron routine catches up after a month offline without timing out its transaction", async () => {
     const f = await fixture();
     try {

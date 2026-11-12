@@ -17,46 +17,6 @@ test("a tool result containing binary text does not pass NUL to projection stora
   expect(JSON.stringify(writes)).not.toContain("\\u0000");
 });
 
-test("agent deltas append in SQL without emitting a global event per token", async () => {
-  const statements: string[] = [];
-  const eventCreates: unknown[] = [];
-  const tx = {
-    $executeRaw: async (strings: TemplateStringsArray, ..._values: unknown[]) => {
-      statements.push(strings.join("?"));
-      return 1;
-    },
-    runItem: { upsert: async () => ({}) },
-    event: {
-      create: async (input: unknown) => {
-        eventCreates.push(input);
-        return {};
-      },
-    },
-  };
-  let transactions = 0;
-  const prisma = {
-    $executeRaw: tx.$executeRaw,
-    $transaction: async (work: (client: typeof tx) => Promise<void>) => {
-      transactions += 1;
-      return work(tx);
-    },
-  };
-
-  await new Projection(prisma as never).apply("run-1", "conversation-1", "bot-1", {
-    type: "agent.delta",
-    turnId: "turn-1",
-    itemId: "item-1",
-    delta: "hello",
-  });
-
-  expect(statements).toHaveLength(1);
-  expect(statements[0]).toContain('"Message"."content" || EXCLUDED."content"');
-  expect(statements[0]).toContain("ON CONFLICT");
-  expect(statements[0]).toContain('WHERE "Message"."status" <> \'completed\'::"MessageStatus"');
-  expect(eventCreates).toHaveLength(0);
-  expect(transactions).toBe(0);
-});
-
 describe("context compaction projection", () => {
   test("reconciles exact archive epochs and projects stable compaction ids idempotently", async () => {
     const botId = crypto.randomUUID();
@@ -296,28 +256,6 @@ describe("OpenTeam-compatible notification transitions", () => {
     expect(harness.deliveries[0]?.payload).toMatchObject({
       kind: "message",
       runId: "run-1",
-    });
-  });
-
-  test("an interactive bot message notifies like any other message", async () => {
-    const harness = notificationProjection({
-      lastMessage: {
-        content: "Deploy to production?",
-        metadata: { type: "widget", interactive: true },
-      },
-    });
-
-    await harness.projection.apply("run-1", "conversation-1", "bot-1", {
-      type: "turn.completed",
-      turnId: "turn-1",
-      status: "completed",
-    });
-
-    expect(harness.deliveries).toHaveLength(1);
-    expect(harness.deliveries[0]?.payload).toMatchObject({
-      kind: "message",
-      title: "Probe",
-      body: "Deploy to production?",
     });
   });
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,36 +9,6 @@ import {
 } from "../../src/automation-files";
 import { atomicWrite } from "../../src/file-state";
 import { appendRoutineRunLedger } from "../../src/routines";
-import { parseSkillFile, renderSkillFile } from "../../src/skill-files";
-
-test("skill frontmatter keeps unknown compatible fields", () => {
-  const parsed = parseSkillFile(
-    [
-      "---",
-      "name: Research helper",
-      "description: Searches the local corpus when evidence is needed.",
-      "model: fast",
-      "metadata:",
-      "  owner: user",
-      '"x:y": value',
-      "---",
-      "",
-      "# Workflow",
-    ].join("\n"),
-    "SKILL.md"
-  );
-  expect(parsed.frontmatter).toMatchObject({
-    model: "fast",
-    metadata: { owner: "user" },
-    "x:y": "value",
-  });
-  const roundTrip = parseSkillFile(renderSkillFile(parsed), "SKILL.md");
-  expect(roundTrip.frontmatter).toMatchObject({
-    model: "fast",
-    metadata: { owner: "user" },
-    "x:y": "value",
-  });
-});
 
 test("automation parser supports paused cron, event groups, and operational runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-automation-"));

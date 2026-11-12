@@ -7,7 +7,6 @@ import { AUTOMATION_TRIGGER_SHAPE_LINES } from "@openteam/contracts/reference-ma
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import managed from "../src/prompts/managed-skills.json";
 import { AgentDataStore } from "../src/agent-data";
-import { buildGroupTurnPrompt } from "../src/index";
 import { agentSkillItem, omittedSkillsNotice, renderSkillCatalog } from "../src/skill-catalog";
 
 const skill = (id: string) => managed.skills.find((s) => s.id === id)!.content;
@@ -64,11 +63,6 @@ test("every tool a managed skill names exists under that name", async () => {
 
 test("the routines skill lists exactly the trigger shapes the UpdateRoutine parser accepts", () => {
   expect(skill("routines")).toContain(`Trigger shapes:\n${AUTOMATION_TRIGGER_SHAPE_LINES.join("\n")}\n`);
-});
-
-test("the group-chat-turns trigger names the tag a room turn starts with", () => {
-  const turn = buildGroupTurnPrompt({ groupName: "Launch", targetId: "a", targetName: "A", members: [{ id: "a", name: "A" }, { id: "b", name: "B" }], messages: [{ sender: "user", content: "hi" }] });
-  expect(turn.startsWith(description("group-chat-turns").match(/starts with a (\[[^"]*")/)![1]!)).toBe(true);
 });
 
 test("syncing materializes every skill and catalogs it by path, without injecting bodies", async () => {

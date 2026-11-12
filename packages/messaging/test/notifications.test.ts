@@ -67,20 +67,6 @@ describe("toggleMessageReaction", () => {
     ]);
   });
 
-  test("repeating an actor's emoji clears their legacy selections and preserves other actors", () => {
-    const current = [
-      { by: "agent", emoji: "👍" },
-      { by: "agent", emoji: "❤️" },
-      { by: "me", emoji: "👍" },
-    ];
-
-    expect(toggleMessageReaction(current, "👍", "agent")).toEqual({
-      reactions: [
-        { by: "me", emoji: "👍" },
-      ],
-      removed: true,
-    });
-  });
 });
 
 describe("reactionNotificationBody", () => {

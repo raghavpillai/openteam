@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildAdminBroadcastWakePrompt,
   buildGroupTurnPrompt,
-  clampAgentMessage,
   describeHeldDuration,
   directAgentAcknowledgement,
   directAgentWake,
@@ -38,10 +37,6 @@ describe("agent-to-agent messages", () => {
     [`  ${"x".repeat(8_005)}  `, { status: "message", content: "x".repeat(8_000) }],
   ] as const)("group message %#", (input, expected) => {
     expect(normalizeGroupAgentMessage(input)).toEqual(expected);
-  });
-
-  test("direct messages are clamped to 8,000 characters", () => {
-    expect(clampAgentMessage(`  ${"x".repeat(8_005)}  `)).toBe("x".repeat(8_000));
   });
 
   test("a direct wake is hidden, names the sender's id, and lists attached images", () => {

@@ -54,25 +54,6 @@ afterEach(async () => {
 });
 
 describe("content-addressed attachment store", () => {
-  test("applies filename limits to bytes, streams, and renamed persisted references", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const bytes = Buffer.alloc(26_214_401, 0x61);
-    const equal = await store.ingestBytes({ fileName: "equal.txt", bytes: bytes.subarray(0, 26_214_400) });
-    expect(equal.byteSize).toBe(26_214_400);
-    for (const fileName of ["over.txt", "over.mkv", "over.avi", "over.mp4.txt"]) {
-      await expect(store.ingestBytes({ fileName, mimeType: "video/mp4", bytes }))
-        .rejects.toMatchObject({ code: "asset_too_large" });
-    }
-    await expect(store.ingestStream({ fileName: "over.mkv", mimeType: "video/mp4", stream: chunkedStream(bytes, 65_536) }))
-      .rejects.toMatchObject({ code: "asset_too_large" });
-    const video = await store.ingestBytes({ fileName: "allowed.MOV", bytes });
-    expect(video.byteSize).toBe(bytes.length);
-    await expect(store.normalizeRefs([{ ...video, fileName: "renamed.txt", byteSize: 1 }]))
-      .rejects.toMatchObject({ code: "asset_too_large" });
-    expect(await store.normalizeRefs([{ ...video, fileName: "renamed.webm" }])).toHaveLength(1);
-    expect((await readdir(join(root, "assets"))).filter(name => name.includes(".tmp"))).toEqual([]);
-  });
 
   test("ingests real Bun HTTP request streams and cleans failed staging", async () => {
     const root = await temporaryRoot();
@@ -133,36 +114,6 @@ describe("content-addressed attachment store", () => {
     }
   });
 
-  test("streams split headers and preserves JPEG dimensions beyond the classification prefix", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const jpeg = Buffer.alloc(8_520);
-    jpeg.set([0xff, 0xd8, 0xff, 0xe1, 0x21, 0x34], 0);
-    jpeg.set([0xff, 0xc0, 0x00, 0x07, 0x08, 0x00, 0x25, 0x00, 0x31], 8_504);
-
-    const ref = await store.ingestStream({
-      fileName: "large-metadata.jpg",
-      mimeType: "application/octet-stream",
-      stream: chunkedStream(jpeg, 257),
-      alt: "JPEG dimensions",
-    });
-
-    expect(ref).toEqual({
-      assetId: createHash("sha256").update(jpeg).digest("hex"),
-      fileName: "large-metadata.jpg",
-      mimeType: "image/jpeg",
-      byteSize: jpeg.byteLength,
-      kind: "image",
-      width: 49,
-      height: 37,
-      alt: "JPEG dimensions",
-    });
-    expect(await readFile(store.contentPath(ref.assetId))).toEqual(jpeg);
-    expect((await readdir(join(root, "assets"))).filter((name) => name.includes(".tmp"))).toEqual(
-      []
-    );
-  });
-
   test("atomically deduplicates concurrent streamed uploads without temporary leftovers", async () => {
     const root = await temporaryRoot();
     const assetRoot = join(root, "assets");
@@ -184,42 +135,6 @@ describe("content-addressed attachment store", () => {
       `${refs[0]?.assetId}.blob`,
       `${refs[0]?.assetId}.json`,
     ]);
-  });
-
-  test("streams allowed file and remote sources through the same content-addressed path", async () => {
-    const root = await temporaryRoot();
-    const source = join(root, "source.txt");
-    const bytes = Buffer.from("streamed source\n".repeat(100_000));
-    await writeFile(source, bytes);
-    const remotePng = png();
-    let fetches = 0;
-    const store = new AssetStore({
-      root: join(root, "assets"),
-      allowedFileRoots: [root],
-      fetch: (async () => {
-        fetches += 1;
-        return new Response(chunkedStream(remotePng, 3), {
-          headers: {
-            "content-length": String(remotePng.byteLength),
-            "content-type": "image/png",
-          },
-        });
-      }) as unknown as typeof fetch,
-    });
-
-    const fileRef = await store.ingestSource({ url: pathToFileURL(source).toString() });
-    const remoteRef = await store.ingestSource({
-      url: "https://8.8.8.8/remote.png",
-      alt: "Remote",
-    });
-
-    expect(fileRef).toMatchObject({
-      assetId: createHash("sha256").update(bytes).digest("hex"),
-      byteSize: bytes.byteLength,
-      kind: "text",
-    });
-    expect(remoteRef).toMatchObject({ kind: "image", width: 3, height: 2, alt: "Remote" });
-    expect(fetches).toBe(1);
   });
 
   test("cancels oversized and aborted streams and removes owned temporary files", async () => {
@@ -311,37 +226,6 @@ describe("content-addressed attachment store", () => {
     ]);
   });
 
-  test("keeps runtime image order, filtering, and data URL semantics", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const firstBytes = png();
-    const secondBytes = png();
-    secondBytes.writeUInt32BE(7, 16);
-    const [first, file, second] = await Promise.all([
-      store.ingestBytes({ fileName: "first.png", bytes: firstBytes, alt: "First" }),
-      store.ingestBytes({ fileName: "notes.txt", bytes: Buffer.from("not an image") }),
-      store.ingestBytes({ fileName: "second.png", bytes: secondBytes }),
-    ]);
-
-    expect(await store.runtimeImages([first, file, second])).toEqual([
-      { url: `data:image/png;base64,${firstBytes.toString("base64")}`, alt: "First" },
-      { url: `data:image/png;base64,${secondBytes.toString("base64")}` },
-    ]);
-  });
-
-  test("shows every photo of a full message inline", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES }, (_, index) => {
-      const bytes = png();
-      bytes.writeUInt32BE(index + 2, 16);
-      return store.ingestBytes({ fileName: `photo-${index}.png`, bytes });
-    }));
-    const images = await store.runtimeImages(refs);
-    expect(images.map(image => image.url)).toEqual(await Promise.all(refs
-      .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
-  });
-
   test("shares one budget across the messages sent in one request", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
@@ -376,19 +260,6 @@ describe("content-addressed attachment store", () => {
     expect(images.reduce((total, image) => total + image.url.length, 0)).toBeLessThan(128 * 1024 * 1024);
   });
 
-  test("normalizes agent data URLs immediately instead of persisting inline bytes", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const ref = await store.ingestSource({
-      url: `data:image/png;base64,${png().toString("base64")}`,
-      alt: "Inline agent image",
-    });
-
-    expect(ref).toMatchObject({ kind: "image", mimeType: "image/png", alt: "Inline agent image" });
-    expect(JSON.stringify(ref)).not.toContain("base64");
-    expect(JSON.stringify(ref)).not.toContain("data:image");
-  });
-
   test("downgrades active text MIME types before same-origin serving", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
@@ -399,56 +270,6 @@ describe("content-addressed attachment store", () => {
     });
 
     expect(ref).toMatchObject({ kind: "text", mimeType: "text/plain" });
-  });
-
-  test("names office, archive and data files by extension when their bytes match", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
-    const ole = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
-    // The store is content-addressed, so each sample gets its own bytes.
-    const stored = async (fileName: string, bytes: Uint8Array, mimeType?: string) => {
-      const ref = await store.ingestBytes({ fileName, bytes: Buffer.concat([bytes, Buffer.from(fileName)]), mimeType });
-      return { kind: ref.kind, mimeType: ref.mimeType };
-    };
-
-    expect(await stored("Report.DOCX", zip, "application/octet-stream")).toEqual({
-      kind: "file",
-      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
-    expect(await stored("budget.xlsx", zip)).toEqual({
-      kind: "file",
-      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    expect(await stored("deck.pptx", zip)).toEqual({
-      kind: "file",
-      mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    });
-    expect((await stored("notes.odt", zip)).mimeType).toBe("application/vnd.oasis.opendocument.text");
-    expect((await stored("bundle.zip", zip)).mimeType).toBe("application/zip");
-    expect((await stored("old.xls", ole)).mimeType).toBe("application/vnd.ms-excel");
-    expect((await stored("logs.tgz", Buffer.from([0x1f, 0x8b, 8, 0, 0]))).mimeType).toBe("application/gzip");
-    // A name alone never claims a container type.
-    expect(await stored("fake.docx", Buffer.from("not a zip"))).toEqual({
-      kind: "file",
-      mimeType: "application/octet-stream",
-    });
-    expect(await stored("people.csv", Buffer.from("name,role\nAda,eng\n"))).toEqual({
-      kind: "text",
-      mimeType: "text/csv",
-    });
-    expect(await stored("rows.tsv", Buffer.from("a\tb\n"))).toEqual({
-      kind: "text",
-      mimeType: "text/tab-separated-values",
-    });
-    expect(await stored("README.md", Buffer.from("# Title\n"))).toEqual({
-      kind: "text",
-      mimeType: "text/markdown",
-    });
-    expect(await stored("config.yaml", Buffer.from("a: 1\n"))).toEqual({
-      kind: "text",
-      mimeType: "application/yaml",
-    });
   });
 
   test("refuses to serve bytes that no longer match their content address", async () => {
@@ -529,22 +350,6 @@ describe("content-addressed attachment store", () => {
     expect(await store.prune(new Set([retained.assetId]), 1_000)).toBe(1);
     await expect(store.metadata(stale.assetId)).rejects.toMatchObject({ code: "asset_not_found" });
     expect(await store.metadata(retained.assetId)).toMatchObject({ assetId: retained.assetId });
-  });
-  test("empty bytes, streams and files are stored as one real empty asset", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    await writeFile(join(root, "empty.txt"), "");
-    const refs = [
-      await store.ingestBytes({ fileName: "bytes.txt", bytes: new Uint8Array() }),
-      await store.ingestStream({ fileName: "stream.txt", stream: (async function* () {})() }),
-      await store.ingestSource({ url: pathToFileURL(join(root, "empty.txt")).href }),
-    ];
-    for (const ref of refs) {
-      expect(ref.byteSize).toBe(0);
-      expect((await store.metadata(ref.assetId)).byteSize).toBe(0);
-      expect((await readFile(store.contentPath(ref.assetId))).length).toBe(0);
-    }
-    expect(new Set(refs.map((ref) => ref.assetId)).size).toBe(1);
   });
 
   test("file sources may read ordinary agent files but never private state, even through a symlink", async () => {

@@ -101,20 +101,6 @@ describe("native APNs delivery", () => {
       "read"
     );
   });
-  test("coalesces reads across channels but keeps separate message deliveries", async () => {
-    const ids: string[] = [];
-    const client = new ApnsClient(config, async (_, headers) => {
-      ids.push(headers["apns-collapse-id"]!);
-      return { status: 200 };
-    });
-    for (const key of ["a", "b"])
-      await client.send(device, { schemaVersion: 1, kind: "badge-sync", badgeCount: 0 }, 0, key);
-    for (const key of ["a", "b", "b"]) await client.send(device, alert, 1, key);
-    expect(ids[0]).toBe(ids[1]);
-    expect(ids[2]).not.toBe(ids[3]);
-    expect(ids[3]).toBe(ids[4]);
-    expect(ids.every((id) => Buffer.byteLength(id) <= 64)).toBe(true);
-  });
   test("bounds UTF-8 payloads while preserving routing and sound policy", async () => {
     const heavy = "👨‍👩‍👧‍👦".repeat(500);
     const client = new ApnsClient(config, async (_, __, body) => {

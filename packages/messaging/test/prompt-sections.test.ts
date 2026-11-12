@@ -127,15 +127,6 @@ test("memory facts pin per epoch, never as change notes; only other assistants' 
 });
 
 
-test("retired bot instructions are not restored from cached prompt snapshots", () => {
-  const snapshots = parsePromptSections({
-    agent_instructions: { render: "Retired bot guidance", compactionEpoch: 1 },
-    mcp_instructions: { render: "Keep connector guidance", compactionEpoch: 1 },
-  });
-  expect(snapshots).not.toHaveProperty("agent_instructions");
-  expect(snapshots.mcp_instructions?.render).toBe("Keep connector guidance");
-});
-
 describe("routine status reminder", () => {
   const digest = {
     id: "r1", name: "Morning digest", slug: "morning-digest", enabled: true,

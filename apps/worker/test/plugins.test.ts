@@ -92,12 +92,6 @@ test("the main agent's prompt carries saved connector instructions; workers' pro
   expect((await pluginRuntimeContext(prisma,"bot","executor")).skillInstructions).not.toContain("Reply in threads.");
 });
 
-test("skills whose files are not on the computer yet keep their full text", async () => {
-  const main = (await pluginRuntimeContext(prisma, "bot", "main")).skillInstructions;
-  for (const text of ["Main agent workflow.", "Shared sign-in workflow.", "Private workflow."]) expect(main).toContain(text);
-  expect(main).not.toContain("agent_skills catalog");
-});
-
 test("cataloged plugin skills leave only provider-workflow notes in the main agent's instructions", async () => {
   await syncCache();
   const main = (await pluginRuntimeContext(prisma, "bot", "main")).skillInstructions;

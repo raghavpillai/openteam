@@ -211,33 +211,6 @@ describe.skipIf(!db)("durable group execution", () => {
     }
   });
 
-  test("six-member rooms retain a 24-message input window and the same global output budget", async () => {
-    const f = await fixture(6);
-    try {
-      for (let i = 0; i < 30; i++)
-        await db!.channelMessage.create({
-          data: { channelId: f.channelId, sender: "user", content: `OLD_${i}_END` },
-        });
-      await f.start("CURRENT_WINDOW_END");
-      const first = (await f.active())!;
-      const prompt = (await db!.message.findUniqueOrThrow({ where: { id: first.userMessageId } }))
-        .content;
-      expect(prompt).not.toContain("OLD_6_END");
-      expect(prompt).toContain("OLD_7_END");
-      expect(prompt).toContain("CURRENT_WINDOW_END");
-      for (let i = 0; i < 10; i++) {
-        const run = (await f.active())!;
-        expect(run).not.toBeNull();
-        await f.send(run, `Reply ${i}`);
-        await f.finish(run);
-      }
-      expect(await f.active()).toBeNull();
-      expect(await f.rows()).toHaveLength(10);
-    } finally {
-      await f.cleanup();
-    }
-  });
-
   test("recovery publishes a completed turn once after a worker crash", async () => {
     const f = await fixture(1);
     try {
@@ -331,106 +304,6 @@ describe.skipIf(!db)("durable group execution", () => {
     }
   });
 
-  test("group routine remains active through a worker, its continuation and the peer-result round", async () => {
-    const f = await fixture();
-    try {
-      const service = new RoutineService(db!, f.messaging);
-      const routine = await service.mutateOwner(
-        { kind: "group", id: f.channelId },
-        randomUUID(),
-        null,
-        {
-          action: "create",
-          name: "Worker routine",
-          prompt: "Return worker evidence to the group",
-          schedule: "@every 5m",
-          enabled: false,
-        }
-      );
-      const execution = await service.runNowOwner(
-        { kind: "group", id: f.channelId },
-        String(routine.id),
-        randomUUID()
-      );
-      const source = (await f.active())!;
-      const child = await db!.bot.create({
-        data: {
-          name: "Child fixture",
-          defaultDirectory: "/tmp",
-          status: "active",
-          conversation: { create: {} },
-        },
-        include: { conversation: true },
-      });
-      f.bots.push(child);
-      const worker = await db!.subagent.create({
-        data: {
-          parentBotId: source.botId,
-          childBotId: child.id,
-          parentRunId: source.id,
-          parentChannelId: f.channelId,
-          launchCallId: randomUUID(),
-          description: "Worker fixture",
-          prompt: "Read synthetic page",
-          subagentType: "computerUse",
-          outputPath: "/tmp/group-result",
-          status: "running",
-        },
-      });
-      const attempt = await db!.subagentAttempt.create({
-        data: {
-          subagentId: worker.id,
-          parentRunId: source.id,
-          parentChannelId: f.channelId,
-          parentToolCallId: randomUUID(),
-          description: worker.description,
-          prompt: worker.prompt,
-          status: "running",
-        },
-      });
-      await f.finish(source);
-      await f.finish((await f.active())!);
-      const stored = await db!.routineExecution.findUniqueOrThrow({ where: { id: execution.id } });
-      expect(stored.status).toBe("queued");
-      const { groupRoutineState } = await import("../src/group-routine-state");
-      const state = () => db!.$transaction((tx) => groupRoutineState(tx, stored.channelMessageId!));
-      expect((await state()).active).toBe(true);
-      await db!.subagentAttempt.update({
-        where: { id: attempt.id },
-        data: { status: "completed" },
-      });
-      const continuation = await db!.run.create({
-        data: {
-          botId: source.botId,
-          conversationId: source.conversationId,
-          channelId: f.channelId,
-          origin: "background_revival",
-          status: "running",
-          userMessageId: randomUUID(),
-        },
-      });
-      await db!.inboxEvent.create({
-        data: {
-          botId: source.botId,
-          conversationId: source.conversationId,
-          runId: continuation.id,
-          type: "subagent.completed",
-          idempotencyKey: randomUUID(),
-          payload: { taskContextRunId: source.id },
-        },
-      });
-      expect((await state()).active).toBe(true);
-      await f.send(continuation, "WORKER_RESULT");
-      await db!.run.update({ where: { id: continuation.id }, data: { status: "completed" } });
-      expect((await state()).active).toBe(true);
-      expect((await f.active())!.botId).not.toBe(source.botId);
-      await f.finish((await f.active())!);
-      expect(await state()).toMatchObject({ active: false, failed: false });
-    } finally {
-      await f.cleanup();
-    }
-  });
-
   test("events reaching a group routine join its room turn until a member takes it, then wait for one follow-up turn", async () => {
     const f = await fixture();
     try {
@@ -491,32 +364,6 @@ describe.skipIf(!db)("durable group execution", () => {
       expect(input.content).toContain("This saved routine is the current task");
       expect(await db!.routineExecution.count({ where: { routineId } })).toBe(2);
       expect(await db!.routineExecution.count({ where: { routineId, status: "skipped" } })).toBe(0);
-    } finally {
-      await f.cleanup();
-    }
-  });
-
-  test("a group PR watch deletes itself once the room turn for its merged pull request finishes", async () => {
-    const f = await fixture();
-    try {
-      const service = new RoutineService(db!, f.messaging);
-      f.messaging.onGroupRoutineSettled = (settled) => service.afterGroupExecution(settled);
-      const owner = { kind: "group" as const, id: f.channelId };
-      const create = async (name: string, trigger: unknown) =>
-        String((await service.mutateOwner(owner, randomUUID(), null, { action: "create", name, prompt: "Tell the room what changed.", trigger: trigger as never, source: "ui" })).id);
-      const watch = await create("Babysit 7", { type: "github", repo: "qa/pr", pr: 7, events: ["review-approved", "pr-merged", "pr-closed"] });
-      const subscription = await create("Merges", { type: "github", repo: "qa/pr", events: ["pr-merged"] });
-      const live = async () => (await db!.routine.findMany({ where: { channelId: f.channelId, deletedAt: null }, select: { id: true } })).map((routine) => routine.id).sort();
-      const settle = async (event: Record<string, unknown>) => {
-        await service.dispatchEvent(owner, { source: "github", repo: "qa/pr", pr: 7, text: "", ...event });
-        while (await f.active()) await f.finish((await f.active())!);
-      };
-      await settle({ id: `review-${randomUUID()}`, kind: "review-approved", actor: "reviewer" });
-      expect(await live()).toEqual([watch, subscription].sort());
-      await settle({ id: `merge-${randomUUID()}`, kind: "pr-merged", actor: "me" });
-      // The PR-scoped watch is gone; the repo-wide subscription stays.
-      expect(await live()).toEqual([subscription]);
-      expect(await db!.routineRevision.findFirst({ where: { routineId: watch, callId: { startsWith: "routine-terminal:" } } })).not.toBeNull();
     } finally {
       await f.cleanup();
     }

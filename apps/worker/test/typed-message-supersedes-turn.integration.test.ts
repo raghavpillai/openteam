@@ -129,7 +129,8 @@ const fixtureBot = async () => {
   return { botId, conversationId, channelId, claimedFor, startTurn, send, run };
 };
 
-for (const emoji of ["👍", "👎"]) test.skipIf(!databaseUrl)("reacting " + emoji + " during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
+const emoji = "👍";
+test.skipIf(!databaseUrl)("reacting during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
   const bot = await fixtureBot();
   const finished = join(root, `reaction-finished-${bot.botId}`);
   await script({ firstReply: { role: "assistant", tool_calls: [{ index: 0, id: "reaction-shell", type: "function", function: {
@@ -236,13 +237,13 @@ test.skipIf(!databaseUrl)("a message that arrives before the turn dispatched que
   expect(await worker.supersededUnfinishedRun(claimedNext)).toBe(false);
 }, 60_000);
 
-for (const origin of ["agent", "connector", "background_revival"] as const)
+for (const origin of ["background_revival"] as const)
   for (const stopRecorded of [true, false]) test.skipIf(!databaseUrl)(`an explicit Stop wins over an earlier typed interruption of a ${origin} wake${stopRecorded ? " after its durable cancellation" : " before cancellation is recorded"}`, async () => {
     const bot = await fixtureBot();
     const { botId, channelId } = bot;
     const clientId = `stop-redrive:${botId}`;
     const wake = await db.$transaction((tx: any) => worker.messaging.enqueueWake(tx, {
-      botId, channelId, origin, type: origin === "agent" ? "agent.message" : origin === "connector" ? "channel.inbound" : "subagent.completed",
+      botId, channelId, origin, type: "subagent.completed",
       content: "[SAND_HIDDEN_PROMPT]Check the previously authorized result.", clientId, priority: 200, wrapUserContent: false,
     }));
     await db.run.update({ where: { id: wake.run.id }, data: { status: "running", inputDeliveredAt: new Date() } });

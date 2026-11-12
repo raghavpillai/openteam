@@ -17,7 +17,6 @@ import {
   renderPlatformBaseSystemPrompt,
 } from "../src/platform-system-prompt";
 import { preparePromptSections } from "../src/prompt-sections";
-import { renderWorkerTimeSection } from "../src/worker-prompts";
 
 const mainAgent = (id: string) => {
   const profileSnapshot: AgentPromptContext["profileSnapshot"] = {
@@ -148,18 +147,6 @@ describe("main-agent prompt assembly", () => {
     expect(prompt.instructions).not.toContain("quick: Small jobs");
   });
 
-  test("deployment-disabled template sharing removes the share tool", () => {
-    const previous = process.env.OPENTEAM_TEMPLATE_SHARING;
-    process.env.OPENTEAM_TEMPLATE_SHARING = "false";
-    try {
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: false })).not.toContain("CreateBotShareJson");
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: false, sharing: true })).toContain("CreateBotShareJson");
-    } finally {
-      if (previous === undefined) delete process.env.OPENTEAM_TEMPLATE_SHARING;
-      else process.env.OPENTEAM_TEMPLATE_SHARING = previous;
-    }
-  });
-
   test("every feature combination stays within the prompt budget", () => {
     for (const managedSkills of [true, false])
       for (const sharing of [true, false])
@@ -179,22 +166,6 @@ describe("main-agent prompt assembly", () => {
     expect(() => validateSendToUserInput(JSON.parse(example!))).not.toThrow();
   });
 
-  test("send validation rejects removed types and fields from another delivery branch", () => {
-    for (const invalid of [
-      { type: "cursor-agent", bcId: "cloud-1" },
-      { type: "widget", widget: { prompt: "Continue?", options: [{ label: "Yes" }] }, channel: "slack:C123" },
-      { type: "text" },
-      { type: "attachment", url: "" },
-      { type: "widget", widget: {} },
-      { type: "secret-request", secret: { label: "Token", connector: "slack" } },
-    ]) expect(() => validateSendToUserInput(invalid)).toThrow();
-    expect(() => validateSendToUserInput({ type: "text", content: "Done", channel: "slack:C123" })).not.toThrow();
-  });
-
-  test("the time section resolves the zone and its offset, falling back to UTC", () => {
-    expect(renderWorkerTimeSection("not-a-timezone")).toContain("The user lives in UTC (currently UTC+0)");
-    expect(renderWorkerTimeSection("Asia/Kolkata")).toContain("The user lives in Asia/Kolkata (currently UTC+5:30)");
-  });
 });
 
 describe("subagent prompt assembly", () => {

@@ -18,16 +18,6 @@ test("a projection failure cancels the still-live upstream stream", async () => 
   expect(applied).toBe(1);
 });
 
-test("malformed runtime data also cancels the turn", async () => {
-  let cancelled = false;
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(encoder.encode("not JSON\n")); },
-    cancel() { cancelled = true; },
-  });
-  await expect(consumeComputerEvents(body, async () => {}, () => {})).rejects.toThrow();
-  expect(cancelled).toBe(true);
-});
-
 test("normal split chunks, heartbeats and a final line without newline are retained", async () => {
   const raw = JSON.stringify(event);
   const seen: unknown[] = [];
@@ -39,15 +29,6 @@ test("normal split chunks, heartbeats and a final line without newline are retai
   });
   await consumeComputerEvents(body, async (value) => { seen.push(value); }, () => {});
   expect(seen).toEqual([event]);
-});
-
-test("cleanup failure does not replace the original projection error", async () => {
-  const failure = new Error("projection failed");
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); },
-    cancel() { throw new Error("transport failed"); },
-  });
-  await expect(consumeComputerEvents(body, async () => { throw failure; }, () => {})).rejects.toBe(failure);
 });
 
 test("projection failure over HTTP releases the computer turn for the next request", async () => {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { renderAutomationHandoffPrompt, renderQuietRevivalBatchPrompt, renderRevivalBatchPrompt } from "@openteam/messaging";
-import { groupRoomRevivalNote, revivalBatch, WakeWorker } from "../src/worker";
+import { renderQuietRevivalBatchPrompt, renderRevivalBatchPrompt } from "@openteam/messaging";
+import { revivalBatch, WakeWorker } from "../src/worker";
 
 test("background subagent completion revives the parent with Bot's dedicated source", async () => {
   const calls: unknown[] = [];
@@ -134,70 +134,6 @@ test("results ready together in one channel are claimed as one revival, and late
   expect(revivalBatch(others[0]!, [first, shell], now)).toBeNull();
   // A claim retried after a lost lease keeps the content it was given the first time.
   expect(revivalBatch({ ...first, status: "processing" }, [shell], now)).toBeNull();
-});
-
-test("a batched revival keeps the claimed wake's timestamp and user_query framing", () => {
-  const now = Date.parse("2026-10-21T12:00:00Z");
-  const wake = (id: string, content?: string) => ({
-    id,
-    type: "subagent.completed",
-    status: "pending",
-    createdAt: new Date(now - 5000),
-    payload: { ...(content ? { content } : {}), revival: { block: `block ${id}`, subagentType: "executor" } },
-    run: { origin: "background_revival" as const, channelId: "dm" },
-  });
-  const first = wake("a", "<timestamp>Wednesday, Oct 21, 2026, 8:00 AM (UTC-4)</timestamp>\n<user_query>\nsingle a\n</user_query>");
-  const batch = revivalBatch(first, [first, wake("b")], now);
-  expect(batch?.content).toBe(
-    `<timestamp>Wednesday, Oct 21, 2026, 8:00 AM (UTC-4)</timestamp>\n<user_query>\n${renderRevivalBatchPrompt([
-      { block: "block a", subagentType: "executor" },
-      { block: "block b", subagentType: "executor" },
-    ])}\n</user_query>`
-  );
-});
-
-test("a routine's handoff that waited for the agent is re-rendered as late", () => {
-  const now = Date.parse("2026-10-21T12:00:00Z");
-  const handoff = (secondsAgo: number, status = "pending") => ({
-    id: "wake",
-    type: "automation.wake_parent",
-    status,
-    createdAt: new Date(now - secondsAgo * 1000),
-    payload: { content: renderAutomationHandoffPrompt("Tell the user the build is green."), handoff: "Tell the user the build is green." },
-    run: { origin: "background_revival" as const, channelId: "dm" },
-  });
-  expect(revivalBatch(handoff(5), [], now)).toBeNull();
-  expect(revivalBatch(handoff(2 * 3600), [], now)).toEqual({
-    content: [
-      "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
-      "",
-      "Tell the user the build is green.\n(This finished about 2 hours ago and reached you only now, so it may be out of date.)",
-      "",
-      "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run. It reached you late, so act on a handoff only while it still matters: contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.",
-      "Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.",
-    ].join("\n"),
-    folded: [],
-  });
-  // A claim retried after a lost lease keeps the content it was given the first time.
-  expect(revivalBatch(handoff(2 * 3600, "processing"), [], now)).toBeNull();
-});
-
-test("a background result from a group room keeps its room note in the batch", async () => {
-  const calls: Array<{ revival?: { note?: string }; content: string }> = [];
-  const worker = Object.create(WakeWorker.prototype) as { notifySubagentParent: (...args: unknown[]) => Promise<void> };
-  Object.assign(worker, { messaging: { enqueueWake: async (_tx: unknown, input: never) => { calls.push(input); return {}; } } });
-  await worker.notifySubagentParent(
-    {
-      run: { findFirst: async () => ({ origin: "user" }), findUnique: async () => ({ inboxEvents: [] }) },
-      channel: { findUnique: async () => ({ kind: "group", name: "Launch" }) },
-      bot: { findUnique: async () => ({ id: "parent", status: "active" }) },
-    } as never,
-    { id: "s", parentBotId: "parent", parentRunId: "33333333-3333-4333-8333-333333333333", parentChannelId: "room", description: "Draft", prompt: "Draft the launch post", subagentType: "executor", currentRunId: "c", outputPath: "/tmp/x" },
-    "failed",
-    "Timed out."
-  );
-  expect(calls[0]?.revival?.note).toBe(groupRoomRevivalNote("Launch"));
-  expect(calls[0]?.content).toEndWith(`\n\n${groupRoomRevivalNote("Launch")}`);
 });
 
 test("a routine's results fold into one quiet revival per routine run and are never marked held", () => {

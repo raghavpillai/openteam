@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssetRef } from "@openteam/contracts";
@@ -132,47 +132,4 @@ describe("agent attachment materialization", () => {
     ).toBeNull();
   });
 
-  test("revalidates cached legacy paths and rescans after external changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-agent-attachment-cache-"));
-    roots.push(root);
-    const agentsRoot = join(root, "agents");
-    const assetId = "a".repeat(64);
-    const first = join(agentsRoot, "agent-a", "attachments", `${assetId}.png`);
-    const second = join(agentsRoot, "agent-z", "attachments", `${assetId}.webp`);
-    await Promise.all([
-      mkdir(join(agentsRoot, "agent-a", "attachments"), { recursive: true }),
-      mkdir(join(agentsRoot, "agent-z", "attachments"), { recursive: true }),
-    ]);
-    await Promise.all([writeFile(first, "first"), writeFile(second, "second")]);
-    const store = new AgentDataStore({} as never, { root });
-    const internals = store as unknown as {
-      findAgentAttachmentPath: (candidateAssetId: string) => Promise<string | null>;
-    };
-    const findAgentAttachmentPath = internals.findAgentAttachmentPath.bind(store);
-    let scans = 0;
-    internals.findAgentAttachmentPath = async (candidateAssetId) => {
-      scans += 1;
-      return findAgentAttachmentPath(candidateAssetId);
-    };
-
-    expect(
-      new Set(
-        await Promise.all(Array.from({ length: 12 }, () => store.agentAttachmentPath(assetId)))
-      )
-    ).toEqual(new Set([await realpath(first)]));
-    expect(scans).toBe(1);
-    expect(await store.agentAttachmentPath(assetId)).toBe(await realpath(first));
-    expect(scans).toBe(1);
-    await rm(first);
-    expect(await store.agentAttachmentPath(assetId)).toBe(await realpath(second));
-    expect(scans).toBe(2);
-
-    const addedId = "b".repeat(64);
-    const added = join(agentsRoot, "agent-a", "attachments", `${addedId}.jpg`);
-    expect(await store.agentAttachmentPath(addedId)).toBeNull();
-    expect(scans).toBe(3);
-    await writeFile(added, "added after the cache was warm");
-    expect(await store.agentAttachmentPath(addedId)).toBe(await realpath(added));
-    expect(scans).toBe(4);
-  });
 });

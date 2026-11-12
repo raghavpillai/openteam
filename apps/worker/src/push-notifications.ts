@@ -36,7 +36,7 @@ export const pushAuthenticationModeFromEnvironment = (
   value = process.env.OPENTEAM_AUTH_MODE
 ): PushAuthenticationMode => (value?.trim().toLowerCase() === "disabled" ? "disabled" : "required");
 
-export const deliverablePushDeviceWhere = (
+const deliverablePushDeviceWhere = (
   authMode: PushAuthenticationMode,
   now = new Date()
 ): Prisma.PushDeviceWhereInput =>
@@ -48,7 +48,7 @@ export const deliverablePushDeviceWhere = (
         authSession: { is: { expiresAt: { gt: now } } },
       };
 
-export const pushDeviceSessionIsDeliverable = (
+const pushDeviceSessionIsDeliverable = (
   device: {
     enabled: boolean;
     authRequired: boolean;

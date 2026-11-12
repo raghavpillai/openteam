@@ -52,6 +52,12 @@ When a routine fires, the bot receives the message's headers and its conversatio
 
 By default, nothing leaves the mailbox until you approve it. When a bot writes an email, whether a new message or a reply from a routine while you're away, it appears in the bot's chat as a draft card titled **New email** or **Reply**, with From, In reply to, To, Cc, Subject and the message. You can edit it, then choose **Send** or **Discard**. Replies stay in the original thread. Once it's sent, the card shrinks to one line, such as "Sent to ann@example.com — “Re: Invoice”"; select it to see the full message.
 
+Forwards show **Forwarding** with the original message's subject and sender. Sending appends the forwarded message beneath your note and starts a new email thread. Files must be attached explicitly; forwarding does not automatically include the original attachments.
+
+Files appear inside the review card, where you can open their previews. The card keeps a copy of the reviewed files and sends those exact bytes. A card can carry up to ten files, at most 10 MiB each and 25 MiB combined. Small revisions to a recent draft highlight changed words, recipients, and the subject; editing the revised card clears the highlights.
+
+Discarding a draft immediately notifies the bot. Outcomes that are ready together share one follow-up, with each card identified separately. Sent and discarded cards expand into read-only details, including their attachments. A discarded card stays discarded when you open it and shows its stored content; unsubmitted edits are not saved by Discard. **Send** is disabled while recipients are missing or invalid.
+
 The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
 
 - **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back. Slack draft cards don't offer this option.

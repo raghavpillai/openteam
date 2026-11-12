@@ -101,5 +101,25 @@ test("the draft contract carries the 10-21 field wording with OpenTeam's adaptat
  expect(fields.channelId.description).toStartWith('Required for Slack. The channel or DM conversation id');
  expect(fields.from.description).toStartWith('Required for email. The plain address');
  expect(draft.description).toContain('OpenTeam verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft');
- expect(Object.keys(fields)).not.toContain('forwardMessageId');
+ expect(Object.keys(fields)).toContain('forwardMessageId');
+ expect(fields.attachments.items.type).toBe('string');
+});
+
+test('forwards and file paths survive tool decoding and remain immutable during review', async () => {
+ const { normalizeMainToolArguments } = await import('../src/reference-main-parsers');
+ const input = { platform: 'email', providerIdentifier: 'gmail', from: 'me@example.com', to: ['ann@example.com'], subject: 'Fwd: Invoice', body: 'For your review.', forwardMessageId: 'source-1', attachments: ['/workspace/invoice.pdf'] };
+ const saved = parseExternalDraft(normalizeMainToolArguments('DraftExternalMessage', input));
+ expect(saved).toMatchObject({ forwardMessageId: 'source-1', attachments: ['/workspace/invoice.pdf'] });
+ expect(editExternalDraft(saved, { body: 'Updated note.' })).toMatchObject({ forwardMessageId: 'source-1', attachments: ['/workspace/invoice.pdf'] });
+ expect(() => editExternalDraft(saved, { attachments: ['/workspace/other.pdf'] })).toThrow('cannot be changed');
+ expect(() => parseExternalDraft({ ...input, replyToMessageId: 'reply-1' })).toThrow('reply or a forward');
+ expect(() => parseExternalDraft({ ...input, attachments: ['relative.pdf'] })).toThrow('absolute file path');
+ expect(() => parseExternalDraft({ ...input, attachments: Array(11).fill('/workspace/a') })).toThrow('at most 10');
+ expect(() => parseExternalDraft({ platform: 'slack', providerIdentifier: 'slack', body: 'Hi', target: '#general', channelId: 'C0123456789', attachments: input.attachments })).toThrow('does not belong');
+});
+
+test('review recipient validation rejects display names and header injection', async () => {
+ const { isDraftEmailAddress } = await import('../src/external-draft');
+ for (const value of ['a@example.com', 'name+tag@sub.example.org']) expect(isDraftEmailAddress(value)).toBe(true);
+ for (const value of ['', 'invalid', 'Name <a@example.com>', 'a@example.com;other@example.com', 'a@example.com\r\nBcc:b@example.com', 'a\0@example.com']) expect(isDraftEmailAddress(value)).toBe(false);
 });

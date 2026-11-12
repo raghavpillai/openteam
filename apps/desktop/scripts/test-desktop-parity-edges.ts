@@ -23,7 +23,7 @@ try {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
         DESKTOP_PARITY_DIR: directory,
-        DESKTOP_PARITY_URL: `${server.resolvedUrls!.local[0]}test/browser/desktop-parity-edges.html`,
+        DESKTOP_PARITY_URL: `${server.resolvedUrls!.local[0]}test/browser/desktop-parity-edges.html${process.argv.includes("--drafts") ? "?draft-review" : ""}`,
       },
       stdout: "pipe",
       stderr: "pipe",

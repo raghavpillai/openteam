@@ -168,26 +168,30 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
   const recipients = { type: 'array', items: { type: 'string' }, maxItems: 100 };
   tools.push({ ...tool('send_reviewed_email', 'OpenTeam calls this to verify a DraftExternalMessage card and, after the user presses Send, to send it from this Gmail account.', {
     action: string('verify checks the route; send delivers it', { enum: ['verify', 'send'] }),
-    draft: { type: 'object', description: 'The reviewed draft', properties: { from: { type: 'string' }, to: recipients, cc: recipients, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'string' }, signatureHtml: { type: 'string' }, replyToMessageId: { type: 'string' } }, required: ['from', 'to', 'subject', 'body'], additionalProperties: false },
+    draft: { type: 'object', description: 'The reviewed draft', properties: { from: { type: 'string' }, to: recipients, cc: recipients, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'string' }, signatureHtml: { type: 'string' }, replyToMessageId: { type: 'string' }, forwardMessageId: { type: 'string' }, attachments: { type: 'array', items: { type: 'object', properties: { filename: { type: 'string' }, mimeType: { type: 'string' }, content: { type: 'string' } }, required: ['filename', 'content'] } } }, required: ['from', 'to', 'subject', 'body'], additionalProperties: false },
   }, ['action', 'draft'], async ({ action, draft }) => {
     const { account, addresses, alias } = await sendingAs(String(draft.from));
+    if (draft.replyToMessageId && draft.forwardMessageId) throw new Error('Choose either a reply or a forward');
     if (action === 'verify') {
       let thread: string | undefined, threadUrl: string | undefined;
-      if (draft.replyToMessageId) {
-        const original = await api.request(`/messages/${segment(draft.replyToMessageId)}`, { format: 'metadata', metadataHeaders: ['Subject', 'From'] });
+      if (draft.replyToMessageId || draft.forwardMessageId) {
+        const id = draft.replyToMessageId ?? draft.forwardMessageId;
+        const original = await api.request(`/messages/${segment(id)}`, { format: 'metadata', metadataHeaders: ['Subject', 'From'] });
         const h = headersOf(original);
         const sender = h.from?.replace(/^<([^<>]+)>$/, '$1');
-        thread = h.subject ? `“${h.subject}”${sender ? ` from ${sender}` : ''}` : `message ${draft.replyToMessageId}`;
-        threadUrl = `https://mail.google.com/mail/u/${encodeURIComponent(account)}/#all/${encodeURIComponent(original.threadId ?? draft.replyToMessageId)}`;
+        thread = h.subject ? `“${h.subject}”${sender ? ` from ${sender}` : ''}` : `message ${id}`;
+        threadUrl = `https://mail.google.com/mail/u/${encodeURIComponent(account)}/#all/${encodeURIComponent(original.threadId ?? id)}`;
       }
       return compact({
         identity: account,
         sendingAddresses: addresses.map(entry => String(entry.sendAsEmail).toLowerCase()),
         signatures: Object.fromEntries(addresses.filter(entry => entry.signature?.trim()).map(entry => [String(entry.sendAsEmail).toLowerCase(), entry.signature])),
-        thread, threadUrl,
+        ...(draft.forwardMessageId ? { forwarding: thread, forwardUrl: threadUrl } : { thread, threadUrl }),
       });
     }
     const original = draft.replyToMessageId ? await hydrate(await api.request(`/messages/${segment(draft.replyToMessageId)}`, { format: 'full' })) : undefined;
+    const forwarded = draft.forwardMessageId ? await hydrate(await api.request(`/messages/${segment(draft.forwardMessageId)}`, { format: 'full' })) : undefined;
+    assertAttachmentsComplete(draft.attachments);
     // The signature the card showed goes out under the body, above any quoted reply.
     const signature = typeof draft.signatureHtml === 'string' && draft.signatureHtml.trim() ? draft.signatureHtml : undefined;
     const html = draft.html ?? `<div dir="auto">${escapeHtml(draft.body).replaceAll('\n', '<br>')}</div>`;
@@ -196,7 +200,8 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
       from: alias.isPrimary && !alias.displayName ? undefined : alias.sendAsEmail, fromName: alias.displayName || undefined, to: draft.to, cc: draft.cc, subject: draft.subject,
       body: signature ? `${draft.body}\n\n${plainHtml(signature)}` : draft.body,
       htmlBody: signature ? `${html}<br><div dir="ltr" class="gmail_signature">${signature}</div>` : html,
-    }, original);
+      attachments: draft.attachments,
+    }, original, forwarded);
     const sent = await api.request('/messages/send', {}, 'POST', compact(mime));
     return compact({ id: sent.id, threadId: sent.threadId, labelIds: sent.labelIds });
   }, 'write'), _meta: HOST_ONLY });

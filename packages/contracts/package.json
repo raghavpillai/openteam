@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./external-draft-revision": "./src/external-draft-revision.ts",
     "./agent-file-access": "./src/agent-file-access.ts",
     "./app-deep-links": "./src/app-deep-links.ts",
     ".": "./src/index.ts",

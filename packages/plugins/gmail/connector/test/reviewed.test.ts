@@ -71,3 +71,28 @@ test('the primary address without a display name lets Gmail fill in From', async
   const parsed = await PostalMime.parse(Buffer.from(h.requests.at(-1)!.json.raw, 'base64url'));
   expect(parsed.from).toBeUndefined();
 });
+
+test('a reviewed forward verifies its source, appends forwarded context and sends previewed attachments in a new thread', async () => {
+ const verified = harness(gmailTools, [profile, sendAs, original]);
+ expect(await verified.call('send_reviewed_email', { action: 'verify', draft: {
+  from: 'me@gmail.com', to: ['bob@example.com'], subject: 'Fwd: Invoice', body: 'Please review.', forwardMessageId: 'msg-1',
+ } })).toMatchObject({ forwarding: '“Invoice” from Ann <ann@example.com>', forwardUrl: 'https://mail.google.com/mail/u/me%40gmail.com/#all/thread-9' });
+ const h = harness(gmailTools, [profile, sendAs, original, { id: 'forward-1' }]);
+ const bytes = Buffer.from('Reviewed attachment bytes.');
+ await h.call('send_reviewed_email', { action: 'send', draft: {
+  from: 'me@gmail.com', to: ['bob@example.com'], subject: 'Fwd: Invoice', body: 'Please review.', html: '<div>Please review.</div>',
+  forwardMessageId: 'msg-1', attachments: [{ filename: 'notes.txt', mimeType: 'text/plain', content: bytes.toString('base64') }],
+ } });
+ const sent = h.requests.at(-1)!;
+ expect(sent.url.pathname).toBe('/messages/send');
+ expect(sent.json.threadId).toBeUndefined();
+ const parsed = await PostalMime.parse(Buffer.from(sent.json.raw, 'base64url'));
+ expect(parsed.inReplyTo).toBeUndefined();
+ expect(parsed.text).toContain('Please review.\n\n---------- Forwarded message ---------');
+ expect(parsed.text).toContain('From: Ann <ann@example.com>');
+ expect(parsed.text).toContain('Subject: Invoice');
+ expect(parsed.text).toContain('What is the total?');
+ expect(parsed.html).toContain('<blockquote>What is the total?</blockquote>');
+ expect(parsed.attachments[0]?.filename).toBe('notes.txt');
+ expect(Buffer.from(parsed.attachments[0]!.content as ArrayBuffer)).toEqual(bytes);
+});

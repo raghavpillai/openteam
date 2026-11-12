@@ -680,6 +680,11 @@ export class Mailbox {
     await this.session((client) => this.load(client, id, 4_096));
   }
 
+  async forwardingContext(id: string) {
+    const { parsed } = await this.session((client) => this.load(client, id));
+    return `“${parsed.subject ?? "(no subject)"}” from ${formatAddress(parsed.from)}`;
+  }
+
   async send(input: {
     to: string[];
     cc?: string[];
@@ -687,7 +692,20 @@ export class Mailbox {
     text: string;
     html?: string;
     inReplyTo?: string;
+    forwardMessageId?: string;
+    attachments?: { filename: string; mimeType?: string; content: string }[];
   }) {
+    if (input.inReplyTo && input.forwardMessageId) throw new Error("Choose either a reply or a forward");
+    let text = input.text, html = input.html;
+    if (input.forwardMessageId) {
+      const { parsed } = await this.session((client) => this.load(client, input.forwardMessageId!));
+      const context = ["---------- Forwarded message ---------", `From: ${formatAddress(parsed.from)}`,
+        ...(parsed.date ? [`Date: ${parsed.date}`] : []), `Subject: ${parsed.subject ?? ""}`, `To: ${formatAddresses(parsed.to)}`,
+        ...(parsed.cc?.length ? [`Cc: ${formatAddresses(parsed.cc)}`] : [])].join("\n");
+      text += `\n\n${context}\n\n${bodyText(parsed)}`;
+      const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>");
+      if (html !== undefined) html += `<br><br>${escape(context)}<br><br><blockquote>${parsed.html || escape(bodyText(parsed))}</blockquote>`;
+    }
     let reply: { inReplyTo?: string; references?: string[] } = {};
     if (input.inReplyTo) {
       const original = await this.session((client) => this.load(client, input.inReplyTo!));
@@ -705,8 +723,9 @@ export class Mailbox {
       to,
       cc: input.cc,
       subject: input.subject,
-      text: input.text,
-      html: input.html,
+      text,
+      html,
+      attachments: input.attachments?.map((file) => ({ filename: file.filename, contentType: file.mimeType, content: Buffer.from(file.content, "base64") })),
       ...reply,
     });
     const node = composed.compile();

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import {
   ApiError,
   externalDraftAllowList,
@@ -7,21 +8,24 @@ import {
   externalDraftRecipients,
   editExternalDraft,
   parseExternalDraft,
+  DRAFT_ATTACHMENT_MAX_BYTES,
+  DRAFT_ATTACHMENTS_MAX_BYTES,
   type ExternalDraft,
   type ExternalDraftApprovalMode,
   type ExternalDraftVerification,
 } from "@openteam/contracts";
+import { draftRevision } from "@openteam/contracts/external-draft-revision";
 import { type PrismaClient } from "@openteam/db";
-import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
+import { type AgentMessaging, type ToolContext, PRIORITY, draftNotificationVariant, lockDraftNotifications } from "@openteam/messaging";
 import { loadConnectionNamespaces } from "./plugin/namespaces";
 import type { PluginService } from "./plugin-service";
 import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView } from "./view-mappers";
 
-// A discarded or unconfirmed card does not wake the bot; it reads the outcome on its next turn.
+// An unconfirmed card is read on the next turn; discards resume the bot immediately.
 const DISCARDED_DRAFT_OUTCOME =
-  "The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.";
+  "The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool), and do not ask them to press Send on it. Treat the draft as rejected; only draft or send again if the user explicitly asks.";
 const UNCONFIRMED_DRAFT_OUTCOME =
   "A send of your draft did not confirm. It may or may not have gone out. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Check the destination before drafting or sending it again.";
 
@@ -69,6 +73,7 @@ const emailFields = (draft: ExternalDraft) => ({
   subject: draft.subject,
   body: draft.body,
   ...(draft.replyToMessageId ? { replyToMessageId: draft.replyToMessageId } : {}),
+  ...(draft.forwardMessageId ? { forwardMessageId: draft.forwardMessageId } : {}),
 });
 const strings = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && !!item.trim()) : [];
@@ -84,6 +89,8 @@ function describeDraft(draft: ExternalDraft, verification: Partial<ExternalDraft
           ...(draft.replyToMessageId
             ? [`In reply to: ${verification.thread ?? draft.replyToMessageId} (${draft.replyToMessageId})`]
             : []),
+          ...(draft.forwardMessageId ? [`Forwarding: ${verification.forwarding ?? draft.forwardMessageId} (${draft.forwardMessageId})`] : []),
+          ...(verification.attachments?.length ? [`Attachments: ${verification.attachments.map((file) => `${file.fileName} (${file.byteSize} bytes)`).join(", ")}`] : []),
         ]
       : [
           `Workspace: ${verification.identity ?? ""}`,
@@ -96,7 +103,8 @@ export class ExternalDraftService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
-    private readonly plugins: Pick<PluginService, "invoke">
+    private readonly plugins: Pick<PluginService, "invoke">,
+    private readonly experiment: { treatmentPercent?: string } = {}
   ) {}
   /**
    * The connection behind a draft's providerIdentifier: its UUID, or the namespace
@@ -163,6 +171,8 @@ export class ExternalDraftService {
         typeof result.threadUrl === "string" && /^https:\/\//.test(result.threadUrl)
           ? result.threadUrl.slice(0, 2000)
           : undefined;
+      if (draft.forwardMessageId && typeof result.forwarding !== "string")
+        return unverified("The mailbox did not verify the forwarded message.");
       return {
         identity,
         destination: draft.to!.join(", "),
@@ -170,6 +180,8 @@ export class ExternalDraftService {
         ...(Object.keys(signatures).length ? { signatures } : {}),
         ...(typeof result.thread === "string" ? { thread: result.thread.slice(0, 300) } : {}),
         ...(threadUrl ? { threadUrl } : {}),
+        ...(typeof result.forwarding === "string" ? { forwarding: result.forwarding.slice(0, 300) } : {}),
+        ...(typeof result.forwardUrl === "string" && /^https:\/\//.test(result.forwardUrl) ? { forwardUrl: result.forwardUrl.slice(0, 2000) } : {}),
       };
     }
     if (!connection) return fail("The Slack account was not found. Re-run GetMcpServerStatus and draft again.");
@@ -227,6 +239,32 @@ export class ExternalDraftService {
       const reason = /[.!?]$/.test(message) ? message : `${message}.`;
       throw new ApiError(409, "draft_unavailable", `Draft refused: the routing could not be verified through the connector (${reason}). Nothing was drafted. Fix the routing (or the connector's connection) and call this tool again.`);
     });
+    if (draft.attachments?.length) {
+      const attachments = [];
+      let total = 0;
+      for (const file of draft.attachments) {
+        const asset = await this.messaging.assets.ingestSource({ url: pathToFileURL(file).href });
+        total += asset.byteSize;
+        if (asset.byteSize > DRAFT_ATTACHMENT_MAX_BYTES || total > DRAFT_ATTACHMENTS_MAX_BYTES)
+          return fail("Draft attachments must be at most 10 MiB each and 25 MiB combined. Nothing was drafted.");
+        attachments.push(asset);
+      }
+      verification.attachments = attachments;
+    }
+    // Compare only drafts from preceding user turns, never unrelated bots or the current batch.
+    const history = await this.prisma.channelMessage.findMany({
+      where: { channelId: context.channelId }, orderBy: { sequence: "desc" }, take: 60,
+    });
+    let turn = 0;
+    const candidates = [];
+    for (const message of history) {
+      if (message.sender === "user") { if (++turn > 3) break; continue; }
+      const metadata = metadataRecord(message.metadata);
+      if (turn && message.senderBotId === context.botId && message.sourceRunId !== context.runId && metadata.type === "external-draft") {
+        try { candidates.push({ id: message.id, turn, draft: parseExternalDraft(metadata.draft) }); } catch { /* Ignore old or malformed cards. */ }
+      }
+    }
+    verification.revision = draftRevision(draft, candidates);
     if (draft.platform === "slack") draft.target = verification.destination;
     const bot = await this.prisma.bot.findUnique({
       where: { id: context.botId },
@@ -326,7 +364,7 @@ export class ExternalDraftService {
       });
       const metadata = metadataRecord(claim.message.metadata);
       if (metadata.cardState === "dismissed" && !metadata.outcomeId)
-        return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME, false, false);
+        return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME);
       if (!claim.claimed) {
         if (metadata.cardState === "sending") {
           const call = await this.prisma.pluginInvocation.findUnique({
@@ -393,6 +431,20 @@ export class ExternalDraftService {
       if (draft.platform === "email") {
         const sendTool = connection.sendTool!;
         const signatureHtml = verified.signatures?.[draft.from!.toLowerCase()];
+        const attachments = await this.messaging.assets.normalizeRefs(verification.attachments ?? []);
+        if (attachments.length !== (draft.attachments?.length ?? 0))
+          return fail("The draft attachments are unavailable. Create a new draft with the intended files.");
+        const files = [];
+        let total = 0;
+        for (const file of attachments) {
+          total += file.byteSize;
+          if (file.byteSize > DRAFT_ATTACHMENT_MAX_BYTES || total > DRAFT_ATTACHMENTS_MAX_BYTES)
+            return fail("The draft attachments exceed the email size limit.");
+          const bytes = Buffer.from(await Bun.file(this.messaging.assets.contentPath(file.assetId)).arrayBuffer());
+          if (bytes.length !== file.byteSize || createHash("sha256").update(bytes).digest("hex") !== file.assetId)
+            return fail("Attachment content cannot be verified. Create a new draft with the intended files.");
+          files.push({ filename: file.fileName, mimeType: file.mimeType, content: bytes.toString("base64") });
+        }
         enteredSend = true;
         await invoke(
           sendTool,
@@ -402,6 +454,7 @@ export class ExternalDraftService {
               ...emailFields(draft),
               html: externalDraftHtml(draft.body),
               ...(signatureHtml ? { signatureHtml } : {}),
+              ...(files.length ? { attachments: files } : {}),
             },
           },
           true
@@ -501,7 +554,16 @@ export class ExternalDraftService {
       if (metadata.outcomeId)
         return { accepted: false, message: toChannelMessageView(message), runId: null };
       const outcomeId = createHash("sha256").update(`${messageId}:${state}`).digest("hex");
+      const treatment = wake && draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent) === "treatment";
+      if (treatment) await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
       const stored = metadataRecord(metadata.draft);
+      const draft = parseExternalDraft(stored);
+      // Carry identity in the wake itself, even if another turn already consumed ambient outcomes.
+      // Full content remains in the card receipt; keep the wake compact for large batches.
+      const identity = draft.platform === "email"
+        ? { platform: "email", from: draft.from, to: draft.to!.slice(0, 3), recipientCount: draft.to!.length, subject: draft.subject!.slice(0, 300) }
+        : { platform: "slack", target: draft.target, channelId: draft.channelId, threadTs: draft.threadTs };
+      const notice = `[Card outcome ${outcomeId}]\nDraft card ID: ${messageId}\nState: ${state}\n${JSON.stringify(identity)}\n${outcome}`;
       const updated = await tx.channelMessage.update({
         where: { id: messageId },
         data: {
@@ -509,8 +571,9 @@ export class ExternalDraftService {
             ...metadata,
             cardState: state,
             outcomeId,
+            ...(treatment ? { draftNotification: { variant: "treatment" } } : {}),
             outcomeText: `${outcome}\n\n${describeDraft(
-              parseExternalDraft(stored),
+              draft,
               metadataRecord(stored.verification)
             )}`.slice(0, 10000),
             // An automatic send reports back in the DraftExternalMessage result instead of a wake.
@@ -519,17 +582,16 @@ export class ExternalDraftService {
         },
       });
       const wakeRun = wake
-        ? await this.messaging.enqueueWake(tx, {
+        ? await this.messaging.enqueueDraftOutcome(tx, {
             botId: message.senderBotId!,
             channelId: message.channelId,
             origin: "user",
             type: "draft.response",
-            content:
-              "[SAND_HIDDEN_PROMPT]An external message draft settled. Read its outcome context and continue.",
+            content: `[SAND_HIDDEN_PROMPT]${notice}\nRead the stored card outcome for full content. Acknowledge newly settled drafts briefly, then continue without repeating already reported results. Do not infer other cards are still open merely because their outcomes are absent.`,
             clientId: `draft:${messageId}:outcome`,
             priority: PRIORITY.user,
             wrapUserContent: false,
-          })
+          }, treatment)
         : null;
       await appendEvent(tx, "channel.message.updated", messageId, {
         channelId: message.channelId,

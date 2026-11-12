@@ -26,6 +26,9 @@ struct RichMessageCard: View {
   @State private var draftNotice: String?
   @State private var draftBodyExpanded = false
   @State private var draftSending = false
+  @State private var draftHistoryExpanded = false
+  @State private var draftRevisionEditing = false
+  @FocusState private var draftBodyFocused: Bool
   @State private var busy = false
   @State private var importID = UUID().uuidString
   @State private var failure: String?
@@ -86,24 +89,40 @@ struct RichMessageCard: View {
         failure = nil
       }
       .onChange(of: selected) { _, _ in requestID = UUID().uuidString }
-      .onChange(of: bodyText) { _, _ in requestID = UUID().uuidString }
-      .onChange(of: to) { _, _ in requestID = UUID().uuidString }
-      .onChange(of: cc) { _, _ in requestID = UUID().uuidString }
+      .onChange(of: bodyText) { _, value in
+        requestID = UUID().uuidString
+        if value != meta["draft"]["body"].string { draftRevisionEditing = true }
+      }
+      .onChange(of: to) { _, value in
+        requestID = UUID().uuidString
+        if value != meta["draft"]["to"].array.map(\.string).joined(separator: ", ") { draftRevisionEditing = true }
+      }
+      .onChange(of: cc) { _, value in
+        requestID = UUID().uuidString
+        if value != meta["draft"]["cc"].array.map(\.string).joined(separator: ", ") { draftRevisionEditing = true }
+      }
       .onChange(of: saveToVault) { _, _ in requestID = UUID().uuidString }
-      .onChange(of: subject) { _, _ in requestID = UUID().uuidString }
+      .onChange(of: subject) { _, value in
+        requestID = UUID().uuidString
+        if value != meta["draft"]["subject"].string { draftRevisionEditing = true }
+      }
       .disabled(busy || store.busy.contains("/api/v0/channel-messages/\(API.segment(message.id))/widget-response"))
-      .onAppear {
-        bodyText = meta["draft"]["body"].string
-        subject = meta["draft"]["subject"].string
-        to = meta["draft"]["to"].array.map(\.string).joined(separator: ", ")
-        cc = meta["draft"]["cc"].array.map(\.string).joined(separator: ", ")
-        fromAddress = meta["draft"]["from"].string
+      .onAppear { resetDraftFields() }
+      .onChange(of: state) { _, value in
+        if type == "external-draft", value == "dismissed" { resetDraftFields() }
       }
       .onDisappear {
         secret = ""
         formValues = [:]
       }
     }
+  }
+  private func resetDraftFields() {
+    bodyText = meta["draft"]["body"].string
+    subject = meta["draft"]["subject"].string
+    to = meta["draft"]["to"].array.map(\.string).joined(separator: ", ")
+    cc = meta["draft"]["cc"].array.map(\.string).joined(separator: ", ")
+    fromAddress = meta["draft"]["from"].string
   }
   private func presentComputer() {
     if let bot = store.bots.first(where: { $0.id == message.senderBotId })
@@ -427,6 +446,36 @@ struct RichMessageCard: View {
         DraftRow(label: "In reply to", width: width) { DraftValue(thread) }
       }
     }
+    if draftIsEmail, !draft["forwardMessageId"].string.isEmpty {
+      let forwarding = draft["verification"]["forwarding"].string.isEmpty
+        ? draft["forwardMessageId"].string : draft["verification"]["forwarding"].string
+      if let url = URL(string: draft["verification"]["forwardUrl"].string), url.scheme == "https" {
+        Link(destination: url) { DraftRow(label: "Forwarding", width: width) { DraftValue(forwarding) } }
+      } else {
+        DraftRow(label: "Forwarding", width: width) { DraftValue(forwarding) }
+      }
+    }
+  }
+  private var draftAssets: [Asset] {
+    meta["draft"]["verification"]["attachments"].array.compactMap { try? $0.decode(Asset.self) }
+  }
+  @ViewBuilder private var draftAttachments: some View {
+    if !draftAssets.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(Array(draftAssets.enumerated()), id: \.offset) { _, asset in
+          AttachmentView(asset: asset, channelID: message.channelId, messageID: message.id)
+        }
+      }.padding(10).accessibilityLabel("Attachments")
+    }
+  }
+  private var revisionBody: AttributedString {
+    var result = AttributedString()
+    for part in meta["draft"]["verification"]["revision"]["body"].array {
+      var run = AttributedString(part["text"].string)
+      if part["added"].bool { run.backgroundColor = .green.opacity(0.16) }
+      result.append(run)
+    }
+    return result
   }
   @ViewBuilder private var draftNotices: some View {
     let sentUnder = meta["sentUnder"]
@@ -455,16 +504,17 @@ struct RichMessageCard: View {
       .font(.system(size: 15)).kerning(-0.15).foregroundStyle(DraftPalette.secondary)
       .textInputAutocapitalization(email ? .never : .sentences).autocorrectionDisabled(email)
       .keyboardType(email ? .emailAddress : .default).accessibilityLabel(label)
+      .background(!draftRevisionEditing && meta["draft"]["verification"]["revision"]["changedFields"].array.contains(.string(label.lowercased())) ? Color.green.opacity(0.16) : Color.clear)
   }
   @ViewBuilder var externalDraft: some View {
     let draft = meta["draft"]
     let verification = draft["verification"]
     let email = draftIsEmail
-    let title = email ? (draft["replyToMessageId"].string.isEmpty ? "New email" : "Reply") : "Slack message"
+    let title = email ? (!draft["replyToMessageId"].string.isEmpty ? "Reply" : !draft["forwardMessageId"].string.isEmpty ? "Forward" : "New email") : "Slack message"
     let sending = state == "sending" || draftSending
     let width = Self.labelWidth(
       email
-        ? ["From", "To", "Cc", "Subject"] + (draft["replyToMessageId"].string.isEmpty ? [] : ["In reply to"])
+        ? ["From", "To", "Cc", "Subject"] + (draft["replyToMessageId"].string.isEmpty ? [] : ["In reply to"]) + (draft["forwardMessageId"].string.isEmpty ? [] : ["Forwarding"])
         : ["Workspace", "To"])
     HStack(spacing: 8) {
       Text(verbatim: title).font(.system(size: 15, weight: .medium)).kerning(-0.15)
@@ -507,10 +557,18 @@ struct RichMessageCard: View {
             DraftRow(label: "To", width: width) { DraftValue(draft["target"].string) }
           }
         }
+        if !draftRevisionEditing && bodyText == draft["body"].string && draft["verification"]["revision"]["body"].array.contains(where: { $0["added"].bool }) {
+          Button { draftRevisionEditing = true; draftBodyFocused = true } label: {
+            Text(revisionBody).font(.system(size: 16)).foregroundStyle(DraftPalette.text)
+              .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+          }.buttonStyle(.plain).accessibilityLabel("Message body, changes highlighted, tap to edit")
+        } else {
         TextField("", text: $bodyText, prompt: Text(verbatim: "Write a message").foregroundStyle(DraftPalette.quaternary), axis: .vertical)
           .lineLimit(draftBodyExpanded || !draftBodyOverflows ? 4...10_000 : 4...12)
           .font(.system(size: 16)).foregroundStyle(DraftPalette.text)
           .padding(10).accessibilityLabel("Message body")
+          .focused($draftBodyFocused)
+        }
         if draftBodyOverflows {
           Button {
             draftBodyExpanded.toggle()
@@ -530,6 +588,7 @@ struct RichMessageCard: View {
             }
             .padding(.horizontal, 10)
         }
+        draftAttachments
       }
       .background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
       .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -544,20 +603,42 @@ struct RichMessageCard: View {
             Text(sending ? "Sending…" : "Send")
           }
         }.buttonStyle(DraftButtonStyle(primary: true, sending: sending))
-          .disabled(sending || bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(sending || bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (email && !EmailDraftReview.validRecipients(to: to, cc: cc)))
         Button("Discard") { act("external-draft", body: ["action": .string("cancel")]) }
           .buttonStyle(DraftButtonStyle(primary: false, sending: false)).disabled(sending)
         Spacer(minLength: 0)
         approvalMenu
       }
     } else {
-      let recipient = email ? (Self.addresses(to).first ?? "") : draft["target"].string
+      let recipient = email ? (draft["to"].array.first?.string ?? "") : draft["target"].string
       let summary = state == "unknown"
         ? "The send was interrupted — check your mailbox to see whether it went out"
         : (state == "sent" ? "Sent to " : "To ") + recipient
-          + (email ? " — “" + subject + "”" : "")
-      Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
-        .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
+          + (email ? " — “" + draft["subject"].string + "”" : "")
+      DisclosureGroup(isExpanded: $draftHistoryExpanded) {
+        VStack(alignment: .leading, spacing: 0) {
+          if email {
+            DraftRow(label: "From", width: width) { DraftValue(draft["from"].string) }
+            draftReplyRow(width: width)
+            DraftRow(label: "To", width: width) { DraftValue(draft["to"].array.map(\.string).joined(separator: ", ")) }
+            if !draft["cc"].array.isEmpty { DraftRow(label: "Cc", width: width) { DraftValue(draft["cc"].array.map(\.string).joined(separator: ", ")) } }
+            DraftRow(label: "Subject", width: width) { DraftValue(draft["subject"].string) }
+          } else {
+            DraftRow(label: "Workspace", width: width) { DraftValue(verification["identity"].string) }
+            DraftRow(label: "To", width: width) { DraftValue(draft["target"].string) }
+          }
+          Text(verbatim: draft["body"].string).font(.system(size: 16)).foregroundStyle(DraftPalette.text)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+          let signature = verification["signatures"][draft["from"].string.lowercased()].string
+          if !signature.isEmpty {
+            Text(verbatim: signatureText(signature)).font(.system(size: 15)).padding(10)
+          }
+          draftAttachments
+        }.background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+      } label: {
+        Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
+          .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
+      }
       draftNotices
       if !meta["sentUnder"]["rule"].string.isEmpty || meta["sentUnder"]["draftingDisabled"].bool {
         HStack { Spacer(); approvalMenu }

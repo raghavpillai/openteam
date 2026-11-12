@@ -1211,6 +1211,8 @@ var PLATFORM_SCOPED_DRAFT_FIELDS = [
   { field: "cc", platform: "email" },
   { field: "subject", platform: "email" },
   { field: "replyToMessageId", platform: "email" },
+  { field: "forwardMessageId", platform: "email" },
+  { field: "attachments", platform: "email" },
   { field: "target", platform: "slack" },
   { field: "channelId", platform: "slack" },
   { field: "threadTs", platform: "slack" }
@@ -1972,6 +1974,8 @@ const adaptedSendSchema = rejectingUnsupportedAttachmentFields(sendMessageObject
 // when the user asked to see the message first.
 const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
   waitForReview: external_exports.boolean().optional(),
+  forwardMessageId: external_exports.string().trim().min(1).optional(),
+  attachments: external_exports.array(external_exports.string().min(1)).max(10).optional(),
 }).superRefine(refineDraftExternalMessage).superRefine(refineDraftBody);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {

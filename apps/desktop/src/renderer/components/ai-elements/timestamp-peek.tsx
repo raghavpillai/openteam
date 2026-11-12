@@ -24,9 +24,11 @@ export function TimestampedEntry({ createdAt, from, children }: {
     <div className="timestamp-peek-entry" data-from={from}>
       <div className="timestamp-peek-content">{children}</div>
       {Number.isFinite(timestamp) && (
-        <time className="message-timestamp" dateTime={createdAt} aria-label={accessibleTimeFormat.format(timestamp)}>
-          {timeFormat.format(timestamp)}
-        </time>
+        <div className="timestamp-peek-label">
+          <time className="message-timestamp" dateTime={createdAt} aria-label={accessibleTimeFormat.format(timestamp)}>
+            {timeFormat.format(timestamp)}
+          </time>
+        </div>
       )}
     </div>
   );

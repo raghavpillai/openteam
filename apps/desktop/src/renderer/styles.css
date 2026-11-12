@@ -473,10 +473,12 @@ textarea,
   inherits: true;
   initial-value: 0;
 }
-/* Clip the offscreen label at the row, keeping the scrollport's overflow:auto.
+/* Clip only the offscreen label so attachment shadows can extend past the row.
+   Keep the scrollport's overflow:auto:
    use-stick-to-bottom needs that shorthand to recognize upward wheel escapes. */
-.timestamp-peek-entry { position: relative; min-width: 0; width: 100%; overflow-x: clip; }
+.timestamp-peek-entry { position: relative; min-width: 0; width: 100%; }
 .timestamp-peek-content { min-width: 0; }
+.timestamp-peek-label { position: absolute; inset: 0; overflow-x: clip; pointer-events: none; }
 .timestamp-peek-entry[data-from="user"] > .timestamp-peek-content {
   transform: translate3d(calc(-1 * var(--timestamp-peek)), 0, 0);
 }

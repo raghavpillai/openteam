@@ -7,6 +7,7 @@ import { assertBackgroundRequestDeliveryAllowed } from "./background-request-del
 import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications, isExactDraftNotificationEcho } from "./draft-notifications";
 export { draftNotificationVariant, isTreatmentDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
 export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
+import { parsePresentation, presentationFallback } from "@openteam/contracts/presentation";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
 export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
 import { taskProgressContext, taskScopeContext } from "./task-progress";
@@ -776,7 +777,7 @@ export const validateSendToUserInput = (value: unknown): void => {
     throw new ApiError(400, "invalid_end_turn", "end_turn must be a boolean; nothing was sent");
   }
   const type = input.type;
-  if (!["text", "attachment", "widget", "secret-request"].includes(String(type))) {
+  if (!["text", "attachment", "widget", "secret-request", "presentation"].includes(String(type))) {
     throw new ApiError(400, "unsupported_message_type", "Unsupported SendToUser message type");
   }
   const fieldsByType: Record<string, ReadonlySet<string>> = {
@@ -784,7 +785,9 @@ export const validateSendToUserInput = (value: unknown): void => {
     attachment: new Set(["type", "url", "alt", "reply_to", "channel"]),
     widget: new Set(["type", "widget", "reply_to"]),
     "secret-request": new Set(["type", "secret", "reply_to"]),
+    presentation: new Set(["type", "presentation", "reply_to"]),
   };
+  if (type === "presentation") parsePresentation(input.presentation);
   const allowed = fieldsByType[String(type)];
   const invalid = Object.keys(input).filter(
     (key) => input[key] !== undefined && key !== "end_turn" && !allowed?.has(key)
@@ -2886,6 +2889,7 @@ export class AgentMessaging {
     input: AgentSendToUserInput
   ): Promise<Record<string, unknown> & { reply_to?: string }> {
     const { images, url, secret, ...rest } = input;
+    if (input.type === "presentation") return { kind: "send-message", ...rest, presentation: parsePresentation(input.presentation) };
     if (input.type === "attachment") {
       if (!url) throw new Error("url is required when type is attachment");
       return {
@@ -2905,6 +2909,7 @@ export class AgentMessaging {
   }
 
   private visibleContent(input: AgentSendToUserInput): string {
+    if (input.type === "presentation") return presentationFallback(parsePresentation(input.presentation));
     if (input.type === "bot-template") return input.content ?? "Shared bot template";
     if (input.type === "user-form") return String((input.form as { title: string }).title);
     if (input.type === "external-draft") return String((input.draft as { subject?: string; target?: string }).subject ?? (input.draft as { target?: string }).target ?? "Review message draft");

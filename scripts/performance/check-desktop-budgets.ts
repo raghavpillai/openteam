@@ -173,6 +173,8 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // attachment previews measure 16,523,942 after the capabilities import fix.
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
+// Native presentation widgets + MapLibre add 1,089,152 bytes on demand. The
+// signed-in startup increases only 689 bytes; retain its existing ceiling.
 // Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
 // v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
 // ScreenBot' overlay page (capture motion, mascot, composer, its styles) and lazy bridge:
@@ -194,7 +196,8 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
 // Main at f17447de: 16,720,649 B; with this branch, 16,733,081 B; 16,734,520 B with ScreenBot's
 // "Sent" check matching the file preview's and dictation inside a preview.
-atMost("renderer bytes", result.renderer.bytes, 16_735_200);
+// With the native presentation widgets and MapLibre (lazy): remeasured after rebase.
+atMost("renderer bytes", result.renderer.bytes, 17_830_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -210,6 +213,7 @@ atMost("renderer bytes", result.renderer.bytes, 16_735_200);
 // Resource ownership and background lifecycle controls measure 4,118,074 gzip
 // bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
 // The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
+// The same presentation/MapLibre payload adds 276,742 gzip bytes.
 // Same feature baseline: 4,125,698 gzip bytes.
 // Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
 // With the screenbot overlay page and bridge: 4,146,316 gzip bytes; with dictation and the
@@ -222,7 +226,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_735_200);
 // Both together on main at 3f91add4: 4,165,193.
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_179_500);
+// With the presentation/MapLibre payload: remeasured after rebase.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_460_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -276,6 +281,9 @@ const lazyBudgets: Record<string, number> = {
   a2aExchange: 5_000,
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
+  // forms.tsx no longer has a caller or manifest entry in the baseline build.
+  richPresentation: 180_000,
+  mapRenderer: 925_000,
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.
   // Main at f17447de (#315): 6,725, unchanged by this branch.

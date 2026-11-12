@@ -1813,6 +1813,12 @@ export class RuntimeTools {
                 },
               };
             })),
+        ...["SearchPlaces", "RoutePlaces"].map((name): RuntimeDynamicTool => {
+          const definition = CURSOR_TOOLS.find(tool => tool.tool === name)!;
+          return { name, description: definition.description, inputSchema: definition.inputSchema, source: "first-party",
+            decodeArguments: args => args,
+            execute: (turn, callId, args, signal) => this.callControlPlaneTool(turn, callId, name, args, signal) };
+        }),
         ...["WebFetch", "WebSearch"].map((name): RuntimeDynamicTool => {
           const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
           return {
@@ -1967,7 +1973,7 @@ export class RuntimeTools {
     if (
       active.readOnly &&
       (input.namespace === "cursor"
-        ? !["AwaitShell", "WebSearch", "WebFetch", "SearchPlugins", "GetPlugin", "GetMcpServerStatus"].includes(input.toolName)
+        ? !["AwaitShell", "WebSearch", "WebFetch", "SearchPlaces", "RoutePlaces", "SearchPlugins", "GetPlugin", "GetMcpServerStatus"].includes(input.toolName)
         : !active.pluginNamespaces.some((namespace) => namespace.name === input.namespace &&
             namespace.tools.some((tool) => tool.name === input.toolName && isReadonlyConnectorRead(tool))))
     )

@@ -1,7 +1,27 @@
 import type {ClientSnapshot} from '../../../packages/contracts/src/index';
+import presentation from '../Tests/CoreTests/Fixtures/presentation.json';
+import { readFileSync } from 'node:fs';
 export function contentScene(snapshot: ClientSnapshot, scene:string) {
   snapshot.runs=[];
   const message:any={id:'content-fixture',sequence:'400',channelId:'channel-research',sender:'bot',senderBotId:'bot-research',sourceRunId:null,content:'',metadata:{},createdAt:'2026-09-16T12:00:00.000Z'};
+  if(scene==='presentation') message.metadata={type:'presentation',presentation};
+  if(scene==='presentation-showcase-map' || scene==='presentation-showcase-media') {
+    const data = process.env.PRESENTATION_QA_FIXTURE ? JSON.parse(readFileSync(process.env.PRESENTATION_QA_FIXTURE,'utf8')) : structuredClone(presentation);
+    const media = scene.endsWith('media');
+    data.blocks = media ? [data.blocks.find((block:any)=>block.type==='ranked_media_list')] : [
+      {type:'markdown',text:'Here’s a relaxed walk through Midtown. Start at the Empire State Building, stop at the library, then finish in Bryant Park.'},
+      data.blocks.find((block:any)=>block.type==='place_map'),
+      {type:'markdown',text:'About 13 minutes of walking, with plenty of time to explore each stop.'},
+    ];
+    const bot=snapshot.bots.find(b=>b.id==='bot-research');if(bot)bot.name='Travel';
+    const channel=snapshot.channels.find(c=>c.id==='channel-research');if(channel)channel.name='Travel';
+    snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');
+    snapshot.channelMessages.push(
+      {...message,id:'presentation-user',sequence:'401',sender:'user',senderBotId:null,content:media?'Which of those places should I spend the most time at?':'Plan a short walk around Midtown with a few beautiful places to stop.'},
+      {...message,id:'presentation-answer',sequence:'402',metadata:{type:'presentation',presentation:data}},
+    );
+    return snapshot;
+  }
   if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
   if(scene==='type-size')message.content='Hello';
   if(scene==='plain-link')message.content="Here's one: [Wikipedia's random article page](https://en.wikipedia.org/wiki/Special:Random). It opens a different article every time you click it.";

@@ -1,4 +1,5 @@
 import reference from "./tool-reference.json";
+import { presentationInputJsonSchema, placeToolContracts } from "./presentation";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
@@ -33,6 +34,7 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+for (const tool of placeToolContracts) contracts[tool.tool] = { ...tool, name: tool.tool };
 // Ref lifetime is an OpenTeam adaptation; keep the captured artifact intact.
 function adaptStableRefLifetime(value: any): void {
   if (!value || typeof value !== "object") return;
@@ -234,6 +236,9 @@ adaptArgument("CopyFromBox", "box_path", [["Any file type, up to 100 MiB;", "Any
 // "How a turn works", "Autonomy" and "Asking for decisions" prompt sections. Only the main agent has
 // SendToUser (workers and routine runs never do), so the long variant is not needed.
 const send = contracts.SendToUser!;
+send.inputSchema.properties.type.enum.push("presentation");
+send.inputSchema.properties.presentation = presentationInputJsonSchema;
+send.description += " Use type:presentation with presentation:{version:1,places:[...],blocks:[...]} to mix Markdown, native place_map widgets and ranked_media_list items in one answer on desktop and iOS. Use SearchPlaces for real POIs/coordinates and RoutePlaces for walking/driving/cycling geometry. Put the returned verified places in places and reference their ids in map placeIds or media item placeId. Coordinates on places are latitude/longitude; GeoJSON is [longitude,latitude]. Preserve provider/source attribution and only include ratings, hours and photos actually supplied by a source. Map carousel defaults to auto; hidden gives a clean route-only map. A map opens a full-screen itinerary preview; do not generate HTML, CSS, JSX or an Ask button. Include all narrative in ordered markdown blocks, and set end_turn as for a text reply. Use ordinary text for answers that do not benefit from these components.";
 // There are no cloud agents, so the cursor-agent card is not offered.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter((type: string) => type !== "cursor-agent");
 delete send.inputSchema.properties.bcId;
@@ -612,6 +617,8 @@ const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
   RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
   SearchIMessages: "Search the text of the user's Messages history.",
   SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
+  SearchPlaces: "Find and geocode real POIs; use the returned ids and coordinates in map/media presentations.",
+  RoutePlaces: "Compute walking, driving or cycling route geometry and per-stop travel times.",
   SendIMessage: "Send a message from the user's Mac, as the user.",
   StopSubagent: "Abort a running background subagent.",
   // No cloud subagents in OpenTeam.

@@ -600,7 +600,8 @@ import XCTest
     app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
     XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Photos must close the entire tray")
 
-    // A panel can't cover the keyboard, so it goes down and Back brings it up again.
+    // A panel can't cover the keyboard, so it leaves at once beneath a still of
+    // the chat, and rises back into place on Back and when the tray closes.
     let keyboard = app.keyboards.firstMatch
     if !keyboard.exists {
       app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.tap()
@@ -615,7 +616,8 @@ import XCTest
     XCTAssertEqual(tray.frame.height, photosFrame.height, accuracy: 1)
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
     app.buttons["attach-back"].tap()
-    XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the keyboard")
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the menu above the keyboard")
     XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
     app.buttons["attach-camera"].tap()
     XCTAssertTrue(shutter.waitForExistence(timeout: 5))
@@ -642,7 +644,7 @@ import XCTest
     if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
     let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
     let original = tray.frame
-    XCTAssertEqual(original.height, 230, accuracy: 1)
+    XCTAssertEqual(original.height, 228, accuracy: 1, "Three reference rows, 206 px apart at 3x, with 11 points above and below")
     XCTAssertFalse(app.buttons["attach-voice"].exists)
     for page in ["camera", "photos", "camera"] {
       app.buttons["attach-" + page].tap()

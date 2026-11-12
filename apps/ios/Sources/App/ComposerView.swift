@@ -34,7 +34,20 @@ struct ComposerView: View {
   @State private var pluginMentions: [JSON] = []
   @State private var resumeEditingAfterVoice = false
   @FocusState private var focused: Bool
-  @State private var keyboardPresented = false
+  /// The reference's margin from the screen edges, at the sides and the bottom.
+  static let edgeInset: CGFloat = 24
+  /// The reference's gap between the composer and the top of the keyboard.
+  static let keyboardGap: CGFloat = 12
+  /// The home-indicator inset, which the keyboard-aware inset includes at rest.
+  private var restingSafeArea: CGFloat {
+    UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      .flatMap(\.windows).first(where: \.isKeyWindow)?.safeAreaInsets.bottom ?? 0
+  }
+  private var bottomPadding: CGFloat {
+    // A software keyboard is far taller than any resting inset; a hardware
+    // keyboard's shortcut bar leaves the inset at rest.
+    bottomSafeArea > restingSafeArea + 40 ? Self.keyboardGap : Self.edgeInset - bottomSafeArea
+  }
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int {
     draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.count
@@ -59,10 +72,12 @@ struct ComposerView: View {
   var body: some View {
     VStack(spacing: 0) {
       messageControls
-    }.padding(.horizontal, 30).padding(.top, 4)
-      // Native keyboard avoidance retains its existing clearance. At rest, the
-      // floating inset plus this correction leaves 18pt to the physical bottom.
-      .padding(.bottom, keyboardPresented ? 4 : 18 - bottomSafeArea)
+    }.padding(.horizontal, Self.edgeInset).padding(.top, 4)
+      // As in the reference: 24pt from the physical bottom at rest, 12pt above
+      // a keyboard. Derived from the keyboard-aware inset rather than keyboard
+      // notifications, so the change lands in the keyboard's own animation
+      // instead of jumping the bar ahead of it.
+      .padding(.bottom, bottomPadding)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
         GeometryReader { composer in
@@ -90,12 +105,6 @@ struct ComposerView: View {
           ComposerLatencyProbe()
         }
         #endif
-      }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-        if focused { keyboardPresented = true }
-      }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-        keyboardPresented = false
       }
       .task(id: channel.id) {
         if let botID = store.bot(for: channel)?.id ?? channel.members.first?.botId {
@@ -505,7 +514,8 @@ struct ComposerView: View {
       },
       files: { files = true },
       composerFrame: { composerFrame == .zero ? nil : composerFrame },
-      contentLeading: { columnLeading })
+      contentLeading: { columnLeading },
+      focus: { focused = $0 })
   }
   private func addPhotos(_ results: [PHPickerResult]) {
     focused = true

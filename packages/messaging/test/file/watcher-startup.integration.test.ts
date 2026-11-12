@@ -91,13 +91,13 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
   const botId = crypto.randomUUID();
   const store = new AgentDataStore(db, { root: join(root, "data"), workspaceRoot: root });
   const settingsPath = join(store.botDirectory(botId), "settings.json");
-  const observe = async (hiddenFromSidebar: boolean) => {
+  const observe = async (notificationsEnabled: boolean) => {
     const deadline = Date.now() + 2500;
     while (Date.now() < deadline) {
-      if ((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar === hiddenFromSidebar) return;
+      if ((await db.bot.findUniqueOrThrow({ where: { id: botId } })).notificationsEnabled === notificationsEnabled) return;
       await Bun.sleep(25);
     }
-    throw new Error(`Watcher failed to reconcile hiddenFromSidebar=${hiddenFromSidebar}`);
+    throw new Error(`Watcher failed to reconcile notificationsEnabled=${notificationsEnabled}`);
   };
   try {
     await db.bot.create({ data: { id: botId, name: "Lost events", status: "active", defaultDirectory: root } });
@@ -105,18 +105,21 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
     await Promise.all(Array.from({ length: 5 }, () => store.startWatching()));
     // Simulate the observed failure: native monitoring stays open but delivers no events.
     (store as unknown as { watcher: { removeAllListeners(event: string): void } }).watcher.removeAllListeners("all");
-    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
-    await observe(true);
-    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: false }));
+    // Sidebar hiding was removed. Exercise the supported notification setting,
+    // and retain coverage that legacy hiding cannot hide a top-level Bot.
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false, hiddenFromSidebar: true }));
     await observe(false);
-    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
-    await observe(true);
-    await rm(settingsPath);
-    await observe(false);
-    await store.stopWatching();
-    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
-    await Bun.sleep(1300);
     expect((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar).toBe(false);
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: true }));
+    await observe(true);
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));
+    await observe(false);
+    await rm(settingsPath);
+    await observe(true);
+    await store.stopWatching();
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));
+    await Bun.sleep(1300);
+    expect((await db.bot.findUniqueOrThrow({ where: { id: botId } })).notificationsEnabled).toBe(true);
   } finally {
     await store.stopWatching();
     await db.bot.deleteMany({ where: { id: botId } });

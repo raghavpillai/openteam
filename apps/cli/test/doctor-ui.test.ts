@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { doctorNextSteps, renderCompactDoctor, renderDoctor } from "../src/doctor-ui";
+import { stripVTControlCharacters } from "node:util";
 import type { DoctorResult } from "../src/doctor";
+import { doctorNextSteps, renderCompactDoctor, renderDoctor } from "../src/doctor-ui";
+import { terminalTextWidth, wrapTerminalText } from "../src/terminal";
+import { doctorScenarios } from "./fixtures/doctor-scenarios";
 
 const fixture: DoctorResult = {
   ok: false,
@@ -20,20 +23,7 @@ const fixture: DoctorResult = {
     },
   ],
 };
-const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 describe("doctor dashboard", () => {
-  test.each([24, 40, 76, 90, 110])("fits a %d-column terminal with and without color", (width) => {
-    for (const color of [true, false]) {
-      const text = renderDoctor(fixture, { width, color });
-      expect(
-        plain(text)
-          .split("\n")
-          .every((line) => line.length <= width)
-      ).toBe(true);
-      expect(text).toContain("NEEDS ATTENTION");
-      if (!color) expect(text).not.toContain("\x1b");
-    }
-  });
   test("preserves all details and strips secrets and terminal control injection", () => {
     const secret = "sk-proj-doctorInvalid0123456789012345";
     const text = renderDoctor(
@@ -156,5 +146,50 @@ describe("doctor dashboard", () => {
     });
     expect(steps[0]).toContain("quota or billing");
     expect(steps[0]).not.toContain("openteam setup");
+  });
+  test.each(doctorScenarios)("$id: readable actions, status and layout", (scenario) => {
+    const actions = doctorNextSteps(scenario.result).join(" ");
+    if (scenario.action) expect(actions).toContain(scenario.action);
+    if (scenario.avoid) expect(actions).not.toContain(scenario.avoid);
+    for (const width of [24, 40, 90]) {
+      for (const render of [renderDoctor, renderCompactDoctor]) {
+        const plain = render(scenario.result, { width, color: false });
+        const colored = render(scenario.result, { width, color: true });
+        expect(stripVTControlCharacters(colored)).toBe(plain);
+        expect(plain).not.toContain("\x1b");
+        expect(plain).not.toContain("undefined");
+        expect(plain).not.toContain("NaN");
+        expect(plain.split("\n").every((line) => terminalTextWidth(line) <= width)).toBe(true);
+        expect(plain).not.toContain("sk-proj-doctorInvalid0123456789012345");
+        if (!scenario.result.ok) expect(plain).toContain("NEXT STEPS");
+        if (render === renderDoctor && !scenario.result.ok)
+          expect(plain.indexOf("NEXT STEPS")).toBeLessThan(plain.indexOf("HOST & SETUP"));
+      }
+    }
+  });
+
+  test("wrapping keeps Unicode graphemes intact", () => {
+    const original = "团队项目👩🏽‍💻Café".repeat(8);
+    const graphemes = new Set(
+      [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(original)].map(
+        (s) => s.segment
+      )
+    );
+    for (const width of [18, 24, 40]) {
+      const lines = wrapTerminalText(original, width);
+      expect(lines.join("")).toBe(original);
+      expect(lines.every((line) => terminalTextWidth(line) <= width)).toBe(true);
+      for (const line of lines)
+        for (const { segment } of new Intl.Segmenter(undefined, {
+          granularity: "grapheme",
+        }).segment(line))
+          expect(graphemes.has(segment)).toBe(true);
+    }
+  });
+
+  test.each([Number.NaN, Infinity, 0, -1, 10_000])("tolerates terminal width %s", (width) => {
+    const result = doctorScenarios[0]!.result;
+    expect(() => renderDoctor(result, { width })).not.toThrow();
+    expect(() => renderCompactDoctor(result, { width })).not.toThrow();
   });
 });

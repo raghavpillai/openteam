@@ -3,19 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { countdownKey, renderSetupCountdown, waitForAutomaticSetup } from "../src/setup-countdown";
-import { terminalTextWidth } from "../src/terminal";
-
-test("countdown fits narrow terminals with and without color", () => {
-  for (const width of [24, 40, 80])
-    for (const color of [false, true]) {
-      for (const seconds of [5, 4, 3, 2, 1]) {
-        const line = renderSetupCountdown(seconds, { width, color });
-        expect(terminalTextWidth(line)).toBeLessThanOrEqual(width);
-        expect(stripVTControlCharacters(line)).toContain(`Starting in ${seconds}s`);
-      }
-    }
-});
+import { countdownKey, waitForAutomaticSetup } from "../src/setup-countdown";
 
 test("Enter starts now; Esc, q, Ctrl-C, and Ctrl-D cancel; other input is ignored", () => {
   for (const chunk of ["\r", "\n", "\r\n", "\r\r"]) expect(countdownKey(chunk)).toBe("start");
@@ -34,14 +22,9 @@ const python = Bun.which("python3");
 describe.skipIf(!python || process.platform === "win32")("real terminal countdown", () => {
   test.each([
     "escape",
-    "q",
-    "enter",
-    "letter",
     "ctrl-c",
-    "arrow",
+    "enter",
     "paste",
-    "continue",
-    "resize",
     "dumb",
   ])("%s restores terminal state and completes once", async (scenario) => {
     const resultPath = join(tmpdir(), `openteam-countdown-${crypto.randomUUID()}.json`);

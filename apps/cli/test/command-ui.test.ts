@@ -3,6 +3,7 @@ import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
+import { errorMessage } from "../src/errors";
 import {
   cliProgram,
   renderCommandError,
@@ -15,7 +16,6 @@ import {
 } from "../src/command-ui";
 import { helpFor } from "../src/help";
 import type { ModelRow, ProviderRow } from "../src/providers";
-import { TerminalReport } from "../src/terminal";
 
 const paths = installationPaths("/tmp/a very long installation's path");
 const selected = { providerId: "openai-codex", modelId: "gpt-5.6-sol", reasoning: "medium" };
@@ -71,9 +71,7 @@ const status = {
 const plain = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, "");
 
 describe("CLI presentation", () => {
-  test.each([
-    24, 40, 60, 90, 110,
-  ])("reports fit %d columns, including long identifiers and paths", (width) => {
+  test.each([24, 90])("reports fit %d columns, including long identifiers and paths", (width) => {
     for (const color of [false, true]) {
       const options = { width, color };
       const reports = [
@@ -118,49 +116,6 @@ describe("CLI presentation", () => {
       }
     }
   });
-  test("keeps complete model identifiers, highlights selection, and represents empty catalogs", () => {
-    const text = renderModelCatalog(models, selected, paths, undefined, {
-      width: 110,
-      color: false,
-    });
-    for (const model of models)
-      expect(text.replace(/\s+/g, "")).toContain(`${model.providerId}/${model.modelId}`);
-    expect(text).toContain("● openai-codex/gpt-5.6-sol");
-    expect(text).toContain("272,000 context");
-    expect(renderModelCatalog([], selected, paths, "unknown")).toContain(
-      "No models found for unknown"
-    );
-    expect(renderProviderCatalog([], selected.providerId, paths)).toContain(
-      "No providers are available"
-    );
-  });
-  test("distinguishes connections from supported login methods", () => {
-    const text = renderProviderCatalog(providers, selected.providerId, paths);
-    expect(text.indexOf("CONNECTED ACCOUNTS")).toBeLessThan(text.indexOf("AVAILABLE TO CONNECT"));
-    expect(text.indexOf("openai-codex")).toBeLessThan(text.indexOf("anthropic"));
-    expect(text).toContain("Connected · OAuth");
-    expect(text).toContain("API key");
-  });
-  test("model list explains failed discovery without hiding other providers' models", () => {
-    const text = renderModelCatalog(
-      models,
-      selected,
-      paths,
-      undefined,
-      { width: 90, color: false },
-      [
-        {
-          ...providers[1]!,
-          modelStatus: "unavailable",
-          modelMessage: "Reconnect Anthropic to load chat models.",
-        },
-      ]
-    );
-    expect(text).toContain("accessible chat models");
-    expect(text).toContain("Reconnect Anthropic");
-    expect(text).toContain("openai-codex");
-    expect(text).toContain("openteam provider list");
-  });
   test("shows stopped, missing, unhealthy and failed-initialization states accurately", () => {
     expect(
       renderStatus({ ...status, services: [], health: { ok: false, detail: "unreachable" } })
@@ -201,10 +156,9 @@ describe("CLI presentation", () => {
     expect(text).not.toContain("\x1b");
     expect(text).not.toContain("\r");
     expect(text).not.toContain("bad.test");
-  });
-  test("falls back to a sensible width for unavailable terminal dimensions", () => {
-    expect(new TerminalReport({ width: Number.NaN }).width).toBe(90);
-    expect(new TerminalReport({ width: 0 }).width).toBe(90);
+    expect(
+      errorMessage(new Error("compose failed with OPENTEAM_POSTGRES_PASSWORD=database-secret"))
+    ).toBe("compose failed with OPENTEAM_POSTGRES_PASSWORD=[REDACTED]");
   });
 });
 

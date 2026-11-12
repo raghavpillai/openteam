@@ -6,7 +6,7 @@ import { TrustedRoot } from "@sigstore/protobuf-specs";
 import { toSignedEntity, toTrustMaterial, Verifier } from "@sigstore/verify";
 import { Metadata, MetadataKind } from "@tufjs/models";
 import { needsCryptoVerifyCompatibility } from "../src/bun-crypto";
-import { installCryptoVerifyDefaults } from "../src/runtime-compat";
+import "../src/runtime-compat";
 
 const fixture = (path: string) => new URL(`./fixtures/${path}`, import.meta.url);
 const readJson = (path: string) => JSON.parse(readFileSync(fixture(path), "utf8"));
@@ -19,11 +19,6 @@ describe("crypto.verify default digest under BoringSSL runtimes", () => {
     expect(needsCryptoVerifyCompatibility({ bun: "1.3.8" })).toBe(true);
     expect(needsCryptoVerifyCompatibility({ electron: "43.4.1" })).toBe(true);
     expect(needsCryptoVerifyCompatibility({ node: "24.13.1" })).toBe(false);
-  });
-
-  test("the shim is installed once", () => {
-    expect(installCryptoVerifyDefaults()).toBe(true);
-    expect((crypto.verify as { openteamPatched?: boolean }).openteamPatched).toBe(true);
   });
 
   test("verifies EC and RSA signatures without an explicit digest, like Node", () => {

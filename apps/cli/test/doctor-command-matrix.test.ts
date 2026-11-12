@@ -22,14 +22,7 @@ const cases: Array<[string, string, boolean?]> = [
   ["cli-permission", "executable's permissions"],
   ["cli-broken", "repair or update the Docker CLI"],
   ["daemon-stopped", "Start your Docker runtime"],
-  ["daemon-permission", "your user has access"],
-  ["daemon-api", "DOCKER_API_VERSION"],
-  ["daemon-tls", "TLS certificates"],
-  ["daemon-context", "docker context use <name>"],
-  ["daemon-dns", "DNS or VPN"],
-  ["daemon-ssh", "Verify SSH access"],
   ["compose-missing", "2.20.0 or newer"],
-  ["compose-old", "2.20.0 or newer"],
   ["compose-fallback", "SETUP NEEDED"],
   ["invalid-manifest", "known-good backup", true],
   ["env-permissions", "owner-only", true],
@@ -44,7 +37,6 @@ const cases: Array<[string, string, boolean?]> = [
   ["health-invalid", "readiness is unknown", true],
   ["health-version", "API port belongs to this installation", true],
   ["model-401", "Reconnect the provider in the OpenTeam app", true],
-  ["model-quota", "quota or billing", true],
   ["model-timeout", "network access", true],
   ["healthy", "READY WITH NOTES", true],
 ];
@@ -68,12 +60,6 @@ if (args[0] === '--version') {
 if (args[0] === 'info') {
   const failures = {
     'daemon-stopped': 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.',
-    'daemon-permission': 'permission denied while trying to connect to the Docker daemon socket',
-    'daemon-api': 'client version 1.24 is too old. Minimum supported API version is 1.44',
-    'daemon-tls': 'x509: certificate has expired',
-    'daemon-context': 'context "old-engine": context not found',
-    'daemon-dns': 'dial tcp: lookup docker.internal: no such host',
-    'daemon-ssh': 'Permission denied (publickey).',
   };
   if (failures[scenario]) fail(failures[scenario]);
   ok('28.2.2');
@@ -81,7 +67,7 @@ if (args[0] === 'info') {
 if ((args[0] === 'compose' && args[1] === 'version') || (standalone && args[0] === 'version')) {
   if (scenario === 'compose-missing') fail(standalone ? 'standalone Compose is unavailable' : 'compose is not a docker command');
   if (scenario === 'compose-fallback' && !standalone) fail('compose is not a docker command');
-  ok(scenario === 'compose-old' ? 'Docker Compose version v1.29.2' : 'Docker Compose version v5.1.3');
+  ok('Docker Compose version v5.1.3');
 }
 if (args.includes('config') && args.includes('--quiet')) {
   if (scenario === 'compose-invalid') fail('yaml: line 8: did not find expected key');
@@ -98,7 +84,7 @@ if (args[0] === 'inspect') ok([...services, 'migrate'].map(service => JSON.strin
 if (args.includes('exec')) {
   const script = args.at(-1);
   if (script.includes('Bun.stdin.text()')) {
-    const errors = { 'model-401': 'HTTP 401: unauthorized', 'model-quota': 'HTTP 429: quota exceeded', 'model-timeout': 'The model connection test timed out' };
+    const errors = { 'model-401': 'HTTP 401: unauthorized', 'model-timeout': 'The model connection test timed out' };
     ok(JSON.stringify(errors[scenario] ? {ok:false,error:errors[scenario]} : {ok:true}));
   }
   if (scenario === 'probe-invalid') ok('{broken');

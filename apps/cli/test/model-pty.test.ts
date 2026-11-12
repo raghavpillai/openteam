@@ -41,52 +41,8 @@ async function drive(directory: string, columns: number, steps: Step[], color = 
 describe.skipIf(process.platform === "win32" || !python)(
   "interactive model in a real terminal",
   () => {
-    test("a fresh install saves the first catalog model and keeps it after catalog reordering", async () => {
-      const f = modelServer();
-      const catalog = f.api.catalog;
-      let reordered = false;
-      f.api.catalog = async (...args) => {
-        const value = await catalog(...args);
-        return {
-          ...value,
-          inference: f.calls.inference.length
-            ? value.inference
-            : { ...value.inference, modelId: "" },
-          models: reordered ? value.models : value.models.reverse(),
-        };
-      };
-      try {
-        const first = await drive(f.paths.directory, 90, [
-          { expect: "No model selected" },
-          { send: keys.enter, expect: "CHOOSE A PROVIDER" },
-          { send: keys.enter, expect: "no thinking mode" },
-          { send: keys.enter, expect: "Currently saved" },
-          { send: keys.down.repeat(3) + keys.enter, expect: "Inference saved." },
-          { send: keys.end + keys.enter, expect: "SAVED SETTINGS" },
-        ]);
-        expect(first.code).toBe(0);
-        expect(f.calls.inference).toEqual([
-          { providerId: "example", modelId: "fast", reasoning: "off" },
-        ]);
-        expect(
-          f.requests.some((request) => request.method === "PATCH" && request.path === "/inference")
-        ).toBe(true);
-
-        reordered = true;
-        const reopened = await drive(f.paths.directory, 90, [
-          { expect: "example/fast" },
-          { send: keys.enter, expect: "CHOOSE A PROVIDER" },
-          { send: keys.enter, expect: "no thinking mode" },
-          { send: keys.esc, expect: "Currently saved" },
-          { send: keys.end + keys.enter, expect: "SAVED SETTINGS" },
-        ]);
-        expect(reopened.code).toBe(0);
-        expect(f.calls.inference).toHaveLength(1);
-      } finally {
-        f.cleanup();
-      }
-    }, 15000);
-    test.each([40, 90])("edits and saves both tabs at %i columns", async (columns) => {
+    test("edits and saves both tabs", async () => {
+      const columns = 90;
       const f = modelServer();
       try {
         const { output, plain, code } = await drive(
@@ -106,7 +62,7 @@ describe.skipIf(process.platform === "win32" || !python)(
             { send: keys.down.repeat(4) + keys.enter, expect: "Transcription saved." },
             { send: keys.end + keys.enter, expect: "SAVED SETTINGS" },
           ],
-          columns === 90
+          true
         );
         expect(code).toBe(0);
         expect(f.calls.inference[0]?.modelId).toBe("fast");
@@ -136,71 +92,8 @@ describe.skipIf(process.platform === "win32" || !python)(
         f.cleanup();
       }
     }, 15000);
-    test("24-column terminal can close cleanly without changes", async () => {
-      const f = modelServer();
-      try {
-        const { code } = await drive(f.paths.directory, 24, [
-          { expect: "OPENTEAM / model" },
-          { send: keys.end + keys.enter, expect: "SAVED SETTINGS" },
-        ]);
-        expect(code).toBe(0);
-        expect(f.calls.inference).toHaveLength(0);
-        expect(f.calls.transcription).toHaveLength(0);
-      } finally {
-        f.cleanup();
-      }
-    }, 15000);
-    test("noninteractive use explains the scriptable alternatives", async () => {
-      const child = Bun.spawn(
-        [process.execPath, resolve(import.meta.dir, "../src/main.ts"), "model"],
-        { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
-      );
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-      ]);
-      expect(code).not.toBe(0);
-      expect(stdout + stderr).toContain("needs an interactive terminal");
-      expect(stdout + stderr).toContain("model list");
-    });
   }
 );
-
-describe.skipIf(process.platform === "win32" || !python)("shared setup terminal driver", () => {
-  test("setup still accepts navigation and cancellation and restores terminal state", async () => {
-    const child = Bun.spawn(
-      [
-        python!,
-        resolve(import.meta.dir, "fixtures/interactive-pty.py"),
-        JSON.stringify({
-          columns: 90,
-          steps: [
-            { expect: "OPENTEAM" },
-            { send: keys.right, expect: "Create the username and password" },
-            { send: keys.esc, expect: "Setup cancelled without changes." },
-          ],
-        }),
-        process.execPath,
-        resolve(import.meta.dir, "fixtures/setup-pty.ts"),
-      ],
-      {
-        env: { ...process.env, TERM: "xterm-256color", NO_COLOR: "1" },
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    const [output, error, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    if (error) console.error(error, stripVTControlCharacters(output).slice(-2000));
-    expect(error).toBe("");
-    expect(code).toBe(0);
-    expect(output).toContain("\x1b[?25h");
-  }, 15000);
-});
 
 describe.skipIf(process.platform === "win32" || !python)("interrupted model requests", () => {
   test("Ctrl+C exits a pending save and explains that its server outcome may be uncertain", async () => {

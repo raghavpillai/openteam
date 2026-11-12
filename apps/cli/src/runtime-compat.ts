@@ -37,7 +37,7 @@ type VerifyArgs = [
 ];
 type PatchedVerify = typeof crypto.verify & { openteamPatched?: boolean };
 
-export const installCryptoVerifyDefaults = (): boolean => {
+const installCryptoVerifyDefaults = (): boolean => {
   if (!needsCryptoVerifyCompatibility()) return false;
   const current = crypto.verify as PatchedVerify;
   if (current.openteamPatched) return true;

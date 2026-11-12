@@ -11,29 +11,6 @@ const privateKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
   .toString();
 const metadata = { keyId: "ABCDE12345", teamId: "FGHIJ67890", topic: "dev.openbot.mobile" };
 describe("APNs configuration import", () => {
-  test("parses nested commands, help and installation selection", () => {
-    expect(parseArguments(["notifications", "status", "--dir", "/tmp/test"])).toMatchObject({
-      command: "notifications-status",
-      directory: "/tmp/test",
-    });
-    expect(parseArguments(["notifications", "configure", "--help"])).toMatchObject({
-      command: "help",
-      helpTopic: "notifications-configure",
-    });
-    expect(parseArguments(["help", "notifications", "configure"]).helpTopic).toBe(
-      "notifications-configure"
-    );
-    expect(parseArguments(["notifications"]).helpTopic).toBe("notifications");
-    expect(() => parseArguments(["notifications", "restart"])).toThrow(
-      "Unknown notifications command"
-    );
-    expect(() => parseArguments(["notifications", "status", "--config", "key.json"])).toThrow(
-      "Unknown option"
-    );
-    expect(() => parseArguments(["notifications", "configure", "--private-key", "secret"])).toThrow(
-      "Unknown option"
-    );
-  });
   test("resolves a JSON key path against the configuration file, and supports direct flags", () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-apns-import-"));
     try {

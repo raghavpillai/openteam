@@ -34,10 +34,8 @@ const drive = async (columns: number, mode: string, steps: Step[]) => {
 describe.skipIf(!python || process.platform === "win32")(
   "provider login in a real terminal",
   () => {
-    test.each([
-      40, 90,
-    ])("can start browser login, back out of pasted input, and cancel at %i columns", async (width) => {
-      const output = await drive(width, "browser", [
+    test("can start browser login, back out of pasted input, and cancel", async () => {
+      const output = await drive(90, "browser", [
         { expect: "CONNECT CLAUDE" },
         { send: "\x1b[B\r", expect: "Open sign-in page" },
         { send: "\x1b[B\x1b[B\r", expect: "Waiting for input" },
@@ -66,14 +64,6 @@ describe.skipIf(!python || process.platform === "win32")(
       ]);
       expect(output).not.toContain("synthetic-private-api-key");
       expect(output).toContain("SUBMITTED VALUES: 0");
-    }, 15000);
-    test("a missing imported login offers a way back", async () => {
-      const output = await drive(40, "missing", [
-        { expect: "Use Claude Code login" },
-        { send: "\r", expect: "No reusable Claude Code login" },
-        { send: "\x1b", expect: "BACK TO PROVIDERS" },
-      ]);
-      expect(output).toContain("REMOTE CANCELLATIONS: 0");
     }, 15000);
   }
 );

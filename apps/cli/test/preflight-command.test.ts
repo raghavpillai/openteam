@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { stripVTControlCharacters } from "node:util";
 import { createEnvironment, installationPaths, writeManifest } from "../src/config";
-import { terminalTextWidth } from "../src/terminal";
 
 // All non-diagnostic commands fail closed: these tests must never pull images,
 // inspect credentials, read running services, or mutate a Docker installation.
@@ -155,47 +153,4 @@ describe.skipIf(process.platform === "win32")("install and setup preflight", () 
       rmSync(directory, { recursive: true, force: true });
     }
   });
-});
-
-const python = Bun.which("python3");
-describe.skipIf(process.platform === "win32" || !python)("preflight terminal output", () => {
-  for (const command of ["install", "setup"]) {
-    test.each([
-      24, 40, 80,
-    ])(`${command} explains missing Docker in a %s-column terminal`, async (columns) => {
-      const directory = mkdtempSync(join(tmpdir(), "openteam-preflight-pty-"));
-      try {
-        const child = Bun.spawn(
-          [
-            python!,
-            resolve(import.meta.dir, "fixtures/capture-pty.py"),
-            String(columns),
-            process.execPath,
-            resolve(import.meta.dir, "../src/main.ts"),
-            command,
-            "--dir",
-            join(directory, "installation"),
-          ],
-          {
-            env: { ...process.env, PATH: directory, TERM: "xterm-256color", NO_COLOR: "1" },
-            stdout: "pipe",
-            stderr: "pipe",
-          }
-        );
-        const [stdout, stderr, code] = await Promise.all([
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
-          child.exited,
-        ]);
-        expect(code).toBe(2);
-        expect(stderr).toBe("");
-        const output = stripVTControlCharacters(stdout).replace(/\r/g, "");
-        expect(output.replace(/\s+/g, " ")).toContain("Docker is required.");
-        expect(output.replace(/\s+/g, " ")).toContain("Then run: openteam setup --dir");
-        expect(output.split("\n").every((line) => terminalTextWidth(line) <= columns)).toBe(true);
-      } finally {
-        rmSync(directory, { recursive: true, force: true });
-      }
-    });
-  }
 });

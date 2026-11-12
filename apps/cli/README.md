@@ -292,9 +292,7 @@ bun run preview:status --gallery /tmp/openteam-status-gallery
 bun run preview:model --gallery /tmp/openteam-model-ui
 ```
 
-Open a gallery's `index.html` to compare scenarios and widths. After a deliberate layout change, update
-snapshots with `bun test ./test/doctor-matrix-ui.test.ts --update-snapshots` (or
-`./test/status.test.ts`).
+Open a gallery's `index.html` to compare scenarios and widths.
 
 Other harnesses:
 
@@ -303,7 +301,6 @@ Other harnesses:
   machine: it temporarily hides any installed Docker CLI.
 - `python scripts/render-installer-demo.py` renders the fresh-install recordings as MP4 and GIF (needs
   `pillow`, `pyte`, and `ffmpeg`; pass `--font` outside macOS).
-- From the repository root, `bun run test:health:chaos` injects health-check faults.
 - From the repository root, `OPENTEAM_TEST_DOCKER_CONTEXT=<throwaway-context> bun apps/cli/scripts/test-disk-maintenance-docker.ts`
   tests image and backup retention against a real Docker daemon. It removes only its own fixtures.
 - From the repository root, `OPENTEAM_TEST_CHROMIUM_EXECUTABLE=<chromium> bun apps/computer/scripts/test-browser-cache-maintenance.ts`

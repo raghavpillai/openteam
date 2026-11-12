@@ -137,6 +137,7 @@ export const publishMessageNotification = async (
     channelId: message.channelId,
     runId: message.sourceRunId ?? "",
     messageSequence: message.sequence.toString(),
+    messageId: message.id,
     ...(metadata.branched === true ? { threadMessageId: message.id } : {}),
     title,
     body,

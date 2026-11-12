@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 // Source-owned adaptation of AI Elements conversation.tsx.
 // Upstream: vercel/ai-elements@6a9d5b1822ffb10bba4bd97175f01edd7d8651cd
 import type { ComponentProps, ReactNode } from "react";
@@ -266,43 +267,6 @@ export const ConversationContent = ({
       </StickToBottom.Content>
       {loading}
     </>
-  );
-};
-
-export const ConversationTopDivider = () => {
-  const { contentRef, scrollRef } = useStickToBottomContext();
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const viewport = scrollRef.current;
-    const content = contentRef.current;
-    if (!(viewport && content)) return;
-
-    const update = () => {
-      const hasOverflow = viewport.scrollHeight > viewport.clientHeight + 1;
-      setVisible(!hasOverflow || viewport.scrollTop > 1);
-    };
-    const resizeObserver = new ResizeObserver(update);
-
-    viewport.addEventListener("scroll", update, { passive: true });
-    resizeObserver.observe(viewport);
-    resizeObserver.observe(content);
-    update();
-
-    return () => {
-      viewport.removeEventListener("scroll", update);
-      resizeObserver.disconnect();
-    };
-  }, [contentRef, scrollRef]);
-
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none absolute inset-x-0 top-11 z-20 h-px bg-border transition-opacity duration-150 ease-out motion-reduce:transition-none",
-        visible ? "opacity-100" : "opacity-0"
-      )}
-    />
   );
 };
 
@@ -624,7 +588,7 @@ export const ConversationScrollButton = ({
           boxShadow: "0 2px 5px rgba(0, 0, 0, 0.14)",
         }}
       >
-        <button
+        <ButtonPrimitive
           aria-label={`Scroll to ${label}`}
           className="flex h-full min-w-0 flex-1 items-center gap-1 rounded-l-full pl-1.5 text-[#fcfcfc] outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-white/50"
           onClick={onClick}
@@ -632,15 +596,15 @@ export const ConversationScrollButton = ({
         >
           <ScrollDownIcon className="size-3.5 shrink-0" />
           <span className="whitespace-nowrap">{label}</span>
-        </button>
-        <button
+        </ButtonPrimitive>
+        <ButtonPrimitive
           aria-label="Dismiss new message notification"
           className="flex size-7 shrink-0 items-center justify-center rounded-r-full text-[#c8d5ec] outline-none hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-white/50"
           onClick={() => setNoticeDismissed(true)}
           type="button"
         >
           <CloseIcon />
-        </button>
+        </ButtonPrimitive>
       </div>
     );
   }

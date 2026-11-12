@@ -95,15 +95,23 @@ final class FunctionalFlowUITests: XCTestCase {
       app.launch()
       let row = app.buttons["channel-channel-research"]
       XCTAssertTrue(row.waitForExistence(timeout: 15))
-      row.swipeLeft()
+      // Reveal actions without committing the new full-swipe pin gesture.
+      let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -105, dy: 0)),
+        withVelocity: .slow, thenHoldForDuration: 0.15)
+      let swipePin = app.buttons["conversation-swipe-pin"]
+      XCTAssertTrue(swipePin.waitForExistence(timeout: 5))
       XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
       XCTAssertTrue(row.exists)
+      row.tap()
+      XCTAssertTrue(swipePin.waitForNonExistence(timeout: 5))
       row.press(forDuration: 0.8)
       XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.buttons["Delete bot"].exists)
       XCTAssertFalse(app.buttons["Hide"].exists)
       XCTAssertFalse(app.buttons["Duplicate bot"].exists)
       capture("bot-context-without-hide-" + appearance, app)
-      app.buttons["Pin"].firstMatch.tap()
+      app.buttons["conversation-context-pin"].tap()
       let saved = try await state()
       XCTAssertTrue((saved["settings"] as? [String: Any])?["pinnedIds"] as? [String] == ["channel-research"])
       let pinnedRow = app.buttons["pinned-channel-research"]
@@ -118,6 +126,42 @@ final class FunctionalFlowUITests: XCTestCase {
       capture("bot-options-without-duplicate-" + appearance, app)
       app.terminate()
     }
+  }
+
+  func testBotContextDeletionCancelsAndRetriesFromPinnedRow() async throws {
+    let app = try await launch()
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    row.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Cancel"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Cancel"].tap()
+    let cancelled = try await state()["requests"] as? [[String: Any]] ?? []
+    XCTAssertFalse(cancelled.contains {
+      $0["method"] as? String == "DELETE" && $0["path"] as? String == "/api/v0/bots/bot-research"
+    })
+    XCTAssertTrue(row.exists)
+    try await fail("DELETE /api/v0/bots/bot-research")
+    row.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Delete bot"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Delete bot"].tap()
+    error(app)
+    closeError(app)
+    XCTAssertTrue(row.waitForExistence(timeout: 5))
+    row.press(forDuration: 0.8)
+    app.buttons["conversation-context-pin"].tap()
+    let pinned = app.buttons["pinned-channel-research"]
+    XCTAssertTrue(pinned.waitForExistence(timeout: 8))
+    pinned.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Delete bot"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Delete bot"].tap()
+    XCTAssertTrue(pinned.waitForNonExistence(timeout: 10))
+    let deleted = try await state()
+    XCTAssertFalse((deleted["bots"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == "bot-research" })
+    XCTAssertFalse((deleted["channels"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == "channel-research" })
+    XCTAssertTrue(app.buttons["channel-channel-ops"].exists)
   }
 
   func testSettingsOmitHiddenConversations() async throws {
@@ -608,7 +652,7 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
     replace(app.textFields["profile-name"], "Renamed without reordering")
     app.buttons["profile-save"].tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
     let after = try await state()
     let saved = try XCTUnwrap((after["channels"] as? [[String: Any]])?.first { $0["id"] as? String == id })
     XCTAssertEqual((saved["members"] as? [[String: Any]])?.compactMap { $0["botId"] as? String }, members.compactMap { $0["botId"] as? String })
@@ -707,7 +751,7 @@ final class FunctionalFlowUITests: XCTestCase {
       (groupData["channels"] as? [[String: Any]])?.first { $0["name"] as? String == "Native group" }
     )
     XCTAssertEqual((group["members"] as? [Any])?.count, 2)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     plugins(app)
     app.buttons["Plugin workspace"].tap()
     app.buttons["Create skill"].tap()

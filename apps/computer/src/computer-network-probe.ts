@@ -4,26 +4,29 @@ import type { Duplex } from "node:stream";
 import type { NetworkRoute } from "@openteam/plugin-sdk/browser-network/protocol";
 import { createEgressProbe } from "./browser-network-egress";
 import { createQualityProbe } from "./browser-network-quality";
+import { probeNetworkFamily } from "./network-connectivity";
 
 /** This child deliberately has no transport mark. Its ordinary sockets/DNS
  * must traverse the kernel policy, just like a dock app or sudo curl. */
-export async function runOrdinaryProbe(kind: "egress" | "quality", route: NetworkRoute) {
+export async function runOrdinaryProbe(kind: "egress" | "quality" | "ipv4" | "ipv6", route: NetworkRoute) {
   const client = {
     route,
     available: () => true,
-    open: (host: string, port: number) =>
+    open: (host: string, port: number, signal?: AbortSignal) =>
       new Promise<Duplex>((resolve, reject) => {
-        const socket = createConnection({ host, port });
+        const socket = createConnection({ host, port, signal });
         socket.once("connect", () => resolve(socket));
         socket.once("error", reject);
         socket.setTimeout(6000, () => socket.destroy(new Error("Computer probe timeout")));
       }),
   };
+  if (kind === "ipv4" || kind === "ipv6")
+    return probeNetworkFamily(client.open, kind, AbortSignal.timeout(5000));
   return kind === "egress" ? createEgressProbe(client)() : createQualityProbe(client)();
 }
 
 export function probeComputerNetwork(
-  kind: "egress" | "quality",
+  kind: "egress" | "quality" | "ipv4" | "ipv6",
   route: NetworkRoute,
   signal: AbortSignal
 ) {

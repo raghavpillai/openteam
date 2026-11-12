@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { missingGrants, OPEN_MESSAGES_PERMISSIONS_EVENT, useMessagesIcon } from "../settings/messages-permissions-dialog";
@@ -62,9 +63,9 @@ export function ThisMacSection({ query }: { query: string }) {
             Allowed
           </span>
         ) : (
-          <button className={pill} disabled={busy || permissions === null} onClick={() => void setUp()} type="button">
+          <ButtonPrimitive className={pill} disabled={busy || permissions === null} onClick={() => void setUp()} type="button">
             Set up
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
     </section>

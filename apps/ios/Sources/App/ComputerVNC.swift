@@ -66,7 +66,7 @@ import WebKit
         arguments: ["clear": clear], in: nil, in: .page) { _ in }
     }
   }
-  func run(api: API, botID: String) async {
+  func run(api: API, botID: String, controlID: String? = nil, controlGeneration: Int? = nil) async {
     stop()
     let id = UUID()
     generation = id
@@ -79,7 +79,9 @@ import WebKit
             try Task.checkCancellation()
             try await Task.sleep(for: .milliseconds(50))
           }
-          let json = try await api.request("/api/v0/bots/\(API.segment(botID))/screen/vnc", method: "POST")
+          let json = try await api.request("/api/v0/bots/\(API.segment(botID))/screen/vnc", method: "POST",
+            body: .object(["controlId": controlID.map(JSON.string) ?? .null,
+              "generation": controlGeneration.map { .number(Double($0)) } ?? .null].filter { $0.value != .null }))
           let grant = try json.decode(ComputerVNCSession.self)
           let url = try grant.socketURL(api: api, botID: botID)
           try Task.checkCancellation()

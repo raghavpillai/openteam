@@ -3,8 +3,8 @@ import { internalNotificationsRoute } from "./routes/internal-notifications";
 import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
 import { automationWebhookBinding, receiveAutomationWebhook } from "./automation-webhooks";
-import { AdminBroadcastInput, DynamicToolCallRequest, ShellCompletionInput } from "@openteam/contracts";
-import { Effect } from "effect";
+import { AdminBroadcastInput, DynamicToolCallRequest, ShellCompletionInput, ScreenControlIdentity } from "@openteam/contracts";
+import { Effect, Schema } from "effect";
 import { timingSafeEqual } from "node:crypto";
 import { AppService } from "./app-service";
 import { assetResponse } from "./asset-http";
@@ -65,6 +65,9 @@ const vnc = new ScreenVncProxy({
     ]);
     return bot?.status === "active" && Boolean(session);
   },
+  mayInput: ({ botId, controlId, generation }) => app.screens.viewerMayInput(botId, { controlId, generation }),
+  // Legacy viewers still report activity; persistent sessions do not expire.
+  onActivity: (botId) => { void run(app.screenActivity(botId)).catch(() => undefined); },
 });
 
 const authorizedInternal = (request: Request): boolean => {
@@ -297,7 +300,14 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
       if (path === "/api/system/update")
         return await serverUpdateRoute(request, serverUpdates, authenticatedSessionId);
       if (request.method === "POST" && vncMatch) {
-        const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin")));
+        let control: typeof ScreenControlIdentity.Type;
+        try {
+          const text = await request.text();
+          control = Schema.decodeUnknownSync(ScreenControlIdentity)(text ? JSON.parse(text) : {});
+        } catch {
+          return json({ error: { code: "invalid_request", message: "Invalid computer viewer control identity" } }, 400);
+        }
+        const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin"), control));
         response.headers.set("cache-control", "no-store");
         return response;
       }
@@ -309,7 +319,14 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
       }
       const context: RouteContext = { app, request, url, path, authMode, authenticatedSessionId };
       if (path === "/api/server-settings/browser-network") {
-        if (request.method === "GET") return json(await browserNetwork.view());
+        if (request.method === "GET") {
+          const connectivity = await app.browserNetworkConnectivity().catch(() => undefined);
+          const view = await browserNetwork.view();
+          const sourceId = view.runtime.state === "server" ? "server" : view.runtime.activeMachineId;
+          if (connectivity && connectivity.epoch === view.runtime.routeEpoch && connectivity.sourceId === sourceId)
+            view.runtime.connectivity = connectivity;
+          return json(view);
+        }
         if (request.method === "PATCH") return json(await browserNetwork.update(await request.json().catch(() => null)), 202);
       }
       if (path === "/api/server-settings/browser-network/quality" && request.method === "POST")

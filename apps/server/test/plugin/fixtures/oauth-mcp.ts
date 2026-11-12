@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /** Local, disposable provider used by browser and database integration tests. */
-export function createOAuthMcpFixture(port = 0) {
+export function createOAuthMcpFixture(port = 0, options: { refreshTokens?: boolean } = {}) {
   const clients = new Map<string, { secret?: string; redirectUris: string[] }>();
   const codes = new Map<
     string,
@@ -14,6 +14,10 @@ export function createOAuthMcpFixture(port = 0) {
   let extraTool = false;
   let denyTokens = false;
   let unavailable = false;
+  let toolFailure: { status: number; body: string } | null = null;
+  let beforeRegistration: (() => Promise<void>) | undefined;
+  let beforeToken: (() => Promise<void>) | undefined;
+  let beforeToolReply: (() => Promise<void>) | undefined;
   let refreshFailure: { error: string; error_description?: string; status?: number } | null = null;
   const encoder = new TextEncoder();
   const tool = (name: string) => ({
@@ -52,7 +56,7 @@ export function createOAuthMcpFixture(port = 0) {
           token_endpoint: `${origin}/token`,
           registration_endpoint: `${origin}/register`,
           response_types_supported: ["code"],
-          grant_types_supported: ["authorization_code", "refresh_token"],
+          grant_types_supported: options.refreshTokens === false ? ["authorization_code"] : ["authorization_code", "refresh_token"],
           code_challenge_methods_supported: ["S256"],
           token_endpoint_auth_methods_supported: [
             "none",
@@ -61,6 +65,7 @@ export function createOAuthMcpFixture(port = 0) {
           ],
         });
       if (url.pathname === "/register" && request.method === "POST") {
+        await beforeRegistration?.();
         const body = (await request.json()) as {
           redirect_uris: string[];
           token_endpoint_auth_method?: string;
@@ -105,6 +110,7 @@ export function createOAuthMcpFixture(port = 0) {
         return Response.redirect(callback, 302);
       }
       if (url.pathname === "/token" && request.method === "POST") {
+        await beforeToken?.();
         const body = new URLSearchParams(await request.text());
         const basic = request.headers.get("authorization")?.replace(/^Basic /, "");
         const basicParts = basic ? Buffer.from(basic, "base64").toString().split(":") : [];
@@ -118,6 +124,7 @@ export function createOAuthMcpFixture(port = 0) {
           return Response.json({ error: "invalid_client" }, { status: 401 });
         let account: string;
         if (body.get("grant_type") === "refresh_token") {
+          if (options.refreshTokens === false) return Response.json({error:"unsupported_grant_type"}, {status:400});
           if (refreshFailure) {
             const { status = 400, ...error } = refreshFailure;
             return Response.json(error, { status });
@@ -150,7 +157,7 @@ export function createOAuthMcpFixture(port = 0) {
         denyTokens = false;
         return Response.json({
           access_token: access,
-          refresh_token: refresh,
+          ...(options.refreshTokens === false ? {} : {refresh_token: refresh}),
           token_type: "Bearer",
           expires_in: 3600,
           scope: "read",
@@ -198,6 +205,8 @@ export function createOAuthMcpFixture(port = 0) {
             : { tools: [tool("echo")], nextCursor: "second-page" };
         else if (message.method === "tools/call") {
           observations.calls++;
+          await beforeToolReply?.();
+          if (toolFailure) return new Response(toolFailure.body.replaceAll("${accessToken}", token), { status: toolFailure.status });
           result = {
             content: [
               {
@@ -221,6 +230,10 @@ export function createOAuthMcpFixture(port = 0) {
     endpoint: `${server.url.origin}/mcp`,
     setRefreshFailure: (value: typeof refreshFailure) => { refreshFailure = value; },
     setUnavailable: (value: boolean) => { unavailable = value; },
+    setToolFailure: (value: typeof toolFailure) => { toolFailure = value; },
+    setBeforeRegistration: (value: typeof beforeRegistration) => { beforeRegistration = value; },
+    setBeforeToken: (value: typeof beforeToken) => { beforeToken = value; },
+    setBeforeToolReply: (value: typeof beforeToolReply) => { beforeToolReply = value; },
     registerClient: (id: string, redirectUri: string, secret?: string) =>
       clients.set(id, { redirectUris: [redirectUri], secret }),
     expireTokens: () => {

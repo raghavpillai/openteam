@@ -1,12 +1,12 @@
 /** Decode the Swift client's wire payloads with the production server schemas. */
 import {createRequire} from 'node:module';
 const {Schema} = createRequire(new URL('../../../packages/contracts/package.json',import.meta.url))('effect');
-import {CreateBotInput,UpdateBotInput,CreateGroupInput,SetChannelMembersInput,UpdateChannelProfileInput,SetChannelHiddenInput,SendMessageInput,ReactToChannelMessageInput,InstallPluginInput,RenamePluginAccountInput,ScreenActionInput,ScreenTakeoverInput,ComputerHandoffMutationInput,PluginConfigurationInput,PluginSkillInput,PluginUrlInput,PluginPackageInput,PluginDraftInput,PluginTestInput} from '../../../packages/contracts/src/index';
+import {CreateBotInput,UpdateBotInput,CreateGroupInput,SetChannelMembersInput,UpdateChannelProfileInput,SetChannelHiddenInput,SendMessageInput,ReactToChannelMessageInput,InstallPluginInput,RenamePluginAccountInput,ScreenActionInput,ScreenTakeoverInput,ScreenControlIdentity,ComputerHandoffMutationInput,PluginConfigurationInput,PluginSkillInput,PluginUrlInput,PluginPackageInput,PluginDraftInput,PluginTestInput} from '../../../packages/contracts/src/index';
 const rules:[string,RegExp,any][]=[
  ['POST',/^\/api\/v0\/bots$/,CreateBotInput],['PATCH',/^\/api\/v0\/bots\/[^/]+$/,UpdateBotInput],
  ['POST',/^\/api\/v0\/channels$/,CreateGroupInput],['PUT',/\/members$/,SetChannelMembersInput],['PATCH',/\/profile$/,UpdateChannelProfileInput],['PATCH',/\/hidden$/,SetChannelHiddenInput],
  ['POST',/\/messages$/,SendMessageInput],['POST',/\/reaction$/,ReactToChannelMessageInput],['POST',/\/plugins\/install$/,InstallPluginInput],['PATCH',/\/plugin-connections\/[^/]+\/account$/,RenamePluginAccountInput],
- ['POST',/\/screen\/actions$/,ScreenActionInput],['POST',/\/screen\/takeover$/,ScreenTakeoverInput],['POST',/\/computer-handoff$/,ComputerHandoffMutationInput],
+ ['POST',/\/screen\/actions$/,ScreenActionInput.pipe(Schema.extend(ScreenControlIdentity))],['POST',/\/screen\/vnc$/,ScreenControlIdentity],['POST',/\/screen\/takeover$/,ScreenTakeoverInput],['POST',/\/computer-handoff$/,ComputerHandoffMutationInput],
  ['PUT',/\/configuration$/,PluginConfigurationInput],['POST',/^\/api\/v0\/plugin-skills$/,PluginSkillInput],['PUT',/^\/api\/v0\/plugin-skills\/[^/]+$/,PluginSkillInput],
  ['POST',/^\/api\/v0\/plugin-sources$/,PluginUrlInput],['PUT',/^\/api\/v0\/plugin-sources\/[^/]+$/,PluginUrlInput],['PUT',/^\/api\/v0\/plugin-drafts\/[^/]+$/,PluginDraftInput],['POST',/\/plugin-connections\/[^/]+\/test$/,PluginTestInput]
 ];

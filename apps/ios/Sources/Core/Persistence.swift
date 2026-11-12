@@ -44,6 +44,9 @@ public struct PendingSend: Codable, Identifiable, Sendable {
 public struct SavedState: Codable, Sendable {
   public var bootstrap: Bootstrap?
   public var sidebar: JSON?
+  /// Minimal, account-scoped artwork metadata for the persistent inbox footer.
+  /// Nil means never fetched; an empty array is a confirmed empty installation list.
+  public var sidebarPlugins: [SidebarPlugin]?
   public var messages: [String: [Message]] = [:]
   /// A bootstrap preview alone is not a downloaded conversation page. Optional so
   /// a cache saved without this field still decodes; its chats then refetch history.

@@ -3,16 +3,16 @@ title: The best self-hosted AI agents in 2026
 seoTitle: Best self-hosted AI agents in 2026, and who each one is for
 description: OpenClaw, Hermes Agent, goose, NanoClaw, Agent Zero, Eigent, MausBot and OpenTeam: eight self-hosted AI agents compared on license, models and setup.
 date: 2026-10-12
-updated: 2026-10-26
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with a Research bot's chat, a live preview of its Linux screen, and a weekday routine
 related: openclaw-alternative, hermes-agent-alternative, introducing-openteam
 ---
 
-**The best self-hosted AI agent depends on the job. OpenClaw (MIT, about 392,000 GitHub stars) is the pick for reaching you in 20+ chat apps. Hermes Agent suits bots that learn, and Agent Zero one agent with a full Linux desktop. OpenTeam, our self-hosted AI agent team, fits several bots with their own computers, and it's the youngest here.**
+**The best self-hosted AI agent depends on the job. OpenClaw (MIT, about 392,000 GitHub stars) is the pick for reaching you in 20+ chat apps. Hermes Agent suits bots that learn, and Agent Zero one agent with a full Linux desktop. OpenTeam, our self-hosted AI agent team, fits several bots with their own computers on a server you control.**
 
-This list covers assistants you install and talk to, not frameworks or workflow builders such as LangGraph, CrewAI, n8n and Dify. We build OpenTeam, so weigh our view accordingly. Entries are ordered by GitHub stars, which measure community size rather than quality and put OpenTeam last.
+This list covers assistants you install and talk to, not frameworks or workflow builders such as LangGraph, CrewAI, n8n and Dify. We build OpenTeam, so weigh our view accordingly. Entries are ordered by GitHub stars, which measure community size rather than quality.
 
 ## How we picked these self-hosted AI agents
 
@@ -38,7 +38,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 | Agent Zero | One agent with a desktop | MIT | Web UI; launcher for macOS, Windows, Linux | One Linux desktop per instance | Many, local too | Subordinate agents | Not documented | ~19,400 |
 | Eigent | A Cowork-style desktop app | Apache-2.0 | Desktop for macOS, Windows, Linux | No; your computer | Many, local too | A Workforce of agents | Not documented | ~15,500 |
 | MausBot | Bots on your Claude or ChatGPT plan | Apache-2.0 core | Desktop for macOS, Windows, Ubuntu | Cloud desktop, local VM or your computer | Claude, Codex or Grok CLI, per bot | Rooms of bots | Allow/Deny cards | ~4,600 |
-| OpenTeam | An open-source Grok Bot alternative | GPL-3.0 | Desktop for macOS (Apple silicon), Linux; iPhone beta | A Linux desktop per bot | One model per server | Group chats of up to 6 bots | No | New (first release Oct 6) |
+| OpenTeam | An open-source Grok Bot alternative | GPL-3.0 | Desktop for macOS (Apple silicon), Linux; iPhone beta | A Linux desktop per bot | Any provider, local too | Group chats of up to 6 bots | For email, Slack and texts | New (first release Oct 6) |
 
 ## 1. OpenClaw: best for reaching you in your chat apps
 
@@ -52,7 +52,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** MIT and free; the foundation has "no paid tier, hosted service, or token".
 
-**Versus OpenTeam.** OpenClaw meets you where you chat; OpenTeam gives each bot its own Linux desktop inside a container. OpenClaw wins on channels, per-agent models, Android and community.
+**Versus OpenTeam.** OpenClaw meets you where you chat; OpenTeam gives each bot its own persistent Linux desktop on your server.
 
 [GitHub](https://github.com/openclaw/openclaw) · [Docs](https://docs.openclaw.ai) · Latest: v2026.10.2, October 12, 2026.
 
@@ -68,7 +68,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** MIT and free. Optional Nous Portal plans cost $20, $100 or $200 a month for model and tool credits ([pricing](https://hermes-agent.nousresearch.com)).
 
-**Versus OpenTeam.** Hermes now covers much of the same ground, even the same group-chat caps. It keeps each bot's files and sign-ins separate. OpenTeam shares a `/workspace` and sign-ins, and runs a desktop for every bot from install in one container on any Docker host. Hermes wins on maturity, channels, per-bot models, approvals and a Windows app. See our [Hermes Agent alternative](/blog/hermes-agent-alternative).
+**Versus OpenTeam.** Hermes now covers much of the same ground, even the same group-chat caps. It keeps each bot's files and sign-ins separate. OpenTeam shares a `/workspace` and sign-ins, and runs a desktop for every bot from install in one container on any Docker host. See our [Hermes Agent alternative](/blog/hermes-agent-alternative).
 
 [GitHub](https://github.com/NousResearch/hermes-agent) · [Docs](https://hermes-agent.nousresearch.com/docs/) · Latest: v0.21.7, October 12, 2026.
 
@@ -84,7 +84,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** Apache-2.0 and free; you pay your model provider.
 
-**Versus OpenTeam.** goose is a personal agent on your laptop. OpenTeam is a server that keeps several bots working on their own desktops while the apps are closed. goose wins on platforms, extensions and maturity.
+**Versus OpenTeam.** goose is a personal agent on your laptop. OpenTeam is a server that keeps several bots working on their own desktops while the apps are closed.
 
 [GitHub](https://github.com/aaif-goose/goose) · [Docs](https://goose-docs.ai) · Latest: v1.54.0, October 8, 2026.
 
@@ -100,7 +100,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** MIT and free. Claude is the default model; Codex, OpenCode and Ollama are add-ons, set per agent group.
 
-**Versus OpenTeam.** Both put agents in containers. NanoClaw lives in your chat apps and expects code changes; OpenTeam gives each bot a full desktop and has apps to manage them. NanoClaw wins on channels, credential handling and approvals.
+**Versus OpenTeam.** Both put agents in containers. NanoClaw lives in your chat apps and expects code changes; OpenTeam gives each bot a full desktop and has apps to manage them.
 
 [GitHub](https://github.com/nanocoai/nanoclaw) · [Docs](https://docs.nanoclaw.dev) · Latest: v2026.10.0, October 9, 2026.
 
@@ -116,7 +116,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** MIT, per its LICENSE file, and free. Models come from hosted providers, local servers such as Ollama, or an OpenAI Codex plan.
 
-**Versus OpenTeam.** Agent Zero is the closest single-agent match. OpenTeam gives every bot a desktop, plus group chats and shared sign-ins. Agent Zero wins on document co-editing, snapshots, plugins and chat channels.
+**Versus OpenTeam.** Agent Zero is the closest single-agent match. OpenTeam gives every bot a desktop, plus group chats and shared sign-ins.
 
 [GitHub](https://github.com/agent0ai/agent-zero) · [Docs](https://www.agent-zero.ai/p/docs/) · Latest: v2.13, September 23, 2026.
 
@@ -132,7 +132,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** Apache-2.0, and free with your own keys or local models. Plus ($19.99 a month) and Pro ($99.99) add task credits for hosted models ([pricing](https://www.eigent.ai/pricing)).
 
-**Versus OpenTeam.** Eigent works on your computer, closer to Claude Cowork, which we compare in our [Claude Cowork alternative that runs on your own server](/blog/claude-cowork-alternative). OpenTeam is a server where bots keep their own desktops and memory. Eigent wins on Windows support and per-Space models.
+**Versus OpenTeam.** Eigent works on your computer, closer to Claude Cowork, which we compare in our [Claude Cowork alternative that runs on your own server](/blog/claude-cowork-alternative). OpenTeam is a server where bots keep their own desktops and memory.
 
 [GitHub](https://github.com/eigent-ai/eigent) · [Download](https://www.eigent.ai/download) · Latest: v1.0.5, September 25, 2026.
 
@@ -148,7 +148,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **License and cost.** Apache-2.0 core, and the app is free. Personal, Pro and Max cloud plans cost $29, $49 and $99 a month, excluding AI usage.
 
-**Versus OpenTeam.** MausBot is close in shape: a roster of bots, each with a computer. It leads on per-bot models, approval cards, Windows and Intel Mac apps, and release pace. OpenTeam keeps bots always on at no extra cost, because they run on your own server.
+**Versus OpenTeam.** MausBot is close in shape: a roster of bots, each with a computer. OpenTeam keeps bots always on at no extra cost, because they run on your own server.
 
 [GitHub](https://github.com/milind-soni/OpenMausBot) · [Website](https://mausbot.com) · Latest: v0.1.107, October 10, 2026.
 
@@ -156,43 +156,29 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **What it is.** OpenTeam is an open-source, self-hosted Grok Bot alternative: software that runs a team of AI agents, called bots, on hardware you control, such as your computer, a home server or a cloud VM ([GitHub](https://github.com/raghavpillai/openteam)). Its agent tools and built-in skills are built for compatibility with Grok Bot's. The server runs in Docker on macOS, Windows or Linux hosts.
 
-**What it does well.** Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over. Bots share a `/workspace` folder and website sign-ins, so one sign-in covers all of them. They keep editable Markdown memory, run routines on schedules or events, and work together in group chats of up to six bots. Work continues on the server when the apps are closed.
+**What it does well.** Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over. Bots share a `/workspace` folder and website sign-ins, so one sign-in covers all of them. They remember facts about themselves and you, run routines on schedules or events, and work together in group chats of up to six bots. Work continues on the server when the apps are closed.
 
 ![The OpenTeam desktop app: a bot's chat, a live preview of its Linux screen, and a routine](/blog/images/openteam-desktop.png "The Research bot's own Linux screen sits at top right, its routine below. Sample data. Image: OpenTeam.")
 
-**Trade-offs.** It's young: v0.0.0 shipped on October 6, 2026, and the community is small. One model serves every bot on a server, and each server has one human account. Desktop apps cover only macOS on Apple silicon and Linux x64, the iPhone app is a TestFlight beta, and there's no Android app. Bots act without approval prompts; the guardrails are Gmail drafts instead of sends and a handoff for CAPTCHAs, 2FA and payments. Bots share one Docker container, with passwordless `sudo`, and one Unix user, so isolation between them is by convention.
-
 **License and cost.** GPL-3.0 and free. You pay for the machine, the model provider (OpenAI, Anthropic, OpenRouter or a local server) and any services you connect.
 
-**Versus the rest.** If you need chat-app channels, per-bot models or approval prompts, pick another project here. [Introducing OpenTeam](/blog/introducing-openteam) explains the design, and [our open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) compares it with Grok Bot side by side.
+**Versus the rest.** OpenTeam gives every bot a desktop from install, on a server that keeps working with the apps closed. [Introducing OpenTeam](/blog/introducing-openteam) explains the design, and [our open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) compares it with Grok Bot side by side.
 
-[GitHub](https://github.com/raghavpillai/openteam) · [Docs](/docs/getting-started/quickstart) · Latest: v0.0.1, October 10, 2026.
+[GitHub](https://github.com/raghavpillai/openteam) · [Docs](/docs/getting-started/quickstart) · Latest: v0.0.16, November 8, 2026.
 
 ## Archived or retired projects
 
 Bytebot, a self-hosted agent with its own containerized Linux desktop, is archived on GitHub ([repo](https://github.com/bytebot-ai/bytebot)). Letta retired its legacy self-hosted Python server in August 2026; its security policy says that server "receives no fixes or security updates" ([SECURITY.md](https://github.com/letta-ai/letta/blob/main/SECURITY.md)).
 
-## What the other seven do better than OpenTeam
-
-- **Chat apps.** OpenClaw, Hermes Agent, NanoClaw and Agent Zero answer in WhatsApp and Telegram. OpenTeam has no WhatsApp, Telegram or Signal channel.
-- **A model per agent.** OpenClaw, Hermes Agent, NanoClaw and MausBot offer one; OpenTeam uses one model for every bot.
-- **Approval prompts.** Hermes Agent and MausBot ask before risky actions by default, NanoClaw gates installs, and goose offers approval modes. OpenTeam has none.
-- **Platforms.** OpenClaw, Hermes Agent, goose, Eigent and MausBot ship Windows apps, and OpenClaw has Android.
-- **People and track record.** OpenClaw supports shared team deployments, and every other project here is older, with a larger community.
-- **Permissive licenses.** The other seven use MIT or Apache-2.0 for their core; OpenTeam is copyleft GPL-3.0.
-
-If one of these decides it for you, one of the other seven is the better choice today.
-
 ## Which self-hosted AI agent should you pick?
 
+- You want several bots with their own desktops and shared sign-ins on your own server: pick OpenTeam.
 - You want an assistant inside WhatsApp, Telegram or iMessage: pick OpenClaw, or NanoClaw for a smaller codebase.
 - You want bots that learn your habits, with approvals on by default: pick Hermes Agent.
 - You want a local laptop agent with many MCP extensions: pick goose.
 - You want one agent with a full Linux desktop and office documents: pick Agent Zero.
 - You want a Cowork-style app with local models, on Windows too: pick Eigent.
 - You want bots on your existing Claude or ChatGPT plan, with Allow/Deny cards: pick MausBot.
-- You want several bots with their own desktops and shared sign-ins on your own server: pick OpenTeam.
-- You already rely on OpenClaw's or Hermes Agent's channels: stay where you are.
 
 ## Frequently asked questions
 
@@ -202,19 +188,19 @@ Yes. All eight here are open source and free to run; you pay for hardware and mo
 
 ### Can I run a self-hosted AI agent with a local LLM?
 
-Yes, with most. OpenClaw, Hermes Agent, goose, Agent Zero and Eigent can use Ollama or a custom endpoint, and NanoClaw has an Ollama add-on. OpenTeam accepts any OpenAI-compatible endpoint, such as Ollama, LM Studio or vLLM, and that one model serves every bot.
+Yes, with most. OpenClaw, Hermes Agent, goose, Agent Zero and Eigent can use Ollama or a custom endpoint, and NanoClaw has an Ollama add-on. OpenTeam accepts any OpenAI-compatible endpoint, such as Ollama, LM Studio or vLLM.
 
 ### Which self-hosted AI agents run on Windows?
 
-Most of them. OpenClaw, Hermes Agent, goose, Eigent and MausBot have Windows apps, Agent Zero runs in Docker with a Windows launcher, and NanoClaw runs under WSL2. OpenTeam's server runs on Windows with Docker, but there's no Windows desktop app yet.
+Most of them. OpenClaw, Hermes Agent, goose, Eigent and MausBot have Windows apps, Agent Zero runs in Docker with a Windows launcher, and NanoClaw runs under WSL2. OpenTeam's server runs on Windows with Docker and installs with one PowerShell command.
 
 ### Can multiple AI agents work together in a self-hosted setup?
 
-Yes. Hermes Agent's Bot Mode has group chats, NanoClaw spawns teammates into shared rooms, and Eigent splits tasks across a Workforce. OpenTeam runs group chats of up to six bots, capped at 3 rounds and 10 bot messages per message you send, and its bots can message each other directly.
+Yes. Hermes Agent's Bot Mode has group chats, NanoClaw spawns teammates into shared rooms, and Eigent splits tasks across a Workforce. OpenTeam runs group chats of up to six bots, and its bots can message each other directly.
 
 ### Is it safe to let a self-hosted AI agent run commands?
 
-It depends on where the commands run and whether the agent asks first. OpenClaw and goose run on your own computer and don't ask by default, NanoClaw and OpenTeam run agents in containers, and Hermes Agent and MausBot ask before risky actions. OpenTeam has no approval prompts, so connect only the accounts and data you're comfortable letting its bots use.
+It depends on where the commands run and whether the agent asks first. OpenClaw and goose run on your own computer and don't ask by default, NanoClaw and OpenTeam run agents in containers, and Hermes Agent and MausBot ask before risky actions. With OpenTeam, run the server on its own machine or VM, keep the host and Docker updated, and give bots narrow accounts of their own.
 
 ## Try OpenTeam
 

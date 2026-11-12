@@ -23,8 +23,9 @@ export interface CatalogNamespace {
 /** First-party tools whose schema rides in the catalog. Every browser and worker task starts with Task,
  * and looking up its schema first cost the main agent a model round trip before each dispatch. A quick
  * lookup starts with WebSearch or WebFetch; with their schemas a lookup away, the main agent handed even
- * one-question research to an executor. */
-export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task", "WebFetch", "WebSearch"]);
+ * one-question research to an executor. Stop must also be immediately callable:
+ * discovering its schema first can let ongoing work finish before cancellation. */
+export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task", "StopSubagent", "WebFetch", "WebSearch"]);
 
 const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
@@ -36,10 +37,7 @@ const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace
 export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]): string | null {
   const entries = catalogEntries(namespaces);
   if (!entries.length) return null;
-  const preloaded = namespaces
-    .filter((namespace) => namespace.name === "cursor")
-    .flatMap((namespace) => namespace.tools.filter((tool) => PRELOADED_TOOL_NAMES.has(tool.name) && tool.inputSchema !== undefined))
-    .map((tool) => JSON.stringify({ namespace: "cursor", tool: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
+  const preloaded = preloadedToolSchemas(namespaces);
   return [
     "<dynamic_tool_catalog>",
     `These dynamic tool namespaces were available when this conversation started. Availability may have changed, so use \`GetDynamicTools\` to check current state before calling \`CallDynamicTool\`${preloaded.length ? ", except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly" : ""}.`,
@@ -52,10 +50,27 @@ export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]
   ].join("\n");
 }
 
-/** The first-party namespace alone, which is what the reference re-announces when it changes mid-conversation. */
+/** Announce first-party changes without rewriting the pinned user_info. Include schemas so existing
+ * conversations also receive newly preloaded tools, even when the available tool names did not change. */
 export function renderCursorNamespaceStatement(namespaces: readonly CatalogNamespace[]): string {
   const [entry] = catalogEntries(namespaces.filter((namespace) => namespace.name === "cursor"));
-  return `<dynamic_tool_namespaces>\n${entry ?? '(no built-in "cursor" namespace is available; discover the remaining namespaces with the discovery tool)'}\n</dynamic_tool_namespaces>`;
+  const preloaded = preloadedToolSchemas(namespaces);
+  return [
+    "<dynamic_tool_namespaces>",
+    entry ?? '(no built-in "cursor" namespace is available; discover the remaining namespaces with the discovery tool)',
+    "</dynamic_tool_namespaces>",
+    ...(preloaded.length ? [
+      "The tools in <preloaded_tool_schemas> can be called with `CallDynamicTool` directly, without a discovery call.",
+      "<preloaded_tool_schemas>", ...preloaded, "</preloaded_tool_schemas>",
+    ] : []),
+  ].join("\n");
+}
+
+function preloadedToolSchemas(namespaces: readonly CatalogNamespace[]): string[] {
+  return namespaces
+    .filter((namespace) => namespace.name === "cursor")
+    .flatMap((namespace) => namespace.tools.filter((tool) => PRELOADED_TOOL_NAMES.has(tool.name) && tool.inputSchema !== undefined))
+    .map((tool) => JSON.stringify({ namespace: "cursor", tool: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 }
 
 function catalogEntries(namespaces: readonly CatalogNamespace[]): string[] {
@@ -169,11 +184,13 @@ const isTextSend = (call: ReturnType<typeof toolCalls>[number]) =>
 
 function callsSinceLastSend(messages: readonly BotMessage[]): number {
   let count = 0;
+  const failed = new Set<unknown>();
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (isUserRole(message)) break;
+    if (message.role === "toolResult" && message.isError === true) failed.add(message.toolCallId);
     const calls = toolCalls(message);
-    if (calls.some((call) => call.name === "SendToUser")) break;
+    if (calls.some((call) => call.name === "SendToUser" && !failed.has(call.id))) break;
     count += calls.length;
   }
   return count;
@@ -188,7 +205,7 @@ function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
     if (isUserRole(message)) return false;
     if (message.role === "toolResult" && message.isError === true) failed.add(message.toolCallId);
     for (const call of toolCalls(message)) {
-      if (isTextSend(call)) return true;
+      if (isTextSend(call) && !failed.has(call.id)) return true;
       if (call.name === "ReactToMessage" && !failed.has(call.id) &&
           messages.slice(index + 1).some((result) => result.role === "toolResult" && result.toolCallId === call.id)) return true;
     }
@@ -199,13 +216,18 @@ function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
 /** The ack repeats every 2 silent calls until a text send or reaction; the progress note every 7 after that. */
 export function communicationReminder(
   messages: readonly BotMessage[],
-  active: Pick<ActiveTurn, "requestSource" | "subagentType">
+  active: Pick<ActiveTurn, "requestSource" | "subagentType"> & Partial<Pick<ActiveTurn, "userAcknowledged">>
 ) {
   if (active.subagentType || !["user", "turn"].includes(active.requestSource)) return null;
   const last = messages.at(-1);
   if (last && isCommunicationReminder(last)) return null;
   const calls = callsSinceLastSend(messages);
-  if (calls > ACK_THRESHOLD && !acknowledgedSinceTurnStart(messages)) return { kind: "ack", content: ACK_REMINDER };
+  // The active turn tracks actual delivery. A soft-failed reaction returns a
+  // normal tool result, so its mere presence in history is not an acknowledgement.
+  const acknowledged = active.userAcknowledged === undefined
+    ? acknowledgedSinceTurnStart(messages)
+    : active.userAcknowledged;
+  if (calls > ACK_THRESHOLD && !acknowledged) return { kind: "ack", content: ACK_REMINDER };
   if (calls > PROGRESS_THRESHOLD) return { kind: "progress", content: PROGRESS_REMINDER };
   return null;
 }

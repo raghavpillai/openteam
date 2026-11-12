@@ -69,7 +69,11 @@ import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
 import { PROCESS_NOTICE_TYPE, ProcessNotice } from "./runtime/process-notice";
 
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
-import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
+import {
+  assertSessionPath,
+  resolvedDisposableSessionPath,
+  existingContextSessionPath,
+} from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
@@ -259,8 +263,12 @@ export class ComputerRuntime {
     this.inferenceProviders.cancel(sessionId);
   }
 
-  async run(request: ComputerTurnRequest): Promise<AsyncIterable<ComputerEvent>> {
+  async run(request: ComputerTurnRequest, signal?: AbortSignal): Promise<AsyncIterable<ComputerEvent>> {
+    signal?.throwIfAborted();
     await this.start();
+    // Startup can outlive the caller's dispatch deadline. Never admit an expired request after
+    // deletion has already observed that no runtime turn exists and completed its cleanup.
+    signal?.throwIfAborted();
     const modelRef = parsePiModelRef(request.model);
     if (this.activeByRun.has(request.runId)) {
       throw new Error(`Run ${request.runId} is already active`);
@@ -310,6 +318,7 @@ export class ComputerRuntime {
       lastStopReason: null,
       lastErrorMessage: null,
       sentMessageCount: 0,
+      userAcknowledged: false,
       initialUserStarted: false,
       initialUserClientId: request.clientMessageId,
       pluginNamespaces: request.dynamicNamespaces ?? [],
@@ -320,10 +329,14 @@ export class ComputerRuntime {
     };
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);
+    const abortSetup = () => { void this.cancel(active.runId, "stop").catch(() => {}); };
+    signal?.addEventListener("abort", abortSetup, { once: true });
 
     try {
+      signal?.throwIfAborted();
       this.resolveModel(modelRef);
       const authentication = await this.modelRuntime?.checkAuth(modelRef.providerId);
+      signal?.throwIfAborted();
       if (!authentication) {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
@@ -428,6 +441,8 @@ export class ComputerRuntime {
         )
       );
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", abortSetup);
     }
   }
 
@@ -502,9 +517,16 @@ export class ComputerRuntime {
     }
     this.providerConnections.dispose(contextSessionId);
     await this.compaction.remove(contextSessionId);
-    if (sessionPath) {
-      await rm(assertSessionPath(this.sessionsDir, sessionPath), { force: true });
+    const recordedPath = sessionPath ?? await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (!recordedPath) return;
+    const removable = await resolvedDisposableSessionPath(this.sessionsDir, recordedPath);
+    if (!removable) {
+      console.warn(
+        `context session ${contextSessionId} records an unavailable path or one outside the session root; leaving ${recordedPath} untouched`
+      );
+      return;
     }
+    await rm(removable, { force: true });
   }
 
   private bindTurnStop(active: ActiveTurn, session: AgentSession): void {

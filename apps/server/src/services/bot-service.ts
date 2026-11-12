@@ -14,6 +14,8 @@ import {
   type AgentMessaging,
   appendAgentTimelineEvent,
   stopRequestProgress,
+  lockAgentLifecycle,
+  cleanupRetiredAgent,
   type BotFileTarget,
   buildSafeTranscript,
 } from "@openteam/messaging";
@@ -89,7 +91,6 @@ export class BotService {
               name,
               title: input.title?.trim() ?? "",
               description: input.description?.trim() ?? "",
-              instructions: input.instructions?.trim() ?? "",
               templateRecipe: recipe ? toJson(recipe) : undefined,
               icon: avatar.shape,
               color: avatar.color,
@@ -174,7 +175,6 @@ export class BotService {
       ) {
         fileTargets.push("profile");
       }
-      if (input.instructions !== undefined) fileTargets.push("instructions");
       if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
       if (input.notificationsEnabled !== undefined) {
         fileTargets.push("settings");
@@ -193,7 +193,6 @@ export class BotService {
             name,
             title: input.title?.trim(),
             description: input.description?.trim(),
-            instructions: input.instructions?.trim(),
             icon: input.icon,
             color: input.color,
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
@@ -226,8 +225,7 @@ export class BotService {
           profileChanged:
             input.name !== undefined ||
             input.title !== undefined ||
-            input.description !== undefined ||
-            input.instructions !== undefined,
+            input.description !== undefined,
           settingsChanged:
             input.notificationsEnabled !== undefined ||
             input.draftingDisabled !== undefined ||
@@ -330,90 +328,46 @@ export class BotService {
 
   archive = (botId: string) =>
     serviceEffect(async () => {
-      const existing = await this.prisma.bot.findUnique({
-        where: { id: botId },
-        include: { subagentIdentity: { select: { id: true } } },
-      });
-      if (!existing || existing.subagentIdentity) {
-        throw new ApiError(404, "bot_not_found", "Bot not found");
-      }
-      const children = await this.prisma.subagent.findMany({
-        where: { parentBotId: botId },
-        select: { id: true, childBotId: true, currentRunId: true, status: true },
-      });
-      const activeChildren = children.filter((child) =>
-        ["provisioning", "queued", "running", "waiting"].includes(child.status)
-      );
-      await Promise.all(
-        activeChildren.flatMap((child) =>
-          child.currentRunId
-            ? [
-                this.computerFetch(COMPUTER_API_PATHS.turnCancel(child.currentRunId), {
-                  method: "POST",
-                  signal: AbortSignal.timeout(5_000),
-                }).catch(() => undefined),
-              ]
-            : []
-        )
-      );
-      await Promise.all(
-        children.map((child) =>
-          this.computerFetch(`/v1/screens/${child.childBotId}`, {
-            method: "DELETE",
-            signal: AbortSignal.timeout(5_000),
-          }).catch(() => undefined)
-        )
-      );
-      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
-      const contextSessions = await this.prisma.contextSession.findMany({
-        where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
-        select: { id: true, runtimeSessionPath: true },
-      });
-      await Promise.all(
-        contextSessions.map((contextSession) =>
-          this.computerFetch(`/v1/context-sessions/${contextSession.id}`, {
-            method: "DELETE",
-            body: JSON.stringify({ sessionPath: contextSession.runtimeSessionPath }),
-            signal: AbortSignal.timeout(10_000),
-          }).then(async (response) => {
-            if (!response.ok) {
-              throw new ApiError(503, "context_cleanup_failed", await response.text());
-            }
-          })
-        )
-      );
-      const screenResponse = await this.computerFetch(`/v1/screens/${botId}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!screenResponse.ok) {
-        throw new ApiError(503, "screen_cleanup_failed", await screenResponse.text());
-      }
-      await this.prisma.$transaction(async (tx) => {
+      const ownerIds = await this.prisma.$transaction(async (tx) => {
+        await lockAgentLifecycle(tx, botId);
+        const existing = await tx.bot.findUnique({
+          where: { id: botId },
+          include: { subagentIdentity: { select: { id: true } } },
+        });
+        if (!existing || existing.subagentIdentity) {
+          throw new ApiError(404, "bot_not_found", "Bot not found");
+        }
+        const children = await tx.subagent.findMany({
+          where: { parentBotId: botId },
+          select: { id: true, childBotId: true, currentRunId: true, status: true },
+        });
+        const activeChildren = children.filter((child) =>
+          ["provisioning", "queued", "running", "waiting"].includes(child.status)
+        );
+        const ownerIds = [botId, ...children.map((child) => child.childBotId)];
+        await stopRequestProgress(tx, botId);
+        // stopRequestProgress holds the parent's claim lock. Fence each child's snapshot too,
+        // before changing its run/inbox rows, so a delayed claim cannot revive cancelled work
+        // or recreate contexts after runtime cleanup has finished.
+        for (const childBotId of children.map((child) => child.childBotId).sort()) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${childBotId}`}))`;
+        }
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
         const deletedAt = new Date();
+        // Persist cancellation before contacting the runtime. The worker heartbeat retries it if
+        // the computer is temporarily unavailable, and archived bots cannot claim another wake.
+        const activeRuns = await tx.run.findMany({
+          where: { botId: { in: ownerIds }, status: { in: ["queued", "running"] } },
+          select: { id: true, botId: true },
+        });
         for (const child of activeChildren) {
           const attempt = child.currentRunId
             ? await tx.subagentAttempt.findUnique({
                 where: { childRunId: child.currentRunId },
               })
             : null;
-          await tx.subagent.updateMany({
-            where: {
-              id: child.id,
-              status: { in: ["provisioning", "queued", "running", "waiting"] },
-            },
-            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
-          });
-          if (attempt) {
-            await tx.subagentAttempt.updateMany({
-              where: {
-                id: attempt.id,
-                status: { in: ["provisioning", "queued", "running", "waiting"] },
-              },
-              data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
-            });
-          }
+          // Worker settlement locks Run before Subagent/Attempt. Use that order too: holding
+          // the child row while waiting for its run can deadlock with a failing worker.
           if (child.currentRunId) {
             await tx.run.updateMany({
               where: {
@@ -441,6 +395,22 @@ export class BotService {
               },
             });
           }
+          await tx.subagent.updateMany({
+            where: {
+              id: child.id,
+              status: { in: ["provisioning", "queued", "running", "waiting"] },
+            },
+            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
+          });
+          if (attempt) {
+            await tx.subagentAttempt.updateMany({
+              where: {
+                id: attempt.id,
+                status: { in: ["provisioning", "queued", "running", "waiting"] },
+              },
+              data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+            });
+          }
           await appendEvent(tx, "subagent.stopped", child.id, {
             subagentId: child.id,
             parentBotId: botId,
@@ -450,6 +420,15 @@ export class BotService {
             reason: "parent_archived",
           });
         }
+        await tx.run.updateMany({
+          where: { botId: { in: ownerIds }, status: { in: ["queued", "running"] } },
+          data: { status: "cancelled", completedAt: deletedAt,
+            error: { code: "bot_archived", message: "The agent was archived" } },
+        });
+        await tx.inboxEvent.updateMany({
+          where: { botId: { in: ownerIds }, status: { in: ["pending", "processing"] } },
+          data: { status: "completed", completedAt: deletedAt, error: { code: "bot_archived" } },
+        });
         const childBotIds = children.map((child) => child.childBotId);
         await tx.bot.updateMany({
           where: { id: { in: childBotIds } },
@@ -476,14 +455,27 @@ export class BotService {
           where: { directKey: `bot:${botId}` },
           data: { archivedAt: deletedAt },
         });
+        for (const id of ownerIds) {
+          const cleanupRunIds = activeRuns.filter((run) => run.botId === id).map(({ id }) => id);
+          await tx.retiredAgent.upsert({
+            where: { id },
+            create: { id, cleanupRunIds },
+            // Repeated deletion must not erase a cancellation that still needs delivery.
+            update: { cleanupPending: true, nextCleanupAt: deletedAt, cleanupRunIds: { push: cleanupRunIds } },
+          });
+        }
         await appendEvent(tx, "bot.archived", botId, { botId });
+        return ownerIds;
       });
-      await Promise.all(
-        [botId, ...children.map((child) => child.childBotId)].map((id) =>
-          this.agentData.deleteAgentFiles(id)
-        )
-      );
-      await this.agentData.repairActiveAgentAfterDeletion(botId);
+      await Promise.all(ownerIds.map(async (id) => {
+        try {
+          const warnings = await cleanupRetiredAgent(this.prisma, this.computerFetch, this.agentData, id);
+          for (const warning of warnings) console.warn(`bot archive cleanup: ${warning}`);
+        } catch (error) {
+          // The retirement transaction already queued the retry, including if this process exits.
+          console.warn(`bot archive cleanup ${id}: ${String(error)}`);
+        }
+      }));
       return { ok: true };
     });
 

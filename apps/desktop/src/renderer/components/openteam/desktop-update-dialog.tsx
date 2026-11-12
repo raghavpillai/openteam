@@ -11,7 +11,6 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { LoadingOrb } from "../ui/loading-orb";
 
 export function DesktopUpdateDialog() {
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
@@ -107,10 +106,9 @@ export function DesktopUpdateDialog() {
             className="h-8 gap-1.5 rounded-[9px] bg-black text-[14px] font-normal text-white hover:bg-black/90 dark:bg-[#fafafa] dark:text-[#141414] dark:shadow-[inset_0_0_0_0.5px_#d7d7d7] dark:hover:bg-white/90"
             disabled={installing || update?.status !== "downloaded"}
             onClick={() => void install()}
+            loading={installing}
           >
-            {installing ? (
-              <LoadingOrb aria-hidden inverse size={14} />
-            ) : (
+            {!installing && (
               <svg
                 aria-hidden="true"
                 className="-translate-y-[0.5px] size-3.5"
@@ -124,9 +122,7 @@ export function DesktopUpdateDialog() {
                 <path d="M3.5 15v-2A4.5 4.5 0 0 1 8 8.5V7a4 4 0 0 1 8 0v1.5a4.5 4.5 0 0 1 4.5 4.5v2M12 10v11m-5-5 5 5 5-5" />
               </svg>
             )}
-            <span className="-translate-y-[0.5px]">
-              {installing ? "Restarting…" : "Restart to update"}
-            </span>
+            <span className="-translate-y-[0.5px]">{installing ? "Restarting…" : "Restart to update"}</span>
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

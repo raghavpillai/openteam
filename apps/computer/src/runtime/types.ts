@@ -62,6 +62,8 @@ export interface ActiveTurn {
   lastErrorMessage: string | null;
   lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
+  /** A text send or tapback reached the user during this turn; attachments/widgets are not opening acknowledgements. */
+  userAcknowledged?: boolean;
   /** SendToUser calls of a response go out one after another, in call order. */
   sendChain?: Promise<unknown>;
   initialUserStarted: boolean;

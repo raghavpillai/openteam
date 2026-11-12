@@ -12,9 +12,15 @@ for (const folder of await readdir(root, { withFileTypes: true })) {
   if (!(await descriptor.exists())) continue;
   const upstream = await descriptor.json();
   if (upstream.origin === "openteam") continue;
-  const host = await readFile(join(root, folder.name, "plugin.json"), "utf8");
+  const host = JSON.parse(await readFile(join(root, folder.name, "plugin.json"), "utf8"));
+  // Source verification must also work before path-based skill files have been restored.
+  if (Array.isArray(host.skills))
+    host.skills = host.skills.map((skill: Record<string, unknown>) => ({
+      ...skill,
+      body: skill.body === undefined ? "" : skill.body,
+    }));
   const source = parsePluginDefinition({
-    ...importPackage({ "plugin.json": host }).definition,
+    ...importPackage({ "plugin.json": JSON.stringify(host) }).definition,
     upstream,
   }).upstream!;
   if (check && source.delivery === "install") continue;

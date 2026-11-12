@@ -9,9 +9,9 @@ struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @AppStorage("haptics") private var haptics = true
   @State private var signOut = false
-  @State private var verticalBar = false
   @State private var path: [SettingsRoute]
   init(initialRoute: SettingsRoute? = nil) {
     _path = State(initialValue: initialRoute.map { [$0] } ?? [])
@@ -27,12 +27,12 @@ struct SettingsView: View {
             AccountConnectionView()
           } label: {
             HStack(spacing: 10) {
-              AccountMark(name: store.accountDisplayName)
-              VStack(alignment: .leading, spacing: 2) {
+              AccountMark(name: store.accountDisplayName, size: 40, initialsScale: 0.42)
+              VStack(alignment: .leading, spacing: 3) {
                 Text(store.accountDisplayName).font(.body)
                 Text(store.server).font(.system(size: 13)).foregroundStyle(NativePalette.muted)
                   .lineLimit(1)
-                Text("Self-hosted").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+                Text("Self-hosted").font(.system(size: 13)).foregroundStyle(NativePalette.muted)
               }
             }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
@@ -46,7 +46,7 @@ struct SettingsView: View {
               Text("Plugins").font(.body)
               Text("Tools and skills for OpenTeam").font(.system(size: 13))
                 .foregroundStyle(NativePalette.muted)
-            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("plugins-settings")
         }
@@ -67,7 +67,7 @@ struct SettingsView: View {
               Text("Providers").font(.body)
               Text("Web search and page fetching").font(.system(size: 13))
                 .foregroundStyle(NativePalette.muted)
-            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("providers-settings")
           NavigationLink("Server", value: SettingsRoute.server)
@@ -102,22 +102,26 @@ struct SettingsView: View {
                 + " · " + accent.capitalized
             ).frame(maxWidth: .infinity).contentShape(Rectangle())
           }.accessibilityIdentifier("appearance-picker").foregroundStyle(NativePalette.text)
+          Toggle(isOn: $useBotMessageColors) {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Use bot colors for messages")
+              Text("Color your sent messages with the bot’s color. Off keeps them gray.")
+                .font(.system(size: 13)).foregroundStyle(NativePalette.muted)
+            }
+          }.tint(NativePalette.toggle).accessibilityIdentifier("bot-message-colors")
           Toggle("App haptics", isOn: $haptics).tint(NativePalette.toggle)
         }
         Section {
           NavigationLink("More preferences") { NativePreferencesView() }
-          Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
+          Link("Help Center", destination: URL(string: "https://openteam.so/support")!)
+          Link("Privacy Policy", destination: URL(string: "https://openteam.so/privacy")!)
         }
         Section {
           Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {
             signOut = true
           }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")
         }
-      }.listStyle(.insetGrouped)
-        // The reference's cards begin 16 points inside the inset sheet, with
-        // less top/row padding than the system's default grouped list.
-        .listCardMargins(16)
-        .contentMargins(.top, 20, for: .scrollContent)
+      }.contentMargins(.top, 20, for: .scrollContent)
         .listSectionSpacing(28)
         // Rows scroll under Close; give the bar the soft edge other settings pages have.
         .softTopScrollEdge()
@@ -132,10 +136,8 @@ struct SettingsView: View {
           }
         }
         .toolbar {
-          // With Close in iPhone Duo's side bar, the title fills the top bar
-          // as on every settings page; elsewhere the sheet keeps it hidden.
-          if !verticalBar {
-            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+          ToolbarItem(placement: .principal) {
+            Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
           }
           ToolbarItem(placement: .cancellationAction) {
             Button { dismiss() } label: {
@@ -144,7 +146,6 @@ struct SettingsView: View {
               .accessibilityIdentifier("sheet-close")
           }
         }
-        .readingVerticalBar($verticalBar)
         .confirmationDialog(
           "Sign out of this server?", isPresented: $signOut, titleVisibility: .visible
         ) {
@@ -162,6 +163,8 @@ struct SettingsView: View {
           )
         }
     }
+    .environment(\.settingsStyle, true)
+    .environment(\.canvasColor, SettingsStyle.background)
     .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
   }
   /// The Model row's warning while bots can't reply.
@@ -189,7 +192,7 @@ struct SettingsView: View {
         Text(status.text).font(.subheadline)
           .foregroundStyle(status.warning ? NativePalette.warning : NativePalette.muted)
       }
-    }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+    }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
   }
   var notificationSettings: some View {
@@ -347,21 +350,20 @@ struct ServerStatusSections: View {
 }
 
 struct ConversationDetails: View {
-  private enum ProfileField: Hashable { case name, title, description, instructions }
+  private enum ProfileField: Hashable { case name, description }
   @FocusState private var focusedProfile: ProfileField?
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let channelID: String
   @State private var name = ""
   @State private var description = ""
-  @State private var instructions = ""
   @State private var members: Set<String> = []
   @State private var resetAvatar = false
   @State private var deleting = false
   @State private var saving = false
   @State private var color = "#A47952"
   @State private var icon = "chip"
-  @State private var title = ""
   @State private var initialized = false
   @State private var failure: String?
   @State private var addingRoutine = false
@@ -396,10 +398,7 @@ struct ConversationDetails: View {
             TextField("Name", text: $name).accessibilityIdentifier("profile-name")
               .focused($focusedProfile, equals: .name)
               .font(.title3.weight(.semibold)).multilineTextAlignment(.center)
-            if bot != nil {
-              TextField("Label (optional)", text: $title).accessibilityIdentifier("profile-title")
-                .focused($focusedProfile, equals: .title).multilineTextAlignment(.center)
-            } else {
+            if bot == nil {
               TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
                 .accessibilityIdentifier("profile-description").focused(
                   $focusedProfile, equals: .description)
@@ -431,17 +430,13 @@ struct ConversationDetails: View {
                     TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
                       .accessibilityIdentifier("profile-description")
                   }
-                  Section("Instructions") {
-                    TextEditor(text: $instructions).frame(minHeight: 220)
-                      .accessibilityIdentifier("profile-instructions")
-                  }
-                }.navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
+                }.navigationTitle("Description").navigationBarTitleDisplayMode(.inline)
                   .scrollDismissesKeyboard(.interactively)
               } label: {
                 HStack(spacing: 14) {
                   Image(systemName: "doc.text").font(.system(size: 17))
                     .foregroundStyle(NativePalette.muted).frame(width: 20)
-                  Text("Instructions")
+                  Text("Description")
                 }
               }
             }.listRowBackground(NativePalette.assistant)
@@ -484,7 +479,7 @@ struct ConversationDetails: View {
         .listCardMargins(24)
         .environment(\.defaultMinListRowHeight, 50)
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .toolbar(sideChrome == nil ? .visible : .hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .background(NativeBackGesture(shouldBegin: mayLeaveProfile).frame(width: 0, height: 0))
         .scrollContentBackground(.hidden).nativeCanvas()
@@ -519,23 +514,12 @@ struct ConversationDetails: View {
           }
           if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
           ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-              if let bot {
-                if bot.status == "failed" {
-                  Button("Retry setup") {
-                    Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
-                  }
-                }
-              }
-              Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) {
-                deleting = true
-              }
-            } label: {
-              Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
-            }
-            .disabled(saving).accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+            profileOptions
           }
         }
+        .padding(.trailing, sideChrome?.contentInset ?? 0)
+        .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
+        .preference(key: ContextualSideControlsKey.self, value: sideChrome != nil)
         .sheet(
           isPresented: Binding(get: { templateFile != nil }, set: { if !$0 { templateFile = nil } })
         ) {
@@ -565,10 +549,8 @@ struct ConversationDetails: View {
           initialized = true
           name = channel?.name ?? ""
           description = bot?.description ?? channel?.description ?? ""
-          instructions = bot?.instructions ?? ""
           icon = bot?.icon ?? "chip"
           color = bot?.color ?? "#A47952"
-          title = bot?.title ?? ""
           members = Set(channel?.members.map(\.botId) ?? [])
         }
         .alert("Save changes?", isPresented: $confirmingExit) {
@@ -598,18 +580,57 @@ struct ConversationDetails: View {
         }
     }
   }
+  private var sideControls: some View {
+    VStack(spacing: 12) {
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) {
+        if mayLeaveProfile() { dismiss() }
+      }.disabled(saving).accessibilityIdentifier("profile-back")
+      if profileChanged {
+        ChatChromeButton(title: saving ? "Saving…" : "Save", symbol: "checkmark") {
+          Task { await save() }
+        }.disabled(!canSaveProfile).accessibilityIdentifier("profile-save")
+      }
+      Spacer(minLength: 12)
+      if bot != nil {
+        ChatChromeButton(title: "Share as template", symbol: "square.and.arrow.up") {
+          Task { await exportTemplate() }
+        }.disabled(exportingTemplate || saving)
+      }
+      profileOptions
+    }
+  }
+  private var profileOptions: some View {
+    Menu {
+      if let bot, bot.status == "failed" {
+        Button("Retry setup") {
+          Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
+        }
+      }
+      Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) {
+        deleting = true
+      }
+    } label: {
+      if sideChrome != nil {
+        Image(systemName: "ellipsis").font(.system(size: 17))
+          .foregroundStyle(NativePalette.text).frame(width: 44, height: 44)
+          .modifier(RailControlGlass())
+      } else {
+        Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
+      }
+    }
+    .disabled(saving).accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+  }
   private var profileChanged: Bool {
     initialized
       && (name != (channel?.name ?? "")
         || description != (bot?.description ?? channel?.description ?? "")
-        || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
         || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
         || resetAvatar || members != Set(channel?.members.map(\.botId) ?? []))
   }
   private var canSaveProfile: Bool {
     !saving && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && !(channel?.isGroup == true && name.count > 80) && title.count <= 120
-      && description.count <= 2_000 && instructions.count <= 20_000
+      && !(channel?.isGroup == true && name.count > 80)
+      && description.count <= 2_000
       && !(channel?.isGroup == true && (members.isEmpty || members.count > 6))
   }
   private func mayLeaveProfile() -> Bool {
@@ -641,8 +662,7 @@ struct ConversationDetails: View {
     if let bot {
       var fields: [String: JSON] = [
         "name": .string(name.trimmingCharacters(in: .whitespacesAndNewlines)),
-        "description": .string(description), "instructions": .string(instructions),
-        "title": .string(title),
+        "description": .string(description),
       ]
       if resetAvatar || icon != bot.icon || color.lowercased() != bot.color.lowercased() {
         fields["icon"] = .string(icon)

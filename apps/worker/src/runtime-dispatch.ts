@@ -19,6 +19,10 @@ export async function dispatchComputerTurn(
     return await prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${TASK_RECOVERY_LOCK}))`;
+        // Deletion persists cancellation before contacting the computer. Hold the run row until
+        // acceptance so it cannot commit a cancellation, observe "not active", and then let this
+        // already-validated request start work afterwards. Ordinary status updates take this lock too.
+        await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${runId}::uuid FOR NO KEY UPDATE`;
         const run = await tx.run.findUnique({ where: { id: runId }, select: { status: true } });
         if (run?.status !== "running")
           throw new Error("Run was invalidated before runtime dispatch");

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotMemoryEntry, BotView } from "@openteam/contracts";
 import {
   Brain,
@@ -93,14 +94,14 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {entry ? (
         <>
-          <button
+          <ButtonPrimitive
             type="button"
             onClick={() => setSelected(null)}
             className="flex min-h-8 items-center gap-1.5 self-start rounded-lg pr-2 text-[13px] text-foreground-secondary hover:bg-subtle"
           >
             <ChevronLeft className="size-4" />
             All memories
-          </button>
+          </ButtonPrimitive>
           <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto">
             <div className="mb-1.5 px-2 text-[12px] text-foreground-secondary">Content</div>
             <p className="whitespace-pre-wrap break-words rounded-xl bg-subtle p-3 text-[14px] leading-5">
@@ -110,7 +111,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
               {entry.kind === "profile" ? "Profile" : "Journal"} ·{" "}
               {new Date(entry.createdAt).toISOString().slice(0, 10)}
             </p>
-            <button
+            <ButtonPrimitive
               type="button"
               disabled={Boolean(state.pending)}
               onClick={() => setTarget(entry)}
@@ -118,7 +119,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
             >
               <Trash2 className="size-3.5" />
               Delete memory
-            </button>
+            </ButtonPrimitive>
           </div>
         </>
       ) : (
@@ -155,7 +156,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
                 <ul className="divide-y divide-foreground/10 rounded-xl bg-subtle px-3">
                   {filtered.map((memory) => (
                     <li key={memory.id} className="group flex items-center gap-1">
-                      <button
+                      <ButtonPrimitive
                         type="button"
                         onClick={() => {
                           setSelected(memory.id);
@@ -182,7 +183,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
                           </span>
                         )}
                         <ChevronRight className="size-3.5 shrink-0 text-foreground-tertiary" />
-                      </button>
+                      </ButtonPrimitive>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -269,12 +270,9 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
               variant="destructive"
               disabled={Boolean(state.pending)}
               onClick={() => void confirm()}
+              loading={Boolean(state.pending)}
             >
-              {state.pending
-                ? "Deleting…"
-                : target === "all"
-                  ? "Clear all memories"
-                  : "Delete memory"}
+              {state.pending ? "Deleting…" : target === "all" ? "Clear all memories" : "Delete memory"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

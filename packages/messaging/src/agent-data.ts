@@ -206,7 +206,7 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
   if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
 };
 
-export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
+export type BotFileTarget = "profile" | "settings" | "avatar";
 
 export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
   signal?: AbortSignal;
@@ -1059,30 +1059,40 @@ export class AgentDataStore {
             scope: "agent", tier: memory.kind ?? "profile", fact: memory.content, at: date,
           }, { source: "template" });
         }
-        const skillPaths: string[] = [];
+        const setupFacts: string[] = [];
         for (const [index, skill] of recipe.skills.entries()) {
           const slug = `template-${botId}-${index}`;
           const input = { slug, name: skill.name, description: skill.description || `Reusable ${skill.name} workflow`, body: skill.content };
-          const written = await writeSkillFile(this.workflowsDirectory(), input);
+          await writeSkillFile(this.workflowsDirectory(), input);
           await tx.savedSkill.upsert({ where: { slug }, create: { ...input, botId: null }, update: {} });
-          skillPaths.push(`${skill.name}: ${written.path}`);
+          setupFacts.push(`Imported skill ${JSON.stringify(skill.name)} is available in the shared skills library.`);
         }
-        const routinePaths: string[] = [];
         for (const [index, routine] of recipe.routines.entries()) {
           const path = join(directory, "template-routines", `${index}-${slugify(routine.slug, "routine")}.md`);
           await atomicWrite(path, `# ${routine.name || routine.slug}\n\n${routine.description}\n\n${routine.content}\n`);
-          routinePaths.push(path);
+          setupFacts.push(`Proposed routine ${JSON.stringify(routine.name || routine.slug)} is in this Bot's template-routines/${index}-${slugify(routine.slug, "routine")}.md. It is not scheduled; configure its destinations and trigger with the user before enabling it.`);
         }
-        const additions = [skillPaths.length ? `Imported skills:\n${skillPaths.join("\n")}` : "", routinePaths.length ? `Proposed routines (not scheduled):\n${routinePaths.join("\n")}\nRead each workflow and configure its destinations and trigger with the user before enabling it.` : "", recipe.plugins.length ? `Plugin requirements (no account access granted by import): ${recipe.plugins.map((item) => item.pluginId).join(", ")}` : "", recipe.gettingStarted ? `On the first conversation, read the imported skill ${JSON.stringify(recipe.gettingStarted.skill)} and use it to guide setup with the user.` : ""].filter(Boolean).join("\n\n");
-        await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull, instructions: [bot.instructions, additions].filter(Boolean).join("\n\n") } });
-        await this.writeBotFilesInTransaction(tx, botId, ["instructions"]);
+        for (const plugin of recipe.plugins) {
+          setupFacts.push(`Template plugin requirement: ${plugin.pluginId}. Import grants no account access.`);
+        }
+        if (recipe.gettingStarted) {
+          setupFacts.push(`On the first conversation, read the imported skill ${JSON.stringify(recipe.gettingStarted.skill)} and use it to guide setup with the user.`);
+        }
+        // Template setup uses the existing memory path, not a private bot-instructions field.
+        // Keep each bounded recipe item separate so memory normalization cannot truncate later notes.
+        for (const fact of setupFacts) {
+          await this.insertMemoryFact(tx, botId, {
+            scope: "agent", tier: "profile", fact, at: bot.createdAt,
+          }, { source: "template" });
+        }
+        await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull } });
       }
     });
   }
 
   async writeBotFiles(
     botId: string,
-    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar"]
+    targets: BotFileTarget[] = ["profile", "settings", "avatar"]
   ): Promise<void> {
     await this.initializeBot(botId);
     await this.withFileMutation(botId, "bot-files", (tx) =>
@@ -1150,9 +1160,6 @@ export class AgentDataStore {
       }
       delete value.hiddenFromSidebar;
       await writeEditableBotFile(path, jsonFile({ ...value, ...settingsDocument(bot) }));
-    }
-    if (targets.includes("instructions")) {
-      await rm(join(directory, "instructions.md"), { force: true });
     }
     if (targets.includes("avatar")) {
       const existing = await this.avatarFiles(botId);
@@ -1438,7 +1445,13 @@ export class AgentDataStore {
       select: { id: true },
     });
     for (const bot of obsolete) {
-      await rm(this.botDirectory(bot.id), { recursive: true, force: true });
+      // A directory whose SQLite store is still open (or was already half deleted) may refuse the
+      // removal; that must not abort the rest of the reconciliation pass.
+      await rm(this.botDirectory(bot.id), { recursive: true, force: true }).catch((error) => {
+        warnings.push(
+          `obsolete agent directory ${bot.id}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
     }
     return { warnings: warnings.slice(0, 100) };
   }
@@ -1765,22 +1778,6 @@ export class AgentDataStore {
         },
       });
       await this.trackFile(tx, botId, "settings", path, text, message);
-    }
-  }
-
-  private async reconcileInstructions(tx: Tx, botId: string, warnings: string[]): Promise<void> {
-    const path = join(this.botDirectory(botId), "instructions.md");
-    try {
-      const text = await readText(path, 200_000);
-      await tx.bot.update({
-        where: { id: botId },
-        data: { instructions: text?.trim() ?? "" },
-      });
-      await this.trackFile(tx, botId, "instructions", path, text);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`instructions.md: ${message}`);
-      await this.trackFile(tx, botId, "instructions", path, null, message);
     }
   }
 

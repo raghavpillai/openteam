@@ -23,7 +23,7 @@ sources = add('sources', dict(isa='PBXFileSystemSynchronizedRootGroup', path='So
 ui_tests = add('ui-tests', dict(isa='PBXFileSystemSynchronizedRootGroup', path='Tests/UITests', sourceTree='<group>'))
 resources = []
 resource_refs = []
-for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml')]:
+for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml'), ('Resources/Skills.skillsbundle', 'wrapper.skillsbundle')]:
     ref = add(path, dict(isa='PBXFileReference', lastKnownFileType=kind, path=path, sourceTree='<group>'))
     resources.append(add(path+'-build', dict(isa='PBXBuildFile', fileRef=ref))); resource_refs.append(ref)
 products = add('products', dict(isa='PBXGroup', children=[app, test, extension], name='Products', sourceTree='<group>'))
@@ -34,6 +34,7 @@ def configs(name, settings):
     for mode in ['Debug', 'Release']:
         build = dict(settings)
         if name == 'app':
+            build['EXCLUDED_SOURCE_FILE_NAMES'] = 'Skills.skillsbundle'
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_URL_SCHEME='openteam-swift' if mode == 'Debug' else 'openteam')
             build['ENABLE_TESTABILITY'] = 'YES' if mode == 'Debug' else 'NO'
         if name == 'share':
@@ -167,6 +168,7 @@ visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<Skip
 # Real inference is explicitly opt-in; regular UI verification stays deterministic.
 (schemes / 'VNCValidation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'VNCValidationUITests'))
 (schemes / 'LaunchRobot.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'LaunchRobotUITests'))
+(schemes / 'SiriSkills.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SiriSkillsUITests'))
 (schemes / 'Palette.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'PaletteUITests'))
 (schemes / 'Haptics.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'HapticsUITests'))
 (schemes / 'RoutineSchedule.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'RoutineScheduleUITests'))
@@ -193,3 +195,8 @@ for scheme in ['OpenTeamNative.xcscheme']:
 (schemes / 'Acceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
 
 (schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))
+
+# Search/navigation fixtures run separately on port 20124.
+(schemes / 'SearchNavigation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SearchNavigationUITests'))
+path = schemes / 'OpenTeamNative.xcscheme'
+path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="SearchNavigationUITests"/></SkippedTests>'))

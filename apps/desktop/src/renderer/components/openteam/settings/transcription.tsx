@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { SettingsSelectContent } from "./select-content";
 import {
   defaultTranscriptionSettings,
@@ -165,13 +166,13 @@ export function TranscriptionSettingsPanel() {
             ) : (
               <>
                 <span className="flex-1">{message}</span>
-                <button
+                <ButtonPrimitive
                   className={settingsSecondaryButton}
                   onClick={() => void load()}
                   type="button"
                 >
                   Try again
-                </button>
+                </ButtonPrimitive>
               </>
             )}
           </div>
@@ -313,7 +314,7 @@ export function TranscriptionSettingsPanel() {
                     }}
                   />
                   {saved.hasApiKey ? (
-                    <button
+                    <ButtonPrimitive
                       type="button"
                       className={`${settingsSecondaryButton} text-destructive`}
                       onClick={() => {
@@ -323,7 +324,7 @@ export function TranscriptionSettingsPanel() {
                       }}
                     >
                       {removeKey ? "Undo deletion" : "Delete key"}
-                    </button>
+                    </ButtonPrimitive>
                   ) : null}
                 </div>
               }
@@ -345,22 +346,24 @@ export function TranscriptionSettingsPanel() {
             />
           </SettingsGroup>
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2 px-2">
-            <button
+            <ButtonPrimitive
               type="button"
               className={settingsSecondaryButton}
               disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
               onClick={() => void check()}
+              loading={busy === "check"}
             >
-              {busy === "check" ? <LoadingOrb aria-hidden size={14} /> : null} Test connection
-            </button>
-            <button
+              Test connection
+            </ButtonPrimitive>
+            <ButtonPrimitive
               type="button"
               className={settingsPrimaryButton}
               disabled={Boolean(busy) || !changed}
               onClick={() => void save()}
+              loading={busy === "save"}
             >
-              {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null} Save
-            </button>
+              Save
+            </ButtonPrimitive>
           </div>
           {message ? (
             <p

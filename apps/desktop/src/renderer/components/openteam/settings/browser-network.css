@@ -184,6 +184,9 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.bn-egress > span:first-child {
+  flex-shrink: 0;
+}
 .bn-egress-pending {
   color: var(--foreground-secondary);
 }
@@ -222,4 +225,25 @@
 }
 .bn-quality-values span {
   white-space: nowrap;
+}
+
+.bn-protocols {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding-block: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.bn-protocol-title, .bn-protocol-values, .bn-protocol { display: inline-flex; align-items: center; }
+.bn-protocol-title { font-size: 13px; }
+.bn-protocol-values { gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.bn-protocol { gap: 5px; white-space: nowrap; }
+.bn-protocol-state { color: var(--foreground-secondary); font-size: 11px; }
+.bn-protocol.working .bn-status-dot { background: #059669; }
+@media (max-width: 420px) {
+  .bn-protocols { align-items: flex-start; }
+  .bn-protocol-values { gap: 4px 12px; }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@openteam/design-tokens",
-  "version": "0.0.13",
+  "version": "0.0.17",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./permission-icons": "./src/permission-icons.ts",
     "./appearance": "./src/appearance.ts",
+    "./message-colors": "./src/message-colors.ts",
     "./mobile-theme": "./src/mobile-theme.ts",
     "./robot-avatar-artwork": "./src/robot-avatar-artwork.ts",
     "./robot-avatar.css": "./src/robot-avatar.css",

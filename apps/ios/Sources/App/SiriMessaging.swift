@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 @available(iOS 27.0, *)
 @AppEntity(schema: .messages.messagePerson)
 struct TeamSiriPerson: IndexedEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let defaultQuery = TeamSiriPersonQuery()
   var id: String
   var person: IntentPerson
@@ -32,6 +33,12 @@ struct TeamSiriPerson: IndexedEntity, Transferable {
 @available(iOS 27.0, *)
 struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQuery {
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamSiriPerson] {
+    // The owner is message context rather than a Bot; resolve it through the live account below.
+    if identifiers.allSatisfy({ SystemEntityID($0)?.localID != "owner" }) {
+      return try await TeamBotQuery().entities(for: identifiers).map {
+        TeamSiriPerson(id: $0.id, name: $0.name)
+      }
+    }
     let client = try await SystemIntentClient.connect()
     return try identifiers.compactMap { value in
       let id = try client.identifier(value, kind: .bot)
@@ -44,10 +51,9 @@ struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQu
   }
   @MainActor func suggestedEntities() async throws -> [TeamSiriPerson] { try await entities(matching: "") }
   @MainActor func entities(matching string: String) async throws -> [TeamSiriPerson] {
-    let client = try await SystemIntentClient.connect()
-    return client.destinations.filter {
-      string.isEmpty || $0.name.localizedStandardContains(string)
-    }.compactMap { $0.bot.map { TeamSiriPerson($0, scope: client.scope) } }
+    try await TeamBotQuery().entities(matching: string).map {
+      TeamSiriPerson(id: $0.id, name: $0.name)
+    }
   }
   @MainActor func values(for input: [IntentPerson]) async throws -> [TeamSiriPerson] {
     let client = try await SystemIntentClient.connect()
@@ -74,6 +80,7 @@ struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQu
 @available(iOS 27.0, *)
 @AppEntity(schema: .messages.conversation)
 struct TeamSiriConversation: IndexedEntity {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let defaultQuery = TeamSiriConversationQuery()
   var id: String
   var recipients: [TeamSiriPerson]
@@ -84,15 +91,22 @@ struct TeamSiriConversation: IndexedEntity {
   var attributes: Set<TeamSiriConversationAttribute>
   var dateLastActive: Date?
   var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(displayName)") }
-  init(_ target: ShareDestination, scope: String) {
+  var attributeSet: CSSearchableItemAttributeSet {
+    let attributes = CSSearchableItemAttributeSet(contentType: .text)
+    attributes.title = displayName
+    attributes.contentDescription = String(previewText.characters)
+    attributes.contentModificationDate = dateLastActive
+    return attributes
+  }
+  init(_ target: ShareDestination, scope: String, latestMessage: Message? = nil) {
     id = TeamConversationEntity(target, scope: scope).id
     recipients = target.members.map { TeamSiriPerson($0, scope: scope) }
     displayName = target.name
-    previewText = AttributedString("")
+    previewText = AttributedString(SystemConversationProjection.preview(latestMessage))
     conversationName = target.channel.isGroup ? target.name : nil
     isRead = (target.channel.unreadCount ?? 0) == 0
     attributes = []
-    dateLastActive = target.lastActivity
+    dateLastActive = [target.lastActivity, latestMessage?.date].compactMap { $0 }.max()
   }
 }
 
@@ -101,14 +115,15 @@ struct TeamSiriConversationQuery: EntityStringQuery, IndexedEntityQuery {
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamSiriConversation] {
     let client = try await SystemIntentClient.connect()
     return try identifiers.map {
-      TeamSiriConversation(try client.destination($0, kind: .conversation), scope: client.scope)
+      TeamSiriConversation(try client.destination($0, kind: .conversation), scope: client.scope,
+        latestMessage: client.latestMessage(channelID: SystemEntityID($0)?.channelID ?? ""))
     }
   }
   @MainActor func suggestedEntities() async throws -> [TeamSiriConversation] { try await entities(matching: "") }
   @MainActor func entities(matching string: String) async throws -> [TeamSiriConversation] {
     let client = try await SystemIntentClient.connect()
     return ShareDirectory.visible(client.destinations, query: string, selected: []).map {
-      TeamSiriConversation($0, scope: client.scope)
+      TeamSiriConversation($0, scope: client.scope, latestMessage: client.latestMessage(channelID: $0.id))
     }
   }
   func reindexEntities(for identifiers: [String], indexDescription: CSSearchableIndexDescription) async throws {
@@ -122,6 +137,7 @@ struct TeamSiriConversationQuery: EntityStringQuery, IndexedEntityQuery {
 @available(iOS 27.0, *)
 @AppEntity(schema: .messages.message)
 struct TeamSiriMessage: IndexedEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let defaultQuery = TeamSiriMessageQuery()
   var id: String
   var messageType: TeamSiriMessageType
@@ -165,7 +181,7 @@ struct TeamSiriMessage: IndexedEntity, Transferable {
     attributes.contentCreationDate = date
     return attributes
   }
-  init(_ message: Message, target: ShareDestination, scope: String, owner: String) {
+  init(_ message: Message, target: ShareDestination, scope: String, owner: String, latestMessage: Message? = nil) {
     id = SystemEntityID(scope: scope, kind: .message, channelID: message.channelId, localID: message.id).value
     messageType = .unspecified
     if message.isUser {
@@ -176,9 +192,9 @@ struct TeamSiriMessage: IndexedEntity, Transferable {
     } else {
       author = TeamSiriPerson(id: id, name: "OpenTeam")
     }
-    isRead = (target.channel.unreadCount ?? 0) == 0
+    isRead = SystemConversationProjection.isRead(message, channel: target.channel)
     attributes = []
-    conversation = TeamSiriConversation(target, scope: scope)
+    conversation = TeamSiriConversation(target, scope: scope, latestMessage: latestMessage)
     date = message.date ?? .distantPast
     body = AttributedString(message.displayContent)
     customAttachments = []
@@ -202,14 +218,16 @@ struct TeamSiriMessageQuery: EntityStringQuery, IndexedEntityQuery {
     let client = try await SystemIntentClient.connect()
     return try await client.messages(for: identifiers).compactMap { message in
       guard let target = client.destinations.first(where: { $0.id == message.channelId }) else { return nil }
-      return TeamSiriMessage(message, target: target, scope: client.scope, owner: client.session.displayName)
+      return TeamSiriMessage(message, target: target, scope: client.scope,
+        owner: client.session.displayName, latestMessage: client.latestMessage(channelID: message.channelId))
     }
   }
   @MainActor func entities(matching string: String) async throws -> [TeamSiriMessage] {
     let client = try await SystemIntentClient.connect()
     return try await client.searchMessages(string).compactMap { message in
       guard let target = client.destinations.first(where: { $0.id == message.channelId }) else { return nil }
-      return TeamSiriMessage(message, target: target, scope: client.scope, owner: client.session.displayName)
+      return TeamSiriMessage(message, target: target, scope: client.scope,
+        owner: client.session.displayName, latestMessage: client.latestMessage(channelID: message.channelId))
     }
   }
   func reindexEntities(for identifiers: [String], indexDescription: CSSearchableIndexDescription) async throws {
@@ -256,6 +274,7 @@ enum TeamSiriCustomReaction: String, AppEnum {
 @available(iOS 27.0, *)
 @AppEntity(schema: .messages.customAttachment)
 struct TeamSiriCustomAttachment: AppEntity {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let defaultQuery = Query()
   var id: String
   var sourceName: AttributedString?
@@ -278,7 +297,7 @@ typealias TeamSiriRecipients = [TeamSiriPerson]
     switch self {
     case .contact(let person): return try client.destination(person.id, kind: .bot)
     case .recipients(let people):
-      let targets = try people.map { try client.destination($0.id, kind: .bot) }
+      let targets = try Set(people.map(\.id)).map { try client.destination($0, kind: .bot) }
       if targets.count == 1, let target = targets.first { return target }
       let botIDs = Set(targets.compactMap { $0.bot?.id })
       let groups = client.destinations.filter {
@@ -316,7 +335,7 @@ struct SendTeamSiriMessage: AppIntent {
     let message = try await client.send(to: target, text: text,
       files: attachments + (audioMessage.map { [$0] } ?? []))
     return .result(value: [TeamSiriMessage(message, target: target, scope: client.scope,
-      owner: client.session.displayName)], dialog: "Sent to \(target.name).")
+      owner: client.session.displayName, latestMessage: message)], dialog: "Sent to \(target.name).")
   }
 }
 

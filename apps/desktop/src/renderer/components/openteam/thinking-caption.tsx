@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useVisibleNow } from "../../hooks/use-visible-now";
 import {
   activityElapsedLabel,
   advanceActivity,
@@ -11,7 +12,7 @@ export function ThinkingCaption({ text, group = false }: { text: string; group?:
     since: Date.now(),
     previous: null,
   }));
-  const [now, setNow] = useState(Date.now);
+  const now = useVisibleNow(60_000, !group);
   const hold = group ? 1_200 : 800;
   useEffect(() => {
     if (held.text === text) return;
@@ -24,11 +25,6 @@ export function ThinkingCaption({ text, group = false }: { text: string; group?:
     const timer = window.setTimeout(update, remaining);
     return () => window.clearTimeout(timer);
   }, [held, hold, text]);
-  useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, [held.since]);
   const elapsed = group ? null : activityElapsedLabel(held.since, now);
   return (
     <span

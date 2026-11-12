@@ -36,9 +36,9 @@ describe("search keyboard navigation", () => {
     expect(moveSearchSection("messages", 1)).toBe("bots");
   });
 
-  test("results wrap and handle an empty list", () => {
-    expect(moveSearchSelection(0, 4, -1)).toBe(3);
-    expect(moveSearchSelection(3, 4, 1)).toBe(0);
+  test("results clamp at both ends and handle an empty list", () => {
+    expect(moveSearchSelection(0, 4, -1)).toBe(0);
+    expect(moveSearchSelection(3, 4, 1)).toBe(3);
     expect(moveSearchSelection(-1, 4, 1)).toBe(0);
     expect(moveSearchSelection(0, 0, 1)).toBe(-1);
   });
@@ -137,7 +137,7 @@ describe("local action matching", () => {
     expect(SETTINGS_PALETTE_SECTIONS.map((settings) => settings.label)).toEqual([
       "General",
       "Computer",
-      "Server: Browser network",
+      "Server: Computer network",
       "Updates",
     ]);
   });

@@ -71,7 +71,9 @@ export function renderControlResult(
   }
   if (name === "SendIMessage" && result.sent) {
     const to = args.to ? `${args.recipientName ? `${args.recipientName} (${args.to})` : args.to}` : args.chatId;
-    const where = `text to ${to} from ${result.machine}`;
+    const files = Array.isArray(args.attachmentPaths) ? args.attachmentPaths : [];
+    const what = files.length ? `message with ${files.length} attachment${files.length === 1 ? "" : "s"} (${files.map((path: string) => path.split("/").pop()).join(", ")})` : "text";
+    const where = `${what} to ${to} from ${result.machine}`;
     const id = result.message_id ? ` (card id: ${result.message_id})` : "";
     if (result.delivery === "sent")
       return `Sent the ${where} without an approval card: the user allowed it on that Mac${id}. ${result.result?.verified === true ? "It already appears in the chat." : "verified: false means it hasn't appeared in the chat yet, not that it failed; never resend it."}`;

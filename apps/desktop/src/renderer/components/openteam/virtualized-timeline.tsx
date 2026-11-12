@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
@@ -536,7 +537,19 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
   useLayoutEffect(() => {
     void totalSize;
     const anchor = pendingScrollAnchor.current;
-    if (!anchor || anchor.pageKey === pageKey) return;
+    if (!anchor) return;
+    if (anchor.pageKey === pageKey) {
+      // A large scrollbar jump can start a page request before its virtual
+      // rows are measured. Keep the settled position the reader actually sees
+      // while waiting, rather than restoring the earlier estimated offset.
+      const viewport = scrollRef.current;
+      const row = Array.from(contentRef.current?.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]") ?? [])
+        .find((candidate) => candidate.dataset.virtualTimelineKey === anchor.key);
+      if (viewport && row) {
+        anchor.viewportOffset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      }
+      return;
+    }
     const anchorIndex = entries.findIndex((entry) => `${entry.type}:${entry.id}` === anchor.key);
     if (anchorIndex < 0) {
       anchor.survived = false;
@@ -655,24 +668,28 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       style={{ height: totalSize }}
     >
       {hasOlder && (
-        <button
+        <ButtonPrimitive
           className="sr-only focus:not-sr-only focus:absolute focus:left-1/2 focus:top-2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
           disabled={loadingOlder}
           onClick={() => loadOlder(false)}
           type="button"
+          loading={loadingOlder}
+          loadingLabel="Loading older messages…"
         >
-          {loadingOlder ? "Loading older messages…" : "Load older messages"}
-        </button>
+          Load older messages
+        </ButtonPrimitive>
       )}
       {hasNewer && (
-        <button
+        <ButtonPrimitive
           className="sr-only focus:not-sr-only focus:absolute focus:bottom-2 focus:left-1/2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
           disabled={loadingNewer}
           onClick={() => loadNewer(false)}
           type="button"
+          loading={loadingNewer}
+          loadingLabel="Loading newer messages…"
         >
-          {loadingNewer ? "Loading newer messages…" : "Load newer messages"}
-        </button>
+          Load newer messages
+        </ButtonPrimitive>
       )}
       {virtualItems.map((virtualItem) => {
         const entry = entries[virtualItem.index];

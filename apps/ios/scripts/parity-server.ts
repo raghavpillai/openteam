@@ -51,12 +51,13 @@ let invalidServer = false;
 let missingToken = false;
 let memories: any[] = [];
 let pagedHistory = false;
-let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
+let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number; body?: unknown}> = {};
 let searchResults: unknown[] | null = null;
 let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
 let serverSetup = new ServerSetupFixture();
-let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
+let controlGeneration = 0;
+let screen: {state:string;width:number;height:number;humanTakeover:boolean;controlSession:{id:string;generation:number}|null;apps:string[]} = {controlSession:null,state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let serverRelease: any;
 let serverUpdate: any;
 let busyBots: any[] = [];
@@ -68,7 +69,7 @@ let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTo
 const deliveries = new Map<string, ChannelMessageView>();
 const uploadedAssets = new Map<string, { data: Uint8Array; mimeType: string }>();
 const wakeups = new Set<() => void>();
-const requestLog: Array<{ method: string; path: string; clientId?: string }> = [];
+const requestLog: Array<{ method: string; path: string; query?: string; clientId?: string }> = [];
 function reset() {
   uploadedAssets.clear();
   snapshot = structuredClone(mobileFixture);
@@ -80,7 +81,7 @@ function reset() {
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   browserNetwork = new BrowserNetworkFixture();
-  functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
+  functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.controlSession=null; controlGeneration=0; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   serverSetup = new ServerSetupFixture();
   serverRelease = { releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" };
   serverUpdate = { updaterAvailable: true, status: "ready", phase: null, targetVersion: null, message: null, jobId: null, safeToCloseDesktop: false };
@@ -225,7 +226,7 @@ const server = Bun.serve({
         const group = snapshot.channels.find(c => c.kind === "group");
         if (group) { group.hasAvatar = true; group.updatedAt = input.customAvatarRevision; }
       }
-      if (input.expireTakeover) screen.humanTakeover = false;
+      if (input.expireTakeover) { screen.humanTakeover = false; screen.controlSession = null; controlGeneration++; }
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
       if (input.subagents) snapshot.subagents = input.subagents;
@@ -241,13 +242,16 @@ const server = Bun.serve({
     }
     if (path === "/health") return response({ status: "ready", purpose: "swift-parity-fixture" });
     if (offline) return response({ error: { message: "Fixture offline", code: "offline" } }, 503);
+    // Count attempts before injected latency/failures, including canceled searches.
+    if (path.startsWith("/api/v0/")) requestLog.push({ method, path, query: url.search,
+      ...(input.clientId ? { clientId: input.clientId } : {}) });
     const failure = failures[`${method} ${path}`] ?? Object.entries(failures).find(
       ([key]) => key.endsWith("/*") && `${method} ${path}`.startsWith(key.slice(0, -1))
     )?.[1];
     if (failure && (failure.count ?? 1) > 0) {
       failure.count = (failure.count ?? 1) - 1;
       if (failure.delayMs) await Bun.sleep(failure.delayMs);
-      if (failure.status) return response(failure.message ? { message: failure.message } : {}, failure.status);
+      if (failure.status) return response(failure.body ?? (failure.message ? { message: failure.message } : {}), failure.status);
     }
     if (path === "/api/auth/config") return response(invalidServer ? {mode:"unrecognized"} : { mode: authRequired ? "required" : "disabled" });
     if (path === "/api/auth/login") {
@@ -259,7 +263,6 @@ const server = Bun.serve({
     if (path === "/api/auth/sign-out") return response({ success: true });
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
-    requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
     if (upload) {
       const assetId = new Bun.CryptoHasher("sha256").update(upload).digest("hex");
       const fileName = decodeURIComponent(request.headers.get("x-file-name") ?? "File");
@@ -293,7 +296,16 @@ const server = Bun.serve({
     if(path.endsWith("/screen"))return response(screen);
     if(path.endsWith("/avatar"))return new Response(Bun.file(new URL(path.includes("visual-group-") && path.includes("-bot-0/") ? "./fixtures/group-blue-avatar.png" : "./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/frame"))return new Response(Bun.file(new URL("./fixtures/computer.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
-    if(path.endsWith("/screen/takeover")){screen.humanTakeover=input.active;contentReceipts.push({path,active:input.active});return response(screen);}
+    if(path.endsWith("/screen/takeover")){
+      if(input.active && input.controlId){
+        if(screen.controlSession && screen.controlSession.id!==input.controlId && !input.force)return response({message:"Controlled on another device"},409);
+        if(screen.controlSession?.id!==input.controlId)screen.controlSession={id:input.controlId,generation:++controlGeneration};
+        screen.humanTakeover=true;
+      }else if(!input.active && (input.force || !screen.controlSession || screen.controlSession.id===input.controlId && screen.controlSession.generation===input.generation)){
+        screen.humanTakeover=false;screen.controlSession=null;controlGeneration++;
+      }
+      contentReceipts.push({path,...input});return response(screen);
+    }
     if(path.endsWith("/screen/actions")){if(!screen.humanTakeover)return response({message:"Take control first."},409);contentReceipts.push({path,...input});return response(screen);}
     if(path.startsWith("/api/v0/assets/")){
       contentReceipts.push({path,authenticated:request.headers.has("authorization")});
@@ -310,7 +322,7 @@ const server = Bun.serve({
       contentReceipts.push({path,...input});
       if(path.endsWith("/user-form") && input.action==="submit"){try{validateUserFormValues(message.metadata.form,input.values)}catch(error){return response({message:String(error)},400)}}
       if(path.endsWith("/user-form")){message.metadata.cardState=input.action==="submit"?"completed":input.mode==="escalated"?"escalated":"dismissed";message.metadata.outcomeText=input.action==="submit"?"Form filled successfully.":"Dismissed";}
-      else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
+      else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";screen.controlSession=input.action==="start"?{id:`handoff:${message.id}`,generation:++controlGeneration}:null;}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
     const networkResponse = browserNetwork.handle(path,method,input); if(networkResponse) return networkResponse;
@@ -404,7 +416,7 @@ const server = Bun.serve({
     if (path === "/api/v0/bots" && method === "POST") {
       const id = randomUUID(), now = new Date().toISOString();
       // First-run setup has no existing bot/channel to use as a complete template.
-      const bot = { ...mobileFixture.bots[0]!, id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
+      const bot = { ...mobileFixture.bots[0]!, id, name:input.name, title:input.title ?? "", description:input.description ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
       snapshot.bots.push(bot); snapshot.channels.push({ ...mobileFixture.channels[0]!, id:bot.dmChannelId, name:bot.name, directKey:id, members:[{botId:id,ordinal:0}], createdAt:now, updatedAt:now }); emit("bot.created"); return response(bot);
     }
     if (path === "/api/v0/channels" && method === "POST") {

@@ -3,6 +3,7 @@
 import { z as external_exports } from "zod";
 import { parseToolArguments } from "./tool-arguments";
 import { MESSAGES_MACHINE_ID_DESCRIPTION } from "./desktop-capability-names";
+import { MESSAGES_SEND_MAX_FILES } from "./messages-send";
 import * as import_node_path165 from "node:path";
 const import_node_path166 = import_node_path165;
 class SandToolInputError extends Error {}
@@ -55,7 +56,8 @@ const fetchAttachmentParameters = external_exports.object({
   attachmentGuid: external_exports.string().trim().min(1).describe("The attachment's guid, from the message's `attachments` list.")
 });
 const sendParameters = external_exports.object({
-  text: external_exports.string().min(1).describe("The message body, sent verbatim."),
+  text: external_exports.string().optional().default("").describe("The message body, sent verbatim. Optional when attaching files."),
+  attachmentPaths: external_exports.array(external_exports.string().startsWith("/").refine(path => !/[\0\r\n]/.test(path), "Invalid attachment path")).min(1).max(MESSAGES_SEND_MAX_FILES).optional(),
   to: external_exports.string().trim().min(1).optional().describe(
     "One recipient's handle, exactly an E.164 number (`+15555550100`) or an email; a name or a national-format number is rejected before anything is sent. Get a number from FindContacts. Reaches a one-to-one chat only. Use this or `chatId`."
   ),

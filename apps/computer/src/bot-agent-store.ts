@@ -4,7 +4,8 @@ import type {
 } from "@openteam/contracts/service-protocol";
 import type { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chmod, mkdir, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   AgentDirectoryInventory,
@@ -67,6 +68,7 @@ const ensureSharedAgentDirectory = async (directory: string): Promise<void> => {
  * conversation envelopes and prompt snapshots exposed by the bot host.
  */
 export class BotAgentStore {
+  private readonly retiring = new Map<string, Promise<boolean>>();
   private readonly directories: AgentDirectoryInventory;
 
   private readonly root: string;
@@ -643,6 +645,58 @@ export class BotAgentStore {
 
   async setPromptSnapshot(agentId: string, key: string, value: unknown): Promise<void> {
     await this.withAgentStore(agentId, () => this.setKv(agentId, key, JSON.stringify(value)));
+  }
+
+  /**
+   * Retire a durable agent directory. The control plane deletes chats in PostgreSQL, and a
+   * surviving directory is roster authority that the control plane adopts straight back, so
+   * deletion has to take the directory out of `agents/` even when its SQLite store was open. The
+   * directory is renamed out of the roster first (a rename succeeds where unlinking an open store
+   * can fail), then discarded. Returns whether anything was removed.
+   */
+  async deleteAgent(agentId: string): Promise<boolean> {
+    safeId(agentId);
+    const existing = this.retiring.get(agentId);
+    if (existing) return existing;
+    // API retries and worker replicas can retire the same id simultaneously. Share one physical
+    // close/rename/disposal operation so recursive removals cannot race each other on the same tree.
+    const pending = this.deleteAgentDirectory(agentId).finally(() => {
+      if (this.retiring.get(agentId) === pending) this.retiring.delete(agentId);
+    });
+    this.retiring.set(agentId, pending);
+    return pending;
+  }
+
+  private async deleteAgentDirectory(agentId: string): Promise<boolean> {
+    await this.closeAgent(agentId);
+    const directory = this.agentDirectory(agentId);
+    const present = await stat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    let removed = false;
+    if (present) {
+      await ensureSharedAgentDirectory(this.orphanRoot);
+      const retired = join(this.orphanRoot, `${agentId}.${this.now().toString(36)}.${randomUUID()}`);
+      try {
+        await rename(directory, retired);
+      } catch (error) {
+        console.warn(`agent directory ${agentId} could not be moved out of the roster: ${String(error)}`);
+        await rm(directory, { recursive: true, force: true });
+      }
+      removed = true;
+    }
+    // A failed disposal must reach the durable retry queue. On its next attempt, the original
+    // roster entry may already be gone, so find residue by id rather than returning early.
+    const retiredEntries = await readdir(this.orphanRoot).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    for (const entry of retiredEntries.filter((name) => name.startsWith(`${agentId}.`))) {
+      await rm(join(this.orphanRoot, entry), { recursive: true, force: true });
+      removed = true;
+    }
+    return removed;
   }
 
   async closeAgent(agentId: string): Promise<void> {

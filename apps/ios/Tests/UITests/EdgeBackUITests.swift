@@ -26,7 +26,7 @@ import XCTest
     let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: channel)
     XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed)
     channel.tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
   }
   func capture(_ name: String, _ app: XCUIApplication) {
     let image = XCTAttachment(screenshot: app.screenshot()); image.name = "edge-" + name; image.lifetime = .keepAlways; add(image)
@@ -120,7 +120,7 @@ import XCTest
       if keyboard { input.tap(); input.typeText("Draft survives canceled back") }
       drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.24)
       try await Task.sleep(for: .milliseconds(600))
-      XCTAssertTrue(app.buttons["chat-back"].exists)
+      XCTAssertTrue(app.chatBackButton.exists)
       XCTAssertFalse(app.buttons["thread-back"].exists)
       XCTAssertFalse(app.buttons["Reply"].exists)
       if keyboard { XCTAssertEqual(input.value as? String, "Draft survives canceled back") }
@@ -153,7 +153,7 @@ import XCTest
     origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.4)).press(forDuration: 0.05,
       thenDragTo: origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.55)),
       withVelocity: .slow, thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["chat-back"].exists)
+    XCTAssertTrue(app.chatBackButton.exists)
     XCTAssertFalse(app.buttons["thread-back"].exists)
     XCTAssertGreaterThan(photo.frame.minY, before + 50)
     capture("vertical-scroll", app)
@@ -167,7 +167,7 @@ import XCTest
       attachment.tap()
       XCTAssertTrue(app.buttons[close].waitForExistence(timeout: 10))
       app.buttons[close].tap()
-      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 5))
       drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.85)
       assertBack(app, name: scene + "-after-preview")
       app.terminate()
@@ -179,7 +179,7 @@ import XCTest
       app.buttons["conversation-details"].tap()
       XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 5))
       drag(app, x: 22, y: app.frame.height * 0.45, endX: app.frame.width * 0.85)
-      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 5))
       drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.85)
       assertBack(app, name: "repeat-\(index)")
       // No back destination on home: an edge drag must not wedge the next push.

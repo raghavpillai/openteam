@@ -19,9 +19,7 @@ struct ComputerView: View {
   @State private var statusFailure: String?
   @State private var paused = false
   @State private var trackpad = false
-  @State private var heartbeat = Date.distantPast
   @State private var controlRevision = 0
-  @State private var desiredControl: Bool?
   @State private var refreshing = false
   @State private var streamRevision = 0
   @State private var inputTask: Task<Bool, Never>?
@@ -31,9 +29,18 @@ struct ComputerView: View {
   @State private var clipboard = false
   @State private var inputControls = false
   @State private var help = false
+  @State private var watchHint = false
+  @State private var showReconnect = false
   private var viewerFailure: String? { statusFailure ?? vnc.failure }
-  private var takeover: Bool { status["humanTakeover"].bool }
-  private var working: Bool { busy || pendingInputs > 0 }
+  @SceneStorage("openteam.computer-control.viewer") private var controlID = UUID().uuidString
+  private var controlGeneration: Int { status["controlSession"]["generation"].int }
+  private var takeover: Bool { ComputerControl.owns(status, viewerID: controlID) }
+  private var controlLabel: String {
+    if status["controlPending"].bool { return "Changing control…" }
+    if takeover { return !showReconnect ? "You’re in control" : "Reconnecting — your control is reserved" }
+    return status["humanTakeover"].bool ? "Controlled on another device" : "Watching"
+  }
+  private var working: Bool { busy || pendingInputs > 0 || status["controlPending"].bool }
   private var path: String { "/api/v0/bots/\(API.segment(bot.id))/screen" }
   var body: some View {
     VStack(spacing: 0) {
@@ -42,18 +49,11 @@ struct ComputerView: View {
           .disabled(working)
         BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 25, mode: .idle)
         Text(bot.name).font(.body.weight(.medium)).lineLimit(1)
-          .accessibilityValue(takeover ? "You have control" : "Watching")
+          .accessibilityValue(controlLabel)
         Spacer(minLength: 0)
         ChatChromeButton(title: "Computer help", symbol: "questionmark", symbolSize: 21) { help = true }
         if hasFrame {
           Menu {
-            Button(
-              takeover ? "Give back control" : "Take control",
-              systemImage: takeover ? "arrow.uturn.backward" : "hand.point.up.left"
-            ) {
-              keyboard = false
-              Task { await setTakeover(!takeover) }
-            }
             Button(paused ? "Resume view" : "Pause view", systemImage: paused ? "play" : "pause") {
               paused.toggle()
               if paused {
@@ -76,6 +76,9 @@ struct ComputerView: View {
         trackpad: trackpad, showStarting: failure == nil && viewerFailure == nil,
         desktopReady: status["state"].string == "ready", keyboard: keyboard
       ) { body in Task { await action(body) } }
+      .simultaneousGesture(TapGesture().onEnded {
+        if !takeover { watchHint = true }
+      })
       if let viewerFailure {
         VStack(alignment: .leading, spacing: 8) {
           if hasFrame { Text("Showing the last received screen").font(.caption) }
@@ -87,12 +90,40 @@ struct ComputerView: View {
           .padding(.horizontal, 18)
       }
       if let failure { InlineFailure(message: failure).padding(18) }
-      if hasFrame {
+      if status["state"].string == "ready" || takeover {
+        ComputerControlPill(
+          label: controlLabel,
+          controlling: takeover,
+          pending: working,
+          available: status["state"].string == "ready" || takeover,
+          anotherDevice: !takeover && status["humanTakeover"].bool,
+          handoff: handoffID != nil
+        ) {
+          keyboard = false
+          Task {
+            if handoffID != nil && takeover { await close() }
+            else { await setTakeover(!takeover) }
+          }
+        }
+        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 0)
+        if watchHint && !takeover && !status["humanTakeover"].bool {
+          Text("Take control to click and type").font(.footnote).foregroundStyle(.secondary)
+            .padding(.horizontal, 18).padding(.bottom, 8)
+        }
+        if !takeover && status["humanTakeover"].bool {
+          Button("Resume bot", systemImage: "play") { Task { await resumeBot() } }
+            .buttonStyle(.plain).font(.subheadline.weight(.medium))
+            .padding(.horizontal, 16).frame(minHeight: 44).nativeChatGlass()
+            .disabled(working).padding(.bottom, 12)
+        }
+      }
+      // Reserve the tool row before the first frame so Take control never moves during a tap.
+      if status["state"].string == "ready" || takeover {
         HStack {
           ComputerToolButton(title: "Clipboard", symbol: "list.clipboard") {
             keyboard = false
             clipboard = true
-          }
+          }.disabled(!takeover || !vnc.connected || working || paused || viewerFailure != nil)
           Spacer()
           if paused { Text("View paused").font(.caption).foregroundStyle(.secondary) }
           ComputerToolButton(
@@ -100,10 +131,9 @@ struct ComputerView: View {
             symbol: "keyboard"
           ) {
             Task {
-              if !takeover { await setTakeover(true) }
               if takeover { keyboard.toggle() }
             }
-          }.disabled(working || paused || viewerFailure != nil)
+          }.disabled(!takeover || !vnc.connected || working || paused || viewerFailure != nil)
         }.padding(.horizontal, keyboard ? 18 : 30).padding(.top, 14).padding(.bottom, keyboard ? 18 : 12)
       }
     }.background(Color.black.ignoresSafeArea()).foregroundStyle(.white).preferredColorScheme(.dark)
@@ -118,33 +148,41 @@ struct ComputerView: View {
         Button("OK", role: .cancel) {}
       } message: {
         Text(
-          "Use the keyboard or choose Take control in the menu to pause the bot and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. Closing this screen returns control to the bot."
+          "Choose Take control below the screen to pause the bot’s desktop input and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. "
+          + (handoffID != nil ? "Choose I’m done to complete the requested step and continue with the bot. " : "Choose Stop to give back control when you finish. ")
+          + "Your control is preserved if the connection drops."
         )
       }
       .onChange(of: takeover) { _, active in
+        watchHint = false
         if !active { keyboard = false }
         vnc.setControl(active && vnc.connected && !paused && scenePhase == .active)
       }
       .interactiveDismissDisabled(takeover)
+      .task(id: "control-connection-\(takeover)-\(vnc.connected)") {
+        guard takeover, !vnc.connected else { showReconnect = false; return }
+        // A grant reconnects VNC with its generation. Keep the ownership title steady
+        // through that short handshake; input remains gated by the real connection.
+        do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        showReconnect = true
+      }
       .task(id: scenePhase) {
-        guard scenePhase == .active else {
-          if takeover { _ = await release() }
-          return
+        guard scenePhase == .active else { return }
+        await refreshStatus()
+        if handoffID != nil, status["controlSession"]["id"].string.hasPrefix("handoff:") {
+          await setTakeover(true)
         }
         while !Task.isCancelled {
-          if !working, takeover, Date().timeIntervalSince(heartbeat) >= 20 {
-            await renewTakeover()
-          }
           if !paused { await refreshStatus() }
           do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
       }
-      .task(id: "\(scenePhase)-\(paused)-\(streamRevision)") {
+      .task(id: "\(scenePhase)-\(paused)-\(streamRevision)-\(takeover ? controlGeneration : 0)") {
         guard scenePhase == .active, !paused, let api = store.api else {
           vnc.stop()
           return
         }
-        await vnc.run(api: api, botID: bot.id)
+        await vnc.run(api: api, botID: bot.id, controlID: controlID, controlGeneration: takeover ? controlGeneration : nil)
         if vnc.unauthorized { store.handle(APIError("Sign in again.", status: 401)) }
       }
       .onChange(of: vnc.connected) { _, connected in
@@ -154,13 +192,6 @@ struct ComputerView: View {
       .onDisappear {
         vnc.stop(clear: true)
         inputEpoch = UUID()
-        if handoffID != nil, !finishedHandoff { Task { _ = await finishHandoff("dismiss") } }
-        if takeover, let api = store.api {
-          Task {
-            _ = try? await api.request(
-              path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-          }
-        }
       }
   }
   private var clipboardSheet: some View {
@@ -174,14 +205,13 @@ struct ComputerView: View {
           Button("Type") {
             let value = text
             Task {
-              if !takeover { await setTakeover(true) }
               if await action(["action": .string("type"), "text": .string(value)]) {
                 text = ""
                 clipboard = false
               }
             }
           }.disabled(
-            text.isEmpty || text.count > 10_000 || working || paused || viewerFailure != nil)
+            !takeover || !vnc.connected || text.isEmpty || text.count > 10_000 || working || paused || viewerFailure != nil)
         }
       }.navigationTitle("Clipboard").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Close clipboard") { clipboard = false }.disabled(working) }
@@ -266,7 +296,7 @@ struct ComputerView: View {
     }
   }
   func refreshStatus() async {
-    guard !refreshing, store.api != nil else { return }
+    guard !refreshing, !busy, store.api != nil else { return }
     refreshing = true
     let revision = controlRevision
     defer { refreshing = false }
@@ -286,48 +316,36 @@ struct ComputerView: View {
     }
   }
   func setTakeover(_ active: Bool) async {
-    guard !busy, let api = store.api else { return }
-    desiredControl = active
+    guard !busy, store.api != nil else { return }
     inputEpoch = UUID()
     vnc.setControl(false)
     controlRevision += 1
     busy = true
     defer {
+      controlRevision += 1
       busy = false
       vnc.setControl(takeover && vnc.connected && !paused && scenePhase == .active)
     }
     do {
       status = try await store.request(
-        path + "/takeover", method: "POST", body: .object(["active": .bool(active)]))
-      heartbeat = Date()
-      if active && scenePhase != .active {
-        status = try await api.request(
-          path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-      }
+        path + "/takeover", method: "POST", body: ComputerControl.request(active: active, viewerID: controlID, generation: controlGeneration, force: active))
+      if active && !takeover { throw APIError("Update your OpenTeam server to use persistent computer control.") }
       failure = nil
     } catch {
       failure = UserFacingError.message(error)
       if (error as? APIError)?.unauthorized == true { store.handle(error) }
     }
   }
-  private func renewTakeover() async {
-    guard let api = store.api, takeover, !busy else { return }
-    let revision = controlRevision
+  private func resumeBot() async {
+    guard !busy else { return }
+    controlRevision += 1
+    busy = true
+    defer { controlRevision += 1; busy = false }
     do {
-      let next = try await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(true)]))
-      guard revision == controlRevision, scenePhase == .active else {
-        if desiredControl == false || scenePhase != .active {
-          _ = try? await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-        }
-        return
-      }
-      status = next
-      heartbeat = Date()
-    } catch {
-      guard revision == controlRevision else { return }
-      statusFailure = UserFacingError.message(error)
-      vnc.setControl(false)
-    }
+      status = try await store.request(path + "/takeover", method: "POST",
+        body: .object(["active": .bool(false), "force": .bool(true)]))
+      failure = nil
+    } catch { failure = UserFacingError.message(error) }
   }
   func release() async -> Bool {
     await setTakeover(false)
@@ -349,7 +367,7 @@ struct ComputerView: View {
           // App launch is a server control operation: keep the bot's managed
           // browser profile and automation connection. All pointer/key/text
           // input and framebuffer updates travel over the VNC connection.
-          _ = try await store.request(path + "/actions", method: "POST", body: .object(body))
+          _ = try await store.request(path + "/actions", method: "POST", body: .object(body.merging(["controlId": .string(controlID), "generation": .number(Double(controlGeneration))]) { _, new in new }))
         } else {
           try await vnc.input(body)
         }
@@ -414,5 +432,145 @@ private struct ComputerToolButton: View {
         .frame(width: 38, height: 38).nativeChatGlass()
         .frame(width: 44, height: 44).contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)
+  }
+}
+
+/// The same status/action capsule as desktop, rendered with native adaptive glass.
+private struct ComputerControlPill: View {
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @VoiceMotionPreference private var reduceMotion
+  @State private var showPending = false
+  let label: String
+  let controlling: Bool
+  let pending: Bool
+  let available: Bool
+  let anotherDevice: Bool
+  let handoff: Bool
+  let changeControl: () -> Void
+  private var actionTitle: String { controlling ? (handoff ? "I'm done" : "Stop") : anotherDevice ? "Take control here" : "Take control" }
+  var body: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 12) {
+        statusLabel.fixedSize()
+        controlButton
+      }.padding(.leading, 16).padding(.trailing, 6).padding(.vertical, 6)
+      VStack(spacing: 10) {
+        statusLabel
+        controlButton
+      }.padding(12)
+    }
+    .background {
+      ComputerControlSurface(progress: controlling ? 1 : 0,
+        reduceTransparency: reduceTransparency, reduceMotion: reduceMotion)
+    }
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: controlling)
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: label)
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: showPending)
+    .task(id: pending) {
+      guard pending else { showPending = false; return }
+      // Disable input immediately; avoid a loading-label flash for a quick acknowledgement.
+      do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+      showPending = true
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("computer-control-bar")
+  }
+  private var statusLabel: some View {
+    HStack(spacing: 8) {
+      if showPending {
+        ProgressView().controlSize(.small).tint(.white)
+      } else {
+        Image(systemName: controlling ? "cursorarrow.click" : "eye")
+          .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+          .accessibilityHidden(true)
+      }
+      Text(showPending ? "Changing control…" : label)
+        .contentTransition(.opacity).fixedSize(horizontal: false, vertical: true)
+    }.font(.subheadline).foregroundStyle(.white.opacity(0.75))
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier("computer-control-status")
+  }
+  private var controlButton: some View {
+    Button(action: changeControl) {
+      Text(actionTitle).font(.subheadline.weight(.medium))
+        .contentTransition(.opacity)
+        .padding(.horizontal, 16).frame(minWidth: 64, minHeight: 44)
+        .foregroundStyle(controlling && !handoff ? Color.white : Color.black)
+        .background {
+          ComputerControlShape(progress: reduceMotion ? 0 : controlling ? 1 : 0)
+            .fill(controlling && !handoff ? Color.white.opacity(0.1) : Color.white)
+        }
+        .contentShape(Capsule())
+    }.buttonStyle(ComputerControlPressStyle(reduceMotion: reduceMotion))
+      .disabled(pending || !available)
+      .opacity(pending || !available ? 0.5 : 1)
+      .accessibilityLabel(controlling && !handoff ? "Give back control" : actionTitle)
+      .accessibilityHint(controlling ? (handoff ? "Completes the requested step and continues with the bot." : "Returns computer input to the bot.") : "Lets you click and type on this computer.")
+  }
+}
+
+/// One animatable path owns the rim, using the voice composer's shared spring.
+/// Text and hit targets never pass through a blur or a stretching transform.
+private struct ComputerControlShape: Shape {
+  var progress: Double
+  var animatableData: Double {
+    get { progress }
+    set { progress = newValue }
+  }
+  func path(in rect: CGRect) -> Path {
+    let radius = min(28, rect.height / 2)
+    let bend = sin(min(1, max(0, progress)) * .pi) * 2.5
+    let x = rect.minX, y = rect.minY, w = rect.width, h = rect.height
+    var p = Path()
+    p.move(to: CGPoint(x: x + radius, y: y))
+    p.addQuadCurve(to: CGPoint(x: x + w - radius, y: y),
+      control: CGPoint(x: x + w / 2, y: y + bend * 2))
+    p.addQuadCurve(to: CGPoint(x: x + w, y: y + radius), control: CGPoint(x: x + w, y: y))
+    p.addLine(to: CGPoint(x: x + w, y: y + h - radius))
+    p.addQuadCurve(to: CGPoint(x: x + w - radius, y: y + h), control: CGPoint(x: x + w, y: y + h))
+    p.addQuadCurve(to: CGPoint(x: x + radius, y: y + h),
+      control: CGPoint(x: x + w / 2, y: y + h - bend * 2))
+    p.addQuadCurve(to: CGPoint(x: x, y: y + h - radius), control: CGPoint(x: x, y: y + h))
+    p.addLine(to: CGPoint(x: x, y: y + radius))
+    p.addQuadCurve(to: CGPoint(x: x + radius, y: y), control: CGPoint(x: x, y: y))
+    p.closeSubpath()
+    return p
+  }
+}
+
+private struct ComputerControlSurface: View, @preconcurrency Animatable {
+  var progress: Double
+  let reduceTransparency: Bool
+  let reduceMotion: Bool
+  var animatableData: Double {
+    get { progress }
+    set { progress = newValue }
+  }
+  private var shape: ComputerControlShape { ComputerControlShape(progress: reduceMotion ? 0 : progress) }
+  var body: some View {
+    surface.allowsHitTesting(false).accessibilityHidden(true)
+  }
+  @ViewBuilder private var surface: some View {
+    if reduceTransparency {
+      shape.fill(Color(white: 0.14))
+        .overlay(shape.stroke(.white.opacity(0.16), lineWidth: 0.5))
+    } else if #available(iOS 26, *) {
+      Color.clear.glassEffect(.regular.interactive(), in: shape)
+        .transaction(value: progress) { $0.animation = nil }
+    } else {
+      shape.fill(.regularMaterial)
+        .overlay(shape.stroke(.white.opacity(0.12), lineWidth: 0.5))
+    }
+  }
+}
+
+private struct ComputerControlPressStyle: ButtonStyle {
+  let reduceMotion: Bool
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
+      .opacity(configuration.isPressed ? 0.85 : 1)
+      .animation(reduceMotion ? .easeOut(duration: 0.15)
+        : .interactiveSpring(response: 0.18, dampingFraction: 0.86), value: configuration.isPressed)
   }
 }

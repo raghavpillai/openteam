@@ -1,0 +1,101 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { build } from "vite";
+
+const require = createRequire(import.meta.url);
+const nativeFocus = process.argv.includes("--native-focus");
+if (nativeFocus && process.platform !== "darwin") {
+  throw new Error("The native focus lifecycle suite requires macOS");
+}
+const directory = await mkdtemp(join(tmpdir(), "openteam-resource-lifecycle-"));
+const output =
+  process.env.FOCUS_LIFECYCLE_OUTPUT ?? resolve(import.meta.dir, "../../../output/focus-lifecycle");
+let server: ReturnType<typeof Bun.serve> | undefined;
+try {
+  const preload = await Bun.build({
+    entrypoints: [resolve(import.meta.dir, "../src/preload/index.ts")],
+    outdir: directory,
+    naming: "preload.cjs",
+    external: ["electron"],
+    target: "node",
+    format: "cjs",
+  });
+  if (!preload.success) throw new Error(preload.logs.join("\n"));
+  if (nativeFocus) {
+    const activity = await Bun.build({
+      entrypoints: [resolve(import.meta.dir, "../src/main/window-activity.ts")],
+      outdir: directory,
+      naming: "window-activity.cjs",
+      external: ["electron"],
+      target: "node",
+      format: "cjs",
+    });
+    if (!activity.success) throw new Error(activity.logs.join("\n"));
+    await mkdir(output, { recursive: true });
+  }
+  const renderer = join(directory, "renderer");
+  await build({
+    root: resolve(import.meta.dir, ".."),
+    configFile: resolve(import.meta.dir, "../vite.config.ts"),
+    resolve: {
+      alias: [
+        {
+          find: "@novnc/novnc",
+          replacement: resolve(import.meta.dir, "../test/browser/resource-lifecycle-vnc.ts"),
+        },
+      ],
+    },
+    build: {
+      outDir: renderer,
+      emptyOutDir: true,
+      rolldownOptions: {
+        input: resolve(import.meta.dir, "../test/browser/resource-lifecycle.html"),
+      },
+    },
+    logLevel: "warn",
+  });
+  server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const filePath = resolve(renderer, "." + decodeURIComponent(new URL(request.url).pathname));
+      if (!filePath.startsWith(renderer + "/")) return new Response(null, { status: 404 });
+      const file = Bun.file(filePath);
+      return (await file.exists()) ? new Response(file) : new Response(null, { status: 404 });
+    },
+  });
+  const child = Bun.spawn(
+    [
+      require("electron") as string,
+      resolve(
+        import.meta.dir,
+        nativeFocus
+          ? "../test/browser/focus-lifecycle-runner.cjs"
+          : "../test/browser/resource-lifecycle-runner.cjs"
+      ),
+    ],
+    {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: undefined,
+        RESOURCE_LIFECYCLE_DIR: directory,
+        RESOURCE_LIFECYCLE_URL: `${server.url}test/browser/resource-lifecycle.html${nativeFocus ? "?realtime" : ""}`,
+        FOCUS_LIFECYCLE_OUTPUT: nativeFocus ? output : undefined,
+      },
+      stdout: "inherit",
+      stderr: "pipe",
+    }
+  );
+  const timeout = setTimeout(() => child.kill(), nativeFocus ? 900_000 : 120_000);
+  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  clearTimeout(timeout);
+  const result = JSON.parse(await readFile(join(directory, "results.json"), "utf8"));
+  if (nativeFocus) await writeFile(join(output, "results.json"), JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(result, null, 2));
+  if (code || result.error) throw new Error(result.error ?? stderr);
+} finally {
+  server?.stop(true);
+  await rm(directory, { recursive: true, force: true });
+}

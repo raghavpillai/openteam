@@ -155,7 +155,6 @@ export const CreateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -168,7 +167,6 @@ export const UpdateBotInput = Schema.Struct({
   }))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -220,6 +218,8 @@ export interface AgentNotificationPayload {
   badgeCount: number;
   notificationSequence: string;
   messageSequence: string;
+  /** Stable message identity for opening an alert outside the latest history page. */
+  messageId?: string;
   /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
   threadMessageId?: string;
   sender?: import("./notification-content").NotificationSender;
@@ -555,7 +555,6 @@ export interface RichMessageCloudAgent {
   name: string;
   title?: string;
   description?: string;
-  instructions?: string;
   icon?: string;
   color: string;
   status: "draft" | "published";
@@ -766,7 +765,19 @@ export interface PluginCatalogItemView {
   setup: PluginSetupView | null;
 }
 
+export interface PluginDeviceLinkView {
+  sessionId: string;
+  /** An active approval can temporarily have no displayable QR challenge. */
+  qrCodeDataUrl: string | null;
+  /** Expiry of the current image, independently of the approval session. */
+  expiresAt: number;
+  sessionExpiresAt?: number;
+  challengeGeneration?: number;
+  instructions: string;
+}
+
 export interface PluginConnectionView {
+  deviceLink?: PluginDeviceLinkView | null;
   id: string;
   revision: string;
   pluginKey: string;
@@ -783,7 +794,8 @@ export interface PluginConnectionView {
   oauthRedirectUrl: string | null;
   oauthCallbackMode?: "desktop" | "server" | "manual";
   manualCallbackSupported?: boolean;
-  setupPhase?: "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
+  setupPhase?:
+    | "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
   oauthLoopbackPort?: number;
   canAuthenticate: boolean;
   configured: boolean;
@@ -826,6 +838,7 @@ export interface PluginSettingsView {
 }
 
 export interface PluginConnectionStatusView {
+  deviceLink?: PluginDeviceLinkView | null;
   oauthCallbackMode?: PluginConnectionView["oauthCallbackMode"];
   setupPhase?: PluginConnectionView["setupPhase"];
   id: string;
@@ -906,7 +919,8 @@ export const ScreenClipboardInput = Schema.Union(
   })
 );
 export type ScreenClipboardInput = typeof ScreenClipboardInput.Type;
-export interface ScreenClipboardView { text?: string }
+export interface ScreenClipboardView { text?: string;
+}
 
 const ComputerUseActionName = Schema.Literal(
   "screenshot",
@@ -1011,7 +1025,20 @@ export const ComputerUseInput = Schema.Struct({
 );
 export type ComputerUseInput = typeof ComputerUseInput.Type;
 
-export const ScreenTakeoverInput = Schema.Struct({ active: Schema.Boolean });
+/** Explicit control persists through disconnection until the owning viewer releases it. */
+export const ScreenTakeoverInput = Schema.Struct({
+  active: Schema.Boolean,
+  controlId: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9:_-]{1,128}$/))),
+  generation: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  force: Schema.optional(Schema.Boolean),
+  // Compatibility for old clients; never extends a persistent control session.
+  renew: Schema.optional(Schema.Boolean),
+});
+export const ScreenControlIdentity = Schema.Struct({
+  controlId: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9:_-]{1,128}$/))),
+  generation: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+});
+export interface ComputerControlSession { id: string; generation: number }
 export type ScreenTakeoverInput = typeof ScreenTakeoverInput.Type;
 
 export const ScreenPauseInput = Schema.Struct({ paused: Schema.Boolean });
@@ -1031,6 +1058,8 @@ export interface ScreenStatusView {
   display: number;
   viewerUrl: string;
   humanTakeover: boolean;
+  controlSession?: ComputerControlSession | null;
+  controlPending?: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
   browserProfileScope: "computer";
@@ -1423,6 +1452,7 @@ export interface BotView {
   name: string;
   title: string;
   description: string;
+  /** @deprecated Empty compatibility field required by released iOS clients. */
   instructions: string;
   icon: string;
   color: string;
@@ -1738,6 +1768,18 @@ export interface ChannelHistoryPage {
   beforeSequence: string | null;
   hasMore: boolean;
   revision: string;
+}
+
+export interface ChannelLibraryItem {
+  id: string;
+  messageId: string;
+  attachment: AssetRef;
+  createdAt: string;
+}
+
+export interface ChannelLibraryPage {
+  items: ChannelLibraryItem[];
+  nextCursor: string | null;
 }
 
 export interface ChannelClientState {

@@ -1,6 +1,31 @@
 import { notificationAvatarDataUrl } from "./notification-avatar";
-import type { ClientSnapshot } from "@openteam/contracts";
-import type { ChannelNotificationState } from "@openteam/contracts/notification-content";
+import type { ChannelHistoryPage, ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
+import type { ChannelNotificationState, DesktopNotificationTarget } from "@openteam/contracts/notification-content";
+
+/** Resolve legacy banners by sequence without downloading a channel's history. */
+export async function resolveNotificationMessage(
+  target: DesktopNotificationTarget,
+  messages: readonly ChannelMessageView[],
+  history: (channelId: string, options: { beforeSequence?: string; limit: number }) => Promise<ChannelHistoryPage>
+): Promise<{ messageId: string; sequence?: string }> {
+  const id = target.threadMessageId ?? target.messageId;
+  const cached = messages.find((message) => message.channelId === target.channelId &&
+    (id ? message.id === id : message.sequence === target.messageSequence));
+  if (cached) return { messageId: cached.id, sequence: cached.sequence };
+  if (id) return { messageId: id, sequence: target.messageSequence };
+  let beforeSequence: string | undefined;
+  if (target.messageSequence) {
+    const sequence = BigInt(target.messageSequence);
+    if (sequence > 9223372036854775807n) throw new Error("This message is no longer available.");
+    if (sequence < 9223372036854775807n) beforeSequence = String(sequence + 1n);
+  }
+  const page = await history(target.channelId, { beforeSequence, limit: 1 });
+  const message = target.messageSequence
+    ? page.messages.find((row) => BigInt(row.sequence ?? "0") === BigInt(target.messageSequence!))
+    : page.messages.at(-1);
+  if (page.channelId !== target.channelId || !message) throw new Error("This message is no longer available.");
+  return { messageId: message.id, sequence: message.sequence };
+}
 
 export const desktopNotificationSnapshot = (
   snapshot: ClientSnapshot

@@ -1,4 +1,4 @@
-import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
+import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, requestIsStopped, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -31,6 +31,9 @@ import {
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
+  lockAgentLifecycle,
+  cleanupRetiredAgent,
+  RETIRED_AGENT_CLEANUP_RETRY_MS,
   AgentDataStore,
   AgentMessaging,
   appendRoutineRunLedger,
@@ -157,7 +160,6 @@ interface Claimed {
   images: RuntimeInlineImage[];
   clientId: string;
   cwd: string;
-  instructions: string;
   sessionPath: string | null;
   channelId: string;
   deliveryId: string | null;
@@ -199,8 +201,9 @@ const REQUEST_SOURCE_BY_ORIGIN = {
   broadcast: "broadcast",
 } as const satisfies Record<RunOrigin, RuntimeRequestSource>;
 
-export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
-  REQUEST_SOURCE_BY_ORIGIN[origin];
+export const runtimeRequestSourceForOrigin = (origin: RunOrigin, inboxType?: string): RuntimeRequestSource =>
+  // Feedback keeps user queue priority, but does not require a new visible reply.
+  origin === "user" && inboxType === "user.reaction" ? "event" : REQUEST_SOURCE_BY_ORIGIN[origin];
 
 /** Interrupted wakes that run again, and how often: agent messages up to 3 times, the rest once. */
 export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
@@ -318,6 +321,9 @@ const revivalBatchContent = <T extends RevivalWake>(claimed: T, pending: readonl
 export const turnContentWithNotes = (
   input: {
     origin: RunOrigin;
+    inboxType?: string;
+    /** The captured assembler adds the reply reminder only when explicitly requested. */
+    appendReplyReminder?: boolean;
     runtimeProfile: "agent" | "subagent";
     notes: ReadonlyArray<string | null | undefined>;
     unfinishedTasks?: boolean;
@@ -327,7 +333,8 @@ export const turnContentWithNotes = (
   withTurnSystemReminder(
     turnSystemReminder(input.notes, {
       unfinishedTasks: input.unfinishedTasks,
-      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content),
+      reply: input.appendReplyReminder === true && input.runtimeProfile === "agent" &&
+        turnOwesReplyReminder(input.origin, content, input.inboxType),
     }),
     content
   );
@@ -501,6 +508,7 @@ export class WakeWorker {
     await dispatchRequestChecks(this.prisma, this.messaging);
     await recoverRequestProgress(this.prisma, this.messaging);
     await this.recoverRoutineExecutions();
+    await this.reconcileRetiredAgents();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
     await this.pushNotifications.drain();
@@ -527,7 +535,7 @@ export class WakeWorker {
     this.agentStoreTimer = setInterval(() => {
       if (this.reconcilingAgentStores) return;
       this.reconcilingAgentStores = true;
-      void this.reconcileAgentStores(false)
+      void this.reconcileRetiredAgents().then(() => this.reconcileAgentStores(false))
         .then(async (adopted) => {
           if (adopted > 0) await this.agentData.reconcileAllActiveBots();
         })
@@ -577,6 +585,37 @@ export class WakeWorker {
     }
   }
 
+  private async reconcileRetiredAgents(): Promise<void> {
+    const pending = await this.prisma.retiredAgent.findMany({
+      where: { cleanupPending: true, nextCleanupAt: { lte: new Date() } },
+      orderBy: [{ nextCleanupAt: "asc" }, { id: "asc" }],
+      take: 4,
+      select: { id: true },
+    });
+    await Promise.all(pending.map(async ({ id }) => {
+      try {
+        // Rotate even a failing database/filesystem operation out of the front of the batch.
+        await this.prisma.retiredAgent.update({ where: { id }, data: {
+          nextCleanupAt: new Date(Date.now() + RETIRED_AGENT_CLEANUP_RETRY_MS),
+        } });
+        const warnings = await cleanupRetiredAgent(this.prisma, (path, init) => this.computerFetch(path, init), this.agentData, id);
+        for (const warning of warnings) console.warn(`retired agent cleanup: ${warning}`);
+      } catch (error) {
+        console.warn(`retired agent cleanup ${id}: ${String(error)}`);
+      }
+    }));
+  }
+
+  /** Ids the owner already deleted; their directory residue must never become a chat again. */
+  private async retiredAgentIds(ids: readonly string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const retired = await this.prisma.retiredAgent.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true },
+    });
+    return new Set(retired.map(({ id }) => id));
+  }
+
   private async reconcileAgentStores(backfill = true): Promise<number> {
     const directoryResponse = await this.computerFetch(COMPUTER_API_PATHS.agentStores, {
       method: "GET",
@@ -615,10 +654,29 @@ export class WakeWorker {
             })
           ).map(({ id }) => id)
     );
+    const groupRecords = directories.filter(({ kind }) => kind === "group");
+    const existingChannelIds = new Set(
+      groupRecords.length === 0
+        ? []
+        : (
+            await this.prisma.channel.findMany({
+              where: { id: { in: groupRecords.map(({ id }) => id) } },
+              select: { id: true },
+            })
+          ).map(({ id }) => id)
+    );
+    // A durable directory is roster authority, but a chat the owner deleted must never be adopted
+    // back from the residue a failed cleanup left behind: deleting a chat is final.
+    const retired = await this.retiredAgentIds([
+      ...agentRecords.map(({ id }) => id),
+      ...groupRecords.filter(({ id }) => !existingChannelIds.has(id)).map(({ id }) => id),
+    ]);
     for (const record of agentRecords) {
-      if (existingBotIds.has(record.id)) continue;
+      if (existingBotIds.has(record.id) || retired.has(record.id)) continue;
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-agent:${record.id}`}))`;
+        await lockAgentLifecycle(tx, record.id);
+        if (await tx.retiredAgent.findUnique({ where: { id: record.id } })) return false;
         if (await tx.bot.findUnique({ where: { id: record.id } })) return false;
         await tx.bot.create({
           data: {
@@ -651,18 +709,9 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
-    const groupRecords = directories.filter(({ kind }) => kind === "group");
-    const existingChannelIds = new Set(
-      groupRecords.length === 0
-        ? []
-        : (
-            await this.prisma.channel.findMany({
-              where: { id: { in: groupRecords.map(({ id }) => id) } },
-              select: { id: true },
-            })
-          ).map(({ id }) => id)
+    const missingGroupRecords = groupRecords.filter(
+      ({ id }) => !existingChannelIds.has(id) && !retired.has(id)
     );
-    const missingGroupRecords = groupRecords.filter(({ id }) => !existingChannelIds.has(id));
     const candidateGroupMemberIds = [
       ...new Set(missingGroupRecords.flatMap(({ memberIds }) => memberIds.slice(0, 6))),
     ];
@@ -681,7 +730,7 @@ export class WakeWorker {
           ).map(({ id }) => id)
     );
     for (const record of groupRecords) {
-      if (existingChannelIds.has(record.id)) continue;
+      if (existingChannelIds.has(record.id) || retired.has(record.id)) continue;
       const memberIds = [...new Set(record.memberIds)].slice(0, 6);
       if (memberIds.length === 0) continue;
       if (memberIds.some((memberId) => !activeGroupMemberIds.has(memberId))) {
@@ -690,6 +739,10 @@ export class WakeWorker {
       }
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-group:${record.id}`}))`;
+        // The bulk lookup is only a snapshot. Another worker may have adopted this room and
+        // the owner deleted it while we waited; serialize with deleteGroup and recheck its marker.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${record.id}`}))`;
+        if (await tx.retiredAgent.findUnique({ where: { id: record.id } })) return false;
         if (await tx.channel.findUnique({ where: { id: record.id } })) return false;
         await tx.channel.create({
           data: {
@@ -709,6 +762,19 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
+    // Retry failed retirement even when discovery returns the same ETag. A failed DELETE does
+    // not change the directory inventory, so otherwise a 304 would suppress cleanup forever.
+    for (const record of directories.filter(({ id }) => retired.has(id))) {
+      try {
+        const response = await this.computerFetch(COMPUTER_API_PATHS.agentStore(record.id), {
+          method: "DELETE", signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+      } catch (error) {
+        pending.set(record.id, record);
+        console.warn(`retired agent store ${record.id} could not be discarded: ${String(error)}`);
+      }
+    }
     this.pendingAgentStoreRecords = pending;
     if (responseEtag) this.agentStoreEtag = responseEtag;
 
@@ -1154,8 +1220,34 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        // Feedback has no ChannelDelivery, so room-delivery validation below
+        // cannot protect it. Recheck the destination at claim, after serializing
+        // with membership edits; sort locks when feedback spans several chats.
+        // Room deletion takes execution before membership. A mixed queue can
+        // select a delivery after inspecting feedback, so take all candidate
+        // execution locks first, in one order, before any membership lock.
+        const executionChannels = [...new Set(pendingCandidates
+          .filter(candidate => candidate.run.deliveryId ||
+            (candidate.type === "user.reaction" && candidate.run.channel?.kind === "group"))
+          .flatMap(candidate => candidate.run.channelId ? [candidate.run.channelId] : []))].sort();
+        for (const channelId of executionChannels) await lockGroupExecution(tx, channelId);
+        const feedbackChannels = [...new Set(pendingCandidates
+          .filter(candidate => candidate.type === "user.reaction")
+          .flatMap(candidate => candidate.run.channelId ? [candidate.run.channelId] : []))].sort();
+        for (const channelId of feedbackChannels)
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const candidates = [];
         for (const candidate of pendingCandidates) {
+          if (candidate.type === "user.reaction" && (!candidate.run.channelId ||
+              !await tx.channel.findFirst({ where: {
+                id: candidate.run.channelId, archivedAt: null, members: { some: { botId } },
+              }, select: { id: true } }))) {
+            const completedAt = new Date();
+            const error = { code: "reaction_channel_unavailable" };
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt, error } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
+            continue;
+          }
           if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
           else {
             const settledAt = new Date();
@@ -1332,7 +1424,6 @@ export class WakeWorker {
           images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
           clientId: payload.clientId,
           cwd: this.workspaceRoot,
-          instructions: inbox.bot.instructions,
           sessionPath: contextSession.runtimeSessionPath,
           channelId: inbox.run.channelId ?? String(payload.channelId ?? ""),
           deliveryId: inbox.run.deliveryId,
@@ -1427,6 +1518,7 @@ export class WakeWorker {
         sessionPath: claimed.sessionPath,
         content: turnContentWithNotes({
           origin: claimed.origin,
+          inboxType: claimed.inboxType,
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
@@ -1445,7 +1537,7 @@ export class WakeWorker {
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-        requestSource: runtimeRequestSourceForOrigin(claimed.origin),
+        requestSource: runtimeRequestSourceForOrigin(claimed.origin, claimed.inboxType),
         channelId: claimed.channelId,
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
@@ -1494,6 +1586,9 @@ export class WakeWorker {
       const completionFailure = turnCompletionFailure(completion);
       if (completionFailure) throw completionFailure;
       await this.prisma.$transaction(async (tx) => {
+        // Routine settlement may launch a follow-up. Acquire its owner gate before any run or
+        // inbox row, matching retirement and routine launch instead of inverting their order.
+        await lockAgentLifecycle(tx, claimed.botId);
         const completedAt = new Date();
         await tx.inboxEvent.update({
           where: { id: claimed.inboxId },
@@ -1690,9 +1785,9 @@ export class WakeWorker {
     if (!claimed.interruptedRunId) return false;
     const run = await this.prisma.run.findFirst({
       where: { id: claimed.interruptedRunId, botId: claimed.botId },
-      select: { status: true, inputDeliveredAt: true },
+      select: { status: true, inputDeliveredAt: true, error: true, requestStoppedAt: true },
     });
-    return Boolean(run?.inputDeliveredAt && ["cancelled", "interrupted"].includes(run.status));
+    return Boolean(run?.inputDeliveredAt && !requestIsStopped(run) && ["cancelled", "interrupted"].includes(run.status));
   }
 
   /** A wake cut off by a typed or priority message runs again after it, a bounded number of times. */
@@ -1749,6 +1844,10 @@ export class WakeWorker {
     } satisfies Prisma.InputJsonObject;
     let priorityInterrupted = false;
     await this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, claimed.botId);
+      // Cancellation and failure settle the same run. Read its terminal state only after
+      // taking the write lock, otherwise a late disconnect can undo a committed deletion.
+      await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
       const current = await tx.run.findUnique({ where: { id: claimed.runId } });
       const currentError =
         current?.error && !Array.isArray(current.error) && typeof current.error === "object"
@@ -1760,9 +1859,16 @@ export class WakeWorker {
         where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
         select: { id: true },
       });
-      priorityInterrupted = currentError?.code === "priority_peer_interrupt" ||
-        (Boolean(supersededByUser) && current?.status !== "failed");
-      const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
+      // A later explicit Stop wins over an older typed-message interruption.
+      // The computer can confirm that stop before the cancel API records it.
+      const stoppedByRuntime = error instanceof TurnStoppedError && current?.status !== "failed";
+      const explicitlyStopped = stoppedByRuntime ||
+        (current?.status === "cancelled" && currentError?.code !== "priority_peer_interrupt");
+      priorityInterrupted = !explicitlyStopped && (currentError?.code === "priority_peer_interrupt" ||
+        (Boolean(supersededByUser) && current?.status !== "failed"));
+      const failureDetails = stoppedByRuntime && (!currentError || currentError.code === "priority_peer_interrupt")
+        ? { code: "cancelled_by_user", message: error.message }
+        : (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
         current?.status === "cancelled" || (error instanceof TurnStoppedError && current?.status !== "failed")
           ? "cancelled"

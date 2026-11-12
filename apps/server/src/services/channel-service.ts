@@ -1,7 +1,8 @@
-import { nextMessageAddress, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
+import { nextMessageAddress, lockAgentLifecycle, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
 import {
   ApiError,
   type ReactToChannelMessageInput,
+  type ReactToChannelMessageView,
   type RenameChannelInput,
   type SendMessageInput,
 } from "@openteam/contracts";
@@ -162,6 +163,12 @@ export class ChannelService {
       }
 
       const accepted = await this.prisma.$transaction(async (tx) => {
+        // Acceptance must commit before archive scans the queue, or read the archived status
+        // afterwards. Take this before the Bot/onboarding row lock to keep their order fixed.
+        const owner = await tx.conversation.findUnique({
+          where: { id: conversationId }, select: { botId: true },
+        });
+        if (owner) await lockAgentLifecycle(tx, owner.botId);
         const conversation = await tx.conversation.findUnique({
           where: { id: conversationId },
           include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },
@@ -419,7 +426,7 @@ export class ChannelService {
           });
           if (!message) throw new ApiError(404, "message_not_found", "Message was not found");
           return {
-            ...(serialize(existing.response) as Record<string, unknown>),
+            ...(serialize(existing.response) as Omit<ReactToChannelMessageView, "message">),
             message: channelMessageView(message),
           };
         }
@@ -427,6 +434,10 @@ export class ChannelService {
       }
 
       const response = await this.prisma.$transaction(async (tx) => {
+        // Serialize the read/toggle/write and receipt check for this message.
+        // Each tap must see the user's current selection; a retried tap must
+        // return its original receipt rather than toggle again or hit P2002.
+        await tx.$queryRaw`SELECT id FROM "ChannelMessage" WHERE id = ${messageId}::uuid FOR UPDATE`;
         const message = await tx.channelMessage.findUnique({
           where: { id: messageId },
           include: {
@@ -436,6 +447,16 @@ export class ChannelService {
         });
         if (!message || message.channel.archivedAt) {
           throw new ApiError(404, "message_not_found", "Message was not found");
+        }
+        const receipt = await tx.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (receipt) {
+          if (receipt.requestHash !== requestHash)
+            throw new ApiError(409, "idempotency_conflict", "Reaction idempotency key changed");
+          if (!receipt.response)
+            throw new ApiError(409, "request_in_progress", "This reaction is already being applied");
+          return { ...(serialize(receipt.response) as Omit<ReactToChannelMessageView, "message">), message: channelMessageView(message) };
         }
         await tx.idempotencyRecord.create({
           data: {
@@ -460,9 +481,10 @@ export class ChannelService {
         const removed = reactions.some(
           (reaction) => reaction.by === "me" && reaction.emoji === input.emoji
         );
-        const next = reactions.filter(
-          (reaction) => !(reaction.by === "me" && reaction.emoji === input.emoji)
-        );
+        // One current tapback per user: a different emoji replaces theirs,
+        // and tapping their selected emoji clears it. Also normalize legacy
+        // messages that stored several user emojis without touching other actors.
+        const next = reactions.filter((reaction) => reaction.by !== "me");
         if (!removed) next.push({ by: "me", emoji: input.emoji });
         if (next.length > 0) metadata.reactions = next;
         else delete metadata.reactions;
@@ -477,6 +499,7 @@ export class ChannelService {
           !removed &&
           message.sender === "agent" &&
           message.senderBot &&
+          message.channel.members.some(member => member.botId === message.senderBotId) &&
           ["active", "provisioning"].includes(message.senderBot.status)
         ) {
           const wake = await this.messaging.enqueueWake(tx, {

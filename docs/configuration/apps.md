@@ -6,23 +6,25 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 
 | Tab | What's there |
 | --- | --- |
-| **General** | Your account and sign out, theme, microphone |
+| **General** | Your account and sign out, **Timezone**, **Pause iPhone alerts while using this Mac**, theme, microphone |
 | **Computer** | The current computer's name and Messages access and permissions |
 | **Model** | AI provider and account, model, reasoning effort, and connection test |
 | **Voice notes** | Transcription provider, model, API key, language, and connection test |
-| **Server** | Browser network priority and connection test, connected server version and a link to Updates, server activity, remote access, connected computers, and the bot screen size |
+| **Server** | Computer network priority and connection test, connected server version and a link to Updates, server activity, remote access, connected computers, and the bot screen size |
 | **Providers** | Which service bots use for [web search and page fetching](web-search.md), and those services' API keys |
 | **Updates** | Desktop app and server updates |
 
-**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, browser network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-browser-traffic-through-a-connected-computer) is granted locally on that computer.
+**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. **Timezone** and the iPhone-alerts switch in **General** are shared too. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, computer network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-computer-traffic-through-a-connected-computer) is granted locally on that computer.
 
-Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description.
+Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description. iPhone has the same fields in the bot's profile. The standalone bot **Instructions** field has been removed. Give a bot direction in chat, or use [skills](../usage/skills.md) for reusable methods. Updating removes the retired Instructions storage; save any text you need before updating.
+
+On desktop, **Settings → General → Use bot colors for messages** colors your sent messages with the bot's color. It is off by default.
 
 ## iPhone settings
 
-The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, and your account.
+The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, and your account. Your **Timezone** is under **More preferences**.
 
-**Settings → Server** shows browser network priority and a connection test, the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. The phone can manage browser network priority but cannot share its own connection. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
+**Settings → Server** shows the shared computer network priority under **Browser network** and a connection test, the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. The phone can manage computer network priority but cannot share its own connection. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
 
 ## Notifications
 
@@ -31,9 +33,11 @@ To get notified when a bot messages you:
 1. Allow OpenTeam to send notifications in your device's system settings.
 2. Every bot notifies you by default. To mute a bot, open **Settings → Bot notifications** in the iPhone app; the setting applies on every device.
 
-On desktop, banners appear only while OpenTeam isn't the window you're using. Each conversation shows at most one banner every 5 seconds, so a burst of replies produces a single banner; replies inside that window don't get one later. Banners are silent, show the message's first line as plain text, and disappear once you read the chat on your Mac or iPhone. Reactions don't notify. On iPhone, you get an alert for each message except in the conversation you have open.
+On desktop, silent banners appear only while OpenTeam isn't the window you're using, at most one every 5 seconds per conversation, and clear once you read the chat on any device. Reactions don't show banners on desktop.
 
-Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on. On the Mac, a group's banner is titled with the group's name. Opening a notification for a reply inside a thread opens that thread.
+On iPhone, you get an alert for each message and reaction, except in the conversation you have open. By default, **Pause iPhone alerts while I’m using my Mac** pauses them while you're active on a Mac running OpenTeam; see [mobile notifications](mobile-notifications.md#enable-alerts-on-iphone).
+
+Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on. Opening a notification takes you to that message, or to its thread.
 
 On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. Push notifications also need Apple push credentials on your server, which you can import with `openteam notifications configure`. Changes apply live without a restart. Follow the [mobile notification setup guide](mobile-notifications.md) for Apple credentials, CLI configuration, and delivery checks.
 
@@ -42,7 +46,7 @@ On iPhone, turn on **Notifications** in Settings, and choose which bots notify y
 1. Check that the bot isn't muted under **Settings → Bot notifications** in the iPhone app.
 2. Check that OpenTeam is allowed to send notifications in your system settings.
 3. Check that Focus or Do Not Disturb isn't silencing it.
-4. On iPhone, check that your server is set up for push notifications.
+4. On iPhone, check that your server is set up for push notifications, and that you aren't active on a Mac with **Pause iPhone alerts while I’m using my Mac** on.
 
 ## Sign out or switch servers
 

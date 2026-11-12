@@ -1,14 +1,15 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView, ChannelView } from "@openteam/contracts";
 import {
   ArrowLeftRight,
   ChevronLeft,
-  ChevronsRight,
+  ChevronRight,
+  X,
   Info,
   MessageCircle,
-  Monitor,
   Settings,
 } from "lucide-react";
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
 import { cn } from "../../lib/cn";
 import { measureUntilNextPaint } from "../../lib/performance";
@@ -44,19 +45,47 @@ export function DesktopHeader({
   selected: ChannelView | null;
   selectedBot?: BotView;
   onDetailsOpenChange: (open: boolean) => void;
-  onShowSettings: () => void;
+  onShowSettings?: () => void;
   onShowSummary: () => void;
 }) {
   const computerRef = useRef<HTMLButtonElement>(null);
-  const settingsRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
-  const focusNext = (ref: { current: HTMLButtonElement | null }) => requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
-  const showSummary = () => { onShowSummary(); focusNext(settingsRef); };
-  const showSettings = () => { onShowSettings(); focusNext(backRef); };
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    if (!title) return;
+    // Reserve the arrow's space once; hover only transforms the visible surface.
+    const updateScale = (width: number) => {
+      if (width > 0) {
+        title.style.setProperty("--conversation-rest-scale", String(Math.max(0, 1 - 24 / width)));
+      }
+    };
+    updateScale(title.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateScale(entry.borderBoxSize[0]?.inlineSize ?? title.getBoundingClientRect().width);
+    });
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [selected?.id, selected?.kind]);
+  const focusNext = (ref: { current: HTMLButtonElement | null }) =>
+    requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
+  const showSummary = () => {
+    onShowSummary();
+    focusNext(closeRef);
+  };
   const changeDetails = (open: boolean) => {
     measureUntilNextPaint("view.details-toggle", { opening: open });
     onDetailsOpenChange(open);
-    focusNext(open ? (inspectorMode === "summary" ? settingsRef : backRef) : computerRef);
+    focusNext(
+      open
+        ? inspectorMode === "summary"
+          ? closeRef
+          : backRef
+        : selected?.kind === "group"
+          ? computerRef
+          : titleRef
+    );
   };
   const directChannel = exchange?.channel ?? (selected?.kind === "agent_dm" ? selected : undefined);
   const directNameFallbacks = directChannel?.name.split(" ↔ ") ?? [];
@@ -88,10 +117,15 @@ export function DesktopHeader({
 
   return (
     // The whole bar moves the window; buttons opt out via the global no-drag rule.
-    <header className="electron-drag pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
+    <header className="desktop-conversation-header electron-drag pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
       {selected ? (
         <>
-          <div className={cn("flex h-full min-w-0 flex-1 items-center", selected.kind === "group" ? "px-3" : "px-4")}>
+          <div
+            className={cn(
+              "desktop-conversation-title flex h-full min-w-0 flex-1 items-center",
+              selected.kind === "group" ? "px-3" : "px-4"
+            )}
+          >
             <h2
               aria-label={selected.name}
               className="pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
@@ -119,27 +153,42 @@ export function DesktopHeader({
                   )}
                 </div>
               ) : selected.kind === "bot_dm" ? (
-                <button
+                <ButtonPrimitive
+                  ref={titleRef}
+                  aria-label="View conversation details"
+                  aria-expanded={detailsOpen}
+                  className="desktop-conversation-pill electron-no-drag inline-flex min-w-0 items-center outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  onClick={() => {
+                    if (detailsOpen && inspectorMode === "summary") changeDetails(false);
+                    else {
+                      changeDetails(true);
+                      showSummary();
+                    }
+                  }}
+                  type="button"
+                >
+                  <span aria-hidden="true" className="desktop-conversation-surface" />
+                  <span className="desktop-conversation-avatar">
+                    {selectedBot ? (
+                      <BotAvatar bot={selectedBot} size="xs" className="size-full" />
+                    ) : (
+                      <MessageCircle className="size-4 text-violet-500" />
+                    )}
+                  </span>
+                  <span className="desktop-conversation-name truncate">{selected.name}</span>
+                  <ChevronRight
+                    aria-hidden
+                    className="desktop-conversation-chevron size-3 shrink-0"
+                  />
+                </ButtonPrimitive>
+              ) : (
+                <ButtonPrimitive
                   aria-label="View conversation details"
                   className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                   onClick={() => {
                     changeDetails(true);
-                    showSettings();
+                    showSummary();
                   }}
-                  type="button"
-                >
-                  {selectedBot ? (
-                    <BotAvatar bot={selectedBot} size="xs" />
-                  ) : (
-                    <MessageCircle className="size-4 text-violet-500" />
-                  )}
-                  <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                </button>
-              ) : (
-                <button
-                  aria-label="View conversation details"
-                  className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                  onClick={() => { changeDetails(true); showSummary(); }}
                   type="button"
                 >
                   {selected.kind === "group" ? (
@@ -148,28 +197,24 @@ export function DesktopHeader({
                     <MessageCircle className="size-4 text-violet-500" />
                   )}
                   <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                </button>
+                </ButtonPrimitive>
               )}
             </h2>
           </div>
 
           <div
             className={cn(
-              "pointer-events-auto relative h-full shrink-0 overflow-hidden",
+              "pointer-events-auto relative h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-[var(--ease-details)] motion-reduce:transition-none",
               !detailsOpen && !selectedBot && selected.kind !== "group" && "w-0"
             )}
             style={{
-              width: detailsOpen
-                ? inspectorWidth
-                : selectedBot || selected.kind === "group"
-                  ? 40
-                  : 0,
+              width: detailsOpen ? inspectorWidth : selected.kind === "group" ? 40 : 0,
             }}
           >
             <div
               aria-hidden={!detailsOpen}
               className={cn(
-                "absolute inset-y-0 left-0 grid grid-cols-[40px_1fr_40px] items-center px-1 transition-opacity duration-[var(--motion-reveal)] ease-[var(--ease-pane)]",
+                "absolute inset-y-0 left-0 grid grid-cols-[40px_1fr_40px] items-center px-3 transition-opacity duration-[var(--motion-reveal)] ease-[var(--ease-pane)]",
                 detailsOpen ? "opacity-100" : "pointer-events-none opacity-0"
               )}
               inert={!detailsOpen}
@@ -214,47 +259,34 @@ export function DesktopHeader({
                 </>
               )}
               <div className="flex justify-end">
-                {inspectorMode === "summary" && (selectedBot || selected.kind === "group") ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        ref={settingsRef}
-                        aria-label={
-                          selected.kind === "group" ? "Conversation settings" : "Bot settings"
-                        }
-                        className="rounded-full text-foreground-tertiary"
-                        onClick={() => {
-                          measureUntilNextPaint("view.inspector-mode", { mode: "settings" });
-                          showSettings();
-                        }}
-                        size="icon-sm"
-                        variant="ghost"
-                      >
-                        <Settings className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {selected.kind === "group" ? "Conversation settings" : "Bot settings"}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      aria-label="Close details"
-                      className="rounded-full text-foreground-tertiary hover:bg-transparent hover:text-foreground"
-                      onClick={() => changeDetails(false)}
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <ChevronsRight className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Close details</TooltipContent>
-                </Tooltip>
+                {selected.kind === "group" && inspectorMode === "summary" && onShowSettings && (
+                  <Button
+                    aria-label="Conversation settings"
+                    className="mr-1 shrink-0 rounded-full text-foreground-secondary"
+                    onClick={() => {
+                      onShowSettings();
+                      focusNext(backRef);
+                    }}
+                    size="icon-sm"
+                    variant="ghost"
+                  >
+                    <Settings className="size-3.5" />
+                  </Button>
+                )}
+                <Button
+                  ref={closeRef}
+                  aria-label="Close details"
+                  title="Close"
+                  className="desktop-elevated-control desktop-details-close"
+                  onClick={() => changeDetails(false)}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
             </div>
-            {selectedBot || selected.kind === "group" ? (
+            {selected.kind === "group" ? (
               <div
                 aria-hidden={detailsOpen}
                 className={cn(
@@ -266,27 +298,17 @@ export function DesktopHeader({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label={
-                        selected.kind === "group"
-                          ? "View conversation details"
-                          : "OpenTeam's Computer"
-                      }
+                      aria-label="View conversation details"
                       className="rounded-full text-foreground-tertiary"
                       ref={computerRef}
                       onClick={() => changeDetails(true)}
                       size="icon-sm"
                       variant="ghost"
                     >
-                      {selected.kind === "group" ? (
-                        <Info className="size-4" />
-                      ) : (
-                        <Monitor className="size-4" />
-                      )}
+                      <Info className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {selected.kind === "group" ? "Conversation details" : "OpenTeam's Computer"}
-                  </TooltipContent>
+                  <TooltipContent>Conversation details</TooltipContent>
                 </Tooltip>
               </div>
             ) : null}

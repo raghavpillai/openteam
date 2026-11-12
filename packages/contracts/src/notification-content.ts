@@ -89,11 +89,20 @@ export interface ChannelNotificationView {
   botId: string;
   kind: AgentNotificationKind;
   messageSequence: string;
+  messageId?: string;
   /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
   threadMessageId?: string;
   title: string;
   body: string;
   sender?: NotificationSender;
+}
+
+/** Message identity carried from a native desktop banner to its renderer. */
+export interface DesktopNotificationTarget {
+  channelId: string;
+  messageId?: string;
+  messageSequence?: string;
+  threadMessageId?: string;
 }
 
 /** Self-contained identity: extensions can draw the avatar without a network request. */

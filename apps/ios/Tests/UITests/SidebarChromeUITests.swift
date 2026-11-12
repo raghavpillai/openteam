@@ -13,6 +13,63 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
 
+  func testDuoFirstRowClearanceAndSelection() async throws {
+    continueAfterFailure = false
+    try await configure("/__qa/reset", [:])
+    try await configure("/__qa/scene", ["scene": "duo-sidebar"])
+    let plugins: [[String: Any]] = ["slack", "google-calendar", "notion"].map { key in
+      ["key": key, "pluginKey": key, "name": key, "installed": true,
+       "status": "installed", "connections": []]
+    }
+    try await configure("/__qa/control", ["pluginCatalog": plugins, "pluginInstalls": plugins])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
+      "--open-channel", "duo-0", "--qa-session", UUID().uuidString]
+    app.launch()
+    let first = app.buttons["channel-duo-0"]
+    XCTAssertTrue(first.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["sidebar-account-name"].waitForExistence(timeout: 10))
+    let list = app.scrollViews.firstMatch
+    XCTAssertEqual(list.frame.width, 280, accuracy: 1)
+    let originalFrame = first.frame
+    XCTAssertTrue(first.isSelected)
+    capture("duo-first-row-clearance", app)
+    // Touch feedback must also work when the bot is already selected, without
+    // reopening the conversation or shifting the roster.
+    first.press(forDuration: 0.12)
+    XCTAssertTrue(first.isSelected)
+    XCTAssertEqual(first.frame.minY, originalFrame.minY, accuracy: 0.5)
+    for index in [2, 4, 1, 0] {
+      let row = app.buttons["channel-duo-\(index)"]
+      row.press(forDuration: 0.12)
+      let selected = expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: row)
+      await fulfillment(of: [selected], timeout: 5)
+      XCTAssertEqual(first.frame.minY, originalFrame.minY, accuracy: 0.5,
+        "Selection must not move or scroll the roster")
+      XCTAssertEqual(first.frame.height, 86, accuracy: 0.5)
+      capture("duo-selected-\(index)", app)
+    }
+    XCTAssertGreaterThanOrEqual(first.frame.minY - list.frame.minY, 16,
+      "The first row must clear the inner display's rounded top corner")
+    capture("duo-selection-returned-to-first", app)
+    first.press(forDuration: 0.7)
+    let markUnread = app.buttons["Mark unread"]
+    XCTAssertTrue(markUnread.waitForExistence(timeout: 5), "Touch feedback must preserve the context menu")
+    markUnread.tap()
+    let apps = app.buttons["marketplace-button"]
+    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 apps installed"), evaluatedWith: apps)
+    await fulfillment(of: [loaded], timeout: 10)
+    XCTAssertEqual(apps.frame.width, 78, accuracy: 1)
+    apps.tap()
+    XCTAssertTrue(app.buttons["installed-plugins"].waitForExistence(timeout: 10))
+    app.buttons["marketplace-back"].tap()
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    list.swipeUp()
+    XCTAssertTrue(app.buttons["settings-button"].isHittable)
+    XCTAssertTrue(apps.isHittable)
+    capture("duo-scrolled-footer", app)
+  }
+
   func testFooterAndCompleteCircularControls() async throws {
     continueAfterFailure = false
     try await configure("/__qa/reset", [:])
@@ -31,7 +88,7 @@ import XCTest
     let apps = app.buttons["marketplace-button"]
     XCTAssertTrue(account.waitForExistence(timeout: 20))
     XCTAssertTrue(apps.waitForExistence(timeout: 10))
-    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 installed plugins"), evaluatedWith: apps)
+    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 apps installed"), evaluatedWith: apps)
     await fulfillment(of: [loaded], timeout: 10)
     XCTAssertTrue(app.staticTexts["sidebar-account-name"].exists)
     XCTAssertEqual(account.frame.minX, 20, accuracy: 1)
@@ -78,5 +135,40 @@ import XCTest
     attachment.name = name
     attachment.lifetime = .keepAlways
     add(attachment)
+  }
+
+  func testProfileRailUsesContextualActionsAndPreservesUnsavedChanges() async throws {
+    continueAfterFailure = false
+    try await configure("/__qa/reset", [:])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
+      "--open-channel", "channel-research"]
+    app.launch()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 20))
+    app.buttons["conversation-details"].tap()
+    let back = app.buttons["profile-back"]
+    let options = app.buttons["profile-options"]
+    XCTAssertTrue(back.waitForExistence(timeout: 8))
+    XCTAssertTrue(back.isHittable)
+    XCTAssertTrue(options.isHittable)
+    XCTAssertGreaterThan(back.frame.minX, app.textFields["profile-name"].frame.maxX)
+    XCTAssertLessThan(back.frame.minY, options.frame.minY)
+    XCTAssertEqual(back.frame.width, 44, accuracy: 1)
+    XCTAssertFalse(app.buttons["new-button"].exists)
+    XCTAssertFalse(app.buttons["search-button"].exists)
+    let name = app.textFields["profile-name"]
+    name.tap()
+    name.typeText(" updated")
+    XCTAssertTrue(app.buttons["profile-save"].waitForExistence(timeout: 5))
+    back.tap()
+    XCTAssertTrue(app.alerts["Save changes?"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Keep editing"].tap()
+    XCTAssertEqual(name.value as? String, "Research updated")
+    capture("contextual-profile-rail", app)
+    app.buttons["profile-save"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["new-button"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["search-button"].exists)
+    XCTAssertFalse(back.exists)
   }
 }

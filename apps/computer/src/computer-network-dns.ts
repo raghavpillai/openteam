@@ -8,7 +8,7 @@ import type { Duplex } from "node:stream";
  * No system lookup or direct fallback is performed, including on timeout. */
 export function createDnsExchange(
   client: { open(host: string, port: number, signal?: AbortSignal): Promise<Duplex> },
-  options: { routeKey?: () => string | null; timeoutMs?: number } = {}
+  options: { routeKey?: () => string | null; timeoutMs?: number; preferIPv6?: () => boolean } = {}
 ) {
   type Job = {
     query: Buffer;
@@ -25,7 +25,11 @@ export function createDnsExchange(
   type Pool = { key: string; slots: Slot[]; jobs: Set<Job>; queue: Job[]; closed: boolean };
   let pool: Pool | undefined,
     closed = false;
-  const routeKey = options.routeKey ?? (() => "selected-route");
+  const bootstrapAddress = () => options.preferIPv6?.() ? "2606:4700:4700::1111" : "1.1.1.1";
+  const routeKey = () => {
+    const key = options.routeKey ? options.routeKey() : "selected-route";
+    return key ? `${key}:${bootstrapAddress()}` : null;
+  };
   const timeoutMs = options.timeoutMs ?? 5000;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
     throw new Error("Invalid DNS deadline");
@@ -101,7 +105,7 @@ export function createDnsExchange(
       }
       void (async () => {
         if (!slot.socket || slot.socket.destroyed) {
-          const raw = await client.open("1.1.1.1", 443, job.controller.signal);
+          const raw = await client.open(bootstrapAddress(), 443, job.controller.signal);
           if (job.done || owner.closed || routeKey() !== owner.key) {
             raw.destroy();
             if (!job.done) dispose(owner);

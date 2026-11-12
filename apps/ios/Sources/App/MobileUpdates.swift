@@ -9,6 +9,13 @@ final class MobileUpdates {
   private(set) var openError: String?
   private var lastChecked: Date?
   private var checking = false
+  private let usesTestFlightUpdates: Bool = {
+    #if DEBUG
+      return MobileRelease.usesTestFlightUpdates(isDebug: true, receiptURL: Bundle.main.appStoreReceiptURL)
+    #else
+      return MobileRelease.usesTestFlightUpdates(isDebug: false, receiptURL: Bundle.main.appStoreReceiptURL)
+    #endif
+  }()
   private let cacheKey = "openteam.testflight-release"
   private let installedVersion: String
   private let installedBuild: String
@@ -23,6 +30,7 @@ final class MobileUpdates {
     installedVersion =
       Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     installedBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    guard usesTestFlightUpdates else { return }
     if let data = UserDefaults.standard.data(forKey: cacheKey),
       let cached = try? JSONDecoder().decode(MobileRelease.self, from: data), cached.isValid
     {
@@ -43,7 +51,7 @@ final class MobileUpdates {
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
     #endif
-    guard !checking, lastChecked.map({ Date().timeIntervalSince($0) >= 15 * 60 }) ?? true
+    guard usesTestFlightUpdates, !checking, lastChecked.map({ Date().timeIntervalSince($0) >= 15 * 60 }) ?? true
     else { return }
     checking = true
     lastChecked = Date()

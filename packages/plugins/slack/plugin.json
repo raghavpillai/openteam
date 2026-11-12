@@ -1,6 +1,6 @@
 {
   "key": "slack",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "name": "Slack (managed)",
   "description": "Search channels, read threads, send messages, and work with canvases through an authorized Slack app.",
   "publisher": "Slack",
@@ -17,10 +17,10 @@
     "steps": [
       "Configure an HTTPS OpenTeam address using Tailscale Serve or your own domain. This integration uses a Web application callback; manual callback paste is not available.",
       "Create an internal Slack app in your workspace. In Create New App, choose From a manifest; the package includes a reusable Slack app manifest.",
-      "Replace the manifest redirect URL with this account's exact OpenTeam callback URL. Its user-token scopes cover the tools in Slack's MCP server; remove scopes and disable tools you do not need.",
+      "Replace the manifest redirect URL with this account's exact OpenTeam callback URL. Its user-token scopes cover the tools in Slack's MCP server. Keep all of them: OpenTeam requests every scope when you sign in, so removing one can make sign-in fail.",
       "In the Slack app dashboard, open Agents and turn on Enable Slack MCP Server. This separate switch is required even after OAuth succeeds.",
       "Create the app, then copy its client ID and client secret from Basic Information into this form. Save and authorize, choose your workspace, and allow the requested access.",
-      "Run a small read test before granting the account to a Bot. Keep the app internal; unlisted distributed apps cannot use Slack MCP."
+      "Run a small read test before using the account. Keep the app internal; unlisted distributed apps cannot use Slack MCP."
     ],
     "fields": [
       {
@@ -134,9 +134,9 @@
   "schemaVersion": 1,
   "icon": "assets/icon.png",
   "installationSteps": [
-    "Install the plugin from the registry.",
+    "Install Slack (managed) from Marketplace.",
     "Complete the provider app setup in account settings, then save the credentials.",
     "Authorize the account and wait for tool discovery to confirm Connected.",
-    "Enable the plugin and account for the Bots that need it."
+    "Run a small read test. Every Bot can use the connected account."
   ]
 }

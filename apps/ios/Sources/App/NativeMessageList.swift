@@ -34,6 +34,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var initialTarget = "bottom"
   var initialLayout = InitialLayout.settled
   var request: HistoryScrollRequest?
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
   var onPositioned: () -> Void = {}
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
   var onDismissKeyboard: () -> Void = {}
@@ -52,6 +56,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
     controller.onDismissKeyboard = onDismissKeyboard
+    controller.earlierPage = earlierPage
+    controller.laterPage = laterPage
+    controller.onLoadEarlier = onLoadEarlier
+    controller.onLoadLater = onLoadLater
     controller.update(items, request: request)
   }
 }
@@ -65,6 +73,16 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var bottomAnchoredIDs = Set<String>()
   private var windowStart = 0
   private let windowSize = 80
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
+  private var pageTrigger = HistoryPageTrigger()
+  private var highlightTarget: String?
+  private weak var highlightedCell: UITableViewCell?
+  private weak var highlightedMessage: MessageJumpFlashView?
+  private var lastHighlightedMessageID: String?
+  private var presentationFinished = false
   private var measuredHeights: [String: CGFloat] = [:]
   private var lastRequest: UUID?
   private var pendingRequest: HistoryScrollRequest?
@@ -183,6 +201,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     source = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, path, id in
       guard let self, let item = self.items[id] else { return nil }
       let cell = table.dequeueReusableCell(withIdentifier: "message", for: path)
+      if self.highlightedCell === cell { self.clearHighlight() }
+      cell.backgroundView = nil
+      cell.accessibilityIdentifier = nil
       cell.backgroundColor = .clear
       cell.selectionStyle = .none
       cell.contentConfiguration = UIHostingConfiguration {
@@ -222,6 +243,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
         var value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
           "offset": self.table.contentOffset.y, "following": self.following,
           "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
+          "lastHighlightedMessage": self.lastHighlightedMessageID ?? "",
           "moving": self.table.isDragging || self.table.isDecelerating || self.positioning || self.updating || self.scrollingToTarget]
         if self.tracesFrames { value["motion"] = Array(self.frameTrace.suffix(240)) }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
@@ -231,6 +253,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
     #endif
   }
 
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    // A short flash would otherwise be spent behind the incoming push. Wait
+    // for the navigation transition as well as the table's positioning barrier.
+    if let transition = transitionCoordinator,
+      transition.animate(alongsideTransition: nil, completion: { [weak self] _ in
+        guard let self, self.view.window != nil else { return }
+        self.presentationFinished = true
+        self.showTargetHighlight()
+      }) { return }
+    presentationFinished = true
+    showTargetHighlight()
+  }
   func update(_ values: [NativeHistoryItem], request: HistoryScrollRequest?) {
     loadViewIfNeeded()
     let ids = values.map(\.id)
@@ -580,6 +615,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
         self.positioned = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
+        self.highlightTarget = self.initialTarget == "bottom" ? nil : self.initialTarget
+        self.showTargetHighlight()
         self.reportScroll()
       }
       settle = work
@@ -748,7 +785,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       source.indexPath(for: item.id) != nil, !updating else { return }
     pendingRequest = nil
     following = request.id == "bottom"
+    highlightTarget = request.id == "bottom" ? nil : request.id
+    if highlightTarget == nil { clearHighlight() }
     scroll(to: request.id, animated: request.animated && !UIAccessibility.isReduceMotionEnabled)
+    if !scrollingToTarget { showTargetHighlight() }
     revealRelocation()
     reportScroll()
   }
@@ -935,6 +975,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if settled {
       stopGlide(settled: true)
       if !following { readingAnchor = captureAnchor() }
+      showTargetHighlight()
     }
     reportScroll()
   }
@@ -1032,6 +1073,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
     // onDrag dismissal can post keyboardWillHide before this callback, so the
     // dismissal flag is consumed when the scroll ends rather than reset here.
+    highlightTarget = nil
     followingAtDragStart = following
     following = false
     scrollingToTarget = false
@@ -1069,6 +1111,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       NativeHaptics.play(.selection, source: "chat.latest-scroll")
     }
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     reportScroll()
   }
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1121,8 +1164,52 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // rows during a fling lets UIKit apply offset corrections in its old
     // coordinate space, even after restoring the new window's anchor.
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     dragDirection = 0
     reportScroll()
+  }
+  private func loadAdjacentPageIfNeeded() {
+    guard positioned, !updating, !positioning, !scrollingToTarget,
+      let paths = table.indexPathsForVisibleRows,
+      let first = paths.map(\.row).min(), let last = paths.map(\.row).max() else { return }
+    let direction = pageTrigger.update(firstVisible: windowStart + first,
+      lastVisible: windowStart + last, count: orderedIDs.count,
+      direction: Double(dragDirection), earlier: earlierPage, later: laterPage)
+    guard let direction else { return }
+    // Scroll callbacks can run inside a UIKit/SwiftUI layout pass.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      switch direction {
+      case .earlier: self.onLoadEarlier()
+      case .later: self.onLoadLater()
+      }
+    }
+  }
+  private func clearHighlight() {
+    highlightedMessage?.stop()
+    highlightedMessage = nil
+    highlightedCell = nil
+  }
+  /// Flash only the message content, after positioning. Its overlay never
+  /// participates in row sizing and becomes transparent again in 650 ms.
+  private func showTargetHighlight() {
+    func surface(in view: UIView, target: String) -> MessageJumpFlashView? {
+      if let flash = view as? MessageJumpFlashView, flash.messageID == target { return flash }
+      for child in view.subviews {
+        if let flash = surface(in: child, target: target) { return flash }
+      }
+      return nil
+    }
+    guard presentationFinished, let target = highlightTarget,
+      let item = items.values.first(where: { $0.scrollID == target }),
+      let path = source.indexPath(for: item.id), let cell = table.cellForRow(at: path),
+      let flash = surface(in: cell.contentView, target: target) else { return }
+    highlightTarget = nil
+    clearHighlight()
+    highlightedCell = cell
+    highlightedMessage = flash
+    lastHighlightedMessageID = target
+    flash.flash()
   }
   private func reportScroll() {
     guard positioned else { return }
@@ -1251,6 +1338,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   #endif
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    presentationFinished = false
+    clearHighlight()
     followingResize = false
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")

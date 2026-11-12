@@ -26,6 +26,54 @@ const fixture = async () => {
   return { broker, home, starts };
 };
 
+describe("human control idle release", () => {
+  const sessionOf = (broker: ScreenBroker, id: string) =>
+    (broker as unknown as { sessions: Map<string, ScreenSession> }).sessions.get(id)!;
+
+  test("a heartbeat keeps the lease only while the user was active in the last five minutes", async () => {
+    const { broker } = await fixture();
+    expect((await broker.takeover("idle", "/workspace", true)).humanTakeover).toBe(true);
+    const session = sessionOf(broker, "idle");
+    session.humanActiveAt = Date.now() - 4 * 60_000;
+    expect((await broker.takeover("idle", "/workspace", true, { renew: true })).humanTakeover).toBe(true);
+    session.humanActiveAt = Date.now() - 5 * 60_000 - 1;
+    expect((await broker.takeover("idle", "/workspace", true, { renew: true })).humanTakeover).toBe(false);
+  });
+
+  test("a heartbeat after idle release does not re-acquire control, but an explicit take does", async () => {
+    const { broker } = await fixture();
+    await broker.takeover("idle-renew", "/workspace", true);
+    const session = sessionOf(broker, "idle-renew");
+    session.humanActiveAt = Date.now() - 6 * 60_000;
+    const renewed = await broker.takeover("idle-renew", "/workspace", true, { renew: true });
+    expect(renewed.humanTakeover).toBe(false);
+    expect(session.humanTakeoverUntil).toBeGreaterThan(0);
+    expect((await broker.takeover("idle-renew", "/workspace", true)).humanTakeover).toBe(true);
+  });
+
+  test("user activity reported by the proxy resets the idle timer, a plain heartbeat does not", async () => {
+    const { broker } = await fixture();
+    await broker.takeover("idle-activity", "/workspace", true);
+    const session = sessionOf(broker, "idle-activity");
+    const stale = Date.now() - 4 * 60_000;
+    session.humanActiveAt = stale;
+    await broker.takeover("idle-activity", "/workspace", true, { renew: true });
+    expect(session.humanActiveAt).toBe(stale);
+    await broker.takeover("idle-activity", "/workspace", true, { renew: true, activity: true });
+    expect(Date.now() - session.humanActiveAt).toBeLessThan(1_000);
+  });
+
+  test("the agent regains input after the lease goes idle", async () => {
+    const { broker } = await fixture();
+    await broker.takeover("idle-agent", "/workspace", true);
+    await expect(broker.actComputerUse("idle-agent", "/workspace", [{ action: "wait", durationMs: 1 }]))
+      .rejects.toThrow("input lease");
+    sessionOf(broker, "idle-agent").humanActiveAt = Date.now() - 5 * 60_000 - 1;
+    await expect(broker.actComputerUse("idle-agent", "/workspace", [{ action: "wait", durationMs: 1 }]))
+      .rejects.not.toThrow("input lease");
+  });
+});
+
 describe("concurrent screen requests", () => {
   test("clipboard input requires human control and canceled requests do not start a desktop", async () => {
     const { broker, starts } = await fixture();

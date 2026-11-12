@@ -1,6 +1,6 @@
 # Installation
 
-Install the OpenTeam server on the machine that will host your bots. The desktop app can run on the same machine or connect from another one.
+Install the OpenTeam server on the machine that will host your bots. The desktop app, for macOS (Apple silicon) and Linux (x64), can run on the same machine or connect from another one.
 
 ## Requirements
 
@@ -46,7 +46,9 @@ Setup then shows a summary. Choose **Start OpenTeam** to download the server and
 
 Connect a model in the app after you sign in. See [model providers](../configuration/models.md) for the options.
 
-Run `openteam setup --advanced` to choose a different connection mode, API port, time zone, or number of tasks that run at once. See [server settings](../configuration/server.md).
+To change the connection later, such as switching to Tailscale HTTPS or a public domain, run `openteam setup` again. Run `openteam setup --advanced` to also set the API port and how many tasks run at once. See [server settings](../configuration/server.md).
+
+The time zone that routines and the bot computer's clock use is set in the apps: **Settings → General → Timezone** on desktop, or **Settings → More preferences → Timezone** on iPhone. It follows your device's time zone until you pick one.
 
 To change your username or password later, see [server commands](../manage/server.md#change-your-account).
 

@@ -1,4 +1,4 @@
-import { fileTransferCapabilities } from "@openteam/plugin-sdk";
+import { connectorHostTools, fileTransferCapabilities, type PluginConnectorDefinition } from "@openteam/plugin-sdk";
 import type { PluginDynamicNamespace } from "./index";
 import { getDefaultMcpCustomInstruction } from "./reference-formatters";
 
@@ -11,7 +11,7 @@ export interface NamespaceConnection {
   statusMessage: string | null;
   instructions: string | null;
   toolSnapshot: unknown;
-  installation: { pluginKey: string };
+  installation: { pluginKey: string; manifest?: unknown };
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -29,7 +29,13 @@ export function pluginDynamicNamespaces(
   connections: readonly NamespaceConnection[],
   namespaces: ReadonlyMap<string, string>
 ): PluginDynamicNamespace[] {
-  return connections.map((connection) => ({
+  return connections.map((connection) => {
+    const connectors = record(connection.installation.manifest).connections;
+    const connector = Array.isArray(connectors)
+      ? connectors.find(candidate => record(candidate).key === connection.connectorKey)
+      : undefined;
+    const hostTools = connectorHostTools(connector as PluginConnectorDefinition | undefined);
+    return ({
     name: namespaces.get(connection.id)!,
     description: connectionDisplayName(connection),
     namespaceStatus: namespaceStatus(connection.status),
@@ -40,7 +46,8 @@ export function pluginDynamicNamespaces(
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {
           const tool = record(candidate);
-          if (typeof tool.name !== "string") return [];
+          if (typeof tool.name !== "string" || hostTools.includes(tool.name) ||
+            record(tool._meta)["openteam/hostOnly"] === true) return [];
           return [{
             connectionId: connection.id,
             name: tool.name,
@@ -51,7 +58,8 @@ export function pluginDynamicNamespaces(
           }];
         })
       : [],
-  }));
+    });
+  });
 }
 
 /** The reference's always-follow section for saved connector instructions, from connected accounts only. */

@@ -30,6 +30,13 @@ function refreshRoute() {
 refreshRoute();
 api.browserNetwork = async () => {
   refreshRoute();
+  if (fixture.protocols) fixture.view.runtime.connectivity = {
+    epoch: fixture.staleProtocols ? "obsolete" : fixture.view.runtime.routeEpoch,
+    sourceId: fixture.wrongProtocolSource ? "other" : fixture.view.runtime.activeMachineId ?? "server",
+    checkedAt: "2026-11-10T03:15:00.000Z",
+    ipv4: { state: fixture.protocols[0] },
+    ipv6: { state: fixture.protocols[1], ...(fixture.protocols[1] === "unavailable" ? { reason: "connect_failed" } : {}) },
+  };
   return structuredClone(fixture.view);
 };
 api.browserNetworkQuality = async () => {

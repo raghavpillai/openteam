@@ -7,13 +7,17 @@ Each plugin signs in to its service in one of a few ways. This page explains wha
 | Plugin | How it signs in |
 | --- | --- |
 | Linear, Notion, Granola | Browser sign-in. Nothing to set up first. |
+| Ramp | Browser sign-in. Choose read-only or full access when you approve; your Ramp role still applies. If Ramp rejects the callback URL, ask Ramp to allowlist the exact URL OpenTeam shows. |
 | GitHub | A fine-grained personal access token |
-| Gmail, Google Calendar, Google Drive | Your own Google OAuth app. See [Google](google.md). |
-| Slack | Your own Slack app. See [Slack](slack.md). Needs an HTTPS server address. |
+| Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides | Your own Google OAuth app. See [Google](google.md). |
+| Slack (managed) | Your own Slack app. See [Slack](slack.md). Needs an HTTPS server address. |
+| Slack (stealth) | The browser token (`xoxc-`) and session cookie (`xoxd-`) from your signed-in Slack session. See the [stealth setup guide](../../packages/plugins/slack-stealth/README.md). |
+| Email | The mailbox's email address and an app password. See [Email](email.md). |
 | 1Password | A read-only 1Password service account token, entered when you add the plugin |
+| Plaid | Your own Plaid client ID and secret. Ask a bot to set up Plaid; it asks for them and then sends a link for signing in to your bank. Real banks need Plaid production access. |
 | Custom MCP | Whatever the MCP server requires |
 
-Enter tokens and secrets only in the plugin's setup form. Never paste them into a chat.
+Enter tokens and secrets only in the plugin's setup form, or in the masked field a bot shows when it asks for one. Never paste them into a chat message.
 
 ## Browser sign-in
 
@@ -35,20 +39,11 @@ The 1Password desktop app and browser extension are not used.
 
 ## Sign-in callback
 
-Plugins that sign in through the browser have a **Sign-in callback** setting. It controls how the service sends you back to OpenTeam after you sign in. You'll find it in the account's settings on the plugin's page, or under **Marketplace → Manage → Accounts and settings**. It's set to **Automatic (recommended)**, and you rarely need to change it:
-
-| Option | How it works |
-| --- | --- |
-| **Automatic** | Uses **Server callback** when your server has an HTTPS address, and **Paste callback URL** otherwise |
-| **Server callback** | The service returns you straight to `https://<your-server>/api/v0/plugin-oauth/callback`. Needs HTTPS. |
-| **Paste callback URL** | The service returns you to a local page that doesn't load. Copy the full address from your browser and paste it into OpenTeam. Not available for Slack. |
-| **Desktop listener (advanced)** | The desktop app receives the callback on your computer. Start sign-in from the desktop app. Doesn't work for Slack. |
-
-One callback URL works for every account on your server, so you don't need to register a new one for each account.
+Plugins that sign in through the browser have a **Sign-in callback** setting, which controls how the service returns you to OpenTeam. To change it, hover over the account on the plugin's page and choose the gear (**Account settings**). Leave it on **Automatic (recommended)** unless you have a reason to change it: it uses **Server callback** (`https://<your-server>/api/v0/plugin-oauth/callback`) when your server has an HTTPS address, and **Paste callback URL** otherwise. **Desktop listener (advanced)** receives the callback in the desktop app, so start sign-in there. Slack (managed) needs the HTTPS server callback. One callback URL works for every account on your server.
 
 ## Check the connected account
 
-After you connect, open **Marketplace → Manage → Accounts and settings** and choose the plugin and account. Under **Test a tool**, pick a tool that shows who you're signed in as, enter its input, and choose **Run test**:
+After you connect, open the plugin in **Marketplace** and expand **Settings → Advanced settings**. Choose the account under **Connection / account**. Under **Test a tool**, pick a tool that shows who you're signed in as, enter its input, and choose **Run test**:
 
 | Plugin | Tool | Input |
 | --- | --- | --- |
@@ -64,7 +59,7 @@ If the wrong account connected, sign out of the service in your browser, then ch
 | Problem | What to do |
 | --- | --- |
 | Redirect or callback mismatch | Register the exact callback shown in OpenTeam. If you changed your server address, update it with the service too. |
-| Wrong account connected | Sign out of the service in your browser, then choose **Reauthorize** under **Manage → Accounts and settings** |
+| Wrong account connected | Sign out of the service in your browser, then choose **Reauthorize** in the plugin's **Advanced settings** |
 | Signed in, but a tool fails | Check the account's permissions, the app's scopes, and any workspace restrictions |
 | A bot can't use the tool | Check that the account is connected and the tool is available |
-| The connection stopped working | Under **Manage → Accounts and settings**, choose **Restart / refresh tools**, then **Reauthorize** if that doesn't fix it |
+| The connection stopped working | In the plugin's **Advanced settings**, choose **Restart / refresh tools**, then **Reauthorize** if that doesn't fix it |

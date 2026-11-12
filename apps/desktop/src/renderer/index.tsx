@@ -7,6 +7,7 @@ import { FirstRunShell, isFirstRun } from "./components/openteam/first-run-shell
 import { installPerformanceMonitoring } from "./lib/performance";
 import { initializeTheme } from "./lib/theme";
 import { installWindowVisibility } from "./lib/window-visibility";
+import { WindowResourceActivity } from "./hooks/resource-activity";
 import "./styles.css";
 
 // The signed-out window needs authentication UI, not the transcript, sidebar,
@@ -51,7 +52,9 @@ createRoot(root).render(
     />
     <DesktopUpdateDialog />
     <AuthGate>
-      <Workspace />
+      <WindowResourceActivity>
+        <Workspace />
+      </WindowResourceActivity>
     </AuthGate>
   </StrictMode>
 );

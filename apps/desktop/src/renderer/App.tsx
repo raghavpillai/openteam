@@ -13,6 +13,7 @@ import type {
   UpdateBotInput,
 } from "@openteam/contracts";
 import { createReadReceiptController } from "@openteam/product-core/read-receipts";
+import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openteam-api";
@@ -33,6 +34,7 @@ import { VersionMismatchBanner } from "./components/openteam/version-mismatch-ba
 import { Button } from "./components/ui/button";
 import { LoadingOrb } from "./components/ui/loading-orb";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { AttachmentStageChannel } from "./hooks/attachment-stage-channel";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
 import { useRecentChannels } from "./hooks/use-recent-channels";
@@ -64,7 +66,7 @@ import {
   COMPUTER_HANDOFF_OPEN_EVENT,
   type ComputerHandoffOpenDetail,
 } from "./lib/computer-handoff";
-import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
+import { deriveUnreadChannelIds, resolveNotificationMessage, syncDesktopNotificationSnapshot } from "./lib/notifications";
 import {
   COMPACT_SIDEBAR_WIDTH,
   canShowInspector,
@@ -105,9 +107,9 @@ const DesktopDialogs = lazy(() =>
 const Inspector = lazy(() =>
   import("./components/openteam/inspector").then((module) => ({ default: module.Inspector }))
 );
-const NewBotScreen = lazy(() =>
-  import("./components/openteam/new-bot-screen").then((module) => ({
-    default: module.NewBotScreen,
+const NewBotDialog = lazy(() =>
+  import("./components/openteam/new-bot-dialog").then((module) => ({
+    default: module.NewBotDialog,
   }))
 );
 const PluginDialog = lazy(() =>
@@ -230,6 +232,10 @@ export default function App() {
     anchor: SettingsAnchor;
     nonce: number;
   } | null>(null);
+  const [notificationOpening, setNotificationOpening] = useState<{
+    target: DesktopNotificationTarget;
+    error?: string;
+  } | null>(null);
   const [pluginTarget, setPluginTarget] = useState<{ pluginId: string; nonce: number } | null>(
     null
   );
@@ -238,6 +244,7 @@ export default function App() {
     channelId: string;
     messageId: string;
     nonce: number;
+    readThroughSequence?: string;
   } | null>(null);
   const [routineOpenTarget, setRoutineOpenTarget] = useState<{
     channelId: string;
@@ -251,7 +258,6 @@ export default function App() {
   const consumeTransferredDraft = useCallback(() => setTransferredDraft(null), []);
   const [newBotPicker, setNewBotPicker] = useState(false);
   const [newChatDraft, setNewChatDraft] = useState(0);
-  const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -323,11 +329,12 @@ export default function App() {
   }, []);
   const searchLoadNonce = useRef(0);
   const invalidateSearchNavigation = useCallback(
-    (...channelIds: Array<string | null | undefined>) => {
+    (channelIds: Array<string | null | undefined>, preserveChannelId?: string) => {
       searchLoadNonce.current += 1;
       setSearchMessageTarget(null);
+      setNotificationOpening(null);
       for (const channelId of new Set(channelIds.filter((id): id is string => Boolean(id)))) {
-        clearSearchContext(channelId);
+        clearSearchContext(channelId, { preserveWindow: channelId === preserveChannelId });
       }
     },
     [clearSearchContext]
@@ -343,19 +350,32 @@ export default function App() {
 
   const markChannelRead = useCallback(
     (channelId: string) => {
+      if (notificationOpening?.target.channelId === channelId) return;
       sidebarPreferences.markRead(channelId);
       const channel = index.channelById.get(channelId);
-      if (channel?.unreadCount === 0) return;
-      const latestSequence = index.latestMessageByChannel.get(channelId)?.sequence;
+      if (channel?.unreadCount === 0 && !channel.notificationState?.activityUnreadCount) return;
+      const transcript = transcriptMessagesByChannel.get(channelId);
+      const notifiedSequence = searchMessageTarget?.channelId === channelId
+        ? transcript?.find((message) => message.id === searchMessageTarget.messageId)?.sequence
+          ?? searchMessageTarget.readThroughSequence
+        : undefined;
+      const latestSequence = notifiedSequence ?? transcript?.at(-1)?.sequence;
       const throughSequence =
         latestSequence && /^\d+$/.test(latestSequence) ? latestSequence : undefined;
+      if (!throughSequence) return;
+      const newestKnown = index.latestMessageByChannel.get(channelId)?.sequence;
+      const viewingOlder = notifiedSequence && newestKnown && /^\d+$/.test(newestKnown)
+        && BigInt(notifiedSequence) < BigInt(newestKnown);
       void readReceipts.current.request(channelId, throughSequence, {
-        throughNotificationSequence: channel?.notificationState?.notificationCursor,
+        throughNotificationSequence: viewingOlder
+          ? channel?.notificationState?.lastReadNotificationSequence ?? "0"
+          : channel?.notificationState?.notificationCursor,
         send: (id, sequence, activity) => api.markChannelRead(id, sequence, activity),
         onAcknowledged: () => refresh(true),
       });
     },
-    [index.channelById, index.latestMessageByChannel, refresh, sidebarPreferences.markRead]
+    [index.channelById, index.latestMessageByChannel, notificationOpening, refresh,
+      searchMessageTarget, sidebarPreferences.markRead, transcriptMessagesByChannel]
   );
 
   useEffect(() => () => readReceipts.current.clear(), []);
@@ -419,39 +439,58 @@ export default function App() {
     window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
     return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
   }, []);
-  useEffect(() => {
-    const unsubscribe = window.openteam?.onNotificationClick(({ channelId, threadMessageId }) => {
-      invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
-      setA2AExchange(null);
-      a2aExchangeTrigger.current = null;
-      restoreA2AFocusAfterClose.current = false;
-      setNewBotPicker(false);
-      setSelectedId(channelId);
-      setInspectorMode("summary");
-      markChannelRead(channelId);
-      setDetailsOpen(false);
-      if (!threadMessageId) return;
-      // A reply inside a thread opens that thread at the reply, like a search result.
-      const nonce = ++searchLoadNonce.current;
-      void ensureMessageLoaded(channelId, threadMessageId)
-        .then((found) => {
-          if (found && searchLoadNonce.current === nonce)
-            setSearchMessageTarget({ channelId, messageId: threadMessageId, nonce });
-        })
-        .catch(() => undefined);
-    });
-    return unsubscribe;
+  const openDesktopNotification = useCallback((target: DesktopNotificationTarget) => {
+    const { channelId } = target;
+    invalidateSearchNavigation([selectedId, searchMessageTarget?.channelId, channelId], channelId);
+    const nonce = ++searchLoadNonce.current;
+    setNotificationOpening({ target });
+    setA2AExchange(null);
+    a2aExchangeTrigger.current = null;
+    restoreA2AFocusAfterClose.current = false;
+    setNewBotPicker(false);
+    setSelectedId(channelId);
+    setInspectorMode("summary");
+    setDetailsOpen(false);
+    void (async () => {
+      try {
+        const message = await resolveNotificationMessage(
+          target,
+          snapshot?.channelMessages ?? [],
+          api.channelHistory
+        );
+        if (searchLoadNonce.current !== nonce) return;
+        const found = await ensureMessageLoaded(channelId, message.messageId);
+        if (searchLoadNonce.current !== nonce) return;
+        if (!found) throw new Error("This message could not be loaded.");
+        setSearchMessageTarget({
+          channelId,
+          messageId: message.messageId,
+          nonce,
+          readThroughSequence: message.sequence,
+        });
+        setNotificationOpening(null);
+      } catch (cause) {
+        if (searchLoadNonce.current === nonce) {
+          setNotificationOpening({
+            target,
+            error: requestErrorMessage(cause, "Couldn’t open this message."),
+          });
+        }
+      }
+    })();
   }, [
     ensureMessageLoaded,
     invalidateSearchNavigation,
-    markChannelRead,
     searchMessageTarget?.channelId,
     selectedId,
     setSelectedId,
+    snapshot,
   ]);
+  useEffect(() => window.openteam?.onNotificationClick(openDesktopNotification), [openDesktopNotification]);
   useEffect(() => {
-    if (selectedId) void loadChannel(selectedId).catch(() => undefined);
-  }, [loadChannel, selectedId]);
+    if (selectedId && notificationOpening?.target.channelId !== selectedId
+      && searchMessageTarget?.channelId !== selectedId) void loadChannel(selectedId).catch(() => undefined);
+  }, [loadChannel, notificationOpening, searchMessageTarget?.channelId, selectedId]);
   useEffect(() => {
     syncDesktopNotificationSnapshot(window.openteam?.notifications, snapshot);
   }, [snapshot]);
@@ -572,7 +611,7 @@ export default function App() {
     toggleUnread: sidebarPreferences.toggleUnread,
   });
   if (aboutOpen) loadedSurfaces.current.about = true;
-  if (deleteBotTarget || deleteGroupTarget || newGroupDialog || rowTranscript) {
+  if (deleteBotTarget || deleteGroupTarget || rowTranscript) {
     loadedSurfaces.current.dialogs = true;
   }
   if (pluginsOpen) loadedSurfaces.current.plugins = true;
@@ -592,32 +631,20 @@ export default function App() {
     [handleStandardBotRowAction]
   );
 
-  const createNewBot = useCallback(
-    async (requestedName?: string, draft?: PromptDraft) => {
-      if (creatingBot.current) return;
-      creatingBot.current = true;
-      if (draft) setTransferredDraft({ channelId: null, draft });
+  const createNewBot = useCallback(async (input: CreateBotInput, draft?: PromptDraft) => {
+    if (creatingBot.current) return;
+    creatingBot.current = true;
+    try {
+      const bot = await mutate(() => api.createBot(input));
       setNewBotPicker(false);
-      const name = requestedName?.trim() || "New Bot";
-      setPendingBot({ name });
-      try {
-        const bot = await mutate(() =>
-          api.createBot({ clientRequestId: crypto.randomUUID(), name })
-        );
-        setInspectorMode("summary");
-        setDetailsOpen(false);
-        setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
-        if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
-      } catch {
-        // Keep the composer draft available when bot creation fails.
-        setPendingBot(null);
-        if (draft) setNewBotPicker(true);
-      } finally {
-        creatingBot.current = false;
-      }
-    },
-    [mutate]
-  );
+      setInspectorMode("summary");
+      setDetailsOpen(false);
+      setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
+      if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
+    } finally {
+      creatingBot.current = false;
+    }
+  }, [mutate]);
 
   // Setup hands over to its first bot: the main page appears with the bot flying into its
   // sidebar row, holds there a moment with the row lit, then opens its chat for the
@@ -760,10 +787,6 @@ export default function App() {
     setNewChatDraft((draft) => draft + 1);
     setNewBotPicker(true);
   }, []);
-  const openNewGroup = useCallback(() => {
-    measureUntilNextPaint("view.dialog-open", { dialog: "new-group" });
-    setNewGroupDialog(true);
-  }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
   const openSettingsTarget = useCallback((anchor: SettingsAnchor | null) => {
     setSettingsTarget(anchor ? { anchor, nonce: Date.now() } : null);
@@ -789,7 +812,7 @@ export default function App() {
       setComposerFocus((previous) =>
         focusComposer ? { channelId: id, nonce: (previous?.nonce ?? 0) + 1 } : null
       );
-      invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
+      invalidateSearchNavigation([selectedId, searchMessageTarget?.channelId]);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
       restoreA2AFocusAfterClose.current = false;
@@ -892,6 +915,8 @@ export default function App() {
             async () => {
               const historyStatus = historyByChannelRef.current.get(channelId);
               searchLoadNonce.current += 1;
+              setNotificationOpening(null);
+              clearSearchContext(channelId, { preserveWindow: true });
               setSearchMessageTarget((current) =>
                 current?.channelId === channelId ? null : current
               );
@@ -902,7 +927,7 @@ export default function App() {
           ] as const;
         })
       ),
-    [jumpToLatest, warmIds]
+    [clearSearchContext, jumpToLatest, warmIds]
   );
   const viewportBottomHandlers = useMemo(
     () =>
@@ -1244,12 +1269,21 @@ export default function App() {
 
   return (
     <BotAvatarActivityProvider
-      channel={newBotPicker || pendingBot ? null : (a2aExchangeChannel ?? selected)}
+      channel={pendingBot ? null : (a2aExchangeChannel ?? selected)}
       run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
       runsByChannel={index.runsByChannel}
     >
       <TooltipProvider>
-        <main className="flex h-screen overflow-hidden bg-background text-foreground">
+        <main className="relative flex h-screen overflow-hidden bg-background text-foreground">
+          {notificationOpening && (
+            <div role={notificationOpening.error ? "alert" : "status"} data-notification-opening
+              className="absolute bottom-28 left-1/2 z-50 flex max-w-md -translate-x-1/2 items-center gap-3 rounded-xl border bg-background px-4 py-3 shadow-lg">
+              {notificationOpening.error ? <>
+                <span>{notificationOpening.error}</span>
+                <Button onClick={() => openDesktopNotification(notificationOpening.target)}>Retry</Button>
+              </> : <><LoadingOrb size={24} label="Opening message" /><span>Opening message</span></>}
+            </div>
+          )}
           <div aria-hidden="true" className="electron-window-drag-strip" />
           <Sidebar
             itemsByRun={index.itemsByRun}
@@ -1257,7 +1291,6 @@ export default function App() {
             activeTaskChannelIds={activeTaskChannelIds}
             botById={index.botById}
             channels={visibleChannels}
-            creating={newBotPicker}
             forcedCompact={forcedSidebarCompact}
             maxExpandedWidth={sidebarMaxWidth}
             latestMessageByChannel={index.latestMessageByChannel}
@@ -1266,7 +1299,6 @@ export default function App() {
             onEditChannel={editSidebarChannel}
             onLayoutChange={handleSidebarLayoutChange}
             onNewBot={openNewBot}
-            onNewGroup={openNewGroup}
             onOpenPlugins={openPlugins}
             onOpenSettings={openSettings}
             onPreloadSearch={preloadSearchDialog}
@@ -1275,7 +1307,7 @@ export default function App() {
             pendingBot={pendingBot}
             preferences={sidebarPreferences}
             selectedId={
-              newBotPicker || pendingBot || landing
+              pendingBot || landing
                 ? null
                 : selected?.kind === "agent_dm"
                   ? lastWritableChannelId.current
@@ -1284,7 +1316,8 @@ export default function App() {
           />
 
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
-            {!newBotPicker && !pendingBot && !landing && (
+            <AttachmentStageChannel value={selected?.id ?? null}>
+            {!pendingBot && !landing && (
               <DesktopHeader
                 agentNameById={index.agentNameById}
                 botById={index.botById}
@@ -1296,10 +1329,10 @@ export default function App() {
                   if (open) setInspectorMode("summary");
                   setDetailsOpen(open);
                 }}
-                onShowSettings={() => setInspectorMode("settings")}
                 onShowSummary={() =>
                   setInspectorMode(inspectorMode === "routine" ? routineReturnMode : "summary")
                 }
+                onShowSettings={() => setInspectorMode("settings")}
                 exchange={
                   a2aExchange && a2aExchangeChannel
                     ? {
@@ -1331,49 +1364,7 @@ export default function App() {
               </div>
             )}
 
-            {newBotPicker ? (
-              <Suspense
-                fallback={
-                  <div className="grid min-h-0 flex-1 place-items-center" role="status">
-                    <LoadingOrb label="Loading new Bot" size={24} />
-                  </div>
-                }
-              >
-                <NewBotScreen
-                  key={newChatDraft}
-                  botById={index.botById}
-                  channels={visibleChannels}
-                  onCancel={() => {
-                    setNewBotPicker(false);
-                    requestAnimationFrame(() =>
-                      document
-                        .querySelector<HTMLElement>('[contenteditable="true"]:not([inert] *)')
-                        ?.focus()
-                    );
-                  }}
-                  incomingDraft={
-                    transferredDraft?.channelId === null ? transferredDraft.draft : null
-                  }
-                  onDraftApplied={consumeTransferredDraft}
-                  onCreateBot={(name, draft) => void createNewBot(name, draft)}
-                  onCreateGroup={(botIds) =>
-                    mutate(() =>
-                      api.createGroup({
-                        name: botIds
-                          .map((id) => index.botById.get(id)?.name ?? "Bot")
-                          .join(", ")
-                          .slice(0, 120),
-                        botIds,
-                      })
-                    )
-                  }
-                  onSelect={(id, draft) => {
-                    if (draft) setTransferredDraft({ channelId: id, draft });
-                    selectSidebarChannel(id);
-                  }}
-                />
-              </Suspense>
-            ) : pendingBot ? (
+            {pendingBot ? (
               <div
                 aria-label={`Creating ${pendingBot.name}`}
                 aria-live="polite"
@@ -1414,9 +1405,6 @@ export default function App() {
                       >
                         <ChatPane
                           active={channelId === selectedId && !a2aExchangeChannel}
-                          activityTruncated={
-                            historyByChannel.get(channelId)?.activityTruncated ?? false
-                          }
                           threadContextTruncated={
                             historyByChannel.get(channelId)?.threadContextTruncated ?? false
                           }
@@ -1483,7 +1471,6 @@ export default function App() {
                       >
                         <ChatPane
                           activeRun={undefined}
-                          activityTruncated={false}
                           threadContextTruncated={false}
                           agentNameById={index.agentNameById}
                           botById={index.botById}
@@ -1517,19 +1504,15 @@ export default function App() {
                   className={cn(
                     "shrink-0 overflow-hidden bg-inspector opacity-100",
                     detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
-                    !visibleDetailsOpen && "pointer-events-none opacity-0"
+                    !inspectorResizing && "transition-[width] duration-300 ease-[var(--ease-details)] motion-reduce:transition-none",
+                    !visibleDetailsOpen && "pointer-events-none"
                   )}
                   inert={!visibleDetailsOpen}
                   ref={inspectorPanelRef}
                   style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
                 >
                   <div
-                    className={cn(
-                      "relative h-full",
-                      visibleDetailsOpen
-                        ? "[transform:translateX(0)] opacity-100 transition-[transform,opacity] duration-[var(--motion-reveal)] ease-[var(--ease-pane)]"
-                        : "[transform:translateX(40px)] opacity-0"
-                    )}
+                    className="relative h-full"
                     ref={inspectorContentRef}
                     style={{ width: renderedInspectorWidth }}
                   >
@@ -1609,6 +1592,7 @@ export default function App() {
                             active
                             botById={index.botById}
                             channel={selected}
+                            libraryRevision={index.messagesByChannel.get(selected.id)?.at(-1)?.id}
                             computerHandoff={
                               computerHandoff?.botId === selected.members[0]?.botId
                                 ? computerHandoff
@@ -1651,7 +1635,7 @@ export default function App() {
                 {snapshot.bots.length === 0 ? (
                   <div className="flex flex-col items-center gap-3">
                     <span>Bots do the work in OpenTeam. Create one to get started.</span>
-                    <Button onClick={() => void createNewBot()} size="sm">
+                    <Button onClick={openNewBot} size="sm">
                       Create a bot
                     </Button>
                   </div>
@@ -1660,27 +1644,28 @@ export default function App() {
                 )}
               </div>
             )}
+            </AttachmentStageChannel>
           </section>
 
+          {newBotPicker && (
+            <Suspense fallback={null}>
+              <NewBotDialog
+                key={newChatDraft}
+                onOpenChange={setNewBotPicker}
+                onCreateBot={(input) => createNewBot(input, transferredDraft?.channelId === null ? transferredDraft.draft : undefined)}
+              />
+            </Suspense>
+          )}
           <MessagesGrantsPrompt />
           {loadedSurfaces.current.dialogs && (
             <Suspense fallback={null}>
               <DesktopDialogs
-                activeBots={snapshot.bots.filter((bot) => bot.status === "active")}
                 deleteBotTarget={deleteBotTarget}
                 deleteGroupTarget={deleteGroupTarget}
-                newGroupOpen={newGroupDialog}
                 onConfirmDeleteBot={confirmDeleteBot}
                 onConfirmDeleteGroup={confirmDeleteGroup}
-                onCreateGroup={async (name, botIds) => {
-                  const channel = await mutate(() => api.createGroup({ name, botIds }));
-                  setSelectedId(channel.id);
-                  setNewBotPicker(false);
-                  setNewGroupDialog(false);
-                }}
                 onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}
                 onDeleteGroupOpenChange={(open) => !open && setDeleteGroupTarget(null)}
-                onNewGroupOpenChange={setNewGroupDialog}
                 onTranscriptOpenChange={(open) => !open && setRowTranscript(null)}
                 rowTranscript={rowTranscript}
               />

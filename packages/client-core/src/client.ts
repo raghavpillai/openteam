@@ -28,6 +28,7 @@ import type {
   BotMemoryList,
   ChannelClientState,
   ChannelHistoryPage,
+  ChannelLibraryPage,
   ChannelMessageContextOptions,
   ChannelMessageContextView,
   ChannelMessageView,
@@ -377,6 +378,16 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugins/${encodeURIComponent(pluginKey)}/environment`,
         { method: "PUT", body: JSON.stringify({ values }) }
       ),
+    cancelPluginDeviceLink: (connectionId: string, sessionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/cancel`,
+        { method: "POST", body: JSON.stringify({ sessionId }) }
+      ),
+    pollPluginDeviceLink: (connectionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/poll`,
+        { method: "POST" }
+      ),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {
         method: "POST",
@@ -505,6 +516,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     uploadAsset,
     assetUrl,
+    channelLibrary: (channelId: string, before: string | null = null, signal?: AbortSignal) => {
+      const query = before ? `?before=${encodeURIComponent(before)}` : "";
+      return transport.request<ChannelLibraryPage>(`/api/v0/channels/${encodeURIComponent(channelId)}/library${query}`, { signal });
+    },
     search: (query: string, category: SearchCategory = "all", signal?: AbortSignal) => {
       const params = new URLSearchParams({ q: query, category });
       return transport.request<SearchResponse>(`/api/v0/search?${params}`, { signal });
@@ -741,17 +756,18 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify(input),
         }
       ),
-    screenClipboard: (botId: string, input: ScreenClipboardInput, signal?: AbortSignal) =>
+    screenClipboard: (botId: string, input: ScreenClipboardInput, signal?: AbortSignal, control?: { controlId?: string; generation?: number }) =>
       transport.request<ScreenClipboardView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/clipboard`,
-        { method: "POST", body: JSON.stringify(input), signal }
+        { method: "POST", body: JSON.stringify({ ...input, ...control }), signal }
       ),
-    setScreenTakeover: (botId: string, active: boolean) =>
+    /** Persistent control uses an owner ID and generation. `renew` is retained for old clients. */
+    setScreenTakeover: (botId: string, active: boolean, renew = false, control?: { controlId?: string; generation?: number; force?: boolean }) =>
       transport.request<ScreenStatusView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/takeover`,
         {
           method: "POST",
-          body: JSON.stringify({ active }),
+          body: JSON.stringify({ active, ...(renew ? { renew } : {}), ...control }),
         }
       ),
     routines: (ownerId: string, ownerKind: "bot" | "group" = "bot") =>
@@ -806,9 +822,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/pause`,
         { method: "POST", body: JSON.stringify({ paused }) }
       ),
-    screenVncSession: (botId: string, signal?: AbortSignal) =>
+    screenVncSession: (botId: string, signal?: AbortSignal, control?: { controlId?: string; generation?: number }) =>
       transport.request<ScreenVncSessionView>(
-        `/api/v0/bots/${encodeURIComponent(botId)}/screen/vnc`, { method: "POST", signal }
+        `/api/v0/bots/${encodeURIComponent(botId)}/screen/vnc`, { method: "POST", signal, ...(control ? { body: JSON.stringify(control) } : {}) }
       ),
     screenFrameUrl: (botId: string, revision = Date.now()) =>
       `${transport.baseUrl}/api/v0/bots/${encodeURIComponent(botId)}/screen/frame?v=${revision}`,

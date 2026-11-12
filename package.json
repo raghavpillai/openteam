@@ -1,6 +1,6 @@
 {
   "name": "openteam",
-  "version": "0.0.13",
+  "version": "0.0.17",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
@@ -29,6 +29,8 @@
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "test:browser-network:linux": "bun scripts/test-browser-network-linux.ts",
     "test:computer-network:linux": "bun scripts/test-computer-network-linux.ts",
+    "test:imessage-bridge:linux": "bun scripts/test-imessage-bridge-linux.ts",
+    "test:imessage-bridge:configs:linux": "bun scripts/test-imessage-bridge-configs-linux.ts",
     "test:browser-network:chaos": "bun test apps/server/test/browser-network.test.ts --test-name-pattern chaos && bun test packages/plugin-sdk/test/browser-network/client.test.ts packages/plugin-sdk/test/browser-network/mux.test.ts apps/desktop/test/network apps/computer/test/display-settings.test.ts apps/computer/test/browser-network-worker.test.ts apps/computer/test/browser-network-quality.test.ts apps/computer/test/browser-network-egress.test.ts",
     "db:generate": "bun --filter @openteam/db db:generate",
     "db:push": "bun --filter @openteam/db db:push",
@@ -44,7 +46,8 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "ios:performance": "bun --filter @openteam/ios performance",
-    "prepare:plugins": "bun packages/plugins/scripts/generate.ts"
+    "prepare:plugins": "bun packages/plugins/scripts/generate.ts",
+    "test:computer-control:chaos": "bun test apps/computer/test/screen-control.chaos.test.ts apps/server/test/screen-vnc.chaos.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

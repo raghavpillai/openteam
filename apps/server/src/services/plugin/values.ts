@@ -1,3 +1,4 @@
+import { publicDeviceLink } from "./device-link";
 import { oauthCallbackMode, MANUAL_OAUTH_REDIRECT } from "../../plugins/oauth-callback";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import type { PluginConnectionView } from "@openteam/contracts";
@@ -63,7 +64,19 @@ export function redactConnectionSecrets(
     else if (Array.isArray(entry)) entry.forEach(collect);
     else if (entry && typeof entry === "object") Object.values(entry).forEach(collect);
   };
-  collect(connection.credentials);
+  // OAuth client metadata is public protocol data. Values such as the response
+  // type "code" must not corrupt tool results (for example, the id "codex").
+  const { oauth: storedOAuth, ...credentials } = jsonObject(connection.credentials);
+  collect(credentials);
+  const oauth = jsonObject(storedOAuth);
+  for (const key of ["state", "codeVerifier", "authorizationUrl", "callbackSessionId"])
+    collect(oauth[key]);
+  const tokens = jsonObject(oauth.tokens);
+  for (const key of ["access_token", "refresh_token", "id_token"])
+    collect(tokens[key]);
+  const client = jsonObject(oauth.clientInformation);
+  collect(client.client_secret);
+  collect(client.registration_access_token);
   const config = jsonObject(connection.configuration);
   collect(config.clientSecret);
   collect(config.headers);
@@ -385,6 +398,7 @@ export function connectionSetupPhase(connection: Parameters<typeof connectionCon
   if (!connectionConfigured(connection, plugin)) return "provider_setup_required";
   if (connection.status === "ready") return "connected";
   if (connection.status === "error") return "validation_failed";
+  if (publicDeviceLink(connection.credentials)) return "authorization_pending";
   if (typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl === "string") return "authorization_pending";
   if (connection.authType === "oauth" && connection.status === "disconnected" && jsonObject(jsonObject(connection.credentials).oauth).tokens) return "ready_to_connect";
   return connection.authType === "oauth" ? "ready_to_authorize" : "ready_to_connect";
@@ -439,8 +453,11 @@ export function connectionView(
         ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
         : null,
     authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
+    ...(plugin?.connections.find((c) => c.key === connection.connectorKey)?.deviceLink
+      ? { deviceLink: publicDeviceLink(connection.credentials) }
+      : {}),
     oauthRedirectUrl:
-      connection.authType === "oauth" ? (oauthCallbackMode(publicUrl, jsonObject(connection.configuration)) === "manual" ? MANUAL_OAUTH_REDIRECT : oauthRedirectUrl(publicUrl, connection.id)) : null,
+      connection.authType === "oauth" ? oauthCallbackMode(publicUrl, jsonObject(connection.configuration)) === "manual" ? MANUAL_OAUTH_REDIRECT : oauthRedirectUrl(publicUrl, connection.id) : null,
     oauthCallbackMode: connectionCallbackMode(publicUrl, connection),
     manualCallbackSupported: plugin?.connections.find(entry => entry.key === connection.connectorKey)?.oauth?.supportsLoopbackRedirect !== false,
     setupPhase: connectionSetupPhase(connection, plugin),

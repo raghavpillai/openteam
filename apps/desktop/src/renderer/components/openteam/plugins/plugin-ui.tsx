@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { useRef, useState, type ReactNode } from "react";
 import { api } from "../../../client/openteam-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
@@ -11,21 +12,27 @@ export function PluginButton({
   onClick,
   disabled = false,
   primary = false,
+  loading = false,
+  loadingLabel,
 }: {
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   primary?: boolean;
+  loading?: boolean;
+  loadingLabel?: ReactNode;
 }) {
   return (
-    <button
+    <ButtonPrimitive
       type="button"
       disabled={disabled}
+      loading={loading}
+      loadingLabel={loadingLabel}
       onClick={onClick}
       className={`inline-flex min-h-[26px] shrink-0 whitespace-nowrap cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[13px] outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-40 ${primary ? "bg-foreground text-background disabled:bg-[#77777717] disabled:text-foreground" : "bg-[#77777717] enabled:hover:bg-[#7777772b]"}`}
     >
       {children}
-    </button>
+    </ButtonPrimitive>
   );
 }
 /** The app's Select, sized like the other plugin fields, instead of a native dropdown. */

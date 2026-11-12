@@ -25,12 +25,14 @@ import {
   net,
   protocol,
   powerMonitor,
+  session,
   shell,
   systemPreferences,
 } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { applicationMenuTemplate } from "./application-menu";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
+import { downloadAssetRequests } from "./asset-downloads";
 import { createOpenTeamClient } from "@openteam/client-core";
 import { DesktopPluginOAuth } from "./plugin-oauth";
 import { ProviderSignInCallback } from "./provider-sign-in";
@@ -43,6 +45,7 @@ import {
 } from "./data-url-file";
 import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
 import { DurableSendJournalStore } from "./durable-send-journal-store";
+import { createLinkFavicons, LINK_FAVICON_SCHEME } from "./link-favicons";
 import { startHostBridge } from "./host/bridge";
 import { HostCapabilities } from "./host/capabilities";
 import { NativeActionReceipts } from "./host/action-receipts";
@@ -52,6 +55,7 @@ import {
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
+  parseNotificationTarget,
 } from "./notifications";
 import {
   createComputerSettingsStore,
@@ -59,6 +63,7 @@ import {
   type ComputerSettingsStore,
 } from "./computer-settings";
 import { readManagedInstallation } from "./local-installation";
+import { bindWindowActivity, windowIsActive, windowIsVisible } from "./window-activity";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
@@ -67,10 +72,14 @@ import {
 } from "./update-status";
 
 let mainWindow: BrowserWindow | null = null;
-const isMainWindowVisible = () => Boolean(mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized());
+const isMainWindowVisible = () => Boolean(mainWindow && windowIsVisible(mainWindow));
 ipcMain.handle("openteam:window-visibility", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
   return isMainWindowVisible();
+});
+ipcMain.handle("openteam:window-activity", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
+  return windowIsActive(mainWindow);
 });
 let authTokenStore: DesktopAuthTokenStore | null = null;
 let computerSettings: ComputerSettingsStore | null = null;
@@ -97,6 +106,7 @@ protocol.registerSchemesAsPrivileged([
     scheme: "openteam-staged",
     privileges: { standard: true, secure: true, supportFetchAPI: true },
   },
+  { scheme: LINK_FAVICON_SCHEME, privileges: { standard: true, secure: true } },
 ]);
 
 let desktopUpdateSnapshot: DesktopUpdateSnapshot = {
@@ -277,11 +287,6 @@ interface ImageContextMenuRequest {
   suggestedFilename?: string;
 }
 
-interface DownloadAssetRequest {
-  fileName: string;
-  url: string;
-}
-
 const imageExtensionFor = (sourceUrl: string) => {
   const mime = /^data:(image\/[^;,]+)/i.exec(sourceUrl)?.[1]?.toLowerCase();
   if (mime === "image/jpeg") return ".jpg";
@@ -414,62 +419,7 @@ const showImageContextMenu = (window: BrowserWindow, request: ImageContextMenuRe
   menu.popup({ window });
 };
 
-const safeDownloadName = (value: string) => {
-  const leaf = value.normalize("NFKC").split(/[\\/]/).at(-1)?.trim() || "attachment";
-  const safe = Array.from(leaf, (character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint < 0x20 || codePoint === 0x7f || /[\\/:*?"<>|]/.test(character)
-      ? "_"
-      : character;
-  })
-    .join("")
-    .slice(0, 180);
-  return safe || "attachment";
-};
-
-const trustedDownloadOrigins = () => {
-  const origins = new Set<string>();
-  for (const candidate of [
-    process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787",
-    mainWindow?.webContents.getURL(),
-  ]) {
-    if (!candidate) continue;
-    try {
-      const url = new URL(candidate);
-      if (url.protocol === "http:" || url.protocol === "https:") origins.add(url.origin);
-    } catch {
-      // Ignore malformed configuration and non-network renderer URLs such as file://.
-    }
-  }
-  return origins;
-};
-
-const downloadAssetRequests = (value: unknown): DownloadAssetRequest[] | null => {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 24) return null;
-  const parsed = value.map((candidate): DownloadAssetRequest | null => {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-    const request = candidate as Partial<DownloadAssetRequest>;
-    if (typeof request.fileName !== "string" || typeof request.url !== "string") return null;
-    try {
-      const url = new URL(request.url);
-      if (
-        !["http:", "https:"].includes(url.protocol) ||
-        !trustedDownloadOrigins().has(url.origin) ||
-        !/^\/api\/v0\/assets\/[a-f0-9]{64}$/.test(url.pathname)
-      ) {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-    return { fileName: safeDownloadName(request.fileName), url: request.url };
-  });
-  return parsed.every((candidate): candidate is DownloadAssetRequest => candidate !== null)
-    ? parsed
-    : null;
-};
-
-const writeUniqueDownload = async (directory: string, name: string, url: string) => {
+const writeUniqueDownload = async (directory: string, name: string, url: string, token: string | null) => {
   const extension = extname(name);
   const base = extension ? name.slice(0, -extension.length) : name;
   for (let suffix = 0; suffix < 1_000; suffix += 1) {
@@ -479,7 +429,6 @@ const writeUniqueDownload = async (directory: string, name: string, url: string)
       file = await open(candidate, "wx", 0o600);
       // Requests reach this path only after canonical asset/origin validation.
       // Native sign-in stores a bearer token, not a renderer session cookie.
-      const token = (await authTokenStore?.read())?.token;
       const response = await net.fetch(url, {
         headers: token ? { authorization: `Bearer ${token}` } : {},
         redirect: "error",
@@ -505,7 +454,8 @@ ipcMain.handle("openteam:files:download-all", async (event, value: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Downloads are unavailable");
   }
-  const requests = downloadAssetRequests(value);
+  const serverUrl = enrollmentServerUrl;
+  const requests = downloadAssetRequests(value, serverUrl);
   if (!requests) throw new Error("Download request is invalid");
   const choice = await dialog.showOpenDialog(mainWindow, {
     defaultPath: app.getPath("downloads"),
@@ -515,11 +465,16 @@ ipcMain.handle("openteam:files:download-all", async (event, value: unknown) => {
   const directory = choice.filePaths[0];
   if (choice.canceled || !directory) return { canceled: true, saved: 0, directory: null };
 
+  // Bind the token and destination to the same server even if sign-in changes
+  // while the native folder picker is open or token storage is being read.
+  const token = (await authTokenStore?.read())?.token ?? null;
+  if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed. Try downloading again.");
+
   const failures: string[] = [];
   let saved = 0;
   for (const request of requests) {
     try {
-      await writeUniqueDownload(directory, request.fileName, request.url);
+      await writeUniqueDownload(directory, request.fileName, request.url, token);
       saved += 1;
     } catch (error) {
       failures.push(
@@ -1033,12 +988,7 @@ const createWindow = async () => {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
-  const publishVisibility = () => mainWindow?.webContents.send("openteam:window-visibility-changed", isMainWindowVisible());
-  mainWindow.on("show", publishVisibility);
-  mainWindow.on("hide", publishVisibility);
-  mainWindow.on("minimize", publishVisibility);
-  mainWindow.on("restore", publishVisibility);
-  mainWindow.webContents.on("did-finish-load", publishVisibility);
+  const disposeWindowActivity = bindWindowActivity(mainWindow);
   mainWindow.on("close", (event) => {
     if (process.platform === "darwin" && !isQuitting) {
       event.preventDefault();
@@ -1046,6 +996,7 @@ const createWindow = async () => {
     }
   });
   mainWindow.once("closed", () => {
+    disposeWindowActivity();
     pluginOAuth.closeAll();
     mainWindow = null;
   });
@@ -1146,6 +1097,11 @@ if (!hasSingleInstanceLock) {
           return new Response("Not found", { status: 404 });
         }
       });
+      // Cookie-free favicon connections pin validated public DNS answers.
+      const linkFavicons = createLinkFavicons({
+        cacheDir: join(app.getPath("userData"), "link-favicons"),
+      });
+      await protocol.handle(LINK_FAVICON_SCHEME, (request) => linkFavicons.serve(request));
       computerSettings = createComputerSettingsStore(
         join(app.getPath("userData"), "computer-settings.json")
       );
@@ -1202,10 +1158,7 @@ if (!hasSingleInstanceLock) {
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send("openteam:notification-click", {
-              channelId: notificationEvent.channelId,
-              threadMessageId: notificationEvent.threadMessageId,
-            });
+            mainWindow?.webContents.send("openteam:notification-click", parseNotificationTarget(notificationEvent));
           });
           notification.show();
         },

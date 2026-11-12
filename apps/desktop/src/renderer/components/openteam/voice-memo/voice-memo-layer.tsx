@@ -1,9 +1,12 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 // The composer while a voice note records or transcribes: one bar with the
 // time, the voice as it's heard, discard and send, over a voice-reactive glow.
 // Loaded on demand so the glow stays out of startup.
 import { Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import { getAudioContext } from "voice-glow";
+import { useWindowActive } from "../../../hooks/use-window-active";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import { BotArrowUpIcon, BotCloseIcon, BotPlusIcon } from "../../ai-elements/composer-icons";
 import { LoadingOrb, preloadLoadingOrb } from "../../ui/loading-orb";
 import { VoiceBackdropGlow } from "./voice-backdrop-glow";
@@ -59,8 +62,12 @@ function useReducedMotion() {
 // The voice across the bar: a dotted baseline the take scrolls over
 // continuously, newest sound entering at the right edge.
 function VoiceWave({ stream }: { stream: MediaStream | null }) {
+  const windowActive = useWindowActive();
+  const resourcesActive = useResourceActive();
+  const active = windowActive && resourcesActive;
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    if (!active) return;
     const element = canvas.current;
     const context = element?.getContext("2d");
     if (!element || !context) return;
@@ -151,7 +158,7 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
       analyser?.disconnect();
       for (const clone of tap?.getTracks() ?? []) clone.stop();
     };
-  }, [stream]);
+  }, [stream, active]);
   return (
     <canvas aria-hidden="true" className="vm-wave" data-voice-wave ref={canvas} tabIndex={-1} />
   );
@@ -268,7 +275,7 @@ export default function VoiceMemoLayer({
               <circle className="vm-send-drop" cx="50" cy="14" r="14" />
             </g>
           </svg>
-          <button
+          <ButtonPrimitive
             aria-hidden={mode !== "recording" || exiting}
             aria-label="Discard voice note"
             className="vm-icon-button vm-discard"
@@ -279,8 +286,8 @@ export default function VoiceMemoLayer({
             type="button"
           >
             <Trash2 className="size-3.5" />
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             aria-hidden={exiting}
             aria-label={mode === "recording" ? "Send voice note" : "Cancel voice note"}
             className="vm-send"
@@ -296,7 +303,7 @@ export default function VoiceMemoLayer({
             <span className="vm-cancel-icon">
               <BotCloseIcon className="size-3" />
             </span>
-          </button>
+          </ButtonPrimitive>
         </span>
       </div>
       <span aria-live="polite" className="sr-only" role="status">

@@ -3,6 +3,46 @@ import XCTest
 @testable import OpenTeamCore
 
 final class NotificationReadTests: XCTestCase {
+  func testTenThousandReorderedUpdatesKeepReadMarkersAndOtherChatsIsolated() throws {
+    var reads = NotificationReads(scope: "account")
+    var expected: [(message: Int, activity: Int)] = [(0, 0), (0, 0), (0, 0)]
+    var seed: UInt64 = 0x4f70656e5465616d
+    func random(_ limit: Int) -> Int {
+      seed = seed &* 6364136223846793005 &+ 1442695040888963407
+      return Int(seed % UInt64(limit))
+    }
+    for step in 0..<10_000 {
+      let index = random(3)
+      let channel = "chat-\(index)"
+      let message = random(500)
+      let activity = random(500)
+      let incoming = marker(String(message), String(activity), channel: channel)
+      expected[index].message = max(expected[index].message, message)
+      expected[index].activity = max(expected[index].activity, activity)
+      if step.isMultiple(of: 3) {
+        _ = reads.apply(snapshot: .object([
+          "cursor": .string(String(random(10_000))), "badgeCount": .number(Double(random(20))),
+          "readStates": .array([try .encode(incoming)]),
+        ]))
+      } else {
+        reads.merge(incoming)
+      }
+      if step.isMultiple(of: 17) {
+        reads = try JSONDecoder().decode(NotificationReads.self, from: JSONEncoder().encode(reads))
+      }
+      for peer in 0..<3 {
+        let target = "chat-\(peer)"
+        let boundary = expected[peer]
+        if boundary.message > 0 || boundary.activity > 0 {
+          XCTAssertTrue(reads.hasRead(push(message: String(boundary.message), channel: target)))
+          XCTAssertTrue(reads.hasRead(push("reaction", activity: String(boundary.activity), channel: target)))
+        }
+        XCTAssertFalse(reads.hasRead(push(message: String(boundary.message + 1), channel: target)))
+        XCTAssertFalse(reads.hasRead(push("reaction", activity: String(boundary.activity + 1), channel: target)))
+        XCTAssertFalse(reads.hasRead(push(message: "0", scope: "another-account", channel: target)))
+      }
+    }
+  }
   func marker(_ message: String, _ activity: String, channel: String = "a")
     -> NotificationReadMarker
   {

@@ -77,38 +77,74 @@ export async function dialTarget(
   if (!addresses.length) throw new NetworkError("dns_failed");
   if (options.publicOnly && addresses.some((a) => !publicAddress(a.address)))
     throw new NetworkError("destination_blocked");
-  // Try only pinned, validated addresses. No subsequent hostname lookup is allowed.
-  for (const address of addresses.slice(0, 8)) {
-    life.throwIfAborted();
-    try {
-      return await new Promise<Socket>((resolve, reject) => {
-        const socket = (options.dial ?? createConnection)({
-          host: address.address,
-          family: address.family,
-          port: target.port,
-          allowHalfOpen: true,
-          noDelay: true,
-        });
-        const attempt = AbortSignal.any([life, AbortSignal.timeout(3_000)]);
-        const abort = () => socket.destroy(new NetworkError("connect_timeout"));
-        const cleanup = () => attempt.removeEventListener("abort", abort);
-        socket.once("error", (error) => {
-          cleanup();
-          reject(error);
-        });
-        socket.once("connect", () => {
-          cleanup();
-          if (life.aborted) {
-            socket.destroy();
-            reject(new NetworkError("not_authorized"));
-          } else resolve(socket);
-        });
-        attempt.addEventListener("abort", abort, { once: true });
-        if (attempt.aborted) abort();
-      });
-    } catch {
-      if (life.aborted) throw new NetworkError("connect_timeout");
-    }
+  // Interleave families while retaining resolver preference within each family.
+  // Validate ALL answers above, then dial only pinned IPs: no second lookup.
+  const first = addresses[0]!.family;
+  const preferred = addresses.filter((a) => a.family === first);
+  const alternate = addresses.filter((a) => a.family !== first);
+  const candidates: typeof addresses = [];
+  while (preferred.length || alternate.length) {
+    if (preferred.length) candidates.push(preferred.shift()!);
+    if (alternate.length) candidates.push(alternate.shift()!);
   }
-  throw new NetworkError("connect_failed");
+  const pending = candidates.slice(0, 8);
+  return new Promise<Socket>((resolve, reject) => {
+    let settled = false;
+    let stagger: ReturnType<typeof setTimeout> | undefined;
+    const active = new Map<Socket, () => void>();
+    const finish = (socket?: Socket) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stagger);
+      life.removeEventListener("abort", abort);
+      for (const [attempt, cleanup] of active) {
+        cleanup();
+        if (attempt !== socket) attempt.destroy();
+      }
+      active.clear();
+      socket ? resolve(socket) : reject(new NetworkError(life.aborted ? "connect_timeout" : "connect_failed"));
+    };
+    const abort = () => finish();
+    const launch = () => {
+      clearTimeout(stagger);
+      stagger = undefined;
+      if (settled) return;
+      if (life.aborted) { finish(); return; }
+      const address = active.size < 2 ? pending.shift() : undefined;
+      if (address) {
+        try {
+          const socket = (options.dial ?? createConnection)({
+            host: address.address, family: address.family, port: target.port,
+            allowHalfOpen: true, noDelay: true,
+          });
+          // Keep a harmless error listener after cancellation/destruction too.
+          socket.on("error", () => {});
+          const cleanup = () => {
+            clearTimeout(timer);
+            socket.off("error", failed);
+            socket.off("close", failed);
+            socket.off("connect", connected);
+          };
+          const failed = () => {
+            if (!active.has(socket)) return;
+            cleanup(); active.delete(socket); socket.destroy();
+            launch();
+          };
+          const connected = () => {
+            if (settled || life.aborted) { socket.destroy(); if (!settled) finish(); return; }
+            finish(socket);
+          };
+          const timer = setTimeout(failed, 3000);
+          active.set(socket, cleanup);
+          socket.once("error", failed);
+          socket.once("close", failed);
+          socket.once("connect", connected);
+        } catch { launch(); return; }
+      }
+      if (!active.size && !pending.length) finish();
+      else if (active.size < 2 && pending.length) stagger = setTimeout(launch, 250);
+    };
+    life.addEventListener("abort", abort, { once: true });
+    launch();
+  });
 }

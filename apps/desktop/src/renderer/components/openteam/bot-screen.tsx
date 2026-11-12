@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../lib/window-visibility";
 import {
   createHandoffReleaseController,
@@ -5,7 +6,8 @@ import {
   createSerialPoller,
   SCREEN_FRAME_REFRESH_MS,
   SCREEN_STATUS_POLL_MS,
-  SCREEN_TAKEOVER_HEARTBEAT_MS,
+  createComputerControlController,
+  ownsComputerControl,
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -15,6 +17,8 @@ import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { useWindowVisible } from "../../hooks/use-window-active";
+import { useResourceActive } from "../../hooks/resource-activity";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
   shouldLoadScreenStatus,
@@ -26,6 +30,8 @@ import { ComputerConnectionStatus } from "./computer-connection-status";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
+import { BotAvatar } from "./avatar";
+import { ComputerControlBar } from "./computer-control-bar";
 
 const statusRequests = createKeyedRequestCoordinator();
 
@@ -41,6 +47,7 @@ export function BotScreen({
   onEnable,
   onHandoffFinished,
   onRetry,
+  presentation = "preview",
 }: {
   bot: BotView;
   active: boolean;
@@ -49,21 +56,36 @@ export function BotScreen({
   onEnable: () => void;
   onHandoffFinished?: () => void;
   onRetry?: () => Promise<void>;
+  presentation?: "preview" | "card";
 }) {
+  const visible = useWindowVisible();
+  const resourcesActive = useResourceActive();
+  const controlId = useMemo(() => {
+    const key = `openteam:computer-control:${API_BASE}:${bot.id}`;
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  }, [bot.id]);
+  const control = useMemo(
+    () =>
+      createComputerControlController(controlId, (active, input) =>
+        api.screenTakeover(bot.id, active, false, input)
+      ),
+    [bot.id, controlId]
+  );
+  const controlRevision = useRef(0);
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
-  const viewerState = useRef({ open, botId: bot.id, mounted: true });
-  viewerState.current.open = open;
-  viewerState.current.botId = bot.id;
-  useEffect(() => {
-    viewerState.current.mounted = true;
-    return () => { viewerState.current.mounted = false; };
-  }, []);
   const recordViewerReady = useCallback(() => {
     if (!viewerOpenedAt.current) return;
-    recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, { botId: bot.id });
+    recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, {
+      botId: bot.id,
+    });
     viewerOpenedAt.current = 0;
   }, [bot.id]);
   const [handoffPending, setHandoffPending] = useState(false);
@@ -79,8 +101,11 @@ export function BotScreen({
     [handoffMessageId]
   );
   const refreshStatus = useCallback(async () => {
+    const revision = controlRevision.current;
     try {
       const next = await loadScreenStatus(bot.id);
+      if (revision !== controlRevision.current) return next;
+      control.observe(next);
       setScreen(next);
       setError(null);
       return next;
@@ -88,13 +113,13 @@ export function BotScreen({
       setError(clientErrorMessage(cause, "Could not load the shared computer"));
       return null;
     }
-  }, [bot.id]);
+  }, [bot.id, control]);
 
   useEffect(() => {
-    if (shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
-  }, [active, enabled, refreshStatus, screen]);
+    if (visible && shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
+  }, [active, enabled, refreshStatus, screen, visible]);
   useEffect(() => {
-    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
+    if (!visible || !shouldPollScreenStatus(enabled, active, screen?.state)) return;
     const poller = createSerialPoller({
       intervalMs: SCREEN_STATUS_POLL_MS,
       immediate: false,
@@ -109,9 +134,9 @@ export function BotScreen({
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollStatus);
     };
-  }, [active, enabled, refreshStatus, screen?.state]);
+  }, [active, enabled, refreshStatus, screen?.state, visible]);
   useEffect(() => {
-    if (open) return;
+    if (open || !visible) return;
     const refreshFrame = () => {
       if (
         shouldRefreshScreenFrame({
@@ -133,7 +158,7 @@ export function BotScreen({
       window.clearInterval(timer);
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, refreshFrame);
     };
-  }, [active, enabled, open, screen?.state]);
+  }, [active, enabled, open, screen?.state, visible]);
   const finishHandoff = useCallback(
     async (action: "complete" | "skip" | "dismiss") => {
       if (!handoff || handoffPending || !handoffRelease.beginFinish()) return;
@@ -163,15 +188,6 @@ export function BotScreen({
     closeViewer();
   }, [active, closeViewer, open]);
   useEffect(() => {
-    if (!handoffMessageId) return;
-    handoffRelease.resume();
-    window.addEventListener("pagehide", handoffRelease.release);
-    return () => {
-      window.removeEventListener("pagehide", handoffRelease.release);
-      handoffRelease.deferRelease();
-    };
-  }, [handoffMessageId, handoffRelease]);
-  useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -192,92 +208,194 @@ export function BotScreen({
     if (!handoff || handoff.botId !== bot.id) return;
     onEnable();
     setOpen(true);
-    if (!screen) void refreshStatus();
-  }, [bot.id, handoff, onEnable, refreshStatus, screen]);
+    // The server took control when the card started; a cached status may predate that.
+    void refreshStatus();
+  }, [bot.id, handoff, onEnable, refreshStatus]);
+  const controlling = ownsComputerControl(screen, controlId);
+  const [controlPending, setControlPending] = useState(false);
+  const [viewerConnected, setViewerConnected] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
+  useEffect(() => {
+    if (!controlling || viewerConnected) {
+      setShowReconnect(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowReconnect(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [controlling, viewerConnected]);
+  const [watchHint, setWatchHint] = useState(false);
+  useEffect(() => {
+    setWatchHint(false);
+  }, [open, controlling]);
+  const changeControl = useCallback(
+    async (active: boolean) => {
+      if (controlPending) return;
+      controlRevision.current += 1;
+      setControlPending(true);
+      try {
+        const next = active ? await control.take(true) : await control.giveBack();
+        if (next) setScreen(next);
+        setError(null);
+      } catch (cause) {
+        setError(
+          clientErrorMessage(
+            cause,
+            active ? "Could not take computer control" : "Could not give back control"
+          )
+        );
+      } finally {
+        controlRevision.current += 1;
+        setControlPending(false);
+      }
+    },
+    [control, controlPending]
+  );
+  const resumeBot = async () => {
+    controlRevision.current += 1;
+    setControlPending(true);
+    try {
+      const next = await api.screenTakeover(bot.id, false, false, { force: true });
+      control.observe(next);
+      setScreen(next);
+    } catch (cause) {
+      setError(clientErrorMessage(cause, "Could not resume the bot"));
+    } finally {
+      controlRevision.current += 1;
+      setControlPending(false);
+    }
+  };
   useEffect(() => {
     if (!open) return;
-    let active = true;
-    let pending: Promise<ScreenStatusView> | undefined;
+    control.open();
     const poller = createSerialPoller({
-      intervalMs: SCREEN_TAKEOVER_HEARTBEAT_MS,
+      intervalMs: SCREEN_STATUS_POLL_MS,
+      immediate: true,
       task: async () => {
-        try {
-          pending = api.screenTakeover(bot.id, true);
-          const next = await pending;
-          if (active) setScreen(next);
-        } catch (cause) {
-          if (active) setError(clientErrorMessage(cause, "Could not keep computer control"));
-        }
+        if (isWindowVisible()) await refreshStatus();
       },
     });
     poller.start();
     window.addEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
     return () => {
-      active = false;
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
-      if (!handoff) {
-        // Wait for an in-flight acquisition before releasing; a reopened viewer
-        // keeps its lease, while closing or changing bots returns control.
-        void Promise.resolve(pending).catch(() => undefined).then(() => {
-          const viewer = viewerState.current;
-          if (!viewer.mounted || !viewer.open || viewer.botId !== bot.id) return api.screenTakeover(bot.id, false);
-        }).catch(() => { /* The bounded lease expires if the server is offline. */ });
-      }
+      if (!handoff)
+        void control.close().catch(() => {
+          /* Ownership is reserved for reconnection. */
+        });
     };
-  }, [bot.id, handoff, open]);
+  }, [control, handoff, open, refreshStatus]);
+  useEffect(() => {
+    if (open && handoff && screen?.controlSession?.id === `handoff:${handoff.messageId}`)
+      void changeControl(true);
+  }, [open, handoff, screen?.controlSession?.id, changeControl]);
+  const controlLabel = screen?.controlPending
+    ? "Changing control…"
+    : controlling
+      ? !showReconnect
+        ? "You’re in control"
+        : "Reconnecting — your control is reserved"
+      : screen?.humanTakeover
+        ? "Controlled on another device"
+        : "Watching";
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
-    { retainPreviousFor: bot.id }
+    enabled && active && screen?.state === "ready" && !open
+      ? api.screenFrameUrl(bot.id, frameRevision)
+      : null,
+    { enabled: resourcesActive, retainPreviousFor: bot.id }
   );
   const retryConnection = () => {
     setError(null);
     setScreen(null);
     void refreshStatus();
   };
+  const statusLabel = error
+    ? "Unavailable"
+    : bot.status === "failed" || screen?.state === "failed"
+      ? "Needs attention"
+      : bot.status === "provisioning" || screen?.state === "starting"
+        ? "Starting…"
+        : screen?.state === "ready"
+          ? "Ready"
+          : enabled
+            ? "Connecting…"
+            : "Not connected";
 
   return (
     <>
-      <div className="mt-[3px] w-full overflow-hidden rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] dark:border-[#323232] dark:bg-[#1b1b1b]">
-        <Button
+      {presentation === "card" ? (
+        <ButtonPrimitive
           aria-label="Open computer"
-          className="group relative block h-auto aspect-[16/10] w-full !cursor-pointer overflow-hidden rounded-none bg-[#f0f0f0] p-0 transition-colors duration-150 hover:bg-[#ededed] dark:bg-[#1b1b1b] dark:hover:bg-[#232323]"
-          disabled={bot.status === "failed"}
+          className="bot-computer-card"
           onClick={openViewer}
           type="button"
-          variant="ghost"
         >
-          {!enabled ? (
-            <div className="grid size-full place-items-center bg-transparent text-[#757575] transition-colors duration-150 group-hover:text-[#626262] dark:text-[#8f8f8f] dark:group-hover:text-[#aaaaaa]">
-              <Monitor className="size-4" strokeWidth={1.7} />
-            </div>
-          ) : screen?.state === "ready" && !open && frameSource ? (
-            <img
-              alt={`${bot.name}'s Linux screen`}
-              className="size-full object-cover transition-opacity duration-150 group-hover:opacity-[0.97]"
-              decoding="async"
-              fetchPriority={active ? "high" : "low"}
-              loading={active ? "eager" : "lazy"}
-              onError={() => setError("Screen preview is reconnecting")}
-              src={frameSource}
-            />
-          ) : (
-            <div className="relative size-full">
-              <Skeleton className="size-full rounded-none bg-neutral-800" />
-              <ComputerConnectionStatus
-                className="absolute inset-0 px-4 text-center text-[11px] text-white/60"
-                loading={!error && bot.status !== "failed" && screen?.state !== "failed"}
-              >
-                {error ??
-                  (bot.status === "failed" || screen?.state === "failed"
-                    ? "Computer setup needs attention"
-                    : `Starting ${bot.name}'s screen…`)}
-              </ComputerConnectionStatus>
-            </div>
-          )}
-        </Button>
-      </div>
+          <span>
+            Bot's computer
+            <span className="bot-computer-status" role="status">
+              {statusLabel}
+            </span>
+          </span>
+          <span aria-hidden="true" className="bot-computer-preview">
+            {frameSource && screen?.state === "ready" ? (
+              <img
+                alt=""
+                decoding="async"
+                onError={() => setError("Screen preview is reconnecting")}
+                src={frameSource}
+              />
+            ) : (
+              <span className="bot-computer-placeholder">
+                <BotAvatar bot={bot} size="md" mode="still" />
+                <span className="bot-computer-sleep">
+                  z<span>z</span>
+                </span>
+              </span>
+            )}
+          </span>
+        </ButtonPrimitive>
+      ) : (
+        <div className="mt-[3px] w-full overflow-hidden rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] dark:border-[#323232] dark:bg-[#1b1b1b]">
+          <Button
+            aria-label="Open computer"
+            className="group relative block h-auto aspect-[16/10] w-full !cursor-pointer overflow-hidden rounded-none bg-[#f0f0f0] p-0 transition-colors duration-150 hover:bg-[#ededed] dark:bg-[#1b1b1b] dark:hover:bg-[#232323]"
+            disabled={bot.status === "failed"}
+            onClick={openViewer}
+            type="button"
+            variant="ghost"
+          >
+            {!enabled ? (
+              <div className="grid size-full place-items-center bg-transparent text-[#757575] transition-colors duration-150 group-hover:text-[#626262] dark:text-[#8f8f8f] dark:group-hover:text-[#aaaaaa]">
+                <Monitor className="size-4" strokeWidth={1.7} />
+              </div>
+            ) : screen?.state === "ready" && !open && frameSource ? (
+              <img
+                alt={`${bot.name}'s Linux screen`}
+                className="size-full object-cover transition-opacity duration-150 group-hover:opacity-[0.97]"
+                decoding="async"
+                fetchPriority={active ? "high" : "low"}
+                loading={active ? "eager" : "lazy"}
+                onError={() => setError("Screen preview is reconnecting")}
+                src={frameSource}
+              />
+            ) : (
+              <div className="relative size-full">
+                <Skeleton className="size-full rounded-none bg-neutral-800" />
+                <ComputerConnectionStatus
+                  className="absolute inset-0 px-4 text-center text-[11px] text-white/60"
+                  loading={!error && bot.status !== "failed" && screen?.state !== "failed"}
+                >
+                  {error ??
+                    (bot.status === "failed" || screen?.state === "failed"
+                      ? "Computer setup needs attention"
+                      : `Starting ${bot.name}'s screen…`)}
+                </ComputerConnectionStatus>
+              </div>
+            )}
+          </Button>
+        </div>
+      )}
       {(bot.status === "failed" || screen?.state === "failed") && onRetry && (
         <Button className="mt-2 w-full" onClick={() => void onRetry()} size="sm" variant="outline">
           <RefreshCw className="size-3.5" /> Retry setup
@@ -285,96 +403,131 @@ export function BotScreen({
       )}
       {/* The inspector is transformed and clips overflow while animating. Keep
           the full-window computer outside that containing block. */}
-      {open && createPortal(
-        <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
-          {/* One draggable title row; content starts past the macOS window
+      {open &&
+        createPortal(
+          <div className="fixed inset-0 z-[70] flex flex-col bg-[#111111] text-white">
+            {/* One draggable title row; content starts past the macOS window
               buttons, which end at x=76px. */}
-          <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
-            {handoff ? (
-              <>
-                <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
-                  {handoff.reason || "Complete the requested step"}
-                </span>
-                <Button
-                  className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
-                  disabled={handoffPending}
-                  onClick={() => void finishHandoff("skip")}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Skip this step
-                </Button>
-                <Button
-                  className="electron-no-drag bg-white text-black hover:bg-white/90"
-                  disabled={handoffPending}
-                  onClick={() => void finishHandoff("complete")}
-                  size="sm"
-                >
-                  I'm done, continue
-                </Button>
-              </>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label="Close computer view"
-                  className="electron-no-drag size-8 rounded-md text-white/65 hover:bg-white/[0.055] hover:text-white"
-                  onClick={closeViewer}
-                  size="icon-sm"
-                  variant="ghost"
-                >
-                  <Minimize2 className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Close computer view</TooltipContent>
-            </Tooltip>
-          </header>
-          {error && viewerReady && <p className="shrink-0 px-3 py-2 text-sm text-red-300" role="alert">{error}</p>}
-          <main
-            className="flex min-h-0 flex-1 items-center justify-center p-2 [container-type:size]"
-            onClick={(event) => event.target === event.currentTarget && closeViewer()}
-            onKeyDown={(event) => event.key === "Escape" && closeViewer()}
-          >
-            {/* The largest 16:10 screen that fits the space below the header. */}
-            <div
-              className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
-              style={{ width: "min(100cqw, 160cqh)" }}
+            <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
+              {handoff ? (
+                <>
+                  <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
+                    {handoff.reason || "Complete the requested step"}
+                  </span>
+                  <Button
+                    className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
+                    disabled={handoffPending}
+                    onClick={() => void finishHandoff("skip")}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Skip this step
+                  </Button>
+                </>
+              ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    aria-label="Close computer view"
+                    className="electron-no-drag size-8 rounded-md text-white/65 hover:bg-white/[0.055] hover:text-white"
+                    onClick={closeViewer}
+                    size="icon-sm"
+                    variant="ghost"
+                  >
+                    <Minimize2 className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Close computer view</TooltipContent>
+              </Tooltip>
+            </header>
+            {error && viewerReady && (
+              <p className="shrink-0 px-3 py-2 text-sm text-red-300" role="alert">
+                {error}
+              </p>
+            )}
+            <main
+              className="flex min-h-0 flex-1 items-center justify-center px-5 py-2 [container-type:size]"
+              onClick={(event) => event.target === event.currentTarget && closeViewer()}
+              onKeyDown={(event) => event.key === "Escape" && closeViewer()}
             >
-              {viewerReady ? (
-                <VncComputer key={bot.id} botId={bot.id} name={bot.name}
-                  serverUrl={API_BASE} createSession={api.screenVncSession}
-                  clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal)}
-                  onReady={recordViewerReady} onClose={closeViewer} />
-              ) : (
-                <div className="absolute inset-0 grid place-items-center text-center">
-                  <div>
-                    <ComputerConnectionStatus
-                      loading={!error && screen?.state !== "failed"}
-                      subtitle="Starting computer…"
-                    >
-                      {error ??
-                        (screen?.state === "failed"
-                          ? "Computer setup needs attention"
-                          : "Connecting…")}
-                    </ComputerConnectionStatus>
-                    {error && (
-                      <Button
-                        className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"
-                        onClick={retryConnection}
-                        size="sm"
-                        variant="outline"
+              {/* The largest 16:10 screen that fits the space below the header. */}
+              <div
+                className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[#1b1d1f]"
+                onPointerDownCapture={() => {
+                  if (!controlling && viewerReady) setWatchHint(true);
+                }}
+                style={{ width: "min(100cqw, 160cqh)" }}
+              >
+                {viewerReady && visible ? (
+                  <VncComputer
+                    key={`${bot.id}:${controlling ? screen?.controlSession?.generation : 0}`}
+                    botId={bot.id}
+                    name={bot.name}
+                    serverUrl={API_BASE}
+                    createSession={(id, signal) =>
+                      api.screenVncSession(id, signal, {
+                        controlId,
+                        ...(controlling ? { generation: screen?.controlSession?.generation } : {}),
+                      })
+                    }
+                    clipboard={(input, signal) =>
+                      api.screenClipboard(bot.id, input, signal, {
+                        controlId,
+                        generation: screen?.controlSession?.generation,
+                      })
+                    }
+                    viewOnly={!controlling || controlPending}
+                    onReady={recordViewerReady}
+                    onConnectionChange={setViewerConnected}
+                    onClose={closeViewer}
+                  />
+                ) : (
+                  <div className="absolute inset-0 grid place-items-center text-center">
+                    <div>
+                      <ComputerConnectionStatus
+                        loading={!error && screen?.state !== "failed"}
+                        subtitle="Starting computer…"
                       >
-                        <RefreshCw className="size-3.5" /> Retry
-                      </Button>
-                    )}
+                        {error ??
+                          (screen?.state === "failed"
+                            ? "Computer setup needs attention"
+                            : "Connecting…")}
+                      </ComputerConnectionStatus>
+                      {error && (
+                        <Button
+                          className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"
+                          onClick={retryConnection}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <RefreshCw className="size-3.5" /> Retry
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </main>
-        </div>,
-        document.body
-      )}
+                )}
+              </div>
+            </main>
+            <footer className="electron-no-drag flex shrink-0 justify-center px-4 pb-4 pt-2">
+              <ComputerControlBar
+                label={controlLabel}
+                controlling={controlling}
+                pending={handoffPending || controlPending || screen?.controlPending === true}
+                available={viewerReady}
+                anotherDevice={!controlling && screen?.humanTakeover === true}
+                hint={watchHint}
+                handoff={Boolean(handoff)}
+                onChange={() =>
+                  void (handoff && controlling
+                    ? finishHandoff("complete")
+                    : changeControl(!controlling))
+                }
+                onResume={() => void resumeBot()}
+              />
+            </footer>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

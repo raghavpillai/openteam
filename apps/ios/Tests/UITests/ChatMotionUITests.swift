@@ -94,7 +94,7 @@ import XCTest
     app.launch()
     defer { app.terminate() }
     let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Page message 179"].exists)
     // Persist through the normal background lifecycle, then create a new process.
@@ -104,7 +104,7 @@ import XCTest
       "GET /api/v0/channels/visual-chat/history": ["status": 503, "count": 100],
     ]])
     app.launch()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Page message 180"].isHittable)
     XCTAssertTrue(app.staticTexts["Page message 179"].exists)
@@ -124,7 +124,7 @@ import XCTest
     app.buttons["channel-visual-chat"].tap()
     let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
     XCTAssertTrue(spinner.waitForExistence(timeout: 3))
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     XCTAssertTrue(app.buttons["channel-visual-other"].waitForExistence(timeout: 5))
     app.buttons["channel-visual-other"].tap()
     XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
@@ -136,7 +136,7 @@ import XCTest
     XCTAssertFalse(app.staticTexts["Main chat latest"].exists)
     for (id, label) in [("visual-chat", "Main chat latest"), ("visual-other", "Other chat latest"),
                         ("visual-chat", "Main chat latest")] {
-      app.buttons["chat-back"].tap()
+      app.chatBackButton.tap()
       XCTAssertTrue(app.buttons["channel-" + id].waitForExistence(timeout: 5))
       app.buttons["channel-" + id].tap()
       XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 15))
@@ -155,7 +155,7 @@ import XCTest
     app.launch()
     defer { app.terminate() }
     let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
     app.tables["chat-history"].swipeDown()
     XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
@@ -219,7 +219,7 @@ import XCTest
     XCTAssertEqual(loadedFrame.width, frame.width, accuracy: 1)
     XCTAssertEqual(loadedFrame.height, frame.height, accuracy: 1)
     capture("initial-media-layout-settled", app)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
     app.buttons["channel-visual-chat"].tap()
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
@@ -486,7 +486,7 @@ import XCTest
       }
       capture("opening-latest-" + appearance, app)
       // A previously loaded page opens immediately while its slow refresh runs.
-      app.buttons["chat-back"].tap()
+      app.chatBackButton.tap()
       chat.tap()
       XCTAssertTrue(latest.waitForExistence(timeout: 3))
       XCTAssertTrue(latest.isHittable)
@@ -539,15 +539,20 @@ import XCTest
     app.buttons["file-preview-close"].tap()
   }
 
-  func testAttachmentTrayCameraViewerAndPhotos() async throws {
-    continueAfterFailure = false
-    try await control("__qa/scene", ["scene": "empty-chat"])
+  private func attachmentCameraFixture() throws -> URL {
     let still = FileManager.default.temporaryDirectory.appendingPathComponent("camera-fixture.jpg")
     let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 800)).image { context in
       UIColor.systemTeal.setFill()
       context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
     }
     try XCTUnwrap(image.jpegData(compressionQuality: 0.8)).write(to: still)
+    return still
+  }
+
+  func testAttachmentTrayCameraViewerAndPhotos() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat",
       "-ui-testing-camera-fixture", still.path]
@@ -577,9 +582,23 @@ import XCTest
     attach.tap()
     app.buttons["attach-photos"].tap()
     XCTAssertTrue(app.buttons["attach-add-photos"].waitForExistence(timeout: 5))
+    // A fresh simulator shows the system picker's one-time privacy explanation.
+    if app.buttons["OK"].exists { app.buttons["OK"].tap() }
+    let photosFrame = tray.frame
+    XCTAssertLessThanOrEqual(photosFrame.width, 371)
     app.buttons["attach-back"].tap()
-    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3), "Back must restore the menu")
+    XCTAssertTrue(tray.exists)
     XCTAssertEqual(app.buttons.matching(identifier: "composer-photo").count, 1)
+    app.buttons["attach-photos"].tap()
+    app.buttons["attach-add-photos"].tap()
+    let cancel = app.buttons["Cancel"]
+    XCTAssertTrue(cancel.waitForExistence(timeout: 8))
+    cancel.tap()
+    XCTAssertTrue(app.buttons["attach-back"].waitForExistence(timeout: 5),
+      "Cancelling All Photos must restore the inline grid")
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Photos must close the entire tray")
 
     // A panel can't cover the keyboard, so it goes down and Back brings it up again.
     let keyboard = app.keyboards.firstMatch
@@ -590,9 +609,137 @@ import XCTest
     attach.tap()
     app.buttons["attach-camera"].tap()
     XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    XCTAssertEqual(tray.frame.minX, photosFrame.minX, accuracy: 1)
+    XCTAssertEqual(tray.frame.minY, photosFrame.minY, accuracy: 1)
+    XCTAssertEqual(tray.frame.width, photosFrame.width, accuracy: 1)
+    XCTAssertEqual(tray.frame.height, photosFrame.height, accuracy: 1)
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
     app.buttons["attach-back"].tap()
     XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the keyboard")
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
+    app.buttons["attach-camera"].tap()
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Camera must close the entire tray")
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+  }
+
+  func testAttachmentTrayMenuMorphRoundTrips() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
+    let draft = "Preserve this draft"
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--open-channel", "visual-chat", "--appearance", "dark",
+      "--visual-draft-base64", Data(draft.utf8).base64EncodedString(),
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let original = tray.frame
+    XCTAssertEqual(original.height, 230, accuracy: 1)
+    XCTAssertFalse(app.buttons["attach-voice"].exists)
+    for page in ["camera", "photos", "camera"] {
+      app.buttons["attach-" + page].tap()
+      let back = app.buttons["attach-back"]
+      XCTAssertTrue(back.waitForExistence(timeout: 5))
+      if page == "photos", app.buttons["OK"].exists { app.buttons["OK"].tap() }
+      try await Task.sleep(for: .milliseconds(600))
+      back.tap()
+      XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+      XCTAssertEqual(tray.frame.minX, original.minX, accuracy: 1)
+      XCTAssertEqual(tray.frame.minY, original.minY, accuracy: 1)
+      XCTAssertEqual(tray.frame.width, original.width, accuracy: 1)
+      XCTAssertEqual(tray.frame.height, original.height, accuracy: 1)
+      XCTAssertFalse(app.buttons["attach-voice"].exists)
+      try await Task.sleep(for: .milliseconds(600))
+    }
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 5))
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertEqual(input.value as? String, draft)
+  }
+
+  func testAttachmentTrayAnchorsToComposerInLandscape() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-photos"].waitForExistence(timeout: 3) { attach.tap() }
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let menuFrame = tray.frame
+    app.buttons["attach-photos"].tap()
+    XCTAssertTrue(app.buttons["attach-add-photos"].waitForExistence(timeout: 5))
+    XCTAssertEqual(tray.frame.minX, menuFrame.minX + 8, accuracy: 1,
+      "Expanded photos must follow the composer's leading edge on wider screens")
+    XCTAssertEqual(tray.frame.width, 370, accuracy: 1)
+    XCTAssertEqual(tray.frame.maxY, app.frame.maxY - 12, accuracy: 1)
+    capture("attachment-tray-landscape", app)
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+  }
+
+  func testAttachmentTrayRespectsUnfoldedChatColumn() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--open-channel", "visual-chat", "--appearance", "dark",
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+    // Duo's app frame can retain the cover display's orientation in XCTest;
+    // the tray window and its children share the active display's coordinates.
+    let viewport = app.buttons["attachment-tray-dismiss"].frame
+    try XCTSkipIf(viewport.width < 700, "Run on Duo's unfolded inner display or a wide tablet")
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let original = tray.frame
+    XCTAssertGreaterThan(original.minX, 280, "The menu must stay in the chat column beside the sidebar")
+    XCTAssertEqual(original.minX, attach.frame.midX - 31, accuracy: 1)
+    capture("attachment-unfolded-menu", app)
+    var previousPanel: CGRect?
+    for page in ["camera", "photos"] {
+      app.buttons["attach-" + page].tap()
+      XCTAssertTrue(app.buttons["attach-back"].waitForExistence(timeout: 5))
+      if page == "photos", app.buttons["OK"].exists { app.buttons["OK"].tap() }
+      let panel = tray.frame
+      let backdrop = app.buttons["attachment-tray-dismiss"].frame
+      XCTAssertEqual(panel.minX, original.minX + 8, accuracy: 1)
+      XCTAssertEqual(panel.width, 370, accuracy: 1)
+      XCTAssertEqual(panel.height, 493, accuracy: 1)
+      XCTAssertEqual(panel.maxY, backdrop.maxY - 12, accuracy: 1)
+      XCTAssertLessThan(panel.maxX, backdrop.maxX - 72, "The panel must clear Duo's side controls")
+      if let previousPanel { XCTAssertEqual(panel, previousPanel) }
+      previousPanel = panel
+      if page == "camera" {
+        let shutter = app.buttons["attach-shutter"].frame
+        XCTAssertEqual(shutter.midX, panel.midX, accuracy: 1)
+        XCTAssertEqual(shutter.maxY, panel.maxY - 14, accuracy: 1)
+      }
+      capture("attachment-unfolded-" + page, app)
+      app.buttons["attach-back"].tap()
+      XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+      XCTAssertEqual(tray.frame, original)
+    }
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
   }
   func testEmptyChatFinishesLoadingAndCanSend() async throws {
     continueAfterFailure = false
@@ -603,7 +750,7 @@ import XCTest
     ]
     app.launch()
     defer { app.terminate() }
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
         .waitForNonExistence(timeout: 8))
@@ -642,12 +789,12 @@ import XCTest
       app.launch()
       let error = app.buttons["chat-load-error"]
       XCTAssertTrue(error.waitForExistence(timeout: 12))
-      XCTAssertTrue(app.buttons["chat-back"].exists)
+      XCTAssertTrue(app.chatBackButton.exists)
       XCTAssertFalse(app.alerts.firstMatch.exists)
       XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.exists)
       XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.exists)
       capture("chat-load-error-" + appearance, app)
-      app.buttons["chat-back"].tap()
+      app.chatBackButton.tap()
       XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
       app.buttons["channel-visual-chat"].tap()
       XCTAssertTrue(error.waitForExistence(timeout: 5))
@@ -691,7 +838,7 @@ import XCTest
       "--appearance", "light", "--open-channel", "visual-chat"]
     app.launch()
     XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 12))
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     try await control("__qa/control", ["offline": true])
     app.buttons["channel-visual-chat"].tap()
     XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 5))
@@ -840,7 +987,7 @@ import XCTest
       "--appearance", "dark", "--open-channel", "visual-chat",
     ]
     app.launch()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     XCTAssertTrue(input.waitForExistence(timeout: 10))
     // A visible composer stays disabled until the history has reached Latest.
@@ -1016,7 +1163,7 @@ import XCTest
       "--appearance", "dark", "--open-channel", "visual-chat",
     ]
     app.launch()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 15))
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     XCTAssertTrue(input.waitForExistence(timeout: 10))
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))

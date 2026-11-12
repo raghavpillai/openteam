@@ -215,7 +215,6 @@ final class VoiceMemoController: ObservableObject {
         // A tap: keep recording hands-free.
         holdTask?.cancel()
         holdStart = Date()
-        NativeHaptics.play(.medium, source: "composer.voice-start")
         transition { phase = .locked }
       case .holding:
         let decision = thresholds.release(
@@ -263,7 +262,6 @@ final class VoiceMemoController: ObservableObject {
     guard phase == .idle else { return }
     hintTask?.cancel()
     holdStart = Date()
-    NativeHaptics.play(.medium, source: "composer.voice-start")
     transition {
       hint = nil
       phase = .locked
@@ -274,7 +272,6 @@ final class VoiceMemoController: ObservableObject {
   private func beginHolding(_ alongside: () -> Void) {
     holdTask?.cancel()
     holdStart = Date()
-    NativeHaptics.play(.medium, source: "composer.voice-start")
     transition {
       alongside()
       phase = .holding
@@ -294,6 +291,14 @@ final class VoiceMemoController: ObservableObject {
       guard !Task.isCancelled else { return }
       self?.lockFlash = false
     }
+  }
+
+  /// Stop a hands-free take without uploading or sending it.
+  func stopForReview() {
+    guard phase == .locked, recorder.recording else { return }
+    _ = recorder.stop()
+    phase = .review
+    NativeHaptics.play(.light, source: "composer.voice-stop")
   }
 
   /// The trash button in the bar.
@@ -336,7 +341,7 @@ final class VoiceMemoController: ObservableObject {
       announce(failure)
       return
     }
-    NativeHaptics.play(.light, source: "composer.voice-send")
+    NativeHaptics.voiceSend(source: "composer.voice-send")
     processingStart = Date()
     transcription?.cancel()
     transcription = Task { [weak self] in
@@ -414,7 +419,12 @@ final class VoiceMemoController: ObservableObject {
         // than record in the background.
         guard recordingSession == session, !Task.isCancelled else { return }
         let wanted = phase == .pressing || phase == .holding || phase == .locked
-        if !wanted, recorder.recording { recorder.cancel() }
+        if !wanted, recorder.recording {
+          recorder.cancel()
+        } else if wanted, recorder.recording {
+          // Confirm capture, not just a press or an outstanding permission request.
+          NativeHaptics.play(.medium, source: "composer.voice-start")
+        }
       } catch {
         if recordingSession == session { startFailed(error) }
       }
@@ -698,31 +708,45 @@ final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
 /// Press, move, release and system cancellation for the mic, which SwiftUI's DragGesture
 /// can't report reliably (it has no cancelled state).
-struct VoicePressGesture: UIGestureRecognizerRepresentable {
+struct VoicePressSurface: UIViewRepresentable {
   var began: (CGPoint) -> Void
   var changed: (CGPoint) -> Void
   var ended: (CGPoint) -> Void
   var cancelled: () -> Void
 
-  func makeUIGestureRecognizer(context: Context) -> VoicePressRecognizer { VoicePressRecognizer() }
+  func makeCoordinator() -> Coordinator { Coordinator(surface: self) }
 
-  func handleUIGestureRecognizerAction(_ recognizer: VoicePressRecognizer, context: Context) {
-    // Window coordinates straight from UIKit. The SwiftUI converter reads the knob's geometry,
-    // which this same gesture is moving, and that re-entrant read traps in AttributeGraph.
-    let point = recognizer.location(in: nil)
-    let event: (() -> Void)?
-    switch recognizer.state {
-    case .began: event = { began(point) }
-    case .changed: event = { changed(point) }
-    case .ended: event = { ended(point) }
-    case .cancelled, .failed: event = cancelled
-    default: event = nil
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView()
+    view.backgroundColor = .clear
+    view.isAccessibilityElement = false
+    let press = VoicePressRecognizer(target: context.coordinator, action: #selector(Coordinator.handle(_:)))
+    press.delaysTouchesBegan = false
+    press.delaysTouchesEnded = false
+    view.addGestureRecognizer(press)
+    return view
+  }
+
+  func updateUIView(_ view: UIView, context: Context) { context.coordinator.surface = self }
+
+  final class Coordinator: NSObject {
+    var surface: VoicePressSurface
+    init(surface: VoicePressSurface) { self.surface = surface }
+
+    @objc func handle(_ recognizer: VoicePressRecognizer) {
+      // Window coordinates stay independent of the artwork's animated geometry.
+      let point = recognizer.location(in: nil)
+      let event: (() -> Void)?
+      switch recognizer.state {
+      case .began: event = { [surface] in surface.began(point) }
+      case .changed: event = { [surface] in surface.changed(point) }
+      case .ended: event = { [surface] in surface.ended(point) }
+      case .cancelled, .failed: event = surface.cancelled
+      default: event = nil
+      }
+      // Keep phase changes out of SwiftUI's update pass and deliver them in order.
+      if let event { DispatchQueue.main.async(execute: event) }
     }
-    // SwiftUI delivers this action in the middle of its own view update (while it updates the
-    // knob that carries the gesture). A phase change made there is missed by views already
-    // updated in that pass: the knob turned into Send while the bar stayed empty. Apply the
-    // events on the next main-queue turn instead, in order.
-    if let event { DispatchQueue.main.async(execute: event) }
   }
 }
 
@@ -804,8 +828,10 @@ struct VoiceKnob: View {
       return Look(center: VoiceBar.sendCenter, size: CGSize(width: 32, height: 32), fill: Self.restFill,
         ink: NativePalette.chatMuted, symbol: "xmark", iconSize: 12, hit: 44)
     default:
+      // Preserve the compact artwork and its original inset. Only the invisible
+      // touch surface grows into the padding around it, including the outer edge.
       return Look(center: Self.mic, size: CGSize(width: 36, height: 28), fill: Self.restFill,
-        ink: NativePalette.chatMuted, symbol: "mic.fill", iconSize: 16, hit: 44)
+        ink: NativePalette.chatMuted, symbol: "mic.fill", iconSize: 16, hit: 52)
     }
   }
 
@@ -843,18 +869,27 @@ struct VoiceKnob: View {
         .frame(width: 24, height: 24).clipped()
     }
     // Discord greys Send out while a release would cancel.
-    .opacity(retiring ? 0 : armed ? 0.35 : 1)
+    .opacity(retiring ? 0 : armed ? 0.35 : memo.phase == .pressing ? 0.65 : 1)
     // Animate the artwork inside the persistent hit target, so the gesture and
     // the shared glass/layout spring keep their original coordinate space.
     .scaleEffect(reduceMotion ? 1 : retiring ? 0.55 : memo.phase == .pressing ? 0.88 : 1)
+    .animation(.easeOut(duration: 0.06), value: memo.phase == .pressing)
     .animation(retirementAnimation, value: retiring)
+    .allowsHitTesting(false)
     .frame(width: look.hit, height: look.hit)
     .contentShape(Rectangle())
-    .gesture(VoicePressGesture(
-      began: { memo.press(at: $0, enabled: enabled && available && environmentEnabled) },
-      changed: { memo.move(to: $0) },
-      ended: { memo.release(at: $0) },
-      cancelled: { memo.cancelTouch() }))
+    // A real UIKit view owns the entire target. SwiftUI's gesture hosting can
+    // otherwise hit only the clipped symbol's 24-point width despite a larger
+    // contentShape/accessibility frame. Artwork never competes for the touch.
+    .overlay {
+      VoicePressSurface(
+        began: { memo.press(at: $0, enabled: enabled && available && environmentEnabled) },
+        changed: { memo.move(to: $0) },
+        ended: { memo.release(at: $0) },
+        cancelled: { memo.cancelTouch() })
+        .frame(width: look.hit, height: look.hit)
+        .accessibilityHidden(true)
+    }
     .modifier(KnobAccessibility(memo: memo, enabled: enabled && environmentEnabled))
     .frame(width: 64, height: 64)
     .offset(x: look.center.x + 32, y: look.center.y + 32)
@@ -1015,6 +1050,24 @@ struct VoiceBarContent: View {
       VoiceClock(recorder: memo.recorder, live: memo.isRecording)
       VoiceWaveform(recorder: memo.recorder, live: memo.isRecording)
         .frame(height: 26).frame(maxWidth: .infinity)
+      if memo.phase == .locked {
+        Button { memo.stopForReview() } label: {
+          Image(systemName: "stop.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(NativePalette.text)
+            .frame(width: 32, height: 32)
+            .background(NativePalette.text.opacity(0.08), in: Circle())
+            .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Stop recording")
+        .accessibilityHint("Keep this take to send or discard.")
+        .accessibilityIdentifier("voice-stop-button")
+        .disabled(!memo.recorder.recording)
+      } else {
+        // Reserve the layout slot without leaving an invisible accessible button.
+        Color.clear.frame(width: 44, height: 44).allowsHitTesting(false).accessibilityHidden(true)
+      }
       Color.clear.frame(width: VoiceBar.button)
     }
     .padding(.horizontal, VoiceBar.inset)

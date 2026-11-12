@@ -1,12 +1,13 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { PluginSelect } from "./plugin-ui";
 import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
+import { useVisibleNow } from "../../../hooks/use-visible-now";
 
 const button =
   "inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[#77777717] px-3 text-[12px] outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-45";
@@ -37,6 +38,9 @@ export function PluginAccountRow({
   const [alias, setAlias] = useState(connection.alias);
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
+  const now = useVisibleNow(1_000, Boolean(connection.deviceLink));
+  const qrCodeDataUrl = connection.deviceLink && connection.deviceLink.expiresAt > now
+    ? connection.deviceLink.qrCodeDataUrl : null;
   const authorization = pluginAuthorization(connection);
   const status = connection.setupPhase === "provider_setup_required" ? "Setup needed" : connection.setupPhase === "authorization_pending" ? "Finish signing in" : connection.setupPhase === "ready_to_authorize" && connection.auth === "oauth" ? "Sign-in needed" : ready
     ? "Connected"
@@ -74,7 +78,7 @@ export function PluginAccountRow({
           ) : (
             <span className="truncate text-[13px] font-medium">{connection.alias}</span>
           )}
-          <button
+          <ButtonPrimitive
             aria-label={`${editing ? "Save" : "Edit"} ${connection.alias} account`}
             aria-expanded={editing}
             disabled={busy || (editing && alias.trim().length < 2)}
@@ -89,9 +93,9 @@ export function PluginAccountRow({
             type="button"
           >
             {editing ? <Check className="size-3" /> : <SquarePen className="size-3" />}
-          </button>
+          </ButtonPrimitive>
           {!editing && (
-            <button
+            <ButtonPrimitive
               aria-label={`${connection.alias} account settings`}
               aria-expanded={expanded}
               aria-controls={settingsId}
@@ -105,7 +109,7 @@ export function PluginAccountRow({
               type="button"
             >
               <Settings2 className="size-3" />
-            </button>
+            </ButtonPrimitive>
           )}
         </div>
         {!editing && (
@@ -127,14 +131,19 @@ export function PluginAccountRow({
             {status}
           </span>
         )}
-        {!editing && !ready && !authorization && (
-          <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
-            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
+        {!editing && !ready && !authorization && !connection.deviceLink && (
+          <ButtonPrimitive
+            className={button}
+            type="button"
+            disabled={busy}
+            onClick={() => onConnect()}
+            loading={busy}
+          >
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
-          </button>
+          </ButtonPrimitive>
         )}
         {editing && (connection.alias !== "default" || connection.status !== "needs_auth") && (
-          <button
+          <ButtonPrimitive
             aria-label={`${confirmingRemove ? "Confirm removal of" : "Remove"} ${connection.alias} account`}
             className={cn(button, "text-red-600 dark:text-red-400")}
             disabled={busy}
@@ -147,11 +156,46 @@ export function PluginAccountRow({
             }}
           >
             {confirmingRemove ? "Confirm" : "Remove"}
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
+      {connection.deviceLink ? (
+        <div className="px-3.5 pb-4 space-y-3">
+          <p className="text-[13px]">{connection.deviceLink.instructions}</p>
+          {qrCodeDataUrl ? (
+            <img
+              src={qrCodeDataUrl}
+              alt="Scan to link your account"
+              width={320}
+              height={320}
+              className="max-w-full h-auto rounded-lg bg-white"
+              style={{ imageRendering: "pixelated" }}
+            />
+          ) : null}
+          <p className="text-[12px] text-foreground-secondary">
+            {!qrCodeDataUrl ? (
+              "Waiting for an updated code or phone approval. You can also get a new code."
+            ) : (
+              <>
+                Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
+                Waiting for approval…
+              </>
+            )}
+          </p>
+          <ButtonPrimitive type="button" className={button} disabled={busy} onClick={() => onConnect()}>
+            Get new code
+          </ButtonPrimitive>
+          <ButtonPrimitive type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
+            Cancel linking
+          </ButtonPrimitive>
+        </div>
+      ) : null}
       <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
-      {connection.statusMessage && !ready && !authorization ? <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">{connection.statusMessage}</p> : null}
+      {connection.statusMessage && !ready && !authorization ? (
+        <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">
+          {connection.statusMessage}
+        </p>
+      ) : null}
       <AnimatedCollapse open={expanded} id={settingsId}>
         <div className="px-3 pb-3">{children}</div>
       </AnimatedCollapse>
@@ -194,7 +238,8 @@ export function AddPluginAccount({
           onSubmit={async (e) => {
             e.preventDefault();
             const connection = choices.find((c) => c.connectorKey === connector);
-            if (connection && !busy && alias.trim().length >= 2 && await onAdd(connection, alias.trim())) {
+            if (connection && !busy && alias.trim().length >= 2 &&
+              (await onAdd(connection, alias.trim()))) {
               setOpen(false);
               setAlias("");
             }
@@ -217,10 +262,10 @@ export function AddPluginAccount({
             value={alias}
             onChange={(e) => setAlias(e.target.value)}
           />
-          <button className={button} type="submit" disabled={busy || alias.trim().length < 2}>
+          <ButtonPrimitive className={button} type="submit" disabled={busy || alias.trim().length < 2}>
             Add Account
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             className={button}
             type="button"
             onClick={() => {
@@ -229,11 +274,11 @@ export function AddPluginAccount({
             }}
           >
             Cancel
-          </button>
+          </ButtonPrimitive>
         </form>
       </AnimatedCollapse>
       <AnimatedCollapse open={!open}>
-        <button
+        <ButtonPrimitive
           type="button"
           className="flex min-h-[42px] w-full cursor-pointer items-center gap-1.5 px-3.5 text-left text-[13px] text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-45"
           disabled={busy}
@@ -243,7 +288,7 @@ export function AddPluginAccount({
         >
           <Plus className="size-3.5" />
           Add Another Account
-        </button>
+        </ButtonPrimitive>
       </AnimatedCollapse>
     </div>
   );

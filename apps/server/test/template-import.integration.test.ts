@@ -16,20 +16,20 @@ test('template import materializes memories, skills and setup workflows once, ac
  const clientRequestId = crypto.randomUUID(); let botId: string | undefined;
  try {
   const recipe = parseBotRecipe({ profile: { name: 'Reusable research', description: 'Research with citations' }, memory: [{ content: 'Cite primary sources', kind: 'profile' }], skills: [{ name: 'Research', description: 'Research a question', content: 'Collect sources and compare their evidence.' }], routines: [{ slug: 'check-in', description: 'Check a user-selected source', content: 'Ask for the source, destination, and cadence. Monitor for changes.' }], plugins: [{ pluginId: 'search-provider' }], gettingStarted: { skill: 'Research' } });
-  const input = { clientRequestId, name: recipe.profile.name, description: recipe.profile.description, instructions: recipe.profile.description };
-  const created = await Effect.runPromise(service.create(input, recipe)); botId = created.id;
+  const input = { clientRequestId, name: recipe.profile.name, description: recipe.profile.description };
+  const created = await Effect.runPromise(service.create(input, recipe)); botId = created.id; expect(created.instructions).toBe("");
   const retry = await Effect.runPromise(service.create(input, recipe)); expect(retry.id).toBe(botId);
   const skills = await prisma.savedSkill.findMany({ where: { slug: { startsWith: `template-${botId}-` } } });
   expect(skills).toHaveLength(1);
   expect(await readFile(join(root, 'data/workflows', skills[0]!.slug, 'SKILL.md'), 'utf8')).toContain('Collect sources');
-  expect(await prisma.memoryFact.findMany({ where: { namespace: `agent:${botId}` }, select: { fact: true, tier: true, origin: true } })).toEqual([{ fact: 'Cite primary sources', tier: 'profile', origin: 'template' }]);
+  expect(await prisma.memoryFact.findMany({ where: { namespace: `agent:${botId}` }, select: { fact: true, tier: true, origin: true } })).toEqual(expect.arrayContaining([{ fact: 'Cite primary sources', tier: 'profile', origin: 'template' }]));
   expect(await readdir(join(root, 'data/agents', botId, 'template-routines'))).toHaveLength(1);
-  const bot = await prisma.bot.findUniqueOrThrow({ where: { id: botId } }); expect(bot.templateRecipe).toBeNull(); expect(bot.instructions).toContain('On the first conversation'); expect(bot.instructions).toContain('Research');
+  const bot = await prisma.bot.findUniqueOrThrow({ where: { id: botId } }); expect(bot.templateRecipe).toBeNull(); const setup = await prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact: { contains: 'On the first conversation' } } }); expect(setup.fact).toContain('Research');
   expect(await prisma.routine.count({ where: { botId } })).toBe(0);
   // Reinitializing after user edits must not replay the seed over the live state.
-  await prisma.bot.update({ where: { id: botId }, data: { instructions: 'User edited instructions' } });
+  const updated = await Effect.runPromise(service.update(botId, { title: 'Researcher', description: 'Updated profile' })); expect(updated.title).toBe('Researcher'); expect(updated.instructions).toBe('');
   const restarted = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root }); await restarted.initializeBot(botId);
-  expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).instructions).toBe('User edited instructions');
+  expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).description).toBe('Updated profile'); expect(await prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(5);
  } finally {
   if (botId) { await prisma.savedSkill.deleteMany({ where: { slug: { startsWith: `template-${botId}-` } } }); await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { directKey: `bot:${botId}` } }); }
   await prisma.idempotencyRecord.deleteMany({ where: { scope: 'bot:create', key: clientRequestId } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true });

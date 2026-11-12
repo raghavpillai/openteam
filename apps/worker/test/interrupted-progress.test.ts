@@ -82,6 +82,7 @@ test("a turn the computer settled as stopped is cancelled even before the server
   const any = (overrides: Record<string, any> = {}) =>
     new Proxy(overrides, { get: (target, key) => target[key as string] ?? (async () => null) });
   const tx = new Proxy({
+    $executeRaw: async () => 0,
     run: any({
       findUnique: async () => ({ id: "run", botId: "bot", status: "running", inputDeliveredAt: new Date(), error: null }),
       update: async (arg: any) => { runUpdates.push(arg.data); return {}; },

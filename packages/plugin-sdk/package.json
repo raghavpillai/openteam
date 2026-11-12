@@ -1,17 +1,19 @@
 {
   "name": "@openteam/plugin-sdk",
-  "version": "0.0.13",
+  "version": "0.0.17",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./configuration": "./src/configuration.ts",
     "./environment": "./src/environment.ts",
     "./archive": "./src/archive.ts",
     "./json-schema": "./src/json-schema.ts",
     "./skill-markdown": "./src/skill-markdown.ts",
     "./templates": "./src/templates.ts",
     "./file-spool": "./src/file-spool.ts",
+    "./runtime-assets": "./src/runtime-assets.ts",
     "./browser-network/protocol": "./src/browser-network/protocol.ts",
     "./browser-network/policy": "./src/browser-network/policy.ts",
     "./browser-network/mux": "./src/browser-network/mux.ts",
@@ -28,6 +30,7 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "fflate": "0.8.3",
+    "tar": "7.5.22",
     "yaml": "2.9.0",
     "ipaddr.js": "2.5.0",
     "ws": "8.21.3"

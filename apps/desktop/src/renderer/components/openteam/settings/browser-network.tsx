@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import "./browser-network.css";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -15,8 +16,11 @@ import { PrivateSettingValue } from "./private-value";
 import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
+import { useWindowVisible } from "../../../hooks/use-window-active";
+import { NetworkProtocols } from "./network-protocols";
 
 export function BrowserNetworkSettings() {
+  const visible = useWindowVisible();
   const [view, setView] = useState<BrowserNetworkView | null>(null);
   const [egress, setEgress] = useState<NetworkEgress | null>(null);
   const [quality, setQuality] = useState<NetworkQuality | null>(null);
@@ -30,6 +34,7 @@ export function BrowserNetworkSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     const refresh = async () => {
       const results = await Promise.allSettled([
@@ -53,7 +58,7 @@ export function BrowserNetworkSettings() {
       active = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [visible]);
   const routeKey =
     view?.runtime.routeEpoch ??
     `${view?.settings.revision}:${view?.runtime.state}:${view?.runtime.activeMachineId}`;
@@ -82,7 +87,7 @@ export function BrowserNetworkSettings() {
     }
   };
   useEffect(() => {
-    if (!view || !["ready", "server"].includes(view.runtime.state)) return;
+    if (!visible || !view || !["ready", "server"].includes(view.runtime.state)) return;
     let active = true;
     setEgress(null);
     setEgressFailed(false);
@@ -106,7 +111,7 @@ export function BrowserNetworkSettings() {
       active = false;
       clearInterval(timer);
     };
-  }, [routeKey, view?.runtime.state]);
+  }, [routeKey, view?.runtime.state, visible]);
   const savedOrder = view?.settings.sourceOrder?.length ? view.settings.sourceOrder : ["server"];
   const ranked = order ?? savedOrder;
   const dirty = !!view && JSON.stringify(ranked) !== JSON.stringify(savedOrder);
@@ -221,6 +226,7 @@ export function BrowserNetworkSettings() {
             })}
           </ol>
         </DragDropProvider>
+        <NetworkProtocols view={view} />
         <div className="bn-egress" key={routeKey}>
           <span>Exit IP</span>
           {ready &&
@@ -260,16 +266,18 @@ export function BrowserNetworkSettings() {
               <span>Test unavailable</span>
             ) : null}
           </div>
-          <button
+          <ButtonPrimitive
             type="button"
             className={settingsSecondaryButton}
             aria-label="Test active connection"
             title="Quick latency and speed estimate from the bot computer; about 1.25 MB"
             disabled={!ready || testing}
             onClick={() => void testConnection()}
+            loading={testing}
+            loadingLabel="Testing…"
           >
-            {testing ? "Testing…" : "Test"}
-          </button>
+            Test
+          </ButtonPrimitive>
         </div>
         {sharing?.supported && (
           <label className="bn-share">
@@ -289,7 +297,7 @@ export function BrowserNetworkSettings() {
             <span>Unsaved changes</span>
             <div className="bn-buttons">
               {dirty && (
-                <button
+                <ButtonPrimitive
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -299,21 +307,21 @@ export function BrowserNetworkSettings() {
                   className={settingsSecondaryButton}
                 >
                   Discard
-                </button>
+                </ButtonPrimitive>
               )}
-              <button
+              <ButtonPrimitive
                 type="button"
                 disabled={busy || !view || !dirty}
                 onClick={() => void apply()}
                 className={settingsPrimaryButton}
               >
                 Apply
-              </button>
+              </ButtonPrimitive>
             </div>
           </div>
         )}
         {view && !["ready", "server"].includes(view.runtime.state) && (
-          <button
+          <ButtonPrimitive
             type="button"
             disabled={busy}
             onClick={() => {
@@ -327,7 +335,7 @@ export function BrowserNetworkSettings() {
             className={`${settingsSecondaryButton} mb-2`}
           >
             Retry connection
-          </button>
+          </ButtonPrimitive>
         )}
         {error && (
           <p role="alert" className="bn-error">
@@ -384,7 +392,7 @@ function NetworkSourceRow({
         <span className="bn-status-dot" aria-hidden="true" />
         {active ? "In use" : available ? "Working" : "Not working"}
       </span>
-      <button
+      <ButtonPrimitive
         ref={handleRef}
         type="button"
         aria-label={`Reorder ${name}`}
@@ -392,7 +400,7 @@ function NetworkSourceRow({
         className="bn-handle"
       >
         <GripVertical size={14} />
-      </button>
+      </ButtonPrimitive>
     </li>
   );
 }

@@ -6,22 +6,22 @@ and shared host compatibility.
 
 ## Workflows
 
-Enable **Instructions and hooks** and grant the intended Granola account.
+Installed plugins and their connected accounts are available to all bots.
 Original commands are `/granola-brief`, `/granola-plan`, `/granola-spec`,
 `/granola-pr`, `/granola-gaps`, and `/granola-bug-report`, followed by your topic.
-Namespaced commands such as `/granola:granola-plan` and the earlier
-`/granola:plan` spelling also work. The original agent is
-`plugin_agent: "granola:granola-engineer"`; `granola:engineer` remains an alias.
+Namespaced commands such as `/granola:granola-plan` and the short
+`/granola:plan` form also work. The original agent is
+`plugin_agent: "granola:granola-engineer"`; `granola:engineer` is an alias.
 
 ## Connect through the UI
 
-1. Install **Granola** from **Plugins → Browse**.
-2. Open the plugin's account and choose **Continue to authorization** (or **Save and authorize** in the full settings workspace). No API key, developer application, client ID, or client secret is required. OpenTeam registers a public OAuth client automatically and uses PKCE.
+1. Install **Granola** from **Marketplace**.
+2. Open the plugin's account and choose **Continue to authorization** (or **Save and authorize** on the plugin's page under **Settings → Advanced settings**). No API key, developer application, client ID, or client secret is required. OpenTeam registers a public OAuth client automatically and uses PKCE.
 3. Sign in with the email shown in your Granola app and review Granola's consent screen. Return to OpenTeam to finish tool discovery.
-4. In **Manage → Accounts and settings → Installed**, run `get_account_info` with `{}` under **Test a tool**. Confirm the account and active workspace, then test `list_meetings` using its displayed schema.
-5. Enable the package for the intended Bot, enable its skills, and grant that Bot the account. Try “What decisions did we make in recent meetings?”
+4. On the plugin's page, open **Settings → Advanced settings** and run `get_account_info` with `{}` under **Test a tool**. Confirm the account and active workspace, then test `list_meetings` using its displayed schema.
+5. Ask any Bot “What decisions did we make in recent meetings?”
 
-Use **Add Another Account** for another identity. Each account has separate OAuth registration, tokens, tools, settings, and Bot grants in the deployment's database. If the browser silently selects the wrong Granola identity, sign out of Granola in the browser before authorizing the new account, or use a private browser window. Verify the result with `get_account_info`.
+Use **Add Another Account** for another identity. Each account has separate OAuth registration, tokens, tools, and settings in the deployment's database. If the browser silently selects the wrong Granola identity, sign out of Granola in the browser before authorizing the new account, or use a private browser window. Verify the result with `get_account_info`.
 
 ## Tools and limits
 
@@ -47,14 +47,13 @@ Subsequent execution and unchanged-source updates reuse those saved files.
 A failed download or hash check leaves the installed version intact.
 
 No skill, command, agent, or rule text is rewritten. Host tool mapping and
-account guidance are supplied by shared runtime code. The existing connection
-key, OAuth registration, credentials, and grants are preserved on upgrade.
-Choose **Reconnect** after updating to rediscover tools with saved authorization.
+account guidance are supplied by shared runtime code. The connection key,
+OAuth registration, and credentials are kept when you apply an update. Then
+choose **Restart / refresh tools** under **Settings → Advanced settings** to
+rediscover tools with the saved authorization.
 
-## Validation scope
+## Validation
 
-Source integrity, ZIP preservation, command expansion, runtime loading, and
-account-preserving upgrades are tested separately from live provider behavior.
-Earlier live checks passed OAuth, account verification, listing, search, and
-reconnection, but returned no accessible notes. Retrieval of real transcripts
-and model-driven execution of the newly restored workflows remain unverified.
+Repository tests cover source integrity, packaging, command expansion, runtime
+loading, and account-preserving updates, not live Granola behavior. Check a live
+account with steps 4 and 5 above.

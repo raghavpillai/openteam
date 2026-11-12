@@ -4,17 +4,19 @@ import {
   type PluginConfigurationInput,
   type PluginConfigurationView,
 } from "@openteam/contracts";
-import type { PrismaClient } from "@openteam/db";
+import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   applySecretEdits,
   assertComputerMcpRuntime,
   fieldsForConnector,
   isSecretKey,
   validateValues,
+  validateMcpUrl,
   type PluginField,
 } from "@openteam/plugin-sdk";
 import { serviceEffect, toJson } from "../service-utils";
 import { loadConnectionNamespaces } from "./namespaces";
+import { clearDeviceLinkState } from "./device-link";
 import {
   definitionFromManifest,
   connectionConfigured,
@@ -23,6 +25,8 @@ import {
   oauthRedirectUrl,
   stringArray,
   stringRecord,
+  runtimeEndpoint,
+  hasPlaceholder,
 } from "./values";
 
 const authenticationFields = (auth: string): PluginField[] =>
@@ -35,6 +39,9 @@ const authenticationFields = (auth: string): PluginField[] =>
           { key: "scope", label: "OAuth scopes", required: false, secret: false },
         ]
       : [];
+
+const usesUrlField = (endpoint: string | undefined, fields: readonly PluginField[]): boolean =>
+  fields.some(field => field.format === "mcp-url" && endpoint === `\${${field.key}}`);
 
 export class PluginConfiguration {
   constructor(
@@ -77,7 +84,7 @@ export class PluginConfiguration {
       return {
         connectionId: id,
         namespace: (await loadConnectionNamespaces(this.prisma)).get(id)!,
-        endpoint: connection.endpoint,
+        endpoint: usesUrlField(connector?.endpoint, fields) ? runtimeEndpoint(connection) : connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
         runtime: "computer",
         args: stringArray(config.args),
@@ -129,7 +136,9 @@ export class PluginConfiguration {
     serviceEffect(async () => {
       const { connection, fields, plugin, connector } = await this.connection(id);
       const config = { ...jsonObject(connection.configuration) };
-      const credentials = { ...jsonObject(connection.credentials) };
+      let credentials = { ...jsonObject(connection.credentials) };
+      if (credentials.stateRemovalPending === true)
+        throw new ApiError(409, "plugin_account_removal_pending", "Account removal must finish before changing configuration.");
       if (input.values) {
         const validated = validateValues(fields, input.values, false);
         // Compact setup clients can submit an empty advanced scope field. Keep the
@@ -199,7 +208,7 @@ export class PluginConfiguration {
       }
       let endpoint = connection.endpoint;
       assertComputerMcpRuntime({ ...config, env: { ...jsonObject(config.env), ...jsonObject(credentials.env) } });
-      if (input.endpoint !== undefined) {
+      if (input.endpoint !== undefined && input.endpoint !== connection.endpoint && input.endpoint !== runtimeEndpoint(connection)) {
         const url = new URL(input.endpoint);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
           throw new ApiError(
@@ -209,15 +218,26 @@ export class PluginConfiguration {
           );
         endpoint = url.toString();
       }
+      if (usesUrlField(connector?.endpoint, fields)) {
+        const resolved = runtimeEndpoint({
+          endpoint,
+          configuration: toJson(config) as Prisma.JsonValue,
+          credentials: toJson(credentials) as Prisma.JsonValue,
+        });
+        if (resolved && !hasPlaceholder(resolved)) validateMcpUrl(resolved);
+      }
       const changed =
         JSON.stringify(config) !== JSON.stringify(connection.configuration) ||
         JSON.stringify(credentials) !== JSON.stringify(connection.credentials) ||
         endpoint !== connection.endpoint;
       if (changed) {
+        credentials = clearDeviceLinkState(credentials);
         delete credentials.oauth;
         await this.stop(id, connection.transport);
-        await this.prisma.pluginConnection.update({
-          where: { id },
+        const updated = await this.prisma.pluginConnection.updateMany({
+          // Stop may await another service's removal/reconnect. Never overwrite
+          // its durable credentials or generation with the pre-stop snapshot.
+          where: { id, runtimeGeneration: connection.runtimeGeneration, installation: { status: "installed" } },
           data: {
             endpoint,
             configuration: toJson(config),
@@ -227,6 +247,8 @@ export class PluginConfiguration {
             statusMessage: null,
           },
         });
+        if (updated.count !== 1)
+          throw new ApiError(409, "plugin_configuration_stale", "This account changed while saving. Refresh its settings and try again.");
       }
       return { id, configured: connectionConfigured({ ...connection, configuration: config, credentials }, plugin) };
     });

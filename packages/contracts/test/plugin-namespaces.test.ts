@@ -20,6 +20,24 @@ test("namespaces carry the account and a not-ready reason, never saved instructi
   expect(signedOut).toMatchObject({ name: "gmail--work", description: "Gmail (work)", namespaceStatus: "needsAuth", statusMessage: "Sign in again" });
 });
 
+test("shared server and worker namespaces hide manifest-declared and metadata-only host tools", () => {
+  const hostNames = ["start_link", "finish_link", "link_status", "cancel_link", "remove_account", "poll_events", "send_draft"];
+  const [namespace] = pluginDynamicNamespaces([connection("a", {
+    installation: { pluginKey: "signal", manifest: { connections: [{
+      key: "gmail", deviceLink: { startTool: hostNames[0], finishTool: hostNames[1], statusTool: hostNames[2],
+        cancelTool: hostNames[3], removeTool: hostNames[4] },
+      events: { pollTool: hostNames[5] }, drafts: { tool: hostNames[6] },
+    }, { key: "another", deviceLink: { startTool: "public_read" } }] } },
+    toolSnapshot: [
+      ...hostNames.map(name => ({ name, description: "host", inputSchema: {} })),
+      { name: "metadata_host", _meta: { "openteam/hostOnly": true } },
+      { name: "public_read", description: "Public", inputSchema: {}, risk: "read" },
+    ],
+  })], names);
+  expect(namespace!.tools).toEqual([{ connectionId: "a", name: "public_read", description: "Public",
+    inputSchema: {}, source: "signal/gmail", readOnly: true }]);
+});
+
 test("saved instructions of connected accounts become the reference's always-follow section", () => {
   expect(connectorCustomInstructionsSection([
     connection("c", { name: "Linear", installation: { pluginKey: "linear" }, instructions: "  Use the ENG team.  " }),

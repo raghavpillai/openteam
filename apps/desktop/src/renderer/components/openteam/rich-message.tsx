@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import "./permission-cards.css";
 import { SharedTemplateCard } from "./shared-template-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
@@ -332,7 +333,7 @@ function WidgetCard({
             <p className={cn("m-0 min-w-0 leading-5", secondaryText)}>{widget.helpText}</p>
           ) : null}
         </div>
-        <button
+        <ButtonPrimitive
           aria-label="Dismiss question"
           className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 dark:text-[#f0f0f0]/60 hover:bg-black/[0.06] disabled:opacity-40 dark:hover:bg-white/[0.07]"
           disabled={pending}
@@ -341,7 +342,7 @@ function WidgetCard({
           type="button"
         >
           <PermissionIcon name="close" className="size-3" />
-        </button>
+        </ButtonPrimitive>
       </div>
       <div className={optionGroupClass}>
         {widget.options.map((option, index) => {
@@ -350,7 +351,7 @@ function WidgetCard({
           return (
             <Fragment key={`${value}-${index}`}>
             {index > 0 && <div className="widget-divider" />}
-            <button
+            <ButtonPrimitive
               aria-keyshortcuts={widgetOptionLetter(index).toLowerCase()}
               aria-pressed={widget.multiSelect ? active : undefined}
               className={optionRowClass}
@@ -369,7 +370,7 @@ function WidgetCard({
                 ) : null}
               </span>
               {active ? <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span> : null}
-            </button>
+            </ButtonPrimitive>
             </Fragment>
           );
         })}
@@ -398,13 +399,13 @@ function WidgetCard({
             />
           </div>
           {custom.trim() && !widget.multiSelect ? (
-            <button
+            <ButtonPrimitive
               className="rich-message-submit widget-submit shrink-0 disabled:opacity-40"
               disabled={pending}
               type="submit"
             >
               Submit
-            </button>
+            </ButtonPrimitive>
           ) : null}
         </div>
       ) : null}
@@ -415,13 +416,13 @@ function WidgetCard({
       ) : null}
       {widget.multiSelect && selectedValue ? (
         <div className="flex w-full justify-end">
-          <button
+          <ButtonPrimitive
             className="widget-submit disabled:opacity-40"
             disabled={pending}
             type="submit"
           >
             Submit
-          </button>
+          </ButtonPrimitive>
         </div>
       ) : null}
     </form>
@@ -518,13 +519,13 @@ function SecretCard({
           type="password"
           value={value}
         />
-        <button
+        <ButtonPrimitive
           className="permission-button permission-button-primary"
           disabled={!value.trim() || pending}
           type="submit"
         >
           Save securely
-        </button>
+        </ButtonPrimitive>
       </div>
       {error ? (
         <p role="alert" className="m-0 text-xs text-red-600">
@@ -612,22 +613,22 @@ function ComputerHandoffCard({
         <div className={cn("text-xs font-medium capitalize", secondaryText)}>{state}</div>
       ) : (
         <div className="flex justify-end gap-2">
-          <button
+          <ButtonPrimitive
             className="h-8 rounded-lg px-2.5 font-medium text-foreground-secondary hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/5"
             disabled={pending}
             onClick={() => void mutate("skip")}
             type="button"
           >
             Skip
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             className="h-8 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-40 dark:bg-[#f0f0f0] dark:text-[#181818]"
             disabled={pending || !message.senderBotId}
             onClick={() => void mutate("start")}
             type="button"
           >
             {state === "active" ? "Return to computer" : "Take over"}
-          </button>
+          </ButtonPrimitive>
         </div>
       )}
     </section>

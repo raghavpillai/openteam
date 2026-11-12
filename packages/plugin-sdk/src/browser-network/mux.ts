@@ -252,6 +252,11 @@ export class NetworkMux {
               socket.destroy();
               return;
             }
+            if (socket.destroyed) {
+              this.send(FrameType.Error, frame.id, jsonBytes({ code: "connect_failed" }));
+              stream.reset(new NetworkError("connect_failed"));
+              return;
+            }
             stream.markReady();
             this.send(FrameType.Ready, frame.id);
             const idle = () => {

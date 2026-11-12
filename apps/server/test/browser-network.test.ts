@@ -242,12 +242,16 @@ async function fixture(
     cleanup.push(() => peer.stop());
     return peer;
   };
-  const select = async (id: string) => {
+  const select = async (id: string, waitForComputer = true) => {
     await until(async () =>
       (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed)
     );
     await service.update({ expectedRevision: settings.revision, mode: "device", machineId: id });
-    await until(async () => (await service.view()).runtime.state === "ready");
+    await until(async () => {
+      const view = await service.view();
+      return view.runtime.state === "ready" && (!waitForComputer || (computer.available() &&
+        computer.route?.machineId === id && computer.route.epoch === view.runtime.routeEpoch));
+    });
   };
   return {
     service,
@@ -538,7 +542,7 @@ describe("connected device browser network", () => {
     peer.stop();
     await routed(f, "server");
     f.device("home");
-    await until(async () => (await f.service.view()).runtime.state === "ready");
+    await routed(f, "home");
     expect(f.getSettings().revision).toBe(revision);
     expect(f.computer.route!.epoch).not.toBe(epoch);
     expect((await roundTrip(f.computer, Buffer.from("reconnected"))).toString()).toBe(
@@ -672,7 +676,7 @@ describe("connected device browser network", () => {
         cert,
         key,
       });
-      await f.select("node-device");
+      await f.select("node-device", false);
       // The production worker checks the same TLS destination through the real device mux.
       // Only this isolated fixture maps ipwho.is to a local TLS server with a trusted test CA.
       const probeId = crypto.randomUUID();
@@ -862,11 +866,93 @@ describe("connected device browser network", () => {
       expect(response.status).toBe(403);
     }
   });
+  test("Node SOCKS reset cancels the selected-device dial and recovers without replay", async () => {
+    const f = await fixture();
+    f.device("home");
+    await f.select("home");
+    f.computer.stop();
+    const held = f.holdDials("home");
+    const directory = await mkdtemp(join(tmpdir(), "openteam-socks-relay-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const file = join(directory, "relay.mjs");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        "build",
+        resolve(
+          import.meta.dirname,
+          "../../../packages/plugin-sdk/test/browser-network/socks-relay.fixture.ts"
+        ),
+        "--target",
+        "node",
+        "--outfile",
+        file,
+      ],
+      { stdout: "ignore", stderr: "inherit" }
+    );
+    expect(await build.exited).toBe(0);
+    const child = spawn(process.env.OPENTEAM_TEST_NODE ?? "node", [file], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    cleanup.push(async () => {
+      child.kill();
+      const timeout = setTimeout(() => child.kill("SIGKILL"), 1000);
+      await exited;
+      clearTimeout(timeout);
+    });
+    let stdout = "",
+      stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (text) => {
+      stdout += text;
+    });
+    child.stderr.on("data", (text) => {
+      stderr += text;
+    });
+    const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + "\n");
+    send({ op: "start", url: `ws://127.0.0.1:${f.server.port}/computer` });
+    await until(() => stdout.includes('"ready":true'));
+    send({ op: "open" });
+    await until(() => held.pending.length === 1);
+    send({ op: "reset" });
+    await until(() => held.pending[0]!.signal.aborted);
+    held.release();
+    await until(() => held.pending[0]!.socket.destroyed);
+    const dead = f.holdDials("home");
+    send({ op: "open" });
+    await until(() => dead.pending.length === 1);
+    await new Promise<void>((resolve) => {
+      dead.pending[0]!.socket.once("close", resolve);
+      dead.pending[0]!.socket.destroy();
+    });
+    dead.release();
+    await until(() => stdout.includes('"connectCode":'));
+    const connect = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .find((line) => "connectCode" in line);
+    expect(connect.connectCode).toBe(1);
+    send({ op: "recover" });
+    await until(() => stdout.includes('"recovered":'));
+    const recovered = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .find((line) => line.recovered);
+    const bytes = Buffer.from(recovered.recovered, "hex");
+    expect([...bytes.subarray(0, 4)]).toEqual([5, 0, 5, 0]);
+    expect(bytes.subarray(12).toString()).toBe("recovered");
+    expect(f.getDials()).toBe(3);
+    expect(stderr).toBe("");
+  }, 15000);
   test("SOCKS fragmented negotiation reaches the same managed route and rejects UDP", async () => {
     const f = await fixture();
     f.device("home");
     await f.select("home");
-    const proxy = createBrowserProxy((host, port) => f.computer.open(host, port));
+    const proxy = createBrowserProxy((host, port, signal) => f.computer.open(host, port, signal));
     const port = await proxy.listen(0);
     cleanup.push(() => proxy.close());
     const socket = createConnection({ host: "127.0.0.1", port });

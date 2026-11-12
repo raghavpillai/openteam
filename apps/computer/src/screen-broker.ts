@@ -1,3 +1,4 @@
+import { ComputerControlStore, type ComputerControl } from "./screen/control-store";
 import { removeDesktopMemory } from "./desktop-memory";
 import { type ChildProcess } from "node:child_process";
 import { managedBrowserNetworkArguments } from "./browser-network";
@@ -7,6 +8,7 @@ import { basename, join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
 import { performClipboardOperation } from "./screen/clipboard";
 import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, assignAgentOwnership } from "./agent-process";
+import { clearStoppedBrowserCaches } from "./browser/cache-maintenance";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
@@ -44,6 +46,17 @@ const VIEWER_PORT_BASE = 6200;
 const BROWSER_DEBUG_PORT_BASE = 9300;
 
 const TAKEOVER_TTL_MS = 45_000;
+/** A held lease with no user operation for this long is released so the bot can work again. */
+export const HUMAN_IDLE_RELEASE_MS = 5 * 60_000;
+
+/**
+ * The user holds the input lease while heartbeats keep it alive and they operated the computer
+ * within HUMAN_IDLE_RELEASE_MS. Heartbeats alone never keep a forgotten viewer in control.
+ */
+const humanHoldsLease = (session: Pick<ScreenSession, "humanTakeoverUntil" | "humanActiveAt" | "controlSession" | "controlPending">): boolean => {
+  const now = Date.now();
+  return Boolean(session.controlPending || session.controlSession) || session.humanTakeoverUntil > now && now - session.humanActiveAt < HUMAN_IDLE_RELEASE_MS;
+};
 const COMPUTER_SETTLE_MS = 500;
 
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
@@ -64,6 +77,7 @@ export class ScreenBroker {
   private readonly mappingPath: string;
   private readonly browserBroker: BrowserBroker;
   private readonly profileAuthority: BrowserProfileAuthority;
+  private readonly controls: ComputerControlStore;
   private loaded = false;
   private loading: Promise<void> | null = null;
   private allocation: Promise<void> = Promise.resolve();
@@ -72,6 +86,7 @@ export class ScreenBroker {
   private readonly inputRevisions = new WeakMap<ScreenSession, number>();
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
   private readonly readySessions = new Map<string, Promise<ScreenSession>>();
+  private readonly exitedBrowsers = new WeakMap<ScreenSession, ChildProcess>();
   private readonly profilePublishes = new Set<Promise<void>>();
   /** Bots whose screen was driven since their profile was last requested for a snapshot. */
   private readonly browserUse = new Set<string>();
@@ -84,6 +99,7 @@ export class ScreenBroker {
     }> = async () => ({ width: WIDTH, height: HEIGHT })
   ) {
     this.stateRoot = join(home, ".openteam");
+    this.controls = new ComputerControlStore(join(this.stateRoot, "computer-control.json"));
     this.mappingPath = join(home, ".sand-window-assignments.json");
     this.browserBroker = new BrowserBroker(home);
     this.profileAuthority = new BrowserProfileAuthority(home);
@@ -93,6 +109,7 @@ export class ScreenBroker {
     if (this.destroyedBotIds.has(botId)) throw new Error("Graphical screen was destroyed");
     await this.loadMappings();
     if (this.destroyedBotIds.has(botId)) throw new Error("Graphical screen was destroyed");
+    const controlSession = await this.controls.get(botId);
     const dimensions = await this.displayDimensions();
     let session = this.sessions.get(botId);
     if (!session) {
@@ -124,7 +141,9 @@ export class ScreenBroker {
           runtimeDirectory: join("/tmp", `openteam-screen-${slot}`),
           state: "starting",
           error: null,
+          controlSession,
           humanTakeoverUntil: 0,
+          humanActiveAt: 0,
           agentInputPaused: false,
           destroyed: false,
           stopping: false,
@@ -185,11 +204,14 @@ export class ScreenBroker {
     botId: string,
     cwd: string,
     input: ScreenActionInput,
-    actor: "agent" | "human"
+    actor: "agent" | "human",
+    control?: Partial<ComputerControl>
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     this.noteBrowserUse(botId);
     return this.withInput(session, actor, async (signal) => {
+      if (actor === "human") this.assertViewerControl(session, control);
+      if (actor === "human" && humanHoldsLease(session)) session.humanActiveAt = Date.now();
       const env = environment(this.home, session);
       switch (input.action) {
         case "move":
@@ -239,12 +261,14 @@ export class ScreenBroker {
     });
   }
 
-  async clipboard(botId: string, cwd: string, input: ScreenClipboardInput, externalSignal?: AbortSignal): Promise<ScreenClipboardView> {
+  async clipboard(botId: string, cwd: string, input: ScreenClipboardInput, externalSignal?: AbortSignal, control?: Partial<ComputerControl>): Promise<ScreenClipboardView> {
     externalSignal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
     return this.withInput(session, "human", async () => {
-      if (session.humanTakeoverUntil <= Date.now()) throw new Error("Take control before using the computer clipboard");
+      this.assertViewerControl(session, control);
+      if (!humanHoldsLease(session)) throw new Error("Take control before using the computer clipboard");
       session.humanTakeoverUntil = Date.now() + TAKEOVER_TTL_MS;
+      session.humanActiveAt = Date.now();
       const signal = AbortSignal.any([AbortSignal.timeout(8_000), ...(externalSignal ? [externalSignal] : [])]);
       return performClipboardOperation(input, environment(this.home, session), signal, child => {
         session.processes.push(child);
@@ -309,9 +333,13 @@ export class ScreenBroker {
     this.assertAgentControl(session);
     this.noteBrowserUse(botId);
     const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
-    if (!(await this.browserIsReady(endpoint))) this.openApp(session, "chromium");
+    const browserReady = await this.browserIsReady(endpoint);
+    this.assertAgentControl(session);
+    if (!browserReady) this.openApp(session, "chromium");
     for (let attempt = 0; attempt < 60; attempt += 1) {
+      this.assertAgentControl(session);
       if (await this.browserIsReady(endpoint)) {
+        this.assertAgentControl(session);
         await this.browserBroker.attach(
           session.botId,
           session.browserDebugPort,
@@ -340,11 +368,54 @@ export class ScreenBroker {
     return basename(session.profileDirectory);
   }
 
-  async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
+  async takeover(
+    botId: string,
+    cwd: string,
+    active: boolean,
+    options: { renew?: boolean; activity?: boolean; controlId?: string; generation?: number; force?: boolean } = {}
+  ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
-    session.humanTakeoverUntil = active ? Date.now() + TAKEOVER_TTL_MS : 0;
-    if (active) await this.interruptAgentInput(session);
+    if (options.controlId || options.force || session.controlSession) {
+      await this.controls.change(botId, active, options.controlId, options.generation, options.force === true,
+        async (control, committed) => {
+          if (!committed) {
+            session.controlPending = true;
+            await this.interruptAgentInput(session);
+            return;
+          }
+          session.controlSession = control;
+          session.controlPending = false;
+          session.humanTakeoverUntil = 0;
+          this.inputRevisions.set(session, (this.inputRevisions.get(session) ?? 0) + 1);
+        });
+      return this.statusFor(session);
+    }
+    const now = Date.now();
+    if (!active) {
+      session.humanTakeoverUntil = 0;
+    } else if (options.renew) {
+      // A heartbeat only extends a lease the user still holds. It never acquires one, so it
+      // cannot revive a lease that was released or expired from idleness.
+      if (humanHoldsLease(session)) {
+        session.humanTakeoverUntil = now + TAKEOVER_TTL_MS;
+        if (options.activity) session.humanActiveAt = now;
+      }
+    } else {
+      const acquiring = !humanHoldsLease(session);
+      session.humanTakeoverUntil = now + TAKEOVER_TTL_MS;
+      session.humanActiveAt = now;
+      if (acquiring) await this.interruptAgentInput(session);
+    }
     return this.statusFor(session);
+  }
+
+  viewerMayInput(botId: string, control?: { controlId?: string; generation?: number }): boolean {
+    const session = this.sessions.get(botId);
+    if (!session || session.destroyed || session.controlPending) return false;
+    if (session.controlSession) {
+      return session.controlSession.id === control?.controlId && session.controlSession.generation === control?.generation;
+    }
+    return !control?.controlId && humanHoldsLease(session);
   }
 
   async pauseAgent(botId: string, cwd: string, paused: boolean): Promise<ScreenStatus> {
@@ -384,13 +455,16 @@ export class ScreenBroker {
       await this.interruptAgentInput(session);
       await this.inputQueues.get(session);
       await this.browserBroker.detach(botId);
+      const browser = session.browserProcess ?? this.exitedBrowsers.get(session);
       await stopProcesses(session);
+      clearStoppedBrowserCaches(session.profileDirectory, browser);
       await removeDesktopMemory(botId);
       await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
       await rm(session.runtimeDirectory, { recursive: true, force: true });
     }
+    await this.controls.change(botId, false, undefined, undefined, true, async () => {});
     this.liveSlotByBot.delete(botId);
     if (this.slotByBot.delete(botId)) await this.persistMappings();
   }
@@ -415,10 +489,18 @@ export class ScreenBroker {
     return pending;
   }
 
+  private assertViewerControl(session: ScreenSession, control?: Partial<ComputerControl>): void {
+    if (session.controlPending) throw new Error("Computer control is changing; try again");
+    if (session.controlSession && (control?.id !== session.controlSession.id || control?.generation !== session.controlSession.generation)) {
+      throw new Error("Take control on this device before sending input");
+    }
+    if (control?.id && !session.controlSession) throw new Error("Computer control has changed; take control again");
+  }
+
   private assertAgentControl(session: ScreenSession): void {
     if (session.agentInputPaused) throw new Error("Agent graphical input is paused");
-    if (session.humanTakeoverUntil > Date.now()) {
-      throw new Error("The user currently holds the graphical input lease");
+    if (humanHoldsLease(session)) {
+      throw new Error("The user currently holds the graphical input lease. Desktop and browser input are paused until the user gives back control. Continue other work if possible; do not retry input or report a computer outage. Inspect the current screen before resuming.");
     }
   }
 
@@ -462,7 +544,7 @@ export class ScreenBroker {
     this.inputRevisions.set(session, (this.inputRevisions.get(session) ?? 0) + 1);
     const controller = this.activeAgentInput.get(session);
     if (controller) {
-      controller.abort(new Error("Agent graphical input interrupted by a control change"));
+      controller.abort(new Error("Agent graphical input interrupted by a control change: the user took control. Earlier actions may have completed; do not replay them. Wait for control to be returned before using the desktop or browser again."));
       await this.inputQueues.get(session);
     }
   }
@@ -483,11 +565,13 @@ export class ScreenBroker {
     session.state = "starting";
     session.error = null;
     this.assertNotDestroyed(session);
+    const browser = session.browserProcess ?? this.exitedBrowsers.get(session);
     const stoppedOwnedBrowser = Boolean(
       session.browserProcess && session.browserProcess.exitCode === null
     );
     await this.browserBroker.detach(session.botId);
     await stopProcesses(session);
+    clearStoppedBrowserCaches(session.profileDirectory, browser);
     await removeDesktopMemory(session.botId);
     try {
       await this.prepareAgentDirectory(session.profileDirectory, 0o770);
@@ -673,12 +757,15 @@ export class ScreenBroker {
       if (session.browserProcess && session.browserProcess.exitCode === null) {
         return session.browserProcess;
       }
+      clearStoppedBrowserCaches(session.profileDirectory, this.exitedBrowsers.get(session));
+      this.exitedBrowsers.delete(session);
       const child = this.spawnLongLived(
         "google-chrome",
         [
           "--no-sandbox",
           "--test-type",
           "--disable-dev-shm-usage",
+          "--disk-cache-size=134217728",
           "--no-first-run",
           "--disable-default-apps",
           "--password-store=basic",
@@ -697,7 +784,10 @@ export class ScreenBroker {
       );
       session.browserProcess = child;
       child.once("exit", () => {
-        if (session.browserProcess === child) session.browserProcess = null;
+        if (session.browserProcess === child) {
+          this.exitedBrowsers.set(session, child);
+          session.browserProcess = null;
+        }
         const published = this.browserBroker
           .detach(session.botId)
           .then(() => this.profileAuthority.publish(session.profileDirectory));
@@ -780,7 +870,9 @@ export class ScreenBroker {
       display: session.display,
       viewerPort: session.viewerPort,
       viewerPassword: session.viewerPassword,
-      humanTakeover: session.humanTakeoverUntil > Date.now(),
+      humanTakeover: humanHoldsLease(session),
+      controlSession: session.controlSession ?? null,
+      controlPending: session.controlPending ?? false,
       agentInputPaused: session.agentInputPaused,
       apps: ["chromium", "thunar", "terminal"],
       browserProfileScope: "computer",

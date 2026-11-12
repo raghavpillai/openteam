@@ -50,7 +50,7 @@ const bots = new Map(
       status: "active",
       dmChannelId: channel.id,
       conversationId: `conversation-${index}`,
-      title: "", description: "", instructions: "",
+      title: "", description: "",
       notificationsEnabled: true, draftingDisabled: false, draftAllowedRecipients: [],
     } as BotView,
   ])
@@ -99,7 +99,6 @@ function Fixture() {
           onSearch={noop}
           onSelect={noop}
           onNewBot={noop}
-          onNewGroup={noop}
           onOpenPlugins={noop}
           onOpenSettings={noop}
           onBotAction={noop}

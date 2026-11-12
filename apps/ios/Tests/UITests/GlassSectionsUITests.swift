@@ -24,8 +24,8 @@ import XCTest
     app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
     if let channel { app.launchArguments += ["--open-channel", channel] }
     app.launch()
-    XCTAssertTrue(
-      app.buttons[channel == nil ? "settings-button" : "chat-back"].waitForExistence(timeout: 15))
+    let arrived = channel == nil ? app.buttons["settings-button"] : app.chatBackButton
+    XCTAssertTrue(arrived.waitForExistence(timeout: 15))
     return app
   }
 
@@ -123,7 +123,7 @@ import XCTest
     capture("section-deleted-chats-kept", app)
   }
 
-  func testDetailsPushSupportsEdgeBackAndInstructionEdits() async throws {
+  func testDetailsPushSupportsEdgeBackAndDescriptionEdits() async throws {
     try await request("/__qa/scene", ["scene": "dark-chat-seven"])
     let app = launch(channel: "visual-chat")
     app.buttons["conversation-details"].tap()
@@ -142,25 +142,25 @@ import XCTest
     XCTAssertFalse(app.textFields["profile-name"].exists)
     app.buttons["conversation-details"].tap()
     XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 5))
-    let instructions = app.buttons["Instructions"]
-    for _ in 0..<4 where !instructions.isHittable { app.collectionViews.firstMatch.swipeUp() }
-    instructions.tap()
-    XCTAssertTrue(app.textViews["profile-instructions"].waitForExistence(timeout: 5))
-    app.textViews["profile-instructions"].tap()
+    XCTAssertFalse(app.textFields["profile-title"].exists)
+    let description = app.buttons["Description"]
+    for _ in 0..<4 where !description.isHittable { app.collectionViews.firstMatch.swipeUp() }
+    description.tap()
+    XCTAssertFalse(app.textViews["profile-instructions"].exists)
+    let editor = app.descendants(matching: .any).matching(identifier: "profile-description").firstMatch
+    XCTAssertTrue(editor.waitForExistence(timeout: 5))
+    editor.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
     try await Task.sleep(for: .milliseconds(500))
-    // Let each key event settle; a bulk XCTest typing burst can drop a key on
-    // this simulator while the predictive keyboard updates its suggestions.
-    for character in "Keep it concise." {
-      app.textViews["profile-instructions"].typeText(String(character))
-    }
-    XCTAssertEqual(app.textViews["profile-instructions"].value as? String, "Keep it concise.")
+    for character in "Keep it concise." { editor.typeText(String(character)) }
+    XCTAssertEqual(editor.value as? String, "Keep it concise.")
     app.navigationBars.buttons["Details"].tap()
     app.buttons["profile-save"].tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
     let state = try await request("/__qa/state", method: "GET")
     let bots = try XCTUnwrap(state["bots"] as? [[String: Any]])
-    XCTAssertEqual(bots.first?["instructions"] as? String, "Keep it concise.")
+    XCTAssertEqual(bots.first?["description"] as? String, "Keep it concise.")
+    XCTAssertNil(bots.first?["instructions"])
     let requests = state["requests"] as? [[String: Any]] ?? []
     XCTAssertFalse(requests.contains { ($0["path"] as? String ?? "").contains("/memories") })
   }

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { SmilePlus } from "lucide-react";
 import { QUICK_REACTIONS } from "@openteam/product-core/messages";
 import { Popover as PopoverPrimitive } from "radix-ui";
@@ -74,7 +75,7 @@ export function EmojiPicker({
           ) : (
             <div className="flex items-center gap-1">
               {QUICK_REACTIONS.map((emoji) => (
-                <button
+                <ButtonPrimitive
                   aria-label={`React with ${emoji}`}
                   className={cn(
                     "flex size-[30px] items-center justify-center rounded-lg text-[20px] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
@@ -88,9 +89,9 @@ export function EmojiPicker({
                   type="button"
                 >
                   {emoji}
-                </button>
+                </ButtonPrimitive>
               ))}
-              <button
+              <ButtonPrimitive
                 aria-label="Open emoji picker"
                 className="flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                 onClick={() => {
@@ -100,7 +101,7 @@ export function EmojiPicker({
                 type="button"
               >
                 <MoreEmojiIcon />
-              </button>
+              </ButtonPrimitive>
             </div>
           )}
         </PopoverPrimitive.Content>

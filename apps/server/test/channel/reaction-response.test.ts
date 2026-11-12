@@ -24,6 +24,7 @@ describe("channel reaction response", () => {
     let persistedResponse: unknown;
     let eventPayload: unknown;
     const tx = {
+      $queryRaw: async () => [{ id: messageId }],
       channelMessage: {
         findUnique: async () => stored,
         update: async ({ data }: { data: { metadata: unknown } }) => ({
@@ -32,6 +33,7 @@ describe("channel reaction response", () => {
         }),
       },
       idempotencyRecord: {
+        findUnique: async () => null,
         create: async () => ({}),
         update: async ({ data }: { data: { response: unknown } }) => {
           persistedResponse = data.response;

@@ -1,19 +1,22 @@
 import {
   appendFileSync,
+  closeSync,
+  openSync,
   chmodSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   rmSync,
   statfsSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { assertMaintenancePath } from "./disk-maintenance";
+import { join } from "node:path";
 import type { InstallationPaths } from "./config";
 import { ensureDirectory, writeFileAtomic } from "./config";
-import { MINIMUM_UPDATE_DISK_BYTES, UPDATE_BACKUPS_KEPT } from "./constants";
+import { MINIMUM_UPDATE_DISK_BYTES } from "./constants";
 import type { ComposeProject } from "./docker";
 import { dockerDaemon } from "./docker";
 import { CliError } from "./errors";
@@ -187,13 +190,20 @@ export const createDatabaseBackup = (
   fromVersion: string,
   targetVersion: string
 ): string => {
+  assertMaintenancePath(paths.directory);
+  if (!/^[0-9A-Za-z.+-]+$/.test(fromVersion) || !/^[0-9A-Za-z.+-]+$/.test(targetVersion)) {
+    throw new CliError("Invalid version in database backup filename");
+  }
+  if (existsSync(paths.backups)) assertMaintenancePath(paths.backups);
   ensureDirectory(paths.backups);
+  assertMaintenancePath(paths.backups);
   if (process.platform !== "win32") chmodSync(paths.backups, 0o700);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const destination = join(
     paths.backups,
-    `postgres-${fromVersion}-before-${targetVersion}-${timestamp}.sql`
+    `postgres-${fromVersion}-before-${targetVersion}-${timestamp}-${randomUUID()}.sql`
   );
+  closeSync(openSync(destination, "wx", 0o600));
   const result = project.run(
     [
       "exec",
@@ -217,40 +227,6 @@ export const createDatabaseBackup = (
     );
   }
   return destination;
-};
-
-const UPDATE_BACKUP = /^postgres-.+-before-.+-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.sql$/;
-
-/**
- * Delete all but the newest update backups. Rollback only reads the backup its own update made,
- * which is never deleted. Other files in the backups directory are left alone.
- */
-export const pruneUpdateBackups = (
-  paths: InstallationPaths,
-  current: string | null,
-  kept = UPDATE_BACKUPS_KEPT
-): string[] => {
-  let names: string[];
-  try {
-    names = readdirSync(paths.backups);
-  } catch {
-    return [];
-  }
-  const removed: string[] = [];
-  const older = names
-    .flatMap((name) => {
-      const match = UPDATE_BACKUP.exec(name);
-      return match ? [{ name, createdAt: match[1]! }] : [];
-    })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(kept);
-  for (const { name } of older) {
-    const file = join(paths.backups, name);
-    if (current && resolve(file) === resolve(current)) continue;
-    rmSync(file, { force: true });
-    removed.push(name);
-  }
-  return removed;
 };
 
 export const restoreDatabaseBackup = (project: ComposeProject, backupPath: string): void => {

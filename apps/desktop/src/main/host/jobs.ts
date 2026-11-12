@@ -443,7 +443,7 @@ export const executeShell = async (
       env: { ...savedEnvironment.environment, PWD: workingDirectory },
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     }) as HostChildProcess;
-    environmentCapture.closeParent();
+    child.once("close", () => environmentCapture.closeParent());
     pid = child.pid;
     const logHeader = frontmatter("running");
     const logHeaderBytes = Buffer.byteLength(logHeader);

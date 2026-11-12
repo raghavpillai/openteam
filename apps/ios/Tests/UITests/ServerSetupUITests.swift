@@ -53,7 +53,7 @@ import XCTest
     name.typeText(
       String(repeating: XCUIKeyboardKey.delete.rawValue, count: previous.count) + "QA First Bot")
     tap("wizard-continue", app)
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 20))
     XCTAssertTrue(app.staticTexts["QA First Bot"].exists)
     let state = try await request("/__qa/state")
     let bots = state["bots"] as! [[String: Any]]

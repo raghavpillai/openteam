@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { Check, CircleAlert, ExternalLink } from "lucide-react";
 import { LoadingOrb } from "../ui/loading-orb";
 import { useEffect, useState } from "react";
@@ -54,13 +55,13 @@ export function SignInProgress({ setup, controlStyles }: {
             <span className="rounded-[8px] bg-black/[0.05] px-3 py-1.5 font-mono text-[15px] font-medium tracking-wider dark:bg-white/[0.08]">
               {session.deviceCode.userCode}
             </span>
-            <button
+            <ButtonPrimitive
               className={controlStyles?.secondaryButton ?? secondaryButton}
               onClick={() => openLink(session.deviceCode!.verificationUri)}
               type="button"
             >
               Open sign-in page <ExternalLink className="size-3" />
-            </button>
+            </ButtonPrimitive>
           </div>
         </div>
       ) : !prompt ? (
@@ -76,13 +77,13 @@ export function SignInProgress({ setup, controlStyles }: {
         </div>
       ) : null}
       {session.authorizationUrl && !finished && setup.capture !== "waiting" ? (
-        <button
+        <ButtonPrimitive
           className="inline-flex items-center gap-1 text-[12px] text-foreground underline underline-offset-2"
           onClick={() => openLink(session.authorizationUrl!)}
           type="button"
         >
           Open sign-in page <ExternalLink className="size-3" />
-        </button>
+        </ButtonPrimitive>
       ) : null}
 
       {showPrompt && !finished ? (
@@ -125,28 +126,28 @@ export function SignInProgress({ setup, controlStyles }: {
               value={value}
             />
           )}
-          <button
+          <ButtonPrimitive
             className={controlStyles?.primaryButton ?? primaryButton}
             disabled={!value.trim() || setup.busy === "respond"}
             type="submit"
           >
             Continue
-          </button>
+          </ButtonPrimitive>
         </form>
       ) : null}
 
       {!finished ? (
-        <button
+        <ButtonPrimitive
           className="text-[12px] text-foreground-secondary underline-offset-2 hover:underline"
           onClick={setup.cancelSignIn}
           type="button"
         >
           Cancel
-        </button>
+        </ButtonPrimitive>
       ) : session.status !== "connected" ? (
-        <button className={controlStyles?.secondaryButton ?? secondaryButton} onClick={setup.clearSignIn} type="button">
+        <ButtonPrimitive className={controlStyles?.secondaryButton ?? secondaryButton} onClick={setup.clearSignIn} type="button">
           Try again
-        </button>
+        </ButtonPrimitive>
       ) : null}
     </div>
   );

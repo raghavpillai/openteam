@@ -52,7 +52,7 @@ The installer downloads the CLI, adds it to your `PATH`, and starts guided setup
 
 Choose how you'll connect, then create your OpenTeam username and password. Setup defaults to a
 private connection over your LAN or VPN, starts the server, and prints your **server URL**.
-Setup includes private Tailscale HTTPS, public HTTPS, and existing proxy options. Use `openteam setup --advanced` for additional server settings.
+Setup includes private Tailscale HTTPS, public HTTPS, and existing proxy options. Use `openteam setup --advanced` to also set the API port and how many tasks run at once.
 
 ### 3. Open the app
 
@@ -89,11 +89,11 @@ See [server commands](https://openteam.so/docs/manage/server), [remote access](h
 ## Documentation
 
 - [Server settings](https://openteam.so/docs/configuration/server): where to change each setting after setup.
-- [Plugins](https://openteam.so/docs/usage/plugins): connect accounts and control bot access.
+- [Plugins](https://openteam.so/docs/usage/plugins): connect Gmail, GitHub, Slack, and other services for all your bots.
 - [How hosting works](https://openteam.so/docs/overview/architecture): what runs where and what needs to stay on.
 - [Development from source](https://openteam.so/docs/development/from-source): run from source and run checks.
 
-Browse [all documentation](https://openteam.so/docs) for feature guides and implementation notes.
+Browse [all documentation](https://openteam.so/docs) for feature guides and setup details.
 
 ## License
 

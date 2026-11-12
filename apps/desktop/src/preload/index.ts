@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { parseNotificationTarget } from "../main/notifications";
+import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import type { ApplicationMenuAction } from "../main/application-menu";
 
 const appVersionArgument = process.argv.find((argument) =>
@@ -128,6 +130,20 @@ contextBridge.exposeInMainWorld("openteam", {
     return () => ipcRenderer.removeListener("openteam:app-menu", listener);
   },
   visibility: {
+    subscribeActivity: (callback: (active: boolean) => void) => {
+      let subscribed = true;
+      let receivedEvent = false;
+      const listener = (_event: Electron.IpcRendererEvent, active: unknown) => {
+        if (typeof active !== "boolean") return;
+        receivedEvent = true;
+        if (subscribed) callback(active);
+      };
+      ipcRenderer.on("openteam:window-activity-changed", listener);
+      void ipcRenderer.invoke("openteam:window-activity").then((active) => {
+        if (subscribed && !receivedEvent && typeof active === "boolean") callback(active);
+      }).catch(() => { /* Browser focus remains the fallback during shutdown. */ });
+      return () => { subscribed = false; ipcRenderer.removeListener("openteam:window-activity-changed", listener); };
+    },
     subscribe: (callback: (visible: boolean) => void) => {
       let active = true;
       let receivedEvent = false;
@@ -257,15 +273,11 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
   onNotificationClick: (
-    listener: (target: { channelId: string; threadMessageId?: string }) => void
+    listener: (target: DesktopNotificationTarget) => void
   ) => {
     const handler = (_event: Electron.IpcRendererEvent, target: unknown) => {
-      const { channelId, threadMessageId } = (target ?? {}) as Record<string, unknown>;
-      if (typeof channelId !== "string") return;
-      listener({
-        channelId,
-        ...(typeof threadMessageId === "string" ? { threadMessageId } : {}),
-      });
+      const parsed = parseNotificationTarget(target);
+      if (parsed) listener(parsed);
     };
     ipcRenderer.on("openteam:notification-click", handler);
     return () => ipcRenderer.removeListener("openteam:notification-click", handler);

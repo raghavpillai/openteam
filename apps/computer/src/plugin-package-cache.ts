@@ -6,6 +6,8 @@ import {
   safePackagePath,
   substituteConfiguration,
   validatePackageFiles,
+  PACKAGE_MAX_BYTES,
+  PACKAGE_MAX_FILES,
 } from "@openteam/plugin-sdk";
 
 /** Versioned executable assets contain package files only; connection secrets stay in memory. */
@@ -18,8 +20,11 @@ export class PluginPackageCache {
     const files = objectValue(packageFiles) as Record<string, string>;
     const binaryFiles = objectValue(packageBinaryFiles) as Record<string, string>;
     if (!Object.keys(files).length && !Object.keys(binaryFiles).length) return configuration;
-    validatePackageFiles(files);
-    validatePackageFiles(binaryFiles);
+    const bytes = validatePackageFiles(files) + validatePackageFiles(binaryFiles, "base64");
+    if (bytes > PACKAGE_MAX_BYTES || Object.keys(files).length + Object.keys(binaryFiles).length > PACKAGE_MAX_FILES)
+      throw new Error("Package exceeds its 20 MB or 1,000 file limit");
+    if (Object.keys(binaryFiles).some((path) => path in files))
+      throw new Error("Duplicate package file");
     const digest = createHash("sha256")
       .update(JSON.stringify([files, binaryFiles]))
       .digest("hex");

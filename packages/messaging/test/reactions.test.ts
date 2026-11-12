@@ -2,18 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { reactionNotificationBody, toggleMessageReaction } from "../src";
 
 describe("toggleMessageReaction", () => {
-  test("keeps different emoji from the same actor", () => {
+  test("a different emoji replaces the same actor's prior tapback", () => {
     const first = toggleMessageReaction([], "👍", "agent");
     const second = toggleMessageReaction(first.reactions, "❤️", "agent");
 
     expect(second.removed).toBe(false);
     expect(second.reactions).toEqual([
-      { by: "agent", emoji: "👍" },
       { by: "agent", emoji: "❤️" },
     ]);
   });
 
-  test("removes only the matching emoji and actor pair", () => {
+  test("repeating an actor's emoji clears their legacy selections and preserves other actors", () => {
     const current = [
       { by: "agent", emoji: "👍" },
       { by: "agent", emoji: "❤️" },
@@ -22,7 +21,6 @@ describe("toggleMessageReaction", () => {
 
     expect(toggleMessageReaction(current, "👍", "agent")).toEqual({
       reactions: [
-        { by: "agent", emoji: "❤️" },
         { by: "me", emoji: "👍" },
       ],
       removed: true,

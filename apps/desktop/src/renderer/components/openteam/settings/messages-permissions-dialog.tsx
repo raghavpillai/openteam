@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../ui/dialog";
@@ -111,7 +112,7 @@ export function MessagesPermissionsDialog({
                     Done
                   </span>
                 ) : (
-                  <button
+                  <ButtonPrimitive
                     aria-label={state === "denied" ? `Open System Settings for ${row.label}` : `Allow ${row.label}`}
                     className="inline-flex h-7 shrink-0 items-center rounded-[8px] bg-[var(--control-accent)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
                     disabled={!permissions || pending !== null}
@@ -119,7 +120,7 @@ export function MessagesPermissionsDialog({
                     type="button"
                   >
                     {state === "denied" ? "Open System Settings" : "Allow"}
-                  </button>
+                  </ButtonPrimitive>
                 )}
               </div>
             );

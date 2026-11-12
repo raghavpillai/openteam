@@ -112,9 +112,32 @@ export interface NetworkQuality extends Pick<NetworkEgress, "epoch" | "sourceId"
   downloadBytes: number;
   uploadBytes: number;
 }
+export type NetworkFamilyState = "checking" | "working" | "unavailable";
+export interface NetworkFamilyHealth {
+  state: NetworkFamilyState;
+  reason?: "connect_failed" | "tls_failed" | "path_failed";
+}
+/** Measurements belong to one exit lease, never to a saved device preference. */
+export interface NetworkConnectivity {
+  epoch: string;
+  sourceId: string;
+  checkedAt: string | null;
+  ipv4: NetworkFamilyHealth;
+  ipv6: NetworkFamilyHealth;
+}
+export function currentConnectivity(
+  connectivity: NetworkConnectivity | null | undefined,
+  epoch: string | undefined,
+  sourceId: string | null
+): NetworkConnectivity | undefined {
+  return connectivity && connectivity.epoch === epoch && connectivity.sourceId === sourceId
+    ? connectivity
+    : undefined;
+}
 export interface BrowserNetworkView {
   settings: NetworkSettings;
   runtime: {
+    connectivity?: NetworkConnectivity;
     routeEpoch?: string;
     state:
       | "server"

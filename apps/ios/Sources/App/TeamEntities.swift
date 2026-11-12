@@ -3,7 +3,8 @@ import CoreSpotlight
 import CoreTransferable
 import UniformTypeIdentifiers
 
-struct TeamBotEntity: IndexedEntity {
+struct TeamBotEntity: IndexedEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Bot"
   static let defaultQuery = TeamBotQuery()
   var id: String
@@ -26,26 +27,43 @@ struct TeamBotEntity: IndexedEntity {
   init(id: String, name: String, role: String) {
     self.id = id; self.name = name; self.role = role
   }
+  static var transferRepresentation: some TransferRepresentation {
+    DataRepresentation(exportedContentType: .plainText) { entity in try await exportText(entity) }
+  }
+  @MainActor private static func exportText(_ entity: TeamBotEntity) async throws -> Data {
+    // Resolve against the live account before exporting content to another app.
+    let client = try await SystemIntentClient.connect()
+    _ = try client.identifier(entity.id, kind: .bot)
+    let live: TeamBotEntity
+    let target = try client.destination(entity.id, kind: .bot)
+    guard let bot = target.bot else { throw APIError("This Bot is no longer available.") }
+    live = TeamBotEntity(bot, scope: client.scope)
+    try client.validateSession()
+    return Data(([live.name, live.role].filter { !$0.isEmpty }.joined(separator: ": ")).utf8)
+  }
 }
 
-struct TeamBotQuery: EntityStringQuery {
+struct TeamBotQuery: EntityStringQuery, EnumerableEntityQuery {
+  @MainActor func allEntities() async throws -> [Entity] { try await entities(matching: "") }
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamBotEntity] {
     if let cached = try SavedBotDirectory.entities(for: identifiers) { return cached }
-    let client = try await SystemIntentClient.connect()
-    return try identifiers.compactMap { value in
-      try client.destination(value, kind: .bot).bot.map { TeamBotEntity($0, scope: client.scope) }
+    let directory = try await SavedBotDirectory.liveEntities(matching: "")
+    return try identifiers.map { value in
+      guard let entity = directory.first(where: { $0.id == value }) else {
+        throw APIError("This conversation is no longer available in OpenTeam.")
+      }
+      return entity
     }
   }
   @MainActor func suggestedEntities() async throws -> [TeamBotEntity] { try await entities(matching: "") }
   @MainActor func entities(matching string: String) async throws -> [TeamBotEntity] {
-    let client = try await SystemIntentClient.connect()
-    return client.destinations.filter {
-      string.isEmpty || $0.name.localizedStandardContains(string)
-    }.compactMap { $0.bot.map { TeamBotEntity($0, scope: client.scope) } }
+    if let cached = try SavedBotDirectory.entities(matching: string) { return cached }
+    return try await SavedBotDirectory.liveEntities(matching: string)
   }
 }
 
-struct TeamConversationEntity: IndexedEntity {
+struct TeamConversationEntity: IndexedEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Conversation"
   static let defaultQuery = TeamConversationQuery()
   var id: String
@@ -60,9 +78,22 @@ struct TeamConversationEntity: IndexedEntity {
     id = SystemEntityID(scope: scope, kind: .conversation, channelID: target.id, localID: target.id).value
     name = target.name
   }
+  static var transferRepresentation: some TransferRepresentation {
+    DataRepresentation(exportedContentType: .plainText) { entity in try await exportText(entity) }
+  }
+  @MainActor private static func exportText(_ entity: TeamConversationEntity) async throws -> Data {
+    // Resolve against the live account before exporting content to another app.
+    let client = try await SystemIntentClient.connect()
+    _ = try client.identifier(entity.id, kind: .conversation)
+    let live: TeamConversationEntity
+    live = TeamConversationEntity(try client.destination(entity.id, kind: .conversation), scope: client.scope)
+    try client.validateSession()
+    return Data((live.name).utf8)
+  }
 }
 
-struct TeamConversationQuery: EntityStringQuery {
+struct TeamConversationQuery: EntityStringQuery, EnumerableEntityQuery {
+  @MainActor func allEntities() async throws -> [Entity] { try await entities(matching: "") }
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamConversationEntity] {
     let client = try await SystemIntentClient.connect()
     return try identifiers.map {
@@ -79,6 +110,7 @@ struct TeamConversationQuery: EntityStringQuery {
 }
 
 struct TeamMessageEntity: IndexedEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Message"
   static let defaultQuery = TeamMessageQuery()
   var id: String
@@ -144,7 +176,8 @@ struct TeamMessageQuery: EntityStringQuery {
   }
 }
 
-struct TeamRoutineEntity: AppEntity {
+struct TeamRoutineEntity: AppEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Routine"
   static let defaultQuery = TeamRoutineQuery()
   var id: String
@@ -156,9 +189,24 @@ struct TeamRoutineEntity: AppEntity {
   init(id: String, name: String, conversation: String) {
     self.id = id; self.name = name; self.conversation = conversation
   }
+  static var transferRepresentation: some TransferRepresentation {
+    DataRepresentation(exportedContentType: .plainText) { entity in try await exportText(entity) }
+  }
+  @MainActor private static func exportText(_ entity: TeamRoutineEntity) async throws -> Data {
+    // Resolve against the live account before exporting content to another app.
+    let client = try await SystemIntentClient.connect()
+    _ = try client.identifier(entity.id, kind: .routine)
+    let live: TeamRoutineEntity
+    let routine = try await client.routine(entity.id)
+    let target = try client.destination(entity.id, kind: .routine)
+    live = TeamRoutineEntity(id: entity.id, name: routine.name, conversation: target.name)
+    try client.validateSession()
+    return Data((live.name + " (" + live.conversation + ")").utf8)
+  }
 }
 
-struct TeamRoutineQuery: EntityStringQuery {
+struct TeamRoutineQuery: EntityStringQuery, EnumerableEntityQuery {
+  @MainActor func allEntities() async throws -> [Entity] { try await entities(matching: "") }
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamRoutineEntity] {
     let client = try await SystemIntentClient.connect()
     var results: [TeamRoutineEntity] = []
@@ -177,6 +225,7 @@ struct TeamRoutineQuery: EntityStringQuery {
 }
 
 struct TeamAttachmentEntity: AppEntity, Transferable {
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let typeDisplayRepresentation: TypeDisplayRepresentation = "Attachment"
   static let defaultQuery = TeamAttachmentQuery()
   var id: String

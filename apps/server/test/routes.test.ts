@@ -75,3 +75,19 @@ describe("shared HTTP route dispatch", () => {
     }
   });
 });
+
+test("Library routes forward the conversation and cursor without caching file metadata", async () => {
+  const route = context("GET", "/api/channels/channel-1/library?before=12.2");
+  route.path = "/api/channels/channel-1/library";
+  const calls: unknown[][] = [];
+  route.app = {
+    channelLibrary: (...args: unknown[]) => {
+      calls.push(args);
+      return Effect.succeed({ items: [], nextCursor: null });
+    },
+  } as never;
+  const response = await channelRoutes(route);
+  expect(calls).toEqual([["channel-1", "12.2"]]);
+  expect(response?.headers.get("cache-control")).toBe("no-store");
+  expect(await response?.json()).toEqual({ items: [], nextCursor: null });
+});

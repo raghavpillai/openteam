@@ -56,8 +56,8 @@ final class ActionFailureUITests: XCTestCase {
       "GET /api/v0/events/poll": ["status": 503, "count": 100],
       "GET /api/v0/channels/channel-research/history": ["status": 503, "count": 100],
     ]])
-    if app.buttons["chat-back"].exists {
-      app.buttons["chat-back"].tap()
+    if app.chatBackButton.exists {
+      app.chatBackButton.tap()
     } else {
       app.buttons["channel-channel-ops"].tap()
     }
@@ -128,8 +128,8 @@ final class ActionFailureUITests: XCTestCase {
     XCTAssertTrue(retry.exists)
     // Reopen the cached conversation to explicitly attempt a history refresh;
     // this does not depend on the simulator's background poll scheduling.
-    if app.buttons["chat-back"].exists {
-      app.buttons["chat-back"].tap()
+    if app.chatBackButton.exists {
+      app.chatBackButton.tap()
     } else {
       app.buttons["channel-channel-ops"].tap()
       XCTAssertTrue(app.buttons["chat-load-error"].waitForExistence(timeout: 10))

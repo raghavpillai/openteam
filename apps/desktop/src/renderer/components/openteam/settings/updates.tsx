@@ -1,9 +1,9 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { TriangleAlert } from "lucide-react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useState } from "react";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { ServerUpdateSettings } from "./server-update";
 import { SectionLabel, SettingsGroup, SettingsLink, SettingsRow, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
@@ -17,7 +17,7 @@ const clientUpdateFailure = (status: OpenTeamUpdateStatus): string => {
       : status.failureKind === "feed-malformed"
         ? "The update server returned an invalid release manifest."
         : status.failureKind === "feed-http-status"
-          ? "The update server refused the request."
+          ? "The update service could not complete the request."
           : status.failureKind === "service-unavailable"
             ? "The update service is currently unreachable."
             : status.failureKind === "download-failed"
@@ -25,7 +25,8 @@ const clientUpdateFailure = (status: OpenTeamUpdateStatus): string => {
               : status.failureKind === "apply-unsupported"
                 ? "The downloaded update cannot be installed on this platform."
                 : "The desktop update failed.";
-  return status.message && status.message !== summary ? `${summary} ${status.message}` : summary;
+  const message = status.message?.split(/\r?\n|\\n/, 1)[0]?.trim() || summary;
+  return message.length > 180 ? `${message.slice(0, 179).trimEnd()}…` : message;
 };
 
 export default function UpdatesSettings() {
@@ -117,15 +118,13 @@ export default function UpdatesSettings() {
           anchors={["update-status", "automatic-updates"]}
           control={
             clientNeedsUpdate ? (
-              <button
+              <ButtonPrimitive
                 className={primaryButton}
                 disabled={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
                 onClick={() => void updateClient()}
                 type="button"
+                loading={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
               >
-                {["downloading", "installing"].includes(clientUpdate?.status ?? "") ? (
-                  <LoadingOrb aria-hidden size={14} />
-                ) : null}
                 {clientUpdate?.status === "downloaded"
                   ? "Restart to update"
                   : clientUpdate?.status === "downloading"
@@ -133,17 +132,18 @@ export default function UpdatesSettings() {
                     : clientUpdate?.status === "installing"
                       ? "Restarting…"
                       : "Update desktop"}
-              </button>
+              </ButtonPrimitive>
             ) : (
-              <button
+              <ButtonPrimitive
                 className={secondaryButton}
                 disabled={clientUpdate?.status === "checking"}
                 onClick={() => void check()}
                 type="button"
+                loading={clientUpdate?.status === "checking"}
+                loadingLabel="Checking…"
               >
-                {clientUpdate?.status === "checking" ? <LoadingOrb aria-hidden size={14} /> : null}
-                {clientUpdate?.status === "checking" ? "Checking…" : "Check for Updates"}
-              </button>
+                Check for Updates
+              </ButtonPrimitive>
             )
           }
           description={
@@ -153,9 +153,13 @@ export default function UpdatesSettings() {
                 ? (clientUpdate.message ?? "You’re up to date")
                 : ["downloading", "downloaded", "installing"].includes(clientUpdate?.status ?? "")
                   ? clientUpdate?.message
-                  : clientUpdate?.status === "error"
-                    ? clientUpdateFailure(clientUpdate)
-                    : "Check for a newer desktop version."
+                  : clientUpdate?.status === "error" ? (
+                      <span className="line-clamp-2 break-words">
+                        {clientUpdateFailure(clientUpdate)}
+                      </span>
+                    ) : (
+                      "Check for a newer desktop version."
+                    )
           }
           title={`Desktop app ${clientVersion}`}
         />

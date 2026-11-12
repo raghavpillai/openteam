@@ -176,6 +176,7 @@ final class NativeNotifications {
     updatePresence()
     _ = await synchronize()
     await routePendingTap()
+    await reportForQA(nil)
   }
   func setEnabled(_ value: Bool) async {
     guard available, !changingPermission else { return }
@@ -345,6 +346,9 @@ final class NativeNotifications {
   @discardableResult func synchronize() async -> Bool {
     guard available, let api, !retiring else { return false }
     let current = epoch
+    // Saved read markers can retire a delayed alert while the network is down.
+    await removeReadNotifications()
+    guard current == epoch else { return false }
     snapshotRequest += 1
     let request = snapshotRequest
     do {
@@ -398,6 +402,7 @@ final class NativeNotifications {
     store?.noteNotified(push.channelId, sequence: push.data["messageSequence"].string)
     pendingTap = push
     await routePendingTap()
+    await reportForQA(push, stage: "routed")
   }
   func routePendingTap() async {
     guard let push = pendingTap, let store, store.phase == .ready else { return }
@@ -410,10 +415,10 @@ final class NativeNotifications {
       store.error = "This conversation is no longer available."
       return
     }
-    // A reply inside a thread opens that thread; if it can't load, open the chat.
     let thread = push.data["threadMessageId"].string
-    if !thread.isEmpty { await store.open(push.channelId, messageID: thread) }
-    if store.navigation != [push.channelId] { await store.open(push.channelId) }
+    let message = thread.isEmpty ? push.data["messageId"].string : thread
+    await store.openNotification(push.channelId, messageID: message.isEmpty ? nil : message,
+      sequence: push.data["messageSequence"].string)
   }
   nonisolated static func payload(_ userInfo: [AnyHashable: Any]) -> NativePush {
     let value =
@@ -422,7 +427,7 @@ final class NativeNotifications {
       } ?? .null
     return NativePush(value)
   }
-  private func reportForQA(_ push: NativePush?) async {
+  fileprivate func reportForQA(_ push: NativePush?, stage: String = "snapshot") async {
     #if DEBUG && targetEnvironment(simulator)
       guard ProcessInfo.processInfo.arguments.contains("--qa-native-push"), let api,
         ["127.0.0.1", "localhost"].contains(api.baseURL.host ?? "")
@@ -433,6 +438,10 @@ final class NativeNotifications {
         "/__push/observation", method: "POST",
         body: .object([
           "probe": .string(push?.data["probe"].string ?? "foreground"),
+          "stage": .string(stage),
+          "kind": .string(push?.data["kind"].string ?? ""),
+          "threadMessageId": .string(push?.data["threadMessageId"].string ?? ""),
+          "navigation": .array((store?.navigation ?? []).map { .string($0) }),
           "trigger": .string(push?.data["qaID"].string ?? ""),
           "delivered": .array(
             delivered.map { .string(Self.payload($0.request.content.userInfo).data["qaID"].string) }
@@ -440,6 +449,8 @@ final class NativeNotifications {
           "badge": .number(Double(UIApplication.shared.applicationIconBadgeNumber)),
           "permission": .number(Double(permission.rawValue)),
           "registered": .bool(registered),
+          "activeChannel": .string(store?.activeChannel ?? ""),
+          "readStates": (try? .encode(reads)) ?? .null,
         ]))
     #endif
   }
@@ -492,11 +503,21 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate,
     }
   }
   nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-  ) async {
-    guard response.actionIdentifier != UNNotificationDismissActionIdentifier else { return }
-    await NativeNotifications.shared.tapped(
-      NativeNotifications.payload(response.notification.request.content.userInfo))
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
+    let push = NativeNotifications.payload(response.notification.request.content.userInfo)
+    let action = response.actionIdentifier
+    Task { @MainActor in
+      // UIKit's notification completion updates scene snapshots and must run
+      // on the main thread, including when routing suspends for a network read.
+      defer { completionHandler() }
+      #if DEBUG && targetEnvironment(simulator)
+        Task { await NativeNotifications.shared.reportForQA(push, stage: action) }
+      #endif
+      guard action != UNNotificationDismissActionIdentifier else { return }
+      await NativeNotifications.shared.tapped(push)
+    }
   }
 }
 

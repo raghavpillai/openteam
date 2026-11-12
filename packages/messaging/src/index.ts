@@ -1,5 +1,10 @@
-export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed } from "./request-progress";
+export { lockAgentLifecycle } from "./agent-lifecycle";
+import { lockAgentLifecycle } from "./agent-lifecycle";
+export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-agent-cleanup";
+export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed, requestIsStopped } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
+import { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
+export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
 export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
 import { taskProgressContext, taskScopeContext } from "./task-progress";
@@ -102,17 +107,16 @@ export interface MessageReaction {
   emoji: string;
 }
 
-/** OpenTeam-compatible toggle semantics: each actor may hold multiple emoji. */
+/** One current tapback per actor; repeating their selected emoji clears it. */
 export const toggleMessageReaction = (
   reactions: readonly MessageReaction[],
   emoji: string,
   by: string
 ): { reactions: MessageReaction[]; removed: boolean } => {
   const removed = reactions.some((reaction) => reaction.by === by && reaction.emoji === emoji);
+  const others = reactions.filter((reaction) => reaction.by !== by);
   return {
-    reactions: removed
-      ? reactions.filter((reaction) => !(reaction.by === by && reaction.emoji === emoji))
-      : [...reactions, { by, emoji }],
+    reactions: removed ? others : [...others, { by, emoji }],
     removed,
   };
 };
@@ -888,6 +892,8 @@ export class AgentMessaging {
 
   async completeShell(input: ShellCompletionInput) {
     return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, input.scope);
+      if (input.channelId) await lockGroupExecution(tx, input.channelId);
       const clientId = `shell-completion:${input.scope}:${input.id}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clientId}))`;
       if (await tx.inboxEvent.findUnique({ where: { idempotencyKey: clientId } })) return { delivered: true, duplicate: true };
@@ -1233,7 +1239,6 @@ export class AgentMessaging {
     const profile = [
       bot.title ? `Title: ${bot.title}` : "",
       bot.description ? `Description: ${bot.description}` : "",
-      bot.instructions ? `Durable instructions are already configured.` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -2143,7 +2148,6 @@ export class AgentMessaging {
       ? (await this.prisma.routineExecution.findUnique({ where: { runId: context.scopeId }, select: { routineId: true } }))?.routineId
       : null;
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
-      agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       automations: "",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
@@ -2156,7 +2160,6 @@ export class AgentMessaging {
       renderPlatformBaseSystemPrompt({ ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
       [agentPrompt.profileSection, renderAgentProfileFiles({ agentDataRoot: this.agentData.root, botId })].join("\n"),
       USER_IDENTITY_LINE,
-      frozen.sections.agent_instructions,
       automation ? AUTOMATION_DELEGATING_SECTION : DELEGATING_SECTION,
       renderWorkerTimeSection(timeZone),
       agentPrompt.memory.policy,
@@ -2265,6 +2268,10 @@ export class AgentMessaging {
     // A refused send is an answer the model reads, not a tool failure.
     const refusal = (acknowledgement: string) => ({ acknowledgement, interruptRunId: null });
     const result = await this.prisma.$transaction(async (tx) => {
+      // Peer sends touch two owners. A fixed order prevents reciprocal sends from deadlocking
+      // and makes retirement include the accepted wake before taking its cancellation snapshot.
+      for (const id of [...new Set([context.botId, input.target_id])].sort()) await lockAgentLifecycle(tx, id);
+      await lockGroupExecution(tx, input.target_id);
       const source = await tx.bot.findUnique({
         where: { id: context.botId },
         include: { subagentIdentity: { select: { id: true } } },
@@ -2481,7 +2488,8 @@ export class AgentMessaging {
         note: `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`,
       };
     if (!context.channelId) throw new Error("No active chat for this reaction");
-    const scope = `reaction:${context.botId}`;
+    // Provider call ids are only meaningful within their run and delivery chat.
+    const scope = `reaction:${context.botId}:${context.runId}:${context.channelId}`;
     const requestHash = `${input.message_address}:${input.emoji}`;
     const receipt = await this.prisma.idempotencyRecord.findUnique({
       where: { scope_key: { scope, key: context.callId } },
@@ -2494,6 +2502,51 @@ export class AgentMessaging {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${scope}:${context.callId}`}))`;
+      const existing = await tx.idempotencyRecord.findUnique({
+        where: { scope_key: { scope, key: context.callId } },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new Error("This reaction call id was already used with different arguments");
+        if (existing.response) return existing.response as Record<string, unknown>;
+        throw new Error("This reaction call is already being applied");
+      }
+      const legacy = await tx.idempotencyRecord.findUnique({
+        where: { scope_key: { scope: `reaction:${context.botId}`, key: context.callId } },
+      });
+      if (legacy) {
+        const run = await tx.run.findFirst({
+          where: { id: context.runId, botId: context.botId, channelId: context.channelId },
+          select: { createdAt: true },
+        });
+        // A receipt predating this run cannot be its retry. For a run already in
+        // flight during upgrade, only an old notification proves receipt ownership.
+        // Legacy removals/no-ops have no such evidence: fail without toggling rather
+        // than claim another run's success or accidentally undo an applied tapback.
+        if (!run || run.createdAt <= legacy.createdAt) {
+          const response = legacy.response && typeof legacy.response === "object" && !Array.isArray(legacy.response)
+            ? legacy.response as Record<string, unknown> : null;
+          const target = response && typeof response.message_address === "string"
+            ? await resolveMessageAddress(tx, context.channelId!, response.message_address) : null;
+          const notification = target && typeof response?.emoji === "string"
+            ? await tx.channelNotification.findUnique({ where: {
+                key: `reaction:${target.id}:${context.botId}:${response.emoji}:${context.callId}`,
+              } }) : null;
+          const payload = notification?.payload && typeof notification.payload === "object" && !Array.isArray(notification.payload)
+            ? notification.payload as Record<string, unknown> : null;
+          if (!run || !response || !notification || notification.channelId !== context.channelId ||
+              payload?.runId !== context.runId || payload.channelId !== context.channelId ||
+              payload.botId !== context.botId || payload.messageId !== target?.id) {
+            throw new Error("Cannot safely match an old reaction receipt to this run. Check the message's current reactions before retrying; this attempt changed nothing.");
+          }
+          if (legacy.requestHash !== requestHash) throw new Error("This reaction call id was already used with different arguments");
+          await tx.idempotencyRecord.create({ data: {
+            scope, key: context.callId, requestHash, status: "completed", response: json(response),
+            expiresAt: legacy.expiresAt,
+          } });
+          return response;
+        }
+      }
       await tx.idempotencyRecord.create({
         data: {
           scope,
@@ -2503,8 +2556,10 @@ export class AgentMessaging {
         },
       });
       const addressed = await resolveMessageAddress(tx, context.channelId!, input.message_address);
+      if (addressed?.sender === "user")
+        await tx.$queryRaw`SELECT id FROM "ChannelMessage" WHERE id = ${addressed.id}::uuid FOR UPDATE`;
       const message = addressed?.sender === "user" ? await tx.channelMessage.findFirst({
-        where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
+        where:{id:addressed.id,channel:{archivedAt:null,members:{some:{botId:context.botId}}}},
         include:{channel:{include:{members:{select:{botId:true}}}}}
       }) : null;
       if (!message) {
@@ -2540,14 +2595,18 @@ export class AgentMessaging {
         where: { id: message.id },
         data: { metadata: json(metadata) },
       });
-      const notificationKey = `reaction:${message.id}:${context.botId}:${input.emoji}`;
-      if (removed) {
-        await tx.channelNotification.updateMany({ where: { key: { startsWith: `${notificationKey}:` } }, data: { revoked: true } });
-      } else {
+      // Replacement retires every older alert from this bot, including legacy
+      // multiple-emoji state. Other reactors' pills and alerts remain independent.
+      const notificationPrefix = `reaction:${message.id}:${context.botId}:`;
+      await tx.channelNotification.updateMany({
+        where: { key: { startsWith: notificationPrefix }, revoked: false }, data: { revoked: true },
+      });
+      if (!removed) {
         const bot = await tx.bot.findUniqueOrThrow({ where: { id: context.botId } });
-        await publishChannelNotification(tx, `${notificationKey}:${context.callId}`, {
+        await publishChannelNotification(tx, `${notificationPrefix}${input.emoji}:${context.runId}:${context.callId}`, {
           schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
           runId: context.runId, messageSequence: message.sequence.toString(),
+          messageId: message.id,
           title: bot.name, body: reactionNotificationBody(input.emoji, message.content),
         });
       }
@@ -2589,12 +2648,14 @@ export class AgentMessaging {
     let content = standalone?.fileName ?? this.visibleContent(input);
     let groupRoundId: string | null = null;
     const result = await this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, context.botId);
+      await assertBackgroundRequestDeliveryAllowed(tx, context);
       if (target?.kind === "group") await lockGroupExecution(tx, context.channelId);
       const activeChannel = await tx.channel.findFirst({
         where: {
           id: context.channelId,
           archivedAt: null,
-          members: { some: { botId: context.botId } },
+          members: { some: { botId: context.botId, bot: { status: "active" } } },
         },
         include: { members: { orderBy: { ordinal: "asc" } } },
       });

@@ -1,4 +1,6 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { useDayClock } from "../../hooks/use-day-clock";
+import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
 import { EXECUTING_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
@@ -80,6 +82,7 @@ import {
   turnInterruptedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
+import { botMessageColorStyle, readBotMessageColors, subscribeBotMessageColors } from "../../lib/message-colors";
 import {
   desktopDurableSendController,
   discardDesktopDeliveryStages,
@@ -97,7 +100,6 @@ import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
-  ConversationTopDivider,
   ConversationViewportAnchor,
   glideConversationToBottom,
 } from "../ai-elements/conversation";
@@ -162,7 +164,6 @@ interface ChatPaneProps {
   mutate: Mutate;
   threadContextMessageIds?: ReadonlySet<string>;
   searchContextMessageIds?: ReadonlySet<string>;
-  activityTruncated?: boolean;
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
   historyGeneration?: number;
@@ -215,7 +216,6 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.mutate === next.mutate &&
   previous.threadContextMessageIds === next.threadContextMessageIds &&
   previous.searchContextMessageIds === next.searchContextMessageIds &&
-  previous.activityTruncated === next.activityTruncated &&
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
   previous.historyGeneration === next.historyGeneration &&
@@ -331,6 +331,7 @@ const messageImages = (message: ChannelMessageView) =>
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
+      fileName: attachment.fileName,
       alt: attachment.alt ?? attachment.fileName,
       width: attachment.width,
       height: attachment.height,
@@ -426,6 +427,7 @@ const MessageRow = memo(function MessageRow({
     ...messageImages(message),
     ...stagedImageAttachments.map((attachment) => ({
       url: attachment.previewUri as string,
+      fileName: attachment.fileName,
       alt: attachment.alt ?? attachment.fileName,
       ...(attachment.width && attachment.height
         ? { width: attachment.width, height: attachment.height }
@@ -484,7 +486,7 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         <span>{routineChangedActionLabel(routineEvent.action)}</span>
-        <button
+        <ButtonPrimitive
           aria-label={`Open routine ${routineEvent.automationName}`}
           className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full px-1.5 outline-none transition-colors hover:bg-[#f1f1f1] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-[#252525]"
           data-routine-event-link=""
@@ -494,7 +496,7 @@ const MessageRow = memo(function MessageRow({
         >
           <Clock3 className="size-3 shrink-0" strokeWidth={1.7} />
           <span className="max-w-[240px] truncate">{routineEvent.automationName}</span>
-        </button>
+        </ButtonPrimitive>
       </div>
     );
   }
@@ -510,14 +512,14 @@ const MessageRow = memo(function MessageRow({
         onSelect={(emoji) => onReact(message, emoji)}
         selectedEmojis={userReactionSet}
       >
-        <button
+        <ButtonPrimitive
           aria-label="React to message"
           className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
           disabled={!canInteract}
           type="button"
         >
           <Smile className="size-[15px]" />
-        </button>
+        </ButtonPrimitive>
       </EmojiPicker>
       <MessageAction
         className="size-6 shrink-0 rounded-full transition-colors duration-[120ms]"
@@ -529,13 +531,13 @@ const MessageRow = memo(function MessageRow({
       </MessageAction>
       {channel.kind !== "group" && <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <ButtonPrimitive
             aria-label="More message actions"
             className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
             type="button"
           >
             <Ellipsis className="size-[15px]" />
-          </button>
+          </ButtonPrimitive>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align={from === "user" ? "end" : "start"}
@@ -599,7 +601,7 @@ const MessageRow = memo(function MessageRow({
             )}
           {replyPreview && (
             <div
-              className={`flex max-w-[min(88%,640px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
+              className={`flex max-w-[min(80%,560px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
                 from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
             >
@@ -629,7 +631,9 @@ const MessageRow = memo(function MessageRow({
                   ? "max-w-[min(100%,560px,calc(100%-82px))]"
                   : display.richMessage && !isWidget
                   ? "max-w-[min(88%,520px,calc(100%-82px))]"
-                  : "max-w-[min(88%,640px,calc(100%-82px))]"
+                  : from === "user"
+                  ? "max-w-[min(80%,560px,calc(100%-82px))]"
+                  : "max-w-[min(100%,560px,calc(100%-82px))]"
               )}>
                 {display.richMessage ? (
                   <RichMessage bot={senderBot} message={message} />
@@ -695,7 +699,7 @@ const MessageRow = memo(function MessageRow({
               {reactionPills.map(({ emoji, count }) => {
                 const selected = userReactionSet.has(emoji);
                 return (
-                  <button
+                  <ButtonPrimitive
                     aria-label={`${selected ? "Remove" : "Add"} ${emoji} reaction`}
                     aria-pressed={selected}
                     className={`inline-flex h-[22px] origin-center items-center gap-[3px] rounded-full border-0 py-0 pl-[7px] pr-2 text-xs leading-4 tabular-nums text-[#666] shadow-[0_0_0_2px_#fcfcfc] transition-[transform,background-color] duration-[120ms] active:scale-95 disabled:cursor-default dark:text-[rgba(240,240,240,0.74)] dark:shadow-[0_0_0_2px_#070707] ${
@@ -717,13 +721,13 @@ const MessageRow = memo(function MessageRow({
                       {emoji}
                     </span>
                     {count > 1 && <span>{count}</span>}
-                  </button>
+                  </ButtonPrimitive>
                 );
               })}
             </div>
           )}
           {threadReplyCount > 0 && (
-            <button
+            <ButtonPrimitive
               className={`mt-0.5 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground ${
                 from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
@@ -733,7 +737,7 @@ const MessageRow = memo(function MessageRow({
             >
               <MessageCircle className="size-3.5" />
               {threadReplyCount} {threadReplyCount === 1 ? "reply" : "replies"}
-            </button>
+            </ButtonPrimitive>
           )}
           {from === "user" && <DeliveryFooter
             delivery={delivery}
@@ -749,7 +753,7 @@ const MessageRow = memo(function MessageRow({
           <>
             <div className="flex items-center gap-0.5 px-1 py-0.5">
               {QUICK_REACTIONS.map((emoji) => (
-                <button
+                <ButtonPrimitive
                   aria-label={`React with ${emoji}`}
                   className={`flex size-[30px] items-center justify-center rounded-lg text-[20px] hover:bg-accent ${
                     userReactionSet.has(emoji) ? "bg-accent ring-1 ring-input" : ""
@@ -761,7 +765,7 @@ const MessageRow = memo(function MessageRow({
                   type="button"
                 >
                   {emoji}
-                </button>
+                </ButtonPrimitive>
               ))}
               <ContextMenuSub>
                 <ContextMenuSubTrigger
@@ -886,7 +890,7 @@ const A2AActivityRow = memo(function A2AActivityRow({
           : `${count} ${count === 1 ? "message" : "messages"} with`}
       </span>
       {onOpen ? (
-        <button
+        <ButtonPrimitive
           aria-label={`Open A2A exchange with ${name}`}
           className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5 text-inherit transition-colors hover:bg-[#efefef] focus-visible:bg-[#efefef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:bg-[#1b1b1b] dark:focus-visible:bg-[#1b1b1b]"
           data-a2a-peer-pill=""
@@ -894,7 +898,7 @@ const A2AActivityRow = memo(function A2AActivityRow({
           type="button"
         >
           {peerContent}
-        </button>
+        </ButtonPrimitive>
       ) : (
         <span
           className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5"
@@ -926,7 +930,6 @@ export const ChatPane = memo(function ChatPane({
   mutate,
   threadContextMessageIds,
   searchContextMessageIds,
-  activityTruncated = false,
   threadContextTruncated = false,
   focusMessage,
   historyGeneration = 0,
@@ -1095,16 +1098,18 @@ export const ChatPane = memo(function ChatPane({
     }
     return null;
   }, [focusMessage, messagesById, threads]);
-  const openedThreadFocus = useRef<number | null>(null);
-  useEffect(() => {
+  const openedThreadFocus = useRef<{ messageId: string; nonce: number } | null>(null);
+  useLayoutEffect(() => {
     const nonce = focusMessage?.nonce;
     // Open once per focus request (search result or alert click): a thread the
     // user closed must stay closed when later messages arrive.
-    if (!focusedThreadRootId || nonce === undefined || openedThreadFocus.current === nonce) return;
+    if (!focusedThreadRootId || nonce === undefined || !focusMessage) return;
+    if (openedThreadFocus.current?.nonce === nonce &&
+      openedThreadFocus.current.messageId === focusMessage.messageId) return;
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
     const root = messagesById.get(focusedThreadRootId);
     if (!root) return;
-    openedThreadFocus.current = nonce;
+    openedThreadFocus.current = { messageId: focusMessage.messageId, nonce };
     setThreadState({
       open: true,
       pin: mergeThreadTrayPin({
@@ -1235,7 +1240,8 @@ export const ChatPane = memo(function ChatPane({
     },
     [onReactMessage]
   );
-  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId);
+  const useBotColors = useSyncExternalStore(subscribeBotMessageColors, readBotMessageColors);
+  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId, active);
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const bots =
       channel.kind === "group"
@@ -1452,7 +1458,7 @@ export const ChatPane = memo(function ChatPane({
       ? null
       : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
   }, [focusMessage, messagesById, renderedTimeline]);
-  return (
+  const content = (
     <div
       className={cn(
         "relative flex size-full min-h-0 flex-col bg-background",
@@ -1460,11 +1466,11 @@ export const ChatPane = memo(function ChatPane({
           "chat-composer-overlap"
       )}
       data-chat-drop-target=""
+      style={botMessageColorStyle(useBotColors, channel.kind === "bot_dm" ? selectedBot?.color : undefined, selectedBot?.hasAvatar)}
       ref={fileDropTargetRef}
     >
       {active && (
         <Conversation contextRef={conversationRef}>
-          <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
             initialContentPending={initialHistoryPending}
@@ -1473,14 +1479,6 @@ export const ChatPane = memo(function ChatPane({
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
           >
-            {activityTruncated && (
-              <div
-                className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
-                role="status"
-              >
-                Older run details are summarized; active runs remain visible.
-              </div>
-            )}
             {threadContextTruncated && (
               <div
                 className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
@@ -1777,4 +1775,5 @@ export const ChatPane = memo(function ChatPane({
       )}
     </div>
   );
+  return <ResourceActivityProvider active={active}>{content}</ResourceActivityProvider>;
 }, chatPanePropsEqual);

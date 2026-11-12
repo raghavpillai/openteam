@@ -230,7 +230,6 @@ model Bot {
   name             String
   title            String       @default("")
   description      String       @default("")
-  instructions     String       @default("")
   templateRecipe   Json?
   icon             String       @default("●")
   color            String       @default("#4f7cff")
@@ -904,6 +903,17 @@ model RunItem {
   @@index([runId, createdAt])
 }
 
+
+// Durable roster tombstones are independent of the bounded client event replay log.
+model RetiredAgent {
+  id        String   @id @db.Uuid
+  retiredAt DateTime @default(now())
+  cleanupPending Boolean @default(true)
+  cleanupRunIds String[] @default([]) @db.Uuid
+  nextCleanupAt DateTime @default(now())
+
+  @@index([cleanupPending, nextCleanupAt])
+}
 
 model Event {
   sequence      BigInt   @id @default(autoincrement())

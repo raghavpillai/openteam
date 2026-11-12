@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.composerBottomSafeArea) private var bottomSafeArea
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.botVoicePresentation) private var botVoicePresentation
   @VoiceMotionPreference private var reduceMotion
@@ -19,8 +20,6 @@ struct ComposerView: View {
   var dismissFocusRequest: UUID? = nil
   private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
-  @State private var photos: [PhotosPickerItem] = []
-  @State private var photoLibrary = false
   @State private var files = false
   @State private var uploading = false
   /// The message capsule in window coordinates, where the tray settles after adding.
@@ -33,7 +32,9 @@ struct ComposerView: View {
   /// The idle pill's height, where the gooey merge starts from.
   @State private var pillHeight: CGFloat = 44
   @State private var pluginMentions: [JSON] = []
+  @State private var resumeEditingAfterVoice = false
   @FocusState private var focused: Bool
+  @State private var keyboardPresented = false
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int {
     draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.count
@@ -59,7 +60,9 @@ struct ComposerView: View {
     VStack(spacing: 0) {
       messageControls
     }.padding(.horizontal, 30).padding(.top, 4)
-      .padding(.bottom, 4)
+      // Native keyboard avoidance retains its existing clearance. At rest, the
+      // floating inset plus this correction leaves 18pt to the physical bottom.
+      .padding(.bottom, keyboardPresented ? 4 : 18 - bottomSafeArea)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
         GeometryReader { composer in
@@ -88,6 +91,12 @@ struct ComposerView: View {
         }
         #endif
       }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+        if focused { keyboardPresented = true }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+        keyboardPresented = false
+      }
       .task(id: channel.id) {
         if let botID = store.bot(for: channel)?.id ?? channel.members.first?.botId {
           do {
@@ -103,10 +112,6 @@ struct ComposerView: View {
         if focusOnAppear && !hasAppeared { focused = true }
         hasAppeared = true
       }.frame(width: 0, height: 0))
-      .photosPicker(
-        isPresented: $photoLibrary, selection: $photos,
-        maxSelectionCount: max(1, Draft.maxAttachments - attachmentCount), matching: .images
-      )
       .fileImporter(
         isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true
       ) { result in
@@ -141,25 +146,6 @@ struct ComposerView: View {
           store.handle(error)
         }
       }
-      .onChange(of: photos) { _, items in
-        Task {
-          for item in items.prefix(max(0, Draft.maxAttachments - attachmentCount)) {
-            do {
-              if let data = try await item.loadTransferable(type: Data.self) {
-                let type = item.supportedContentTypes.first ?? .jpeg
-                try await upload(
-                  data, name: "Photo.\(type.preferredFilenameExtension ?? "jpg")",
-                  mime: type.preferredMIMEType ?? "image/jpeg")
-              }
-            } catch {
-              NativeHaptics.failure(error, source: "composer.error")
-              store.handle(error)
-              break
-            }
-          }
-          photos = []
-        }
-      }
       .fullScreenCover(item: $viewing, onDismiss: { focused = true }) { gallery in
         ComposerGalleryView(gallery: gallery) { focused = true }
       }
@@ -171,8 +157,16 @@ struct ComposerView: View {
       .onChange(of: isEnabled) { _, enabled in if enabled { startRequestedRecording() } }
       // Recording frees the keyboard (the glow sits at the bottom of the screen) and the
       // hidden draft must not take typing.
-      .onChange(of: memo.phase) { _, phase in
+      .onChange(of: memo.phase) { previous, phase in
+        if previous == .idle, phase == .pressing || phase == .locked {
+          resumeEditingAfterVoice = resumeEditingAfterVoice || focused
+        }
         if phase == .holding || phase == .locked || phase == .review { focused = false }
+        if phase == .idle {
+          let resume = resumeEditingAfterVoice
+          resumeEditingAfterVoice = false
+          if resume, visible, scenePhase == .active { focused = true }
+        }
       }
       .task(id: key) {
         configureVoice()
@@ -295,8 +289,8 @@ struct ComposerView: View {
           }.overlay(alignment: .leading) { focusPadding.frame(width: 16) }
         }
         .overlay(alignment: .bottomTrailing) {
-          // The visible pill is 36 × 28; its separate 44-point hit area keeps
-          // sending/recording reachable without changing the reference inset.
+          // Artwork keeps the original inset. The separate microphone overlay
+          // owns a larger invisible target, including the surrounding padding.
           trailingAction.padding(.trailing, 5)
             .animation(contentAnimation, value: hasContent)
         }
@@ -318,7 +312,10 @@ struct ComposerView: View {
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }
       }
-      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { composerFrame = $0 }
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+        composerFrame = $0
+        AttachmentTray.shared.layoutChanged()
+      }
       .clipShape(VoiceComposerShape(progress: bar ? 1 : 0, pillHeight: Double(pillHeight), contentInset: 54))
       .frame(height: bar ? VoiceBar.height : nil, alignment: .bottom)
       .foregroundStyle(NativePalette.text)
@@ -439,8 +436,10 @@ struct ComposerView: View {
     }
     // Otherwise the mic: VoiceKnob, overlaid at this spot, owns the hold-to-record gesture.
   }
-  /// The + menu path (there is a draft): straight to the hands-free bar.
+  /// Start hands-free recording when opening a Bot from a recording shortcut.
   func startLockedRecording() {
+    guard memo.phase == .idle else { return }
+    resumeEditingAfterVoice = focused
     focused = false
     memo.startLocked()
   }
@@ -494,8 +493,6 @@ struct ComposerView: View {
     let remaining = max(0, Draft.maxAttachments - attachmentCount)
     return AttachmentTrayActions(
       remaining: remaining,
-      voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
-        ? { startLockedRecording() } : nil,
       photos: { results in addPhotos(results) },
       camera: { data in
         focused = true
@@ -507,8 +504,8 @@ struct ComposerView: View {
         }
       },
       files: { files = true },
-      allPhotos: { photoLibrary = true },
-      composerFrame: { composerFrame == .zero ? nil : composerFrame })
+      composerFrame: { composerFrame == .zero ? nil : composerFrame },
+      contentLeading: { columnLeading })
   }
   private func addPhotos(_ results: [PHPickerResult]) {
     focused = true
@@ -594,11 +591,12 @@ private struct AttachmentTrayButton: UIViewRepresentable {
   func updateUIView(_ button: UIButton, context: Context) {
     button.isEnabled = enabled && environmentEnabled
     context.coordinator.actions = actions
+    AttachmentTray.shared.update(from: button, actions: actions())
   }
   static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { AttachmentTray.shared.close() }
   @MainActor final class Coordinator {
     var actions: () -> AttachmentTrayActions = {
-      AttachmentTrayActions(remaining: 0, photos: { _ in }, camera: { _ in }, files: {}, allPhotos: {},
+      AttachmentTrayActions(remaining: 0, photos: { _ in }, camera: { _ in }, files: {},
         composerFrame: { nil })
     }
   }

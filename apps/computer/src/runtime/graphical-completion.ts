@@ -3,7 +3,7 @@ import type { BotMessage } from "../bot-compaction";
 import { textFromContent } from "./content";
 
 export const COMPUTER_USE_MAX_CONSECUTIVE_TOOL_FAILURES = 20;
-const REFUSED_OR_CANCELLED = /The turn has ended|Operation aborted|operation was aborted|AbortError/;
+const REFUSED_OR_CANCELLED = /The turn has ended|Operation aborted|operation was aborted|AbortError|The user currently holds the graphical input lease|Agent graphical input interrupted by a control change|Graphical control changed|Agent graphical input is paused/;
 
 /** Refused and cancelled calls don't count; any success resets the streak. */
 export function observeGraphicalToolResult(active: ActiveTurn, failed: boolean, text: string): void {

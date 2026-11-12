@@ -198,7 +198,7 @@ export const collectStatus = async (
     }
   } else if (report.health.inference !== "ready") {
     report.nextDetail =
-      "Containers and server are ready. Connect a model in the OpenTeam app under Settings → Server before starting AI tasks. On a server without the app, run:";
+      "Containers and server are ready. Connect a model in the OpenTeam app under Settings → Model before starting AI tasks. On a server without the app, run:";
     report.next = command("model");
   } else {
     report.nextDetail = "For deeper database, queue, storage, and model checks:";

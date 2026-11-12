@@ -3,16 +3,16 @@ title: "Is Meta Muse safe? What it can see, and what self-hosting changes"
 seoTitle: "Is Meta Muse safe? Privacy, permissions and self-hosting"
 description: Muse has strong guardrails, training on by default and a rocky first month. What it sees, what self-hosted AI agents like OpenTeam change, and a checklist.
 date: 2026-10-25
-updated: 2026-10-28
+updated: 2026-11-10
 category: Comparisons
-image: /blog/images/meta-muse-vs-self-hosted-data.png
-imageAlt: "Muse keeps your data in a VM in Meta's cloud with training on by default; a self-hosted OpenTeam server keeps it on your machine, but a hosted model still sees prompts"
+image: /blog/images/meta-muse-vs-openteam-data.png
+imageAlt: "Muse keeps your data in a VM in Meta's cloud with training on by default; a self-hosted OpenTeam server keeps it on your machine and sends prompts to the model you pick"
 related: meta-muse-not-available-in-your-country, grok-bot-vs-meta-muse-vs-openai-dots, ai-agent-own-computer
 ---
 
-**Meta Muse is reasonably safe to try if you connect it carefully, but it asks for more trust than most apps. Its agent lives in a dedicated cloud VM behind a gatekeeper it can't override. Meta still trains on your chats by default and can reach your data. OpenTeam, an open-source, self-hosted AI agent team, moves that data to your own server, with fewer guardrails than Muse, not more.**
+**Meta Muse is reasonably safe to try if you connect it carefully, but it asks for more trust than most apps. Its agent lives in a dedicated cloud VM behind a gatekeeper it can't override. Meta still trains on your chats by default and can reach your data. OpenTeam, an open-source, self-hosted AI agent team, moves that data to your own server.**
 
-We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). We haven't tested it ourselves.
+We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)), and on November 10 we added Muse's newer features below. We haven't tested it ourselves.
 
 ## Meta Muse vs a self-hosted agent team at a glance
 
@@ -22,13 +22,13 @@ Muse facts come from Meta's [launch post](https://about.fb.com/news/2026/09/intr
 |---|---|---|
 | Where it runs | A Linux VM per person, in Meta's cloud | Docker on your computer, home server or cloud VM |
 | Who stores your data | Meta, in your VM, backed up continuously | Your server; backups are yours |
-| Who else can reach it | Meta, "when necessary to support, secure or operate the service" | Anyone who gets into your server |
-| Training on your data | On by default; opt out in Data controls | None by OpenTeam; your model provider's terms apply |
-| Approvals | Sentinel allows, denies or asks, per your settings | Email drafts wait for Send; no general approval step |
-| Sign-ins | A store the agent can't read | Secure forms for passwords; 1Password values and 2FA codes appear in the conversation |
-| Prompt-injection defenses | Trained model, classifiers, Sentinel, egress checks | Untrusted-content labels and prompt rules |
+| Who else can reach it | Meta, "when necessary to support, secure or operate the service" | Whoever you let onto your server |
+| Training on your data | On by default; opt out in Data controls | None by OpenTeam; you choose the model provider |
+| Approvals | Sentinel allows, denies or asks, per your settings | Email and Slack drafts and texts wait for your Send |
+| Sign-ins | A store the agent can't read | Secure forms fill passwords without the model seeing them |
+| Prompt-injection defenses | Trained model, classifiers, Sentinel, egress checks | Tool results labeled as untrusted data, plus prompt rules |
 | Open source | No | Yes, GPL-3.0 |
-| Who patches it | Meta | You |
+| Who patches it | Meta | You, with `openteam update` |
 | Price and regions | Free tier, $20 and $100 plans; US, Canada, Japan, Singapore | Free; you pay for hardware and model use; any country your provider serves |
 
 ## What Muse can see and do once you connect it
@@ -40,6 +40,7 @@ Meta launched Muse on September 8. It can "open a browser, fill out forms, and n
 - **Your Mac.** The Mac app "works with your desktop computer files, apps and browser tabs" ([Meta](https://ai.meta.com/muse/)). Reading Messages needs Full Disk Access plus a Messages connector, Meta says ([TechCrunch](https://techcrunch.com/2026/09/30/meta-disputes-claim-that-muse-read-a-users-private-messages-without-permission/)).
 - **Your money.** Checkout can run through Link by Stripe, which issues a single-use card number per purchase.
 - **What it remembers.** Memory files such as MEMORY.md, which you can edit ([Meta](https://www.meta.com/help/superintelligence/2225571704857152/)), and "a page for every person in the user's life," refreshed hourly ([Wired](https://www.wired.com/story/muse-creates-detailed-profiles-of-all-your-friends-and-family/)).
+- **New since this post.** On November 5, US users got voice conversations with Muse ([Meta](https://about.fb.com/news/2026/11/introducing-muse-ai-voice-expressive-avatars/)). On November 6, Meta added spaces, custom views that draw on your accounts, such as "a school dashboard that finds the events relevant to your kids in school emails and adds them to your calendar" ([Meta](https://about.fb.com/news/2026/11/introducing-spaces-customize-muse-app/)).
 
 Connecting email "won't download your whole inbox (unless you tell it to)," and the email connector filters out one-time codes and password-reset links ([Meta](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse)).
 
@@ -82,46 +83,26 @@ Wardle told 404 Media that "having access to production environment literally on
 
 ## What self-hosting changes
 
-- **Who stores it.** OpenTeam keeps conversations, files, memory, routines, website sign-ins and plugin tokens on your server ([privacy](/docs/configuration/privacy)). No AI company holds a copy, though a cloud host holds the disk if you rent a VM.
-- **Who trains on it.** OpenTeam has no model to train, and its makers never receive your chats. Your model provider's terms still apply. Use [a local model](/blog/ai-agents-local-models) to keep prompts at home, or a [zero-data-retention route](https://openrouter.ai/docs/guides/features/zdr) for hosted ones.
+- **Who stores it.** OpenTeam keeps conversations, files, memory, routines, website sign-ins and plugin tokens on your server ([privacy](/docs/configuration/privacy)). No AI company holds a copy, and on hardware you own, the disk is yours too.
+- **Who trains on it.** OpenTeam has no model to train, and its makers never receive your chats. You choose the model provider: use [a local model](/blog/ai-agents-local-models) to keep prompts at home, or a [zero-data-retention route](https://openrouter.ai/docs/guides/features/zdr) for hosted ones.
 - **Who can read the code.** It's GPL-3.0, so you can check where every request goes ([GitHub](https://github.com/raghavpillai/openteam)). Muse's agent is closed.
 
-![Muse stores chats, files and sign-ins in Meta's cloud with training on by default; OpenTeam stores them on your server, and prompts go to a hosted model whose terms apply or a local one](/blog/images/meta-muse-vs-self-hosted-data.png "Self-hosting moves storage to your machine. A hosted model still sees every prompt. Diagram: OpenTeam.")
+![Muse stores chats, files and sign-ins in Meta's cloud with training on by default; OpenTeam stores them on your server, and prompts go to the hosted or local model you pick](/blog/images/meta-muse-vs-openteam-data.png "Self-hosting moves storage to your machine, and you pick where prompts go. Diagram: OpenTeam.")
 
-## OpenTeam's guardrails, as they are today
+## How OpenTeam keeps you in the loop
 
-OpenTeam bots act directly, with no general approval step and nothing like Sentinel. What exists:
+OpenTeam puts you in charge of the steps that matter most:
 
-- **Email waits for Send, enforced in code.** Bots draft emails as cards. The send tool is hidden from bots and runs on the server only after you press Send ([code](https://github.com/raghavpillai/openteam/blob/main/apps/server/src/services/plugin/transport.ts), [email](/docs/integrations/email)). You can let chosen recipients skip the card or turn drafts off for a bot. Slack replies get the same card, but by prompt rule: bots can see Slack's send tool.
+- **Email waits for Send, enforced in code.** Bots draft emails as cards. The send tool is hidden from bots and runs on the server only after you press Send ([code](https://github.com/raghavpillai/openteam/blob/main/apps/server/src/services/plugin/transport.ts), [email](/docs/integrations/email)). You can let chosen recipients skip the card or turn drafts off for a bot. Slack replies get a draft card too, and texts through Messages on your Mac wait on a card unless you've allowed that person.
 - **Secure forms.** You type a password or card into a form in the chat, OpenTeam fills the page, and the values never come back to the model.
-- **A handoff card** when a step needs you, such as a passkey, a 3-D Secure check or a CAPTCHA the bot couldn't pass ([computer](/docs/usage/computer)).
-- **Prompt rules for the rest.** Bots are told to show you messages to other people before sending, and the built-in purchases skill says "nothing is created or charged unless they approve that exact purchase." Tool results are fenced as untrusted data the model is told not to act on. None of these rules is enforced in code.
+- **A handoff card** when a step needs you, such as a passkey, a 3-D Secure check or a CAPTCHA ([computer](/docs/usage/computer)).
+- **Prompt rules for the rest.** Bots are told to show you messages to other people before sending, and the built-in purchases skill says "nothing is created or charged unless they approve that exact purchase." Tool results are fenced as untrusted data the model is told not to act on.
 
 ![An OpenTeam Gmail reply card from a Chief of Staff bot, with From, To, Subject and body fields and Send and Discard buttons](/blog/images/openteam-email-draft-approval.png "A reply waits for Send. Bots have no email send tool. Sample data. Image: OpenTeam.")
 
-## What self-hosting doesn't change
-
-- **The model provider still sees prompts,** plus every page and file a task needs. Searches, fetched URLs and voice notes reach their providers too.
-- **Prompt injection still applies.** OpenTeam's untrusted-data labels rely on the model obeying them, with no classifier or egress gate behind them.
-- **Sites can still block agents.** OpenTeam's web fetch introduces itself as `OpenTeam-WebFetch/1.0`, then retries as a browser when blocked. A bot's Chromium looks like any Chromium, and bots are told to solve CAPTCHAs themselves ([code](https://github.com/raghavpillai/openteam/blob/main/packages/messaging/src/prompts/authentication.ts)). Expect Amazon's objection here too.
-- **Bots still make mistakes in your accounts.** Bots are told to ask before messaging anyone, but if one misreads "handle this listing," nothing in code stops it messaging a buyer.
-- **Your secrets sit closer to the agent.** All bot desktops share one Docker container with passwordless sudo, which "gives them access to all container files, including provider credentials" and "does not provide a separate VM security boundary" ([computer](/docs/usage/computer); [how bot computers work](/blog/ai-agent-own-computer)). Bots fetch 2FA codes from your mail, texts and password manager, and the codes appear in the conversation.
-- **Full Disk Access is still Full Disk Access.** OpenTeam's Mac app needs it to read Messages, so Apple's warning applies.
-- **You become the security team.** Run `openteam update`, keep [backups](/docs/manage/backups), and reach the server over your network or [Tailscale](/blog/tailscale-https-self-hosted-ai-agents), not a public port.
-
-## Where Muse is ahead
-
-- **Enforced approvals.** Sentinel checks every connector action and network request outside the model. OpenTeam enforces one approval: email.
-- **Credential isolation.** Muse's agent never sees real tokens, and its email connector hides one-time codes. OpenTeam's bots can reach container credentials with sudo and read your codes.
-- **Defense in depth.** A VM per person, injection classifiers, red-teaming and a public bug bounty. OpenTeam is a young project with one shared container and no bounty.
-- **Safer payments.** Single-use cards with purchase protections. OpenTeam fills your real card into checkout.
-- **No setup.** Muse is an app on iPhone, Android, web, Mac and WhatsApp. OpenTeam needs Docker and an always-on machine. Its desktop apps are macOS (Apple silicon) and Linux x64 only, the iPhone app is a TestFlight beta, and there's no Android app. A server runs one model for one human account.
-
-If you want stronger built-in guardrails and live where Muse is offered, Muse has the more protective design today. Self-hosting suits people who'd rather hold the data themselves and accept the work and the gaps.
-
 ## How to use any personal AI agent safely
 
-1. **Give it separate accounts.** For Muse, sign up with an email not tied to your other Meta accounts ([terms](https://muse.ai/terms)).
+1. **Give it separate accounts.** For Muse, sign up with an email not tied to your other Meta accounts ([terms](https://muse.ai/terms)). For a self-hosted team, give bots narrow accounts of their own rather than yours.
 2. **Pay with a limited card:** virtual, single-use or low-limit, never your main debit card.
 3. **Connect only what the task needs,** read-only first. "Start small," a security executive told [Time](https://time.com/article/2026/10/22/ai-meta-muse-agent-older-users/).
 4. **Keep send, pay and delete behind approval.** Avoid "Always allow" until you've watched it finish a task.
@@ -130,7 +111,7 @@ If you want stronger built-in guardrails and live where Muse is offered, Muse ha
 7. **Be stingy with system permissions** like Full Disk Access, and give password managers a vault with only the logins needed ([accounts](/docs/integrations/accounts)).
 8. **Treat what it reads as untrusted.** Don't let it act on strangers' email or pages unchecked.
 9. **Revoke access you don't use.** Disconnecting stops new reads, not old ones: that data "may remain in Muse's memories," Meta says.
-10. **Keep it patched,** and keep self-hosted servers off the public internet.
+10. **Keep it patched.** For a self-hosted agent such as OpenTeam, run it on its own machine or VM, keep the host, Docker and OpenTeam updated ([updates](/docs/manage/updates)), keep [backups](/docs/manage/backups), and reach it over your network or [Tailscale](/blog/tailscale-https-self-hosted-ai-agents) rather than a public port.
 
 ## Frequently asked questions
 
@@ -150,9 +131,9 @@ No. The Muse agent and apps are proprietary. Meta publishes some open-weight mod
 
 No. Muse runs only in Meta's cloud, and the promised Confidential VM would still run on Meta's servers. To self-host, you need a different agent, such as OpenTeam.
 
-### Is OpenTeam safer than Muse?
+### Where does a self-hosted agent like OpenTeam keep my data?
 
-No, not in the ways most people mean. Muse has enforced approvals, credential isolation and a security team; OpenTeam has an enforced email draft and prompt rules. It offers control instead: your data on your server, the model you choose and code you can read.
+On your server. OpenTeam stores conversations, files, memory, routines, website sign-ins and plugin tokens there ([privacy](/docs/configuration/privacy)), has no model to train, and sends prompts to the model provider you choose, or to a local model on your own hardware. The code is GPL-3.0, so you can check where every request goes.
 
 ## Try OpenTeam
 

@@ -1,3 +1,5 @@
+import { ButtonLoadingIndicator } from "./button-primitive";
+import { ControlMotion } from "./control-motion";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
@@ -25,23 +27,40 @@ export function ContextMenuContent({
 
 type ContextMenuItemProps = ComponentProps<typeof ContextMenuPrimitive.Item> & {
   variant?: "default" | "destructive";
+  loading?: boolean;
 };
 
 export function ContextMenuItem({
   className,
   variant = "default",
+  children,
+  loading = false,
+  disabled,
   ...props
 }: ContextMenuItemProps) {
   return (
-    <ContextMenuPrimitive.Item
-      className={cn(
-        "relative flex h-8 cursor-pointer select-none items-center gap-2.5 rounded-lg px-2 text-[13px] outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg]:text-foreground-secondary",
-        variant === "destructive" &&
-          "text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive [&_svg]:text-destructive",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <ContextMenuPrimitive.Item
+        className={cn(
+          "relative flex h-8 cursor-pointer select-none items-center gap-2.5 rounded-lg px-2 text-[13px] outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg]:text-foreground-secondary",
+          variant === "destructive" &&
+            "text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive [&_svg]:text-destructive",
+          className
+        )}
+        {...props}
+        aria-busy={loading || props["aria-busy"]}
+        disabled={disabled || loading}
+      >
+        {props.asChild ? (
+          children
+        ) : (
+          <>
+            {loading && <ButtonLoadingIndicator />}
+            {children}
+          </>
+        )}
+      </ContextMenuPrimitive.Item>
+    </ControlMotion>
   );
 }
 
@@ -62,13 +81,15 @@ export function ContextMenuSubTrigger({
   ...props
 }: ComponentProps<typeof ContextMenuPrimitive.SubTrigger>) {
   return (
-    <ContextMenuPrimitive.SubTrigger
-      className={cn(
-        "relative flex h-8 cursor-pointer select-none items-center gap-2.5 rounded-lg px-2 text-[13px] outline-none data-[state=open]:bg-accent data-[highlighted]:bg-accent [&_svg]:shrink-0 [&_svg]:text-foreground-secondary",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <ContextMenuPrimitive.SubTrigger
+        className={cn(
+          "relative flex h-8 cursor-pointer select-none items-center gap-2.5 rounded-lg px-2 text-[13px] outline-none data-[state=open]:bg-accent data-[highlighted]:bg-accent [&_svg]:shrink-0 [&_svg]:text-foreground-secondary",
+          className
+        )}
+        {...props}
+      />
+    </ControlMotion>
   );
 }
 

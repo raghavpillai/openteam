@@ -31,10 +31,13 @@ final class AppStore {
   var accountDisplayName: String { record?.displayName ?? "OpenTeam owner" }
   var accountServer: String { record?.server ?? server }
   var state = SavedState()
+  private(set) var sidebarPluginsVerified = false
+  @ObservationIgnored private var sidebarPluginsRefresh: (id: UUID, epoch: UUID, task: Task<Void, Never>)?
   private var drafts: [String: Draft] = [:]
   private var persistenceTask: Task<Void, Never>?
   private var writer: StateWriter?
   var error: String?
+  let reactionMutations = ReactionMutations()
   var online = false
   private(set) var connectionUnavailable = false
   private var connectionCheck: Task<Void, Never>?
@@ -57,15 +60,19 @@ final class AppStore {
   var navigation: [String] = [] {
     didSet {
       navigationGeneration = UUID()
+      openingNotification = nil
       botVoiceLaunch.cancelPending(unless: navigation.last)
     }
   }
   var focusedRoutine: String?
   var focusedMessage: String?
+  var focusedNotification: String?
+  private(set) var openingNotification: UUID?
   var activeChannel: String?
   var histories: [String: History] = [:]
   private(set) var historyLoadFailures: Set<String> = []
   var historyWindows: [String: HistoryWindow] = [:]
+  private var historyOpenings: [String: UUID] = [:]
   var sidebar: JSON {
     get {
       state.sidebar
@@ -91,6 +98,8 @@ final class AppStore {
   /// Newest message sequence each chat's notifications announced. A push can
   /// arrive, or be tapped, before the next bootstrap knows about its message.
   private var notifiedLatest: [String: String] = [:]
+  private var unreadIntents: [String: UUID] = [:]
+  @ObservationIgnored private var sidebarWrite: (id: UUID, task: Task<JSON?, Never>)?
   private var needsIdentityRefresh = false
   private var generation = UUID()
   private var sending = false
@@ -202,6 +211,7 @@ final class AppStore {
             try activate(saved)
             await refresh()
             startEvents()
+            await routePendingDeepLink()
           } catch {
             phase = .signedOut
             authError = UserFacingError.message(error)
@@ -272,6 +282,7 @@ final class AppStore {
       try activate(saved)
       needsIdentityRefresh = true
       startEvents()
+      await routePendingDeepLink()
     } catch {
       phase = .signedOut
       authError = UserFacingError.message(error)
@@ -437,10 +448,7 @@ final class AppStore {
     startEvents()
     authError = nil
     authPath = []
-    if let url = pendingDeepLink {
-      pendingDeepLink = nil
-      await deepLink(url)
-    }
+    await routePendingDeepLink()
   }
   private func activate(
     _ next: SessionRecord, persistSession: Bool = false, requestPushPermission: Bool = true
@@ -464,6 +472,9 @@ final class AppStore {
     lifecycle?.cancel()
     stopBackgroundHistories()
     notifiedLatest = [:]
+    unreadIntents = [:]
+    focusedNotification = nil
+    openingNotification = nil
     needsIdentityRefresh = false
     stateSyncs.removeAll()
     awaitingInitialSync = !launchComplete
@@ -471,6 +482,7 @@ final class AppStore {
     cancelConnectionCheck()
     connectionUnavailable = false
     generation = epoch
+    reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
     sending = false
@@ -482,6 +494,7 @@ final class AppStore {
     histories = [:]
     historyLoadFailures.removeAll()
     historyWindows = [:]
+    historyOpenings = [:]
     if let systemScope, systemScope != scope {
       systemDraft = nil
       pendingSystemItem = nil
@@ -498,6 +511,7 @@ final class AppStore {
     disk = nextDisk
     writer = StateWriter(disk: nextDisk)
     state = nextState
+    sidebarPluginsVerified = false
     drafts = nextState.drafts
     onboarding =
       UserDefaults.standard.bool(forKey: OnboardingDecision.key(server: next.server))
@@ -660,10 +674,14 @@ final class AppStore {
   func refresh(quiet: Bool = false, flushPending: Bool = true) async -> Bool {
     guard let api, phase == .ready else { return false }
     let epoch = generation
+    // Independent of bootstrap/settings latency; keep saved icons on screen.
+    Task { if epoch == generation { await refreshSidebarPlugins() } }
     let sync = beginStateSync()
     defer { stateSyncs.remove(sync) }
     do {
-      let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+      let bootstrap = try await reactionMutations.read {
+        try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+      }
       guard epoch == generation, !Task.isCancelled else { return false }
       apply(bootstrap)
       online = true
@@ -672,7 +690,7 @@ final class AppStore {
       let root = try await api.request("/api/v0/settings")
       guard epoch == generation, !Task.isCancelled else { return false }
       if root["settings"]["sidebarPreferences"]["version"].int == 2 {
-        sidebar = root["settings"]["sidebarPreferences"]
+        applySidebarSnapshot(root["settings"]["sidebarPreferences"])
       }
       // Pending sends are separate from loading the main screen's state.
       stateSyncs.remove(sync)
@@ -682,6 +700,31 @@ final class AppStore {
       if epoch == generation { handle(error, quiet: quiet) }
       return false
     }
+  }
+  /// Shared by every footer instance. A recreated view reads SavedState
+  /// synchronously and joins an in-flight refresh instead of resetting its icons.
+  func refreshSidebarPlugins() async {
+    guard phase == .ready else { return }
+    let epoch = generation
+    if let pending = sidebarPluginsRefresh, pending.epoch == epoch {
+      await pending.task.value
+      return
+    }
+    let id = UUID()
+    sidebarPluginsVerified = false
+    let task = Task { [weak self] in
+      guard let self, generation == epoch else { return }
+      guard let response = try? await request("/api/v0/plugins"),
+        generation == epoch, phase == .ready, !Task.isCancelled,
+        let plugins = SidebarPlugin.snapshot(response)
+      else { return }
+      state.sidebarPlugins = plugins
+      sidebarPluginsVerified = true
+      persist()
+    }
+    sidebarPluginsRefresh = (id, epoch, task)
+    await task.value
+    if sidebarPluginsRefresh?.id == id { sidebarPluginsRefresh = nil }
   }
   /// UI tests and QA opt in with `--qa-onboarding`; other UI-test fixtures never see it.
   private var onboardingForcedForQA: Bool {
@@ -817,16 +860,19 @@ final class AppStore {
             || activeChannel.map({ historyLoadFailures.contains($0) }) == true
           {
             // Reconcile authoritative bounded projections. Advance the cursor only after reconciliation succeeds.
-            let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+            let bootstrap = try await reactionMutations.read {
+              try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+            }
             try Task.checkCancellation()
             guard epoch == generation else { return }
             apply(bootstrap)
             if reconnectSync != nil {
+              Task { if epoch == generation { await refreshSidebarPlugins() } }
               let root = try await api.request("/api/v0/settings")
               try Task.checkCancellation()
               guard epoch == generation else { return }
               if root["settings"]["sidebarPreferences"]["version"].int == 2 {
-                sidebar = root["settings"]["sidebarPreferences"]
+                applySidebarSnapshot(root["settings"]["sidebarPreferences"])
               }
             }
             if let activeChannel {
@@ -925,7 +971,8 @@ final class AppStore {
     return transcriptBehind(id)
   }
   func loadHistory(_ id: String, older: Bool = false) async {
-    guard let api, !busy.contains("history-" + id) else { return }
+    guard let api, !busy.contains("history-" + id),
+      older || historyWindows[id]?.hasLater != true else { return }
     let epoch = generation
     busy.insert("history-" + id)
     defer { busy.remove("history-" + id) }
@@ -936,31 +983,48 @@ final class AppStore {
       if epoch == generation, !Task.isCancelled,
         !(error is CancellationError), (error as? URLError)?.code != .cancelled
       {
-        historyLoadFailures.insert(id)
+        if !older, historyWindows[id]?.hasLater != true { historyLoadFailures.insert(id) }
         // Loading errors belong to the transcript; cached messages stay readable.
         handle(error, quiet: true)
       }
     }
   }
   private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID) async throws {
+    // Poll reconciliation also comes here. A search context already has its
+    // own contiguous page; only explicit pagination should extend that window.
+    guard before != nil || historyWindows[id]?.hasLater != true else { return }
+    let windowID = historyWindows[id]?.id
+    let opening = historyOpenings[id]
     var query = ["limit": "60"]
     if let before { query["before"] = before }
     let page: History
     do {
-      page = try await api.get(
-        "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+      page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+      }
     } catch {
-      if epoch == generation, !UserFacingError.isCancelled(error) {
+      // Superseded reads must not reach the caller's error handling either.
+      guard epoch == generation, !Task.isCancelled,
+        historyWindows[id]?.id == windowID, historyOpenings[id] == opening else { return }
+      // Pagination failures keep their cursor for an explicit retry; they must
+      // not make event polling repeatedly fetch a disconnected latest page.
+      if before == nil, historyWindows[id]?.hasLater != true,
+        epoch == generation, !UserFacingError.isCancelled(error) {
         historyLoadFailures.insert(id)
       }
       throw error
     }
-    guard epoch == generation, !Task.isCancelled else { return }
+    guard epoch == generation, !Task.isCancelled,
+      historyWindows[id]?.id == windowID, historyOpenings[id] == opening else { return }
     historyLoadFailures.remove(id)
     confirmDelivery(page.threadContext + page.messages)
-    // The latest page is authoritative for what a notification announced.
+    // A page can have been captured before a newer notification arrived.
     if before == nil {
-      notifiedLatest[id] = nil
+      if let announced = notifiedLatest[id],
+        let newest = page.messages.last?.sequence, !MessageMerge.less(newest, announced) {
+        notifiedLatest[id] = nil
+      }
       state.incompleteHistoryChannels?.remove(id)
     }
     if before != nil {
@@ -1001,13 +1065,25 @@ final class AppStore {
     state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
   }
   @discardableResult
-  func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false) async -> Bool {
-    guard let api else { return false }
+  func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
+    opening: UUID? = nil, historyOpening: UUID? = nil) async -> Bool {
+    guard let api,
+      historyOpening == nil || historyOpenings[channelID] == historyOpening else { return false }
     let epoch = generation
+    let navigation = opening ?? navigationGeneration
+    let windowID = historyWindows[channelID]?.id
+    // Replacements supersede pending page/replacement reads as soon as they start.
+    // Importing a reply's thread context keeps the current timeline's ownership.
+    let request = historyOpening ?? (preservingTimeline ? historyOpenings[channelID] : UUID())
+    if !preservingTimeline { historyOpenings[channelID] = request }
     do {
-      let page = try await api.get(
-        "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
-      guard epoch == generation else { return false }
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
+      }
+      guard epoch == generation, !Task.isCancelled,
+        navigationGeneration == navigation, historyOpenings[channelID] == request,
+        !preservingTimeline || historyWindows[channelID]?.id == windowID else { return false }
       guard page.channelId == channelID else {
         throw APIError("This message belongs to another conversation.")
       }
@@ -1017,6 +1093,7 @@ final class AppStore {
         persist()
         return true
       }
+      historyLoadFailures.remove(channelID)
       state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
       historyWindows[channelID] = HistoryWindow(
         messages: page.messages, hasEarlier: page.hasMoreBefore, hasLater: page.hasMoreAfter)
@@ -1026,7 +1103,9 @@ final class AppStore {
       persist()
       return true
     } catch {
-      if epoch == generation { handle(error) }
+      if epoch == generation, !Task.isCancelled, navigationGeneration == navigation,
+        historyOpenings[channelID] == request,
+        !preservingTimeline || historyWindows[channelID]?.id == windowID { handle(error) }
       return false
     }
   }
@@ -1037,42 +1116,64 @@ final class AppStore {
     busy.insert(key)
     defer { busy.remove(key) }
     let epoch = generation
+    let windowID = historyWindows[channelID]?.id
+    let opening = historyOpenings[channelID]
     do {
-      let page = try await api.get(
-        "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
-        query: ["direction": "after", "limit": "60"])
-      guard epoch == generation else { return }
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
+          query: ["direction": "after", "limit": "60"])
+      }
+      guard epoch == generation, !Task.isCancelled,
+        historyWindows[channelID]?.id == windowID,
+        historyOpenings[channelID] == opening else { return }
       guard page.channelId == channelID else { throw APIError("The conversation changed.") }
       confirmDelivery(page.threadContext + page.messages)
       state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
       persist()
-    } catch { if epoch == generation { handle(error) } }
+    } catch {
+      if epoch == generation, !Task.isCancelled, historyWindows[channelID]?.id == windowID,
+        historyOpenings[channelID] == opening {
+        handle(error)
+      }
+    }
   }
   @discardableResult
-  func loadLatest(_ channelID: String) async -> Bool {
-    guard let api else { return false }
+  func loadLatest(_ channelID: String, opening: UUID? = nil, historyOpening: UUID? = nil) async -> Bool {
+    guard let api,
+      historyOpening == nil || historyOpenings[channelID] == historyOpening else { return false }
     let epoch = generation
+    let navigation = opening ?? navigationGeneration
+    let request = historyOpening ?? UUID()
+    historyOpenings[channelID] = request
     do {
-      let page = try await api.get(
-        "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
-      guard epoch == generation else { return false }
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
+      }
+      guard epoch == generation, !Task.isCancelled,
+        navigationGeneration == navigation, historyOpenings[channelID] == request else { return false }
       install(page)
       persist()
       return true
     } catch {
-      if epoch == generation { handle(error) }
+      if epoch == generation, !Task.isCancelled, navigationGeneration == navigation,
+        historyOpenings[channelID] == request { handle(error) }
       return false
     }
   }
-  func markRead(_ id: String, through sequence: String? = nil) async {
-    guard foreground, activeChannel == id, let api,
+  @discardableResult
+  func markRead(_ id: String, through sequence: String? = nil,
+    throughNotificationSequence: String? = nil, fromInbox: Bool = false) async -> Bool {
+    guard !Task.isCancelled, foreground, (fromInbox || activeChannel == id), let api,
       channel(id) != nil
-    else { return }
+    else { return false }
     let through =
       sequence ?? messages(id).last(where: { !$0.metadata["branched"].bool })?.sequence ?? "0"
     let notificationCursor =
-      NotificationReads.sequence(channel(id)?.notificationState?["notificationCursor"].string ?? "")
+      NotificationReads.sequence(throughNotificationSequence
+        ?? channel(id)?.notificationState?["notificationCursor"].string ?? "")
       ?? "0"
     let previousActivity =
       NotificationReads.sequence(
@@ -1082,9 +1183,12 @@ final class AppStore {
       !MessageMerge.less(previousActivity, notificationCursor), channel(id)?.unreadCount == 0,
       !sidebar["unreadIds"].array.contains(.string(id))
     {
-      return
+      return true
     }
     let epoch = generation
+    let messageFrontier = unreadMessageFrontier(id)
+    let activityFrontier = channel(id)?.notificationState?["notificationCursor"].string ?? "0"
+    let unreadIntent = unreadIntents[id]
     do {
       let value = try await api.request(
         "/api/v0/channels/\(API.segment(id))/read", method: "POST",
@@ -1092,31 +1196,137 @@ final class AppStore {
           "throughSequence": .string(through),
           "throughNotificationSequence": .string(notificationCursor),
         ]))
-      guard epoch == generation,
+      guard epoch == generation, !Task.isCancelled,
         let index = state.bootstrap?.channels.firstIndex(where: { $0.id == id })
-      else { return }
-      state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      else { return false }
       var notification = state.bootstrap?.channels[index].notificationState ?? .object([:])
-      notification["lastReadSequence"] =
-        value["lastReadSequence"] == .null ? .string(through) : value["lastReadSequence"]
-      notification["lastReadNotificationSequence"] =
-        value["lastReadNotificationSequence"] == .null
-        ? .string(notificationCursor) : value["lastReadNotificationSequence"]
+      let acknowledgedMessage = value["lastReadSequence"] == .null
+        ? through : value["lastReadSequence"].string
+      let acknowledgedActivity = value["lastReadNotificationSequence"] == .null
+        ? notificationCursor : value["lastReadNotificationSequence"].string
+      let currentMessage = notification["lastReadSequence"].string
+      let currentActivity = notification["lastReadNotificationSequence"].string
+      // Counts describe the message/activity frontier observed by this request.
+      // Read cursors alone do not change when a newer unread item arrives.
+      if !MessageMerge.less(acknowledgedMessage, currentMessage),
+        !MessageMerge.less(acknowledgedActivity, currentActivity),
+        !MessageMerge.less(messageFrontier, unreadMessageFrontier(id)),
+        !MessageMerge.less(activityFrontier, notification["notificationCursor"].string) {
+        state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      }
+      notification["lastReadSequence"] = .string(
+        MessageMerge.less(currentMessage, acknowledgedMessage) ? acknowledgedMessage : currentMessage)
+      notification["lastReadNotificationSequence"] = .string(
+        MessageMerge.less(currentActivity, acknowledgedActivity) ? acknowledgedActivity : currentActivity)
       state.bootstrap?.channels[index].notificationState = notification
       #if canImport(UIKit)
         NativeNotifications.shared.apply(channels: channels)
       #endif
-      if sidebar["unreadIds"].array.contains(.string(id)) {
-        var next = sidebar
+      persist()
+      _ = await writeSidebar(api: api, epoch: epoch, quiet: true,
+        accepting: { self.unreadIntents[id] == unreadIntent }) {
+        guard self.sidebar["unreadIds"].array.contains(.string(id)) else { return nil }
+        var next = self.sidebar
         next["unreadIds"] = .array(next["unreadIds"].array.filter { $0 != .string(id) })
-        if let saved = try? await api.request(
-          "/api/v0/settings/sidebar", method: "PATCH", body: next), epoch == generation
-        {
-          sidebar = saved
+        return next
+      }
+      return epoch == generation && !Task.isCancelled
+    } catch {
+      if epoch == generation { handle(error, quiet: true) }
+      return false
+    }
+  }
+  private func unreadMessageFrontier(_ id: String) -> String {
+    [latestMessage(id)?.sequence, notifiedLatest[id]].compactMap { $0 }
+      .max { MessageMerge.less($0, $1) } ?? "0"
+  }
+  private func applySidebarSnapshot(_ snapshot: JSON) {
+    let previous = Set(sidebar["unreadIds"].array)
+    for id in snapshot["unreadIds"].array where !previous.contains(id) {
+      unreadIntents[id.string] = UUID()
+    }
+    sidebar = snapshot
+  }
+  /// Apply the caller's changes to the sidebar present when its queued PATCH
+  /// starts. Unchanged fields and independently added IDs retain newer values.
+  private func rebaseSidebar(_ desired: JSON, from base: JSON, onto current: JSON) -> JSON {
+    guard desired != base else { return current }
+    if case .object(let fields) = desired, case .object(var result) = current {
+      for key in Set(base.object.keys).union(fields.keys) where base.object[key] != fields[key] {
+        result[key] = fields[key].map {
+          rebaseSidebar($0, from: base[key], onto: current[key])
         }
       }
-      persist()
-    } catch { if epoch == generation { handle(error, quiet: true) } }
+      return .object(result)
+    }
+    guard case .array(let items) = desired, case .array(let latest) = current else { return desired }
+    let baseIDs = base.array.map(sidebarItemID)
+    let desiredIDs = items.map(sidebarItemID)
+    let currentIDs = latest.map(sidebarItemID)
+    guard [baseIDs, desiredIDs, currentIDs].allSatisfy({
+      !$0.contains("") && Set($0).count == $0.count
+    }) else { return desired }
+    let originals = Dictionary(uniqueKeysWithValues: zip(baseIDs, base.array))
+    var values = Dictionary(uniqueKeysWithValues: zip(currentIDs, latest))
+    for (id, item) in zip(desiredIDs, items) {
+      values[id] = rebaseSidebar(item, from: originals[id] ?? .null, onto: values[id] ?? .null)
+    }
+    var order = currentIDs
+    for change in desiredIDs.difference(from: baseIDs) {
+      switch change {
+      case .remove(_, let id, _):
+        order.removeAll { $0 == id }
+      case .insert(let offset, let id, _):
+        order.removeAll { $0 == id }
+        if let previous = desiredIDs[..<offset].last(where: { order.contains($0) }),
+          let index = order.firstIndex(of: previous) {
+          order.insert(id, at: index + 1)
+        } else if let next = desiredIDs.dropFirst(offset + 1).first(where: { order.contains($0) }),
+          let index = order.firstIndex(of: next) {
+          order.insert(id, at: index)
+        } else {
+          order.append(id)
+        }
+      }
+    }
+    return .array(order.compactMap { values[$0] })
+  }
+  private func sidebarItemID(_ item: JSON) -> String {
+    item["id"].string.isEmpty ? item.string : item["id"].string
+  }
+  /// Read clears and UI sidebar mutations share request ordering. A clear must
+  /// finish before a newer explicit Mark unread PATCH reaches the server.
+  private func writeSidebar(api: API, epoch: UUID, quiet: Bool = false,
+    refreshAfterWrite: Bool = false,
+    accepting: @escaping @MainActor () -> Bool = { true },
+    body: @escaping @MainActor () -> JSON?) async -> JSON? {
+    guard epoch == generation, !Task.isCancelled, accepting() else { return nil }
+    let pending = sidebarWrite?.task
+    let id = UUID()
+    // Finish a submitted write even if its caller is cancelled. Cancelling its
+    // transport could release the queue before the server applies the PATCH.
+    let task = Task<JSON?, Never> { @MainActor in
+      _ = await pending?.value
+      guard epoch == generation, accepting(), let next = body() else { return nil }
+      do {
+        let saved = try await api.request("/api/v0/settings/sidebar", method: "PATCH", body: next)
+        guard epoch == generation, accepting() else { return nil }
+        sidebar = saved
+        if refreshAfterWrite { await refresh() }
+        guard epoch == generation else { return nil }
+        return saved
+      } catch {
+        if epoch == generation { handle(error, quiet: quiet) }
+        return nil
+      }
+    }
+    sidebarWrite = (id, task)
+    let saved = await task.value
+    // Existing view callers assign the returned sidebar. Only the last queued
+    // writer may return a value, so an earlier caller cannot reinstall its copy.
+    guard sidebarWrite?.id == id else { return nil }
+    sidebarWrite = nil
+    return epoch == generation && !Task.isCancelled ? saved : nil
   }
   func enqueue(_ channel: Channel, draftKey: String? = nil, threadRootID: String? = nil,
     replyRootID: String? = nil) async {
@@ -1488,10 +1698,74 @@ final class AppStore {
     }
   }
   @discardableResult
+  func react(_ emoji: String, to message: Message) -> Bool {
+    guard api != nil else { return false }
+    let epoch = generation
+    let current = messages(message.channelId).first { $0.id == message.id } ?? message
+    if !reactionMutations.uncertain.contains(message.id) { error = nil }
+    return reactionMutations.toggle(
+      messageID: message.id, metadata: current.metadata, emoji: emoji,
+      send: { [weak self] emoji in
+        guard let self, self.generation == epoch else { throw CancellationError() }
+        let result = try await self.request(
+          "/api/v0/channel-messages/\(API.segment(message.id))/reaction", method: "POST",
+          body: .object([
+            "emoji": .string(emoji), "clientId": .string(UUID().uuidString),
+            "timeZone": .string(TimeZone.current.identifier),
+          ]))
+        return try result["message"].decode(Message.self)
+      },
+      confirmed: { [weak self] updated in
+        guard let self, self.generation == epoch else { return }
+        var current = self.messages(updated.channelId).first { $0.id == updated.id } ?? updated
+        current.metadata = ReactionMutations.replacingOwn(
+          current.metadata, with: ReactionMutations.ownEmoji(updated.metadata))
+        self.merge([current], channel: updated.channelId)
+        self.persist()
+      },
+      recover: { [weak self] failure in
+        guard let self, self.generation == epoch else { return false }
+        self.handle(failure)
+        NativeHaptics.failure(failure, source: "message.reaction")
+        // A timeout may have committed. Read this message before accepting
+        // another toggle; never replay an unknown mutation automatically.
+        do {
+          let page = try await self.reactionMutations.read {
+            try await self.fetch(
+              "/api/v0/channel-messages/\(API.segment(message.id))/context", as: MessageContext.self)
+          }
+          guard self.generation == epoch, page.channelId == message.channelId,
+            let updated = (page.messages + page.threadContext).first(where: { $0.id == message.id })
+          else { return false }
+          self.merge([updated], channel: updated.channelId)
+          self.persist()
+          return true
+        } catch { return false }
+      })
+  }
+  @discardableResult
   func mutate(
     _ path: String, method: String = "POST", body: JSON? = nil,
     successFeedback: HapticEffect? = nil, feedbackSource: String = "mutation"
   ) async -> JSON? {
+    if path == "/api/v0/settings/sidebar", method == "PATCH", let body, let api {
+      guard !Task.isCancelled else { return nil }
+      let base = sidebar
+      // A carried-forward marker is not a new Mark unread action.
+      let previousUnread = Set(base["unreadIds"].array)
+      for id in body["unreadIds"].array where !previousUnread.contains(id) {
+        unreadIntents[id.string] = UUID()
+      }
+      let saved = await writeSidebar(api: api, epoch: generation, refreshAfterWrite: true) {
+        self.rebaseSidebar(body, from: base, onto: self.sidebar)
+      }
+      #if canImport(UIKit)
+        if saved != nil, let successFeedback {
+          NativeHaptics.play(successFeedback, source: feedbackSource)
+        }
+      #endif
+      return saved
+    }
     guard let api, !busy.contains(path) else { return nil }
     let epoch = generation
     busy.insert(path)
@@ -1541,6 +1815,18 @@ final class AppStore {
   {
     try await request(path, query: query).decode(type)
   }
+  func markUnread(_ id: String) async {
+    guard let api, !Task.isCancelled else { return }
+    // Record the targeted action even if this chat is already marked unread.
+    unreadIntents[id] = UUID()
+    _ = await writeSidebar(api: api, epoch: generation, refreshAfterWrite: true) {
+      var next = self.sidebar
+      var ids = next["unreadIds"].array
+      if !ids.contains(.string(id)) { ids.append(.string(id)) }
+      next["unreadIds"] = .array(ids)
+      return next
+    }
+  }
   func togglePin(_ id: String) async {
     var next = sidebar
     var values = pins
@@ -1551,29 +1837,97 @@ final class AppStore {
     }
   }
   func open(_ channelID: String, messageID: String? = nil) async {
+    focusedNotification = nil
     let epoch = generation
     let opening = UUID()
     navigationGeneration = opening
     if let messageID {
-      guard await loadContext(channelID, messageID: messageID) else { return }
+      guard await loadContext(channelID, messageID: messageID, opening: opening) else { return }
     }
     guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
     navigation = [channelID]
   }
+  /// A notification opens its message even when this chat is already showing
+  /// an older search window. Cached visible messages need no network round trip.
+  func openNotification(_ channelID: String, messageID: String?, sequence: String?) async {
+    let epoch = generation
+    let opening = UUID()
+    navigationGeneration = opening
+    openingNotification = opening
+    defer { if openingNotification == opening { openingNotification = nil } }
+    noteNotified(channelID, sequence: sequence)
+    let cached = messages(channelID).first {
+      messageID == nil ? $0.sequence == sequence : $0.id == messageID
+    }
+    let cachedVisible = cached.map {
+      hasCachedHistory(channelID) && historyWindows[channelID]?.contains($0) == true
+        && !$0.metadata["branched"].bool
+    } == true
+    var resolvedID = messageID ?? cached?.id
+    if resolvedID == nil, let preview = latestMessage(channelID), preview.sequence == sequence {
+      resolvedID = preview.id
+    }
+    // Own the whole opening, including a legacy lookup and its follow-on fetch.
+    // Cached targets keep the current ownership so its adjacent pages can finish.
+    let request = cachedVisible ? historyOpenings[channelID] : UUID()
+    if !cachedVisible {
+      historyOpenings[channelID] = request
+      if resolvedID == nil, let value = NotificationReads.sequence(sequence ?? ""),
+        let number = UInt64(value), number < UInt64.max, let api {
+        do {
+          // Legacy pushes carry a sequence instead of an ID. Resolve that row
+          // directly, even when hundreds of newer messages now follow it.
+          let page = try await api.get(
+            "/api/v0/channels/\(API.segment(channelID))/history", as: History.self,
+            query: ["before": String(number + 1), "limit": "1"])
+          guard epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+            historyOpenings[channelID] == request else { return }
+          guard page.channelId == channelID,
+            let target = page.messages.first(where: { $0.sequence == value }) else {
+            throw APIError("This message is no longer available.", status: 404)
+          }
+          resolvedID = target.id
+        } catch {
+          if epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+            historyOpenings[channelID] == request { handle(error) }
+          return
+        }
+      }
+      if let resolvedID {
+        guard await loadContext(channelID, messageID: resolvedID, opening: opening,
+          historyOpening: request) else { return }
+      } else {
+        // An alert without a usable message identity still opens the chat.
+        guard await loadLatest(channelID, opening: opening, historyOpening: request) else { return }
+      }
+    }
+    guard epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+      historyOpenings[channelID] == request else { return }
+    let target = messages(channelID).first {
+      resolvedID == nil ? $0.sequence == sequence : $0.id == resolvedID
+    }
+    focusedNotification = target?.id
+    focusedMessage = target?.id
+    navigation = [channelID]
+  }
   func deepLink(_ url: URL) async {
-    guard ["openteam", "openteam-swift"].contains(url.scheme ?? "") else { return }
+    let parts = url.pathComponents.filter { $0 != "/" }
+    guard ["openteam", "openteam-swift"].contains(url.scheme ?? ""), url.host == "chat",
+      parts.count == 1, let id = parts.first else { return }
     guard phase == .ready else {
       pendingDeepLink = url
       return
     }
-    let parts = url.pathComponents.filter { $0 != "/" }
-    if url.host == "chat", let id = parts.first {
-      let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first {
-        $0.name == "messageId"
-      }?.value
-      await open(id, messageID: message)
-    }
+    let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first {
+      $0.name == "messageId"
+    }?.value
+    await open(id, messageID: message)
+  }
+  private func routePendingDeepLink() async {
+    guard phase == .ready, let url = pendingDeepLink else { return }
+    pendingDeepLink = nil
+    await deepLink(url)
   }
   func setSystemDiscoveryEnabled(_ enabled: Bool) {
     guard let record, !testing else { return }
@@ -1727,6 +2081,7 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil
       stopPersistence()
@@ -1768,6 +2123,7 @@ final class AppStore {
     lifecycle?.cancel()
     lifecycle = nil
     generation = UUID()
+    reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
     cancelAuthentication()
@@ -1785,6 +2141,7 @@ final class AppStore {
     histories = [:]
     historyLoadFailures.removeAll()
     historyWindows = [:]
+    historyOpenings = [:]
     navigation = []
     landing = nil
     activeChannel = nil
@@ -1850,6 +2207,7 @@ final class AppStore {
       cancelConnectionCheck()
       connectionUnavailable = false
       generation = UUID()
+      reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil
       flushPersistence()

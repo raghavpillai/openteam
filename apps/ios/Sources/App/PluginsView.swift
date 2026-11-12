@@ -239,6 +239,7 @@ struct PluginCatalogMark: View {
   let plugin: JSON
   let fallback: JSON?
   let size: CGFloat
+  var allowsRemoteArtwork = true
   private var key: String {
     [plugin["pluginKey"].string, plugin["key"].string, fallback?["key"].string ?? "", plugin["name"].string]
       .first { !$0.isEmpty }?.lowercased().replacingOccurrences(of: " (managed)", with: "")
@@ -299,7 +300,7 @@ struct PluginCatalogMark: View {
         let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
         let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
         artwork(Image(uiImage: image))
-      } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
+      } else if allowsRemoteArtwork, let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
         AsyncImage(url: url) { image in artwork(image) } placeholder: { placeholder }
       } else { placeholder }
     }
@@ -435,6 +436,7 @@ struct PluginDetailView: View {
         throw responseError ?? APIError("Installation could not be confirmed. Try again.")
       }
       let needsSetup = !plugin["setupFields"].array.isEmpty || plugin["setup"]["kind"].string == "oauth_client"
+        || plugin["setup"]["fields"].array.contains { $0["required"].bool }
       plugin = latest
       newlyInstalled = true
       setup = [:]
@@ -553,7 +555,8 @@ struct PluginFieldInput: View {
         TextField(field["label"].string, text: text).multilineTextAlignment(.trailing)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled().keyboardType(
-            ["number", "integer"].contains(field["type"].string) ? .numbersAndPunctuation : .default
+            field["format"].string == "mcp-url" ? .URL :
+              ["number", "integer"].contains(field["type"].string) ? .numbersAndPunctuation : .default
           )
       }
     }

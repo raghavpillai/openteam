@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import "./markdown.css";
 import type { ComponentProps } from "react";
 import {
@@ -8,7 +9,10 @@ import {
   type UrlTransform,
 } from "streamdown";
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
+import { LinkFavicon } from "./link-favicon";
+import { useLinkHoverPreview } from "./link-hover-preview";
 import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
 export { messageRemarkPlugins, prepareMessageMarkdown } from "./markdown-source";
 
@@ -28,7 +32,7 @@ export const botMermaidOptions: MermaidOptions = {
     <div data-chat-diagram-error className="rounded-lg bg-muted p-3 text-sm">
       <p>{error}</p>
       <pre className="overflow-x-auto whitespace-pre-wrap">{chart}</pre>
-      <button onClick={retry} type="button">Retry diagram</button>
+      <ButtonPrimitive onClick={retry} type="button">Retry diagram</ButtonPrimitive>
     </div>
   ),
   config: {
@@ -80,7 +84,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
 
   if (address) {
     return (
-      <button
+      <ButtonPrimitive
         aria-label={`Jump to referenced message ${address}`}
         className="message-jump-chip"
         data-message-jump={address}
@@ -90,7 +94,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
       >
         <span aria-hidden="true">↪</span>
         {children}
-      </button>
+      </ButtonPrimitive>
     );
   }
 
@@ -100,7 +104,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
   if (openTeamPath) {
     const url = `openteam:${openTeamPath}`;
     return (
-      <button
+      <ButtonPrimitive
         aria-label={`Open ${String(children)}`}
         className="message-jump-chip"
         onClick={() =>
@@ -109,20 +113,34 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
         type="button"
       >
         {children}
-      </button>
+      </ButtonPrimitive>
     );
   }
 
+  return (
+    <WebLink className={className} href={href} {...props}>
+      {children}
+    </WebLink>
+  );
+}
+
+/** A web link as in the reference: site icon, underlined label, address card on hover. */
+function WebLink({ children, className, href, ...props }: ComponentProps<"a">) {
+  const { anchor, handlers, preview } = useLinkHoverPreview(href);
   return (
     <a
       className={className}
       data-streamdown="link"
       href={href}
+      ref={anchor}
       rel="noreferrer"
       target="_blank"
       {...props}
+      {...handlers}
     >
-      {children}
+      <LinkFavicon href={href} />
+      <span className="link-label">{children}</span>
+      {preview}
     </a>
   );
 }
@@ -133,7 +151,8 @@ function MessageImage({
   node: _node,
   ...props
 }: ComponentProps<"img"> & { node?: unknown }) {
-  const source = useAuthenticatedResource(typeof src === "string" ? src : null);
+  const resourcesActive = useResourceActive();
+  const source = useAuthenticatedResource(typeof src === "string" ? src : null, { enabled: resourcesActive });
   const width = Number(props.width);
   const height = Number(props.height);
   const knownSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;

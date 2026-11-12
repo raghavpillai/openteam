@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import {
   RECOMMENDED_SEARCH_PROVIDER,
   WEB_PROVIDER_LISTS,
@@ -11,7 +12,6 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
 import { webProviderIcon as iconFor } from "../../../lib/web-provider-icons";
@@ -196,7 +196,7 @@ export default function ProvidersSettings() {
             const info = WEB_PROVIDER_LISTS[tool].find((provider) => provider.id === active);
             const warning = view ? toolWarning(tool, view) : null;
             return (
-              <button
+              <ButtonPrimitive
                 className={cn(settingsRow, "w-full px-3.5 text-left outline-none hover:bg-black/[0.025] focus-visible:bg-black/[0.035] disabled:opacity-60 dark:hover:bg-white/[0.03]")}
                 data-settings-anchor={`web-${tool}-provider`}
                 data-testid={`providers-${tool}`}
@@ -222,7 +222,7 @@ export default function ProvidersSettings() {
                   </span>
                 ) : null}
                 <ChevronRight className="size-4 shrink-0 text-foreground-tertiary" strokeWidth={1.8} />
-              </button>
+              </ButtonPrimitive>
             );
           })}
         </SettingsGroup>
@@ -282,23 +282,23 @@ export default function ProvidersSettings() {
         <div className="settings-provider-header flex min-h-9 items-center gap-2.5">
           {radio(info.id, `Use ${info.name} for ${tool}`)}
           {keyed ? (
-            <button aria-expanded={open} aria-controls={`${contentId}-${tool}-${info.id}`} className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none" onClick={() => toggle(info.id)} type="button">
+            <ButtonPrimitive aria-expanded={open} aria-controls={`${contentId}-${tool}-${info.id}`} className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none" onClick={() => toggle(info.id)} type="button">
               {label}
-            </button>
+            </ButtonPrimitive>
           ) : (
             <span className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5">{label}</span>
           )}
           {!missing ? (
-            <button
+            <ButtonPrimitive
               aria-label={`Check ${info.name} ${tool}`}
               className={cn(secondaryButton, "settings-provider-check w-[72px] justify-center")}
               disabled={!view || Boolean(busy)}
               onClick={() => void check(tool, info.id)}
               type="button"
+              loading={busy === `check:${info.id}`}
             >
-              {busy === `check:${info.id}` ? <LoadingOrb aria-hidden size={14} /> : null}
               Check
-            </button>
+            </ButtonPrimitive>
           ) : (
             <span className="settings-provider-check w-[72px] shrink-0" />
           )}
@@ -326,7 +326,7 @@ export default function ProvidersSettings() {
                 value={typed[info.id] ?? ""}
               />
               {state?.secretSaved ? (
-                <button
+                <ButtonPrimitive
                   className={secondaryButton}
                   disabled={!view || Boolean(busy)}
                   onClick={() => {
@@ -340,7 +340,7 @@ export default function ProvidersSettings() {
                   type="button"
                 >
                   {removing ? "Keep" : "Remove"}
-                </button>
+                </ButtonPrimitive>
               ) : null}
               <span className="text-[11.5px] text-foreground-tertiary">{removing ? "Will be removed" : state?.secretSaved ? "Saved" : ""}</span>
             </div>
@@ -355,13 +355,13 @@ export default function ProvidersSettings() {
               </div>
             ) : null}
             {info.setupUrl ? (
-              <button
+              <ButtonPrimitive
                 className="inline-flex items-center gap-1 text-[11.5px] text-foreground-secondary underline underline-offset-2"
                 onClick={() => window.open(info.setupUrl, "_blank", "noopener,noreferrer")}
                 type="button"
               >
                 Get a key <ExternalLink className="size-3" />
-              </button>
+              </ButtonPrimitive>
             ) : null}
           </div>
         </AnimatedCollapse>
@@ -372,14 +372,14 @@ export default function ProvidersSettings() {
   return (
     <section aria-label={`${TOOL_COPY[tool].title} providers`}>
       <SettingsHeading anchor={`web-${tool}-provider`}>
-        <button
+        <ButtonPrimitive
           aria-label="Back to Providers"
           className="text-foreground-tertiary outline-none hover:text-foreground focus-visible:underline"
           onClick={() => openPage(null)}
           type="button"
         >
           Providers
-        </button>
+        </ButtonPrimitive>
         <ChevronRight className="mx-1 inline size-4 align-[-2px] text-foreground-tertiary" strokeWidth={1.8} />
         {TOOL_COPY[tool].title}
       </SettingsHeading>
@@ -404,10 +404,16 @@ export default function ProvidersSettings() {
       </SettingsGroup>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 px-2">
         <div className="text-[12px] text-foreground-secondary">Keys are stored on your server and never shown again.</div>
-        <button className={actionButton} disabled={!changed || Boolean(busy)} onClick={() => void save()} type="button">
-          {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : applied ? <Check className="size-3.5" /> : null}
+        <ButtonPrimitive
+          className={actionButton}
+          disabled={!changed || Boolean(busy)}
+          onClick={() => void save()}
+          type="button"
+          loading={busy === "save"}
+        >
+          {!(busy === "save") && (applied ? <Check className="size-3.5" /> : null)}
           {applied ? "Saved" : "Save"}
-        </button>
+        </ButtonPrimitive>
       </div>
       {errorAlert}
     </section>

@@ -43,6 +43,32 @@ app
             );
             const sidebar = document.querySelector("[data-sidebar]");
             const search = document.querySelector('button[aria-label="Search"]');
+            const plus = document.querySelector('button[aria-label="New Bot"]');
+            const toolbar = document.querySelector("[data-sidebar-toolbar]");
+            const sidebarBounds = sidebar.getBoundingClientRect();
+            const searchBounds = search.getBoundingClientRect();
+            const plusBounds = plus.getBoundingClientRect();
+            check(toolbar.getBoundingClientRect().height === 60, "Toolbar is 60px tall");
+            check(
+              searchBounds.width === 36 && searchBounds.height === 36 &&
+                plusBounds.width === 36 && plusBounds.height === 36,
+              "Search and new chat use matching 36px controls"
+            );
+            check(
+              searchBounds.top === 12 && plusBounds.top === 12 &&
+                plusBounds.left - searchBounds.right === 8 &&
+                sidebarBounds.right - plusBounds.right === 17,
+              "Toolbar uses 12px vertical padding, an 8px gap, and 16px inside the divider"
+            );
+            check(
+              parseFloat(getComputedStyle(search).borderRadius) >= 18,
+              "Search is circular"
+            );
+            check(
+              nav.getBoundingClientRect().top === 60 && getComputedStyle(nav).paddingTop === "4px" &&
+                getComputedStyle(nav).paddingBottom === "24px",
+              "Roster uses the reference's 4px top and 24px bottom padding"
+            );
             const rosterRows = Array.from(nav.querySelectorAll("[data-channel-id]")).slice(0, 6);
             let previousTop;
             for (const entry of rosterRows) {
@@ -55,8 +81,8 @@ app
                 "Bots and groups share a 36px avatar slot"
               );
               check(
-                title.getBoundingClientRect().left - sidebar.getBoundingClientRect().left === 64,
-                "Every conversation title starts at x=64"
+                title.getBoundingClientRect().left - sidebar.getBoundingClientRect().left === 66,
+                "Every conversation title starts at x=66"
               );
               check(getComputedStyle(title).fontSize === "14px", "Conversation name is 14px");
               check(rect.height === 54, "Row height matches reference");
@@ -64,8 +90,8 @@ app
                 check(rect.top - previousTop === 58, "Row spacing matches reference");
               previousTop = rect.top;
               check(
-                Math.abs(rect.right - search.getBoundingClientRect().right) < 1,
-                "Row right edge aligns with search, including short lists"
+                rect.left - sidebarBounds.left === 12 && sidebarBounds.right - rect.right === 13,
+                "Rows have symmetric 12px insets inside the divider, including short lists"
               );
               const preview = row.querySelector(".block.truncate");
               if (preview) {
@@ -258,8 +284,8 @@ app
             const sidebar = document.querySelector("[data-sidebar]").getBoundingClientRect();
             if (Math.abs(bounds.left - sidebar.left - 60) > 0.1)
               throw new Error("Connect apps expands to the name's left edge");
-            if (Math.abs(sidebar.right - bounds.right - 16) > 0.1)
-              throw new Error("Connect apps keeps its right edge anchored");
+            if (Math.abs(sidebar.right - bounds.right - 17) > 0.1)
+              throw new Error("Connect apps keeps 16px inside the sidebar divider");
             if (getComputedStyle(document.querySelector(".sidebar-account-name")).opacity !== "0")
               throw new Error("Name yields to the apps pill on hover");
             if (

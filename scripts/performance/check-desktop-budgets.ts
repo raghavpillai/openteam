@@ -114,7 +114,11 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // tool definitions and Effect runtime out: that regression measures 1,700,685.
 // v0.0.13: contextual send failures, account controls and settings styling measure
 // 1,248,419 bytes. The settings Select stays outside pages that do not use it.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_249_000);
+// v0.0.14: delivery/loading UI and shared resource ownership measure 1,258,168.
+// Automatic lifecycle chunking avoids a React initialization cycle in built entries.
+// Grok Bot conversation chrome, attachment stages and opt-in message colors:
+// 1,278,577 bytes after integrating main's in-app links. Library stays lazy (6,201 B).
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_280_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -122,7 +126,9 @@ const startupCssBytes = result.renderer.startup.files
 // stylesheet to 177,306 bytes. Retain narrow headroom while keeping established
 // navigation available at startup.
 // v0.0.13 adds sidebar, pending-message and settings styles: 181,253 bytes.
-atMost("startup CSS bytes", startupCssBytes, 181_800);
+// v0.0.14 delivery/loading styles and background animation controls: 183,131.
+// The matching chat/details/media styling brings the measured stylesheet to 200,278 B.
+atMost("startup CSS bytes", startupCssBytes, 201_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -150,7 +156,10 @@ atMost("startup CSS bytes", startupCssBytes, 181_800);
 // November 3: update progress/recovery, device networking, saved-key controls and
 // attachment previews measure 16,523,942 after the capabilities import fix.
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
-atMost("renderer bytes", result.renderer.bytes, 16_531_000);
+// v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
+// Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
+// v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
+atMost("renderer bytes", result.renderer.bytes, 16_585_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -163,7 +172,12 @@ atMost("renderer bytes", result.renderer.bytes, 16_531_000);
 // Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
 // The same November feature baseline measures 4,113,699 gzip bytes.
 // The same v0.0.13 build measures 4,116,499 gzip bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_117_500);
+// Resource ownership and background lifecycle controls measure 4,118,074 gzip
+// bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
+// The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
+// Same feature baseline: 4,125,698 gzip bytes.
+// Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_133_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -200,7 +214,8 @@ const lazyBudgets: Record<string, number> = {
   // secrets for Bot processes bring the measured October closure to 51,380 bytes.
   // The Settings cleanup's shared Select (#187) adds about 21.6 KB to each plugin closure:
   // 73,336, 46,419, 40,512 and 36,231.
-  pluginDetail: 73_700,
+  // The Library API method adds shared client code: measured 73,850 bytes.
+  pluginDetail: 74_100,
   pluginConnection: 46_800,
   pluginStudio: 40_900,
   privateSkills: 36_600,
@@ -215,10 +230,13 @@ const lazyBudgets: Record<string, number> = {
   a2aExchange: 5_000,
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
-  groupForm: 25_000,
   inspector: 150_000,
+  // Conversation attachment index; document parsers remain separately lazy.
+  channelLibrary: 6_500,
   avatarPicker: 20_000,
-  botScreen: 20_000,
+  // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
+  // This closure stays dynamic; noVNC retains its separate lazy boundary.
+  botScreen: 28_000,
   vncProtocol: 280_000,
   fileAttachment: 20_000,
   pdfPreview: 1_500_000,
@@ -275,7 +293,8 @@ const lazyBudgets: Record<string, number> = {
   // 11,132 with the Messages entry and the Settings cleanup.
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
   // v0.0.13 shared control styles: 13,550, without the ~21 KB Select dependency.
-  settingsShell: 13_700,
+  // Shared controls/client code with message-color settings: 13,966 bytes.
+  settingsShell: 14_200,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,
@@ -290,7 +309,8 @@ const lazyBudgets: Record<string, number> = {
   // Connected version/update navigation and the moved machine controls (#201/#211)
   // measure 17,312. Browser network settings retain their separate lazy boundary.
   // v0.0.13 shared control styles: 18,849 bytes; network and Select remain lazy.
-  settingsServer: 19_000,
+  // Same shared client change: 19,319 bytes.
+  settingsServer: 19_600,
   // Dedicated Voice notes page: load retry, provider marks, busy indicators and
   // responsive fields. Still lazy; its measured closure is 40,488 bytes; 41,304 after the
   // Settings cleanup.

@@ -79,6 +79,7 @@ try {
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs python3 iproute2 nftables curl gcc libc6-dev sudo ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY . /fixture/
+RUN mkdir -p /usr/lib/openteam/bin && cp /fixture/openteam-computer-network.py /usr/lib/openteam/bin/
 RUN gcc -shared -fPIC -Wall -Wextra -Werror /fixture/openteam-network-mark.c -o /fixture/network-mark.so && useradd -m -u 1000 box && echo 'box ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/box
 CMD ["sleep", "600"]
 `
@@ -137,6 +138,8 @@ CMD ["sleep", "600"]
   await check("fresh computer boots before management DNS/server exists", async () => {
     await exec("python3", "/fixture/openteam-computer-network.py", "http://future-server:8787");
     assert.equal(await exec("cat", "/run/openteam-management.json"), "[]");
+    for (const device of ["all", "default", "eth0", "openteam0"])
+      assert.equal(await exec("cat", `/proc/sys/net/ipv4/conf/${device}/rp_filter`), "0", `bootstrap relay replies survive on ${device}`);
   });
   await run(
     docker(
@@ -255,6 +258,7 @@ for p in os.listdir('/proc'):
       "error"
     )
   );
+  await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: true, ipv6: true }));
   for (let attempt = 0; attempt < 50; attempt++) {
     if ((await exec("sh", "-c", "test -f /run/relay-count && echo yes || true")) === "yes") break;
     await run(
@@ -304,6 +308,98 @@ print('dns-ok')`;
     assert.equal(await exec(...curl, `http://[${targetV6}]:8080`), "target-via-selected-route");
     assert.ok(Number(await exec("cat", "/run/relay-count")) > before);
   });
+  await check("healthy IPv4 connections survive IPv6 capability changes", async () => {
+    assert.equal(await exec("python3", "-c", `import http.client,subprocess,json
+connection=http.client.HTTPConnection('${targetIp}',8080,timeout=3)
+connection.request('GET','/');assert connection.getresponse().read()==b'target-via-selected-route'
+socket=connection.sock;assert socket is not None
+subprocess.run(['python3','/fixture/openteam-computer-network.py','--families',json.dumps({'ipv4':True,'ipv6':False})],check=True)
+connection.request('GET','/');assert connection.getresponse().read()==b'target-via-selected-route'
+assert connection.sock is socket
+connection.close()
+subprocess.run(['python3','/fixture/openteam-computer-network.py','--families',json.dumps({'ipv4':True,'ipv6':True})],check=True)
+print('same-healthy-connection')`), "same-healthy-connection");
+  });
+  await check("reproduces optimistic TUN success followed by reset on an IPv6-incapable exit", async () => {
+    await exec("touch", "/run/reject-ipv6");
+    assert.equal(await exec("python3", "-c", `import socket
+s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.settimeout(3)
+s.connect(('${targetV6}',8080))
+try:
+ s.sendall(b'GET / HTTP/1.0\\r\\n\\r\\n');data=s.recv(100)
+ assert not data,data
+except (ConnectionResetError,BrokenPipeError): pass
+finally:s.close()
+print('virtual-success-upstream-failed')`), "virtual-success-upstream-failed");
+  });
+  await check("IPv4-only exit rejects IPv6 before a virtual TCP handshake, including cached literals", async () => {
+    await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: true, ipv6: false }));
+    const before = Number(await exec("cat", "/run/relay-count"));
+    assert.equal(await exec("python3", "-c", `import socket,time,errno
+s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.settimeout(2);start=time.monotonic()
+try:
+ s.connect(('${targetV6}',8080));raise SystemExit('unexpected virtual success')
+except OSError as e:
+ assert e.errno in (errno.ENETUNREACH,errno.EHOSTUNREACH),e
+ assert time.monotonic()-start<0.5
+ print('fast-unreachable')
+finally:s.close()`), "fast-unreachable");
+    assert.equal(Number(await exec("cat", "/run/relay-count")), before, "unsupported family never entered the proxy");
+    assert.equal(await exec(...curl, `http://${targetIp}:8080`), "target-via-selected-route");
+    await expectBlocked(...curl, "--interface", "eth0", `http://[${targetV6}]:8080`);
+    const table = await exec("ip", "-6", "route", "show", "table", "18791");
+    assert.match(table, /unreachable default/);
+    assert.doesNotMatch(table, /default dev openteam0/);
+  });
+  await check("restored IPv6 works without a browser or tunnel restart", async () => {
+    await exec("rm", "/run/reject-ipv6");
+    await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: true, ipv6: true }));
+    assert.equal(await exec(...curl, `http://[${targetV6}]:8080`), "target-via-selected-route");
+  });
+  await check("IPv6-only capabilities block IPv4 without leaking to the underlay", async () => {
+    await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: false, ipv6: true }));
+    await expectBlocked(...curl, `http://${targetIp}:8080`);
+    assert.equal(await exec(...curl, `http://[${targetV6}]:8080`), "target-via-selected-route");
+    assert.equal(await exec(...curl, `http://${targetIp}:8787`), "management-reachable");
+    await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: true, ipv6: true }));
+  });
+  if (process.argv.includes("--internet")) {
+    await run(docker("exec", "-d", "-e", "LD_PRELOAD=/fixture/network-mark.so", `${prefix}-computer`, "node", "/fixture/fixture.mjs", "capabilities"));
+    const health = async () => JSON.parse(await exec("cat", "/run/family-health.json"));
+    const waitHealth = async (state: string) => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        try { const value = await health(); if (value.ipv4.state === state && value.ipv6.state === "unavailable") return value; } catch {}
+        await Bun.sleep(200);
+      }
+      throw new Error(`Production capability monitor did not reach ${state}`);
+    };
+    await check("production monitor verifies IPv4 TLS through the real TUN and blocks unsupported IPv6", async () => {
+      const value = await waitHealth("working");
+      assert.equal(value.sourceId, "local-fixture");
+      assert.match(await exec("ip", "-6", "route", "show", "table", "18791"), /unreachable default/);
+      assert.doesNotMatch(await exec("ip", "-6", "route", "show", "table", "18791"), /default dev openteam0/);
+    });
+    await check("production monitor closes failed paths and restores them after recovery", async () => {
+      await exec("touch", "/run/reject-ipv4");
+      await waitHealth("unavailable");
+      await expectBlocked(...curl, `http://${targetIp}:8080`);
+      await exec("rm", "/run/reject-ipv4");
+      await waitHealth("working");
+      assert.equal(await exec(...curl, `http://${targetIp}:8080`), "target-via-selected-route");
+    });
+    await exec("python3", "-c", `import os,signal
+for p in os.listdir('/proc'):
+ if not p.isdigit(): continue
+ try: args=open('/proc/'+p+'/cmdline','rb').read().split(bytes([0]))
+ except OSError: continue
+ if len(args)>2 and args[1]==b'/fixture/fixture.mjs' and args[2]==b'capabilities': os.kill(int(p),signal.SIGTERM)`);
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (await exec("sh", "-c", "test -f /run/family-monitor-stopped && echo yes || true") === "yes") break;
+      if (attempt === 49) throw new Error("Capability monitor did not shut down");
+      await Bun.sleep(100);
+    }
+    await exec("python3", "/fixture/openteam-computer-network.py", "--families", JSON.stringify({ ipv4: true, ipv6: true }));
+  }
   await check("explicitly binding the physical interface cannot bypass", () =>
     expectBlocked(...curl, "--interface", "eth0", `http://${targetIp}:8080`)
   );

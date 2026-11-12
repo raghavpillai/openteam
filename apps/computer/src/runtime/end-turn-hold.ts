@@ -19,9 +19,21 @@ export function endTurnHoldExtension(active: ActiveTurn): {
     name: "openteam-end-turn-hold",
     hidden: true,
     factory(pi) {
+      const closingResults = new Set<string>();
       pi.on("tool_result", async (event) => {
         if (!active.endTurnCallId || event.toolCallId !== active.endTurnCallId) return undefined;
-        await Promise.all([...(active.responseCallEnds ?? [])].flatMap(([id, call]) => (id === event.toolCallId ? [] : [call.ended])));
+        // Pi emits tool_execution_end after this hook returns. An earlier closing
+        // result may already be waiting for us, so waiting on it would form a cycle.
+        const earlierClosings = new Set(closingResults);
+        closingResults.add(event.toolCallId);
+        try {
+          await Promise.all([...(active.responseCallEnds ?? [])].flatMap(([id, call]) =>
+            id === event.toolCallId || earlierClosings.has(id) ? [] : [call.ended]));
+        } finally {
+          closingResults.delete(event.toolCallId);
+        }
+        // A later closing sibling owns the reminder after it has settled the batch.
+        if (event.toolCallId !== active.endTurnCallId) return undefined;
         const failed = (active.failedResponseCalls ?? []).filter((id) => id !== event.toolCallId);
         if (!active.endTurnRequested || !active.finishResponseCalls || active.awaitingUser || !failed.length ||
             (active.endTurnHolds ?? 0) >= END_TURN_HOLD_LIMIT || active.pluginAbortController?.signal.aborted)

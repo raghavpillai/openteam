@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
@@ -5,7 +6,7 @@ import {
   attachmentTextPreview,
 } from "@openteam/product-core/attachments";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2 } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,8 +17,9 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { type AttachmentPreviewKind, attachmentPreviewKind } from "../../lib/attachment-preview";
 import { MessageResponse } from "../ai-elements/message";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { LoadingOrb } from "../ui/loading-orb";
+import { AttachmentStage } from "./attachment-stage";
+import { ImageAttachmentPreview } from "./image-attachment";
 import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
 import {
   renderSanitizedDocumentProgressively,
@@ -212,6 +214,9 @@ function PdfPreview({ url }: { url: string }) {
     setError(null);
     void Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")])
       .then(async ([pdfjs, worker]) => {
+        // An immediate close can happen before either lazy import resolves.
+        // Creating a loading task after cleanup would leave its worker unowned.
+        if (!active) return;
         const pdfWorkerUrl = worker.default;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         const currentTask = pdfjs.getDocument({
@@ -229,31 +234,47 @@ function PdfPreview({ url }: { url: string }) {
     };
   }, [url]);
 
-  if (error) return <PreviewStatus detail={error} title="Couldn’t render this PDF" />;
-  if (!document) return <PreviewStatus loading title="Loading PDF…" />;
   return (
     <div
-      aria-label={`${document.numPages} page PDF preview`}
-      className="bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+      aria-label={document ? `${document.numPages} page PDF preview` : "PDF preview"}
+      className={
+        document && !error
+          ? "bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+          : "h-full"
+      }
       ref={scrollRef}
     >
-      <div className="relative w-full" style={{ height: totalSize }}>
-        {virtualItems.map((item) => (
-          <div
-            className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
-            key={item.key}
-            ref={(node) => measureElement(item.index, item.key, node)}
-            style={{ transform: `translateY(${item.start}px)` }}
-          >
-            <PdfPage document={document} pageNumber={item.index + 1} />
-          </div>
-        ))}
-      </div>
+      {/* Keep the scrollport mounted while loading so the virtualizer can bind
+          its scroll and resize listeners before the document arrives. */}
+      {error ? (
+        <PreviewStatus detail={error} title="Couldn’t render this PDF" />
+      ) : !document ? (
+        <PreviewStatus loading title="Loading PDF…" />
+      ) : (
+        <div className="relative w-full" style={{ height: totalSize }}>
+          {virtualItems.map((item) => (
+            <div
+              className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
+              key={item.key}
+              ref={(node) => measureElement(item.index, item.key, node)}
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              <PdfPage document={document} pageNumber={item.index + 1} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function ProgressiveHtmlPreview({ source }: { source: HTMLElement }) {
+function ProgressiveHtmlPreview({
+  source,
+  table = false,
+}: {
+  source: HTMLElement;
+  table?: boolean;
+}) {
   const articleRef = useRef<HTMLElement>(null);
   const [completedSource, setCompletedSource] = useState<HTMLElement | null>(null);
   const complete = completedSource === source;
@@ -279,7 +300,11 @@ function ProgressiveHtmlPreview({ source }: { source: HTMLElement }) {
   return (
     <article
       aria-busy={complete ? undefined : true}
-      className="openteam-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+      className={
+        table
+          ? "openteam-document-preview openteam-table-preview"
+          : "openteam-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+      }
       ref={articleRef}
     />
   );
@@ -408,7 +433,7 @@ function LoadedDocumentPreview({
   if (state.kind === "error")
     return <PreviewStatus detail={state.message} title="Couldn’t read file" />;
   if (state.kind === "html") {
-    return <ProgressiveHtmlPreview source={state.value} />;
+    return <ProgressiveHtmlPreview source={state.value} table={kind === "table"} />;
   }
   return (
     <div className="mx-auto min-h-full w-full max-w-[960px] bg-background px-8 py-7">
@@ -420,7 +445,7 @@ function LoadedDocumentPreview({
       {kind === "markdown" ? (
         <MessageResponse>{state.value}</MessageResponse>
       ) : (
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[18px]">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[18px]">
           {state.value}
         </pre>
       )}
@@ -430,7 +455,9 @@ function LoadedDocumentPreview({
 
 export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
   const [open, setOpen] = useState(false);
-  const kind = attachmentPreviewKind(attachment);
+  const dot = attachment.fileName.lastIndexOf(".");
+  const baseName = dot > 0 ? attachment.fileName.slice(0, dot) : attachment.fileName;
+  const extension = dot > 0 ? attachment.fileName.slice(dot) : "";
 
   return (
     <>
@@ -440,7 +467,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
       >
         {/* As in the reference, every card opens the viewer; a type it can't show
             offers the download there. */}
-        <button
+        <ButtonPrimitive
           aria-label={`Open ${attachment.fileName}`}
           className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-[22px] p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
           onClick={() => setOpen(true)}
@@ -448,72 +475,96 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
         >
           <FileGlyph variant={fileGlyphVariant(attachment.fileName)} />
           <span className="flex min-w-0 flex-1 flex-col gap-px">
-            <span className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
-              {attachment.fileName}
-            </span>
+            <bdi
+              dir="ltr"
+              className="flex min-w-0 text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]"
+            >
+              <span className="truncate">{baseName}</span>
+              <span className="shrink-0">{extension}</span>
+            </bdi>
             <span className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
               {formatAttachmentSize(attachment.byteSize)}
             </span>
           </span>
-        </button>
+        </ButtonPrimitive>
       </article>
 
-      <Dialog onOpenChange={setOpen} open={open}>
-        <DialogContent
-          className="grid h-[calc(100vh-80px)] w-[min(1100px,calc(100vw-80px))] max-w-none grid-rows-[40px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[12px] border-[0.5px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_32px_80px_rgba(0,0,0,0.55)] dark:border-[#303030] dark:bg-[#070707]"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          showCloseButton={false}
-          surface="transparent"
-        >
-          <DialogTitle className="sr-only">{attachment.fileName}</DialogTitle>
-          <DialogDescription className="sr-only">
-            Preview and download {attachment.fileName}
-          </DialogDescription>
-          <header className="flex min-w-0 items-center gap-3 border-b-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-4 dark:border-white/[0.08] dark:bg-[#111111]">
-            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">
-              {attachment.fileName}
-            </span>
-            <a
-              aria-label="Download file"
-              className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-              download={attachment.fileName}
-              href={api.assetUrl(attachment, true)}
-              onClick={(event) => {
-                event.preventDefault();
-                void downloadAttachments([attachment]).catch((error) =>
-                  toast.error(clientErrorMessage(error, "Couldn’t download file"))
-                );
-              }}
-            >
-              <Download className="size-4" />
-            </a>
-            {(kind === "video" || kind === "pdf") && (
-              <button
-                aria-label={
-                  kind === "video" ? "Open video full screen" : "Open preview full screen"
-                }
-                className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-                onClick={() => document.documentElement.requestFullscreen?.()}
-                type="button"
-              >
-                <Maximize2 className="size-4" />
-              </button>
-            )}
-            <button
-              aria-label="Close preview"
-              className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-              onClick={() => setOpen(false)}
+      <FileAttachmentPreview attachment={attachment} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+export function FileAttachmentPreview({
+  attachment,
+  open,
+  onOpenChange,
+}: {
+  attachment: AssetRef;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const kind = attachmentPreviewKind(attachment);
+  if (attachment.kind === "image")
+    return (
+      <ImageAttachmentPreview
+        title={attachment.fileName}
+        images={[
+          {
+            url: api.assetUrl(attachment),
+            fileName: attachment.fileName,
+            alt: attachment.alt || attachment.fileName,
+            width: attachment.width,
+            height: attachment.height,
+          },
+        ]}
+        activeIndex={open ? 0 : null}
+        onActiveIndexChange={(next) =>
+          onOpenChange((typeof next === "function" ? next(open ? 0 : null) : next) !== null)
+        }
+      />
+    );
+  return (
+    <AttachmentStage
+      onOpenChange={onOpenChange}
+      open={open}
+      title={attachment.fileName}
+      actions={
+        <>
+          {(kind === "video" || kind === "pdf") && (
+            <ButtonPrimitive
+              aria-label={kind === "video" ? "Open video full screen" : "Open preview full screen"}
+              className="desktop-elevated-control"
+              onClick={() => document.documentElement.requestFullscreen?.()}
               type="button"
             >
-              <X className="size-4" />
-            </button>
-          </header>
-          <div className="bot-scrollbar min-h-0 overflow-auto bg-[#fcfcfc] dark:bg-[#070707]">
-            <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
+              <Maximize2 className="size-4" />
+            </ButtonPrimitive>
+          )}
+          <ButtonPrimitive
+            aria-label="Download file"
+            className="desktop-elevated-control"
+            onClick={() =>
+              void downloadAttachments([attachment]).catch((error) =>
+                toast.error(clientErrorMessage(error, "Couldn’t download file"))
+              )
+            }
+            type="button"
+          >
+            <Download className="size-4" strokeWidth={1.8} />
+          </ButtonPrimitive>
+        </>
+      }
+    >
+      <div className="attachment-stage-document bot-scrollbar file-preview-dialog">
+        {kind === "table" && (
+          <div className="attachment-table-heading">
+            <span>Spreadsheet preview</span>
+            <span>Download to view the full workbook</span>
           </div>
-        </DialogContent>
-      </Dialog>
-    </>
+        )}
+        <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
+      </div>
+    </AttachmentStage>
   );
 }
 
@@ -544,25 +595,25 @@ export function MediaPositionControl({
   if (total < 2) return null;
   return (
     <div className="flex items-center gap-1 text-[11px] text-foreground-secondary">
-      <button
+      <ButtonPrimitive
         aria-label="Previous media"
         className="grid size-7 place-items-center"
         onClick={onPrevious}
         type="button"
       >
         <ChevronLeft className="size-4" />
-      </button>
+      </ButtonPrimitive>
       <span>
         {current + 1} of {total}
       </span>
-      <button
+      <ButtonPrimitive
         aria-label="Next media"
         className="grid size-7 place-items-center"
         onClick={onNext}
         type="button"
       >
         <ChevronRight className="size-4" />
-      </button>
+      </ButtonPrimitive>
     </div>
   );
 }

@@ -40,27 +40,73 @@ export const classifyDesktopUpdateError = (
   error: unknown,
   phase: DesktopUpdateSnapshot["status"]
 ): { failureKind: DesktopUpdateFailureKind; message: string } => {
-  const message = safeErrorMessage(error);
-  const normalized = message.toLowerCase();
-  if (/signature|code.?sign|sha(?:256|512)|checksum|notariz/.test(normalized)) {
-    return { failureKind: "signature-invalid", message };
+  // electron-updater appends stacks, response headers and the entire Atom feed.
+  // Release notes in that payload can mention signatures without a verification failure.
+  const diagnostic =
+    safeErrorMessage(error).split(/\r?\n|\\n|\b(?:XML|Data|Headers|rawData):/i, 1)[0] ?? "";
+  const normalized = diagnostic.toLowerCase();
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  const statusCode =
+    error && typeof error === "object" && "statusCode" in error ? String(error.statusCode) : "";
+  const status = /^[45]\d{2}$/.test(statusCode)
+    ? statusCode
+    : normalized.match(
+        /\b(?:httperror\s*:|http\s*(?:status\s*)?:?|status\s*(?:code\s*)?:?|returned)\s*([45]\d{2})\b/
+      )?.[1];
+  if (status || /\bhttp(?:error)?\b/.test(normalized)) {
+    return {
+      failureKind: phase === "downloading" ? "download-failed" : "feed-http-status",
+      message: `The update service returned ${status ? `HTTP ${status}` : "an HTTP error"}. Try again in a few minutes.`,
+    };
+  }
+  // Electron's net module reports Chromium codes such as net::ERR_NAME_NOT_RESOLVED.
+  if (
+    /network|offline|unreachable|timed?[\s_-]*out|time-?out|econn|enotfound|net::err_(?:internet_disconnected|name_not_resolved|name_resolution_failed|connection_|address_unreachable|proxy_connection_failed|tunnel_connection_failed|empty_response)/.test(
+      normalized + " " + code.toLowerCase()
+    )
+  ) {
+    return {
+      failureKind: phase === "downloading" ? "download-failed" : "service-unavailable",
+      message: "The update service is currently unreachable. Check your connection and try again.",
+    };
+  }
+  if (
+    /feed|manifest|update info/.test(normalized) ||
+    /ERR_UPDATER_(?:INVALID_RELEASE_FEED|INVALID_UPDATE_INFO|NO_CHECKSUM)/.test(code)
+  ) {
+    return {
+      failureKind: "feed-malformed",
+      message: "The update service returned invalid release information. Try again later.",
+    };
+  }
+  if (
+    /signature|code.?sign|sha(?:256|512)|checksum|notariz/.test(normalized) ||
+    /SIGNATURE|CHECKSUM/.test(code)
+  ) {
+    return {
+      failureKind: "signature-invalid",
+      message: "The downloaded update failed signature verification and was not installed.",
+    };
   }
   if (/unsupported|not supported|cannot be installed|cannot apply/.test(normalized)) {
-    return { failureKind: "apply-unsupported", message };
+    return {
+      failureKind: "apply-unsupported",
+      message: "The downloaded update cannot be installed on this platform.",
+    };
   }
   if (phase === "downloading" || /download/.test(normalized)) {
-    return { failureKind: "download-failed", message };
-  }
-  if (/http|status\s+\d{3}|returned\s+\d{3}/.test(normalized)) {
-    return { failureKind: "feed-http-status", message };
+    return {
+      failureKind: "download-failed",
+      message: "The update could not be downloaded. Try again.",
+    };
   }
   if (/json|parse|manifest|feed|version/.test(normalized)) {
-    return { failureKind: "feed-malformed", message };
+    return {
+      failureKind: "feed-malformed",
+      message: "The update service returned invalid release information. Try again later.",
+    };
   }
-  if (/network|offline|unreachable|timed?\s*out|econn|enotfound/.test(normalized)) {
-    return { failureKind: "service-unavailable", message };
-  }
-  return { failureKind: "unknown", message };
+  return { failureKind: "unknown", message: "The desktop update failed. Try again." };
 };
 
 export const parseDesktopReleaseManifest = (

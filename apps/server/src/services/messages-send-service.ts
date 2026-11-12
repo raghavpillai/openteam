@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { ApiError, messagesSendRecipient, validateMessageSend, type MessagesSend } from "@openteam/contracts";
+import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import { ApiError, messagesSendRecipient, validateMessageSend, type AssetRef, type MessagesSend } from "@openteam/contracts";
+import { MESSAGES_SEND_FILES_TOOL, MESSAGES_SEND_MAX_BYTES } from "@openteam/contracts/messages-send";
 import { type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import type { MachineService } from "./machine-service";
@@ -12,7 +15,8 @@ const DISCARDED_OUTCOME =
 const UNCONFIRMED_OUTCOME =
   "The send started on the Mac, but its outcome is unknown: it may or may not have gone out. Check the chat with ChatItems before discussing another attempt, and never send it again automatically.";
 
-interface StoredSend extends MessagesSend {
+interface StoredSend extends Omit<MessagesSend, "attachmentPaths"> {
+  attachments?: AssetRef[];
   machineId: string;
   machineLabel: string;
   recipientLabel: string;
@@ -24,7 +28,7 @@ const fail = (message: string): never => {
   throw new ApiError(409, "imessage_send_unavailable", message);
 };
 const describe = (send: StoredSend) =>
-  `From: ${send.machineLabel}\nTo: ${send.recipientLabel}${send.to && send.recipientName ? ` (${send.to})` : ""}${send.chatId ? ` (${send.chatId})` : ""}\n\n${send.text}`;
+  `From: ${send.machineLabel}\nTo: ${send.recipientLabel}${send.to && send.recipientName ? ` (${send.to})` : ""}${send.chatId ? ` (${send.chatId})` : ""}\n\n${send.text}${send.attachments?.length ? `\nAttachments: ${send.attachments.map(file => `${file.fileName} (${file.byteSize} bytes)`).join(", ")}` : ""}`;
 const fields = ({ text, to, chatId, service, recipientName }: StoredSend): MessagesSend => ({
   text, ...(to ? { to } : {}), ...(chatId ? { chatId } : {}), ...(service ? { service } : {}), ...(recipientName ? { recipientName } : {}),
 });
@@ -43,10 +47,20 @@ export class MessagesSendService {
     try { send = validateMessageSend(input); }
     catch (error) { throw new ApiError(400, "imessage_send_invalid", error instanceof Error ? error.message : String(error)); }
     const machine = await this.machines.messagesMachine(context.botId, context.channelId, typeof requested === "string" ? requested : undefined);
+    // Freeze deliverables before approval; a later workspace edit cannot change a reviewed send.
+    const { attachmentPaths, ...body } = send;
+    const attachments: AssetRef[] = [];
+    let total = 0;
+    for (const path of attachmentPaths ?? []) {
+      const asset = await this.messaging.assets.ingestSource({ url: pathToFileURL(path).href });
+      total += asset.byteSize;
+      if (total > MESSAGES_SEND_MAX_BYTES) throw new ApiError(413, "imessage_attachments_too_large", "Attachments exceed 25 MiB in total");
+      attachments.push(asset);
+    }
     const recipient = messagesSendRecipient(send);
     const allowed = await this.machines.messagesSendAllowed(machine.machineId, recipient.allowable ? send.to : undefined);
     const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
-    const stored: StoredSend = { ...send, machineId: machine.machineId, machineLabel: machine.label, recipientLabel: recipient.label, allowable: recipient.allowable, runId: context.runId };
+    const stored: StoredSend = { ...body, ...(attachments.length ? { attachments } : {}), machineId: machine.machineId, machineLabel: machine.label, recipientLabel: recipient.label, allowable: recipient.allowable, runId: context.runId };
     const result = await this.messaging.sendVisible(context, {
       type: "imessage-send",
       imessage: stored,
@@ -106,8 +120,19 @@ export class MessagesSendService {
       return this.reopen(messageId, `${stored.machineLabel} is offline. Open OpenTeam on that Mac, then press Send again.`);
     let result: Record<string, unknown>;
     try {
-      // The Mac keeps a receipt per call ID, so pressing Send again never texts twice.
-      result = await this.machines.callCapability(stored.machineId, { tool: "SendIMessage", botId: message.senderBotId, callId: `imessage-send:${messageId}`, arguments: fields(stored) });
+      const attachments = [];
+      let total = 0;
+      for (const file of stored.attachments ?? []) {
+        await this.messaging.assets.metadata(file.assetId);
+        const bytes = await readFile(this.messaging.assets.contentPath(file.assetId));
+        total += bytes.length;
+        if (total > MESSAGES_SEND_MAX_BYTES || createHash("sha256").update(bytes).digest("hex") !== file.assetId)
+          throw new Error("Attachment content cannot be verified");
+        attachments.push({ fileName: file.fileName, bytesBase64: bytes.toString("base64") });
+      }
+      // A separate wire verb makes older Macs refuse files instead of silently sending only text.
+      // The Mac keeps a receipt per call ID, so pressing Send again never sends twice.
+      result = await this.machines.callCapability(stored.machineId, { tool: attachments.length ? MESSAGES_SEND_FILES_TOOL : "SendIMessage", botId: message.senderBotId, callId: `imessage-send:${messageId}`, arguments: { ...fields(stored), ...(attachments.length ? { attachments } : {}) } });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       if (/outcome is uncertain|disconnected|already dispatched/i.test(reason)) return this.settle(messageId, "unknown", UNCONFIRMED_OUTCOME, false, !wake);
@@ -116,7 +141,9 @@ export class MessagesSendService {
         return this.reopen(messageId, `Messages is turned off on ${stored.machineLabel}. Turn on Use Messages in OpenTeam Settings → Computer there, then press Send again.`);
       if (/has not granted OpenTeam/i.test(reason))
         return this.reopen(messageId, `${stored.machineLabel} needs a macOS permission to send texts. Allow it in the window that opened on that Mac, then press Send again.`);
-      return this.settle(messageId, "failed", `Nothing was sent: ${stored.machineLabel} refused the text (${reason}).`, wake, !wake, { sendError: reason.slice(0, 500) });
+      const detail = stored.attachments?.length && /Unknown desktop capability/i.test(reason)
+        ? `Update OpenTeam on ${stored.machineLabel} to send attachments.` : reason;
+      return this.settle(messageId, "failed", `Nothing was sent: ${stored.machineLabel} refused the message (${detail}).`, wake, !wake, { sendError: detail.slice(0, 500) });
     }
     const how = metadata.sentUnder
       ? "Sent without an approval card: the user allowed this recipient, or every send, on that Mac."

@@ -1,5 +1,4 @@
 import type { BotTranscriptView, BotView, ChannelView } from "@openteam/contracts";
-import { lazy, Suspense } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,37 +9,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
-import { LoadingOrb } from "../ui/loading-orb";
 import { TranscriptDialog } from "./transcript-dialog";
 
-const GroupForm = lazy(() => import("./forms").then((module) => ({ default: module.GroupForm })));
-
 export function DesktopDialogs({
-  activeBots,
   deleteBotTarget,
   deleteGroupTarget,
-  newGroupOpen,
   rowTranscript,
   onConfirmDeleteBot,
   onConfirmDeleteGroup,
-  onCreateGroup,
   onDeleteBotOpenChange,
   onDeleteGroupOpenChange,
-  onNewGroupOpenChange,
   onTranscriptOpenChange,
 }: {
-  activeBots: BotView[];
   deleteBotTarget: BotView | null;
   deleteGroupTarget: ChannelView | null;
-  newGroupOpen: boolean;
   rowTranscript: { bot: BotView; transcript: BotTranscriptView | null } | null;
   onConfirmDeleteBot: () => void;
   onConfirmDeleteGroup: () => void;
-  onCreateGroup: (name: string, botIds: string[]) => Promise<void>;
   onDeleteBotOpenChange: (open: boolean) => void;
   onDeleteGroupOpenChange: (open: boolean) => void;
-  onNewGroupOpenChange: (open: boolean) => void;
   onTranscriptOpenChange: (open: boolean) => void;
 }) {
   return (
@@ -76,23 +63,6 @@ export function DesktopDialogs({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Dialog onOpenChange={onNewGroupOpenChange} open={newGroupOpen}>
-        <DialogContent className="max-w-[640px] gap-0 overflow-hidden rounded-[14px] p-0">
-          <Suspense
-            fallback={
-              <div className="grid min-h-72 place-items-center">
-                <DialogTitle className="sr-only">New channel</DialogTitle>
-                <DialogDescription className="sr-only">
-                  Loading channel creation form.
-                </DialogDescription>
-                <LoadingOrb label="Loading" />
-              </div>
-            }
-          >
-            <GroupForm bots={activeBots} onSubmit={onCreateGroup} />
-          </Suspense>
-        </DialogContent>
-      </Dialog>
       <TranscriptDialog
         botName={rowTranscript?.bot.name ?? "Bot"}
         onOpenChange={onTranscriptOpenChange}

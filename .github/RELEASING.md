@@ -5,28 +5,30 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
-## v0.0.13 release candidate
+## Preparation checks
 
-Prepare v0.0.13 from `eb8ae082c4a7c0cf30bafb140045a6e615a1b81b`, with
-v0.0.12 as the previous release. Keep the root and all workspace package versions,
-`bun.lock` workspace versions, and `apps/ios/release.json` at `0.0.13`. Reserve iOS
-build `63` and regenerate the checked-in Xcode project with
-`python3 apps/ios/scripts/generate-project.py`.
+Before every iOS upload, query App Store Connect builds **and build uploads**
+read-only, including unfinished uploads, and choose an unused build number. Recheck
+immediately before uploading because source metadata does not reserve it on Apple.
+Update `apps/ios/release.json`, then regenerate the checked-in Xcode project with
+`python3 apps/ios/scripts/generate-project.py`. Keep signing credentials outside Git
+and logs. For a public iOS update notice, verify the exact version/build is valid,
+unexpired, approved and available in the public TestFlight group before updating
+`apps/landing/public/ios-update.json` and deploying the site.
 
-This candidate includes PRs #223–#228: desktop settings controls and copy; removal
-of bot hiding and duplication; voice composer visuals; the doctor workspace probe's
-bot identity; sidebar account controls; and contextual send failures and pending
-attachment previews. Previously hidden bots and group chats become visible again
-after the server update. Review the draft notes in ignored
-`output/release-v0.0.13/release-notes.md` before publication.
+Record the tested SHA, worktree, tool versions and focused metadata, generated
+configuration, documentation rendering/link checks and tests. Keep these results
+separate from the full repository gate, desktop interaction QA, native device QA,
+and installed-artifact verification. Review those broader checks before promotion.
+Siri AI preview reasoning and app-skill selection require supported physical hardware,
+preview access, and a development-signed or internal TestFlight build; simulator
+checks and external public TestFlight do not establish that behavior. See the
+[iOS build and preview requirements](../apps/ios/README.md#siri-ai-preview-and-app-skills).
 
-Record focused metadata/configuration checks separately from the full repository
-gate, desktop interaction QA, and native iPhone/iPad QA. Those broader checks must
-be reviewed before promoting the candidate. A version bump and passing source
-checks do not establish installer quality, device behavior, or TestFlight availability.
-Candidate preparation does not publish a tag, GitHub release, installer, container,
-or TestFlight build. Keep public update feeds at their last verified releases until
-the new artifacts are available and verified.
+A version bump and passing source checks do not establish installer quality,
+device behavior, or TestFlight availability. Candidate preparation does not publish
+a tag, GitHub release, installer, container, or TestFlight build. Keep public update
+feeds at verified releases until new artifacts are available and verified.
 
 ## macOS desktop
 
@@ -59,13 +61,23 @@ to the app, not necessarily to the DMG container.
 for public installers. The maintainer's reusable local release skill lives in a
 private, gitignored `.agents/skills/openteam-macos-release/` folder.
 
+## Linux desktop
+
+Build on an x86_64 Linux machine from an isolated checkout prepared the same way.
+From `apps/desktop`, run `bun run typecheck` and `bun run package`. electron-builder
+builds for the current platform, so this writes `OpenTeam-<version>-linux-x86_64.AppImage`
+and `latest-linux.yml` to `apps/desktop/release/`, then checks package budgets. Sign the
+AppImage with `apps/cli/scripts/sign-release.ts` (it takes any file paths) so it ships with
+its `.sigstore.json` bundle, as published releases do.
+
 ## Publish artifacts
 
-Upload the verified DMG, ZIP, blockmaps, and `latest-mac.yml` from
-`apps/desktop/release/` to the intended release using `gh release upload <tag> <files>`.
-Do not replace existing assets unless that replacement is intended. Preserve other
-platforms' entries in `DESKTOP_SHA256SUMS`, add the hashes of the uploaded macOS files,
-and upload the merged checksum file. Download the published DMG and verify its hash.
+Upload the verified macOS DMG, ZIP, blockmaps, and `latest-mac.yml`, and the Linux
+AppImage and `latest-linux.yml`, from `apps/desktop/release/` to the intended release
+using `gh release upload <tag> <files>`. Do not replace existing assets unless that
+replacement is intended. Preserve other platforms' entries in `DESKTOP_SHA256SUMS`,
+add the hashes of the uploaded files, and upload the merged checksum file. Download
+each published installer and verify its hash.
 
 The download page selects `OpenTeam-<version>-mac-arm64.dmg` from the latest published
 GitHub release and caches lookups for five minutes. Verify the download page resolves

@@ -1,14 +1,12 @@
 import { ApiError } from "@openteam/contracts";
 import { connectorHostTools } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
-import { appendEvent, toJson } from "../service-utils";
+import { toJson } from "../service-utils";
 import { loadConnectionNamespaces } from "./namespaces";
 import type { PluginTransport } from "./transport";
+import { isUnknownPluginOutcome } from "./invocation-outcomes";
 import {
-  canonicalJson,
   definitionFromManifest,
-  jsonObject,
-  redact,
   toolSnapshot,
 } from "./values";
 
@@ -28,8 +26,10 @@ export class PluginInvocations {
       arguments: unknown;
       /** Server-side callers only: a host-only tool, absent from the Bot-visible snapshot. */
       hostTool?: boolean;
-    }
+    },
+    signal?: AbortSignal
   ): Promise<unknown> => {
+    signal?.throwIfAborted();
     const connection = await this.prisma.pluginConnection.findUnique({
       where: { id: request.connectionId },
       include: {
@@ -54,13 +54,27 @@ export class PluginInvocations {
     if (connection.status !== "ready") {
       throw new ApiError(409, "plugin_connection_not_ready", "Plugin connection is not ready");
     }
+    const connector = definitionFromManifest(connection.installation.manifest)?.connections.find(
+      (c) => c.key === connection.connectorKey
+    );
+    if (
+      connector?.deviceLink &&
+      Object.entries(connector.deviceLink).some(
+        ([key, value]) => key.endsWith("Tool") && value === request.toolName
+      )
+    )
+      throw new ApiError(
+        403,
+        "plugin_host_tool_unsupported",
+        "Device linking tools are available only in account settings"
+      );
     if (!request.hostTool) {
       const tool = toolSnapshot(connection.toolSnapshot).find(
         (candidate) => candidate.name === request.toolName
       );
-      if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-      // As in the reference, the agent's runtime repairs arguments against the schema and the
-      // connector judges them; a strict local check would refuse calls the server accepts.
+      if (!tool || connectorHostTools(connector).includes(request.toolName))
+        throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
+      // The agent repairs arguments against the schema; the connector judges them.
     } else if (
       connection.transport !== "stdio" ||
       !connectorHostTools(
@@ -93,6 +107,8 @@ export class PluginInvocations {
       }
       if (previous?.status === "completed")
         return { completed: true as const, result: previous.result };
+      if (previous?.status === "failed" && isUnknownPluginOutcome(previous.error))
+        throw new ApiError(409, "plugin_call_outcome_unknown", previous.error!);
       if (previous) {
         throw new ApiError(
           409,
@@ -113,6 +129,6 @@ export class PluginInvocations {
       return { completed: false as const };
     });
     if (prepared.completed) return prepared.result;
-    return this.executeInvocation(request.callId);
+    return this.executeInvocation(request.callId, signal);
   };
 }

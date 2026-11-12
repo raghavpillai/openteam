@@ -1,4 +1,9 @@
-import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../lib/window-visibility";
+import {
+  isWindowActive,
+  isWindowVisible,
+  WINDOW_ACTIVITY_EVENT,
+  WINDOW_VISIBILITY_EVENT,
+} from "../lib/window-visibility";
 import { createKeyedRequestCoordinator } from "@openteam/client-core";
 import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES, type ClientCapabilities } from "@openteam/contracts/capabilities";
@@ -7,7 +12,6 @@ import {
   type LoadedChannelHistory,
   loadingChannelHistory,
 } from "@openteam/product-core/history";
-import { toggleOwnReaction } from "@openteam/product-core/messages";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDesktopLiveSyncController, shouldRefreshForEvent } from "../client/event-stream";
@@ -41,6 +45,7 @@ import {
 } from "../lib/bootstrap-snapshot";
 import { withDeadline } from "../lib/request-errors";
 import { RUNTIME_REFRESH_EVENT } from "../lib/runtime-refresh";
+import { createReactionController } from "./reaction-controller";
 
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -55,7 +60,6 @@ export interface ChannelHistoryStatus {
   loadingNewer: boolean;
   loadedMessages: number;
   retainedBytes: number;
-  activityTruncated: boolean;
   threadContextTruncated: boolean;
 }
 
@@ -86,6 +90,10 @@ const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
 export function useOpenTeam() {
   const [snapshot, setSnapshot] = useState<ClientSnapshot | null>(null);
   const snapshotRef = useRef<ClientSnapshot | null>(null);
+  const reactionControllerRef = useRef<ReturnType<typeof createReactionController> | null>(null);
+  const readMessageState = useCallback(<T>(operation: () => Promise<T>): Promise<T> => {
+    return reactionControllerRef.current?.read(operation) ?? operation();
+  }, []);
   const [detachedMessageIds, setDetachedMessageIds] =
     useState<ReadonlySet<string>>(EMPTY_MESSAGE_IDS);
   const detachedMessageIdsRef = useRef<ReadonlySet<string>>(EMPTY_MESSAGE_IDS);
@@ -127,7 +135,14 @@ export function useOpenTeam() {
       detached: ReadonlySet<string> = EMPTY_MESSAGE_IDS
     ) => {
       const startedAt = performance.now();
-      const next = reconcileClientSnapshot(incoming, snapshotRef.current, caches.current);
+      const controller = reactionControllerRef.current;
+      const projected = controller
+        ? {
+            ...incoming,
+            channelMessages: incoming.channelMessages.map((message) => controller.project(message)),
+          }
+        : incoming;
+      const next = reconcileClientSnapshot(projected, snapshotRef.current, caches.current);
       const changed = next !== snapshotRef.current;
       const nextDetached =
         detached.size === 0
@@ -300,7 +315,9 @@ export function useOpenTeam() {
             const stateRequest = background ? null : api.channelState(channelId);
             // The history read may fail first; still observe this rejection.
             stateRequest?.catch(() => undefined);
-            const page = await api.channelHistory(channelId, { limit: pageSize });
+            const page = await readMessageState(() =>
+              api.channelHistory(channelId, { limit: pageSize })
+            );
             if (!stillRequested()) return;
             const pageIsCurrent = observedBootstrap(page.revision, requestBootstrapEpoch);
             // Show messages as soon as they arrive. Channel state only carries
@@ -343,7 +360,7 @@ export function useOpenTeam() {
       channelLoads.current.set(channelId, { task, background });
       return task;
     },
-    [bumpHistoryRevision, publishBootstrap]
+    [bumpHistoryRevision, publishBootstrap, readMessageState]
   );
 
   // Replies keep landing in chats that are not open, usually with a notification.
@@ -482,10 +499,12 @@ export function useOpenTeam() {
       setHistoryRevision((value) => value + 1);
       const requestStartedAt = performance.now();
       try {
-        const page = await api.messageContext(requestedEdgeId, {
-          direction: direction === "older" ? "before" : "after",
-          limit: MESSAGE_HISTORY_PAGE_SIZE,
-        });
+        const page = await readMessageState(() =>
+          api.messageContext(requestedEdgeId, {
+            direction: direction === "older" ? "before" : "after",
+            limit: MESSAGE_HISTORY_PAGE_SIZE,
+          })
+        );
         if (
           !searchContextRequests.current.isCurrent(requestLease) ||
           !historyLru.current.includes(channelId)
@@ -560,7 +579,7 @@ export function useOpenTeam() {
         }
       }
     },
-    [publishBootstrap, setHistoryViewport]
+    [publishBootstrap, readMessageState, setHistoryViewport]
   );
 
   const loadOlder = useCallback(
@@ -583,10 +602,12 @@ export function useOpenTeam() {
       histories.current.set(channelId, { ...existing, loading: true });
       setHistoryRevision((value) => value + 1);
       try {
-        const page = await api.channelHistory(channelId, {
-          beforeSequence: requestedBefore,
-          limit: MESSAGE_HISTORY_PAGE_SIZE,
-        });
+        const page = await readMessageState(() =>
+          api.channelHistory(channelId, {
+            beforeSequence: requestedBefore,
+            limit: MESSAGE_HISTORY_PAGE_SIZE,
+          })
+        );
         if (
           !historyRequests.current.isCurrent(requestLease) ||
           !historyLru.current.includes(channelId)
@@ -633,7 +654,7 @@ export function useOpenTeam() {
         }
       }
     },
-    [loadContextPage, publishBootstrap, setHistoryViewport]
+    [loadContextPage, publishBootstrap, readMessageState, setHistoryViewport]
   );
 
   const loadNewer = useCallback(
@@ -644,11 +665,6 @@ export function useOpenTeam() {
 
   const ensureMessageLoaded = useCallback(
     async (channelId: string, messageId: string): Promise<boolean> => {
-      const snapshotHasTarget = Boolean(
-        snapshotRef.current?.channelMessages.some(
-          (message) => message.channelId === channelId && message.id === messageId
-        )
-      );
       const cached = histories.current.get(channelId);
       const targetIsPrimary = Boolean(cached?.messages.some((message) => message.id === messageId));
       if (targetIsPrimary) {
@@ -664,45 +680,31 @@ export function useOpenTeam() {
         }
         return true;
       }
-      const targetIsBootstrapLatest = Boolean(
-        bootstrapRef.current?.latestMessages.some((message) => message.id === messageId)
+      if (cached?.searchContext.some((message) => message.id === messageId)) return true;
+      const window = historyWindows.current.get(channelId);
+      const tailHasTarget = window?.latestTail?.messages.some(
+        (message) => message.id === messageId
       );
-      if (targetIsBootstrapLatest) {
-        const window = historyWindows.current.get(channelId);
-        if (cached && window && (window.context || window.primaryHasNewerGap)) {
-          const tailHasTarget = window.latestTail?.messages.some(
-            (message) => message.id === messageId
-          );
-          const reset = tailHasTarget ? resetToLatestTail(cached, window) : null;
-          if (reset) {
-            histories.current.set(channelId, reset.history);
-            historyWindows.current.set(channelId, reset.window);
-            setHistoryRevision((value) => value + 1);
-            publishBootstrap(false);
-          } else {
-            touchHistory(channelId);
-            await fetchChannel(channelId, true, true);
-          }
-        } else if (cached && cached.loadedAt > 0) {
-          // A newest message the transcript does not contain yet is withheld
-          // from it until a history read places it after its predecessors.
-          touchHistory(channelId);
-          await fetchChannel(channelId, false, true);
-        }
+      const reset = cached && window && tailHasTarget ? resetToLatestTail(cached, window) : null;
+      if (reset) {
+        histories.current.set(channelId, reset.history);
+        historyWindows.current.set(channelId, reset.window);
+        setHistoryRevision((value) => value + 1);
+        publishBootstrap(false);
         return true;
       }
-      if (cached?.searchContext.some((message) => message.id === messageId)) return true;
-      await loadChannel(channelId);
-      const loaded = histories.current.get(channelId);
-      if (loaded?.messages.some((message) => message.id === messageId)) return true;
-
+      touchHistory(channelId);
+      const contextLease = searchContextRequests.current.supersede(channelId);
       try {
-        const contextLease = searchContextRequests.current.supersede(channelId);
-        const context = await api.messageContext(messageId);
-        if (context.channelId !== channelId) return false;
+        const context = await readMessageState(() => api.messageContext(messageId));
+        if (
+          context.channelId !== channelId ||
+          !context.messages.some((message) => message.id === messageId)
+        )
+          return false;
         if (!searchContextRequests.current.isCurrent(contextLease)) return false;
-        const current = histories.current.get(channelId);
-        if (!current || !historyLru.current.includes(channelId)) return false;
+        if (!historyLru.current.includes(channelId)) return false;
+        const current = histories.current.get(channelId) ?? loadingChannelHistory();
         const transition = enterMessageContext(
           current,
           historyWindows.current.get(channelId) ?? emptyChannelMessageWindow(),
@@ -712,18 +714,23 @@ export function useOpenTeam() {
         historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
+        // Activity hydration runs independently of revealing the target. The
+        // context window keeps a latest-page refresh from replacing this page.
+        void fetchChannel(channelId, false, true).catch(() => undefined);
         return context.messages.some((message) => message.id === messageId);
       } catch (cause) {
+        if (!searchContextRequests.current.isCurrent(contextLease)) return false;
         setError(clientErrorMessage(cause, "Could not load message context"));
         throw cause;
       }
     },
-    [fetchChannel, loadChannel, publishBootstrap, touchHistory]
+    [fetchChannel, publishBootstrap, readMessageState, touchHistory]
   );
 
   const clearSearchContext = useCallback(
-    (channelId: string) => {
+    (channelId: string, options: { preserveWindow?: boolean } = {}) => {
       searchContextRequests.current.invalidate(channelId);
+      if (options.preserveWindow) return;
       const current = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
       if (
@@ -833,9 +840,11 @@ export function useOpenTeam() {
             try {
               // Until the first load lands, a silent server must turn into a message (and
               // the retry below) rather than an endless "Connecting".
-              const bootstrap = await (snapshotRef.current
-                ? api.bootstrap()
-                : withDeadline((signal) => api.bootstrap(signal)));
+              const bootstrap = await readMessageState(() =>
+                snapshotRef.current
+                  ? api.bootstrap()
+                  : withDeadline((signal) => api.bootstrap(signal))
+              );
               bootstrapRef.current = bootstrap;
               bootstrapEpoch.current += 1;
               cursor.current = bootstrap.cursor;
@@ -853,8 +862,7 @@ export function useOpenTeam() {
               }
               for (const [channelId, state] of channelStates.current) {
                 if (
-                  compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
-                  0
+                  compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) < 0
                 ) {
                   channelStates.current.delete(channelId);
                 }
@@ -899,27 +907,31 @@ export function useOpenTeam() {
       refreshInFlight.current = task;
       return task;
     },
-    [fetchChannel, invalidateHistory, publishBootstrap, syncBackgroundHistories]
+    [fetchChannel, invalidateHistory, publishBootstrap, readMessageState, syncBackgroundHistories]
   );
 
+  const reactionController = useMemo(
+    () =>
+      createReactionController({
+        message: (id) => snapshotRef.current?.channelMessages.find((message) => message.id === id),
+        patch: patchMessage,
+        send: (id, emoji) => api.reactToMessage(id, emoji),
+        error: (cause) => setError(clientErrorMessage(cause, "Could not update this reaction")),
+      }),
+    [patchMessage]
+  );
+  reactionControllerRef.current = reactionController;
+  useEffect(() => {
+    reactionController.activate();
+    return () => reactionController.dispose();
+  }, [reactionController]);
+
   const reactToMessage = useCallback(
-    async (messageId: string, emoji: string) => {
+    (messageId: string, emoji: string) => {
       setError(null);
-      const previous = snapshotRef.current?.channelMessages.find(
-        (message) => message.id === messageId
-      );
-      if (previous) patchMessage(toggleOwnReaction(previous, emoji));
-      try {
-        const result = await api.reactToMessage(messageId, emoji);
-        patchMessage(result.message);
-        return result;
-      } catch (cause) {
-        if (previous) patchMessage(previous);
-        setError(clientErrorMessage(cause, "Could not update this reaction"));
-        throw cause;
-      }
+      return reactionController.toggle(messageId, emoji);
     },
-    [patchMessage, refresh]
+    [reactionController]
   );
 
   useEffect(() => {
@@ -956,7 +968,7 @@ export function useOpenTeam() {
     };
     const poll = async () => {
       if (cancelled || polling) return;
-      if (!isWindowVisible()) {
+      if (!isWindowActive()) {
         schedule();
         return;
       }
@@ -977,8 +989,7 @@ export function useOpenTeam() {
       }
     };
     const pollWhenVisible = () => {
-      if (!isWindowVisible() || Date.now() - lastRuntimePoll.current < 30_000)
-        return;
+      if (!isWindowActive() || Date.now() - lastRuntimePoll.current < 30_000) return;
       if (timer) clearTimeout(timer);
       void poll();
     };
@@ -989,12 +1000,14 @@ export function useOpenTeam() {
       void poll();
     };
     window.addEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
+    window.addEventListener(WINDOW_ACTIVITY_EVENT, pollWhenVisible);
     window.addEventListener("focus", pollWhenVisible);
     window.addEventListener(RUNTIME_REFRESH_EVENT, pollNow);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
+      window.removeEventListener(WINDOW_ACTIVITY_EVENT, pollWhenVisible);
       window.removeEventListener("focus", pollWhenVisible);
       window.removeEventListener(RUNTIME_REFRESH_EVENT, pollNow);
     };
@@ -1072,7 +1085,6 @@ export function useOpenTeam() {
   const historyByChannel = useMemo(() => {
     const status = new Map<string, ChannelHistoryStatus>();
     for (const [channelId, history] of histories.current) {
-      const state = channelStates.current.get(channelId);
       const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
       const context = window.context;
       status.set(channelId, {
@@ -1086,7 +1098,6 @@ export function useOpenTeam() {
         loadingNewer: context?.loadingDirection === "newer",
         loadedMessages: context ? history.searchContext.length : history.messages.length,
         retainedBytes: window.retainedBytes,
-        activityTruncated: state?.truncated ? Object.values(state.truncated).some(Boolean) : false,
         threadContextTruncated: context
           ? history.searchThreadContextTruncated
           : history.threadContextTruncated,

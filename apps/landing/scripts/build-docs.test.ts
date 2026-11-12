@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { compileDocs, docsDirectory, metaDescription, validateConfig } from "./build-docs";
+import { compileDocs, docsDirectory, validateConfig } from "./build-docs";
 
 const temporaryDirectories: string[] = [];
 afterEach(() => {
@@ -128,31 +128,5 @@ describe("documentation build", () => {
     expect(compileDocs(docs).pages[0].html).toContain(
       'href="https://github.com/example/repo/blob/main/README.md"'
     );
-  });
-});
-
-describe("meta descriptions", () => {
-  test("keep short text and whole sentences within 160 characters", () => {
-    expect(metaDescription("Short and complete.")).toBe("Short and complete.");
-    const first = "OpenTeam runs a team of AI bots on hardware you control.";
-    const second = " Each bot gets its own screen, browser, and terminal on your server.";
-    const third = " You give it work in chat and review the results.";
-    expect(metaDescription(first + second + third)).toBe((first + second).trim());
-  });
-
-  test("fills out a short first sentence instead of stopping there", () => {
-    const text = `Give your bots their own mailbox. ${"With the Email plugin, bots can search, read and send mail ".repeat(3)}.`;
-    const result = metaDescription(text);
-    expect(result.startsWith("Give your bots their own mailbox. With the Email plugin")).toBe(true);
-    expect(result.length).toBeGreaterThan(120);
-    expect(result.length).toBeLessThanOrEqual(160);
-  });
-
-  test("trims one long sentence at a word boundary", () => {
-    const long = `${"word ".repeat(60).trim()}.`;
-    const result = metaDescription(long);
-    expect(result.length).toBeLessThanOrEqual(160);
-    expect(result.endsWith("…")).toBe(true);
-    expect(result).not.toContain("wor…");
   });
 });

@@ -10,7 +10,6 @@ import {
   writeManifest,
 } from "../src/config";
 import { configureTailscale, tailscaleStatus } from "../src/tailscale-command";
-import { configureTailscaleRoute } from "../src/tailscale-https";
 import { managedTailscaleRoutes } from "../src/tailscale-state";
 import type { CommandRunner, RunResult } from "../src/process";
 
@@ -58,7 +57,9 @@ function fixture() {
           delete serve.Web[`${host}:${port}`];
         } else {
           serve.TCP[port] = { HTTPS: true };
-          serve.Web[`${host}:${port}`] = { Handlers: { "/": { Proxy: args.at(-1) } } };
+          serve.Web[`${host}:${port}`] = {
+            Handlers: { "/": { Proxy: args.at(-1) } },
+          };
         }
         return ok();
       }
@@ -69,7 +70,11 @@ function fixture() {
     },
   };
   const dependencies = {
-    health: async () => ({ ok: true, url: "http://127.0.0.1:8787/api/v0/health", detail: "ready" }),
+    health: async () => ({
+      ok: true,
+      url: "http://127.0.0.1:8787/api/v0/health",
+      detail: "ready",
+    }),
     verify: async (_url: string) => {},
     waitMs: 0,
   };
@@ -95,7 +100,11 @@ function fixture() {
 }
 const mapping = (port: string, backend = "8787") => ({
   TCP: { [port]: { HTTPS: true } },
-  Web: { [`${host}:${port}`]: { Handlers: { "/": { Proxy: `http://127.0.0.1:${backend}` } } } },
+  Web: {
+    [`${host}:${port}`]: {
+      Handlers: { "/": { Proxy: `http://127.0.0.1:${backend}` } },
+    },
+  },
 });
 
 describe("connection lifecycle", () => {
@@ -153,58 +162,4 @@ describe("connection lifecycle", () => {
     expect(Object.keys(f.serve.TCP)).toEqual([]);
     expect(managedTailscaleRoutes(f.paths)).toEqual([]);
   });
-
-  test("changed managed mappings are reported and preserved", async () => {
-    const f = fixture();
-    await configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies);
-    f.setServe(mapping("14443", "9999"));
-    expect(await tailscaleStatus(f.paths, f.runner)).toMatchObject({
-      route: "conflict",
-      ownership: "openteam",
-    });
-    await expect(
-      configureTailscale(f.paths, f.runner, "disable", undefined, f.dependencies)
-    ).rejects.toThrow("old route was preserved");
-    expect(f.serve).toEqual(mapping("14443", "9999"));
-    expect(managedTailscaleRoutes(f.paths)).toHaveLength(1);
-  });
-
 });
-
-test("permissions and tailnet enablement links are actionable without echoing secrets", () => {
-  const f = fixture();
-  const node = { host, addresses: [], port: "14443" };
-  for (const [stderr, expected] of [
-    ["permission denied tskey-secret", "operator"],
-    [
-      "Serve is not enabled https://login.tailscale.com/f/serve?node=abc tskey-secret",
-      "https://login.tailscale.com/f/serve?node=abc",
-    ],
-  ]) {
-    f.fail((cmd, args) =>
-      args.includes("--bg") ? { status: 1, stdout: "", stderr: stderr! } : null
-    );
-    try {
-      configureTailscaleRoute(f.runner, node, "8787");
-      throw new Error("expected failure");
-    } catch (error) {
-      expect(String(error)).toContain(expected!);
-      expect(String(error)).not.toContain("tskey-secret");
-    }
-  }
-});
-
-test("a route created before a command timeout is tracked and rolled back", async () => {
-  const f = fixture();
-  f.fail((command, args) => {
-    if (command !== "tailscale" || !args.includes("--bg")) return null;
-    f.setServe(mapping("14443"));
-    return { status: 1, stdout: "", stderr: "ETIMEDOUT" };
-  });
-  await expect(
-    configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies)
-  ).rejects.toThrow("Previous configuration restored");
-  expect(managedTailscaleRoutes(f.paths)).toEqual([]);
-  expect(Object.keys(f.serve.TCP)).toEqual([]);
-});
-

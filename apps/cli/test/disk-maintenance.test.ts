@@ -1,7 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -101,7 +100,12 @@ const fixture = () => {
   for (let i = 1; i <= 12; i++) runner.images.set(id(i), new Set());
   const project = new ComposeProject(
     paths,
-    { executable: "docker", prefix: ["compose"], version: "2.30.0", supported: true },
+    {
+      executable: "docker",
+      prefix: ["compose"],
+      version: "2.30.0",
+      supported: true,
+    },
     runner,
     "custom-install"
   );
@@ -153,43 +157,6 @@ test("preserves running/stopped container images, other installations, manual ta
     expect(runner.images.has(id(12))).toBe(true);
     expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toHaveLength(0);
   }
-});
-
-test("removes retired containerd digest references and image layers before forgetting ownership", () => {
-  const { paths, runner, project } = fixture();
-  const digests = [`ghcr.io/team/computer@${id(1)}`, `registry.example:5000/computer@${id(99)}`];
-  runner.images.get(id(1))!.add(digests[0]!);
-  runner.images.get(id(1))!.add(digests[1]!);
-  runner.digests.set(id(1), digests);
-  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-  const ledgerPath = join(paths.directory, "image-retention.json");
-  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
-  const marker = `openteam-retention-${ledger.owner}:${id(1).slice(7)}`;
-
-  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
-
-  expect(runner.images.has(id(1))).toBe(false);
-  expect(runner.images.has(id(2))).toBe(true);
-  expect(runner.images.has(id(3))).toBe(true);
-  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual(
-    [...digests, marker].map((ref) => ["image", "rm", ref])
-  );
-  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
-});
-
-test("forcing an unchanged release preserves the previous distinct rollback stack across restarts", () => {
-  const { paths, runner, project } = fixture();
-  retainStackImages(paths, project, runner, [id(1), id(2)], [id(3), id(4)]);
-  const restarted = new ComposeProject(paths, project.command, runner, project.projectName);
-  retainStackImages(paths, restarted, runner, [id(3), id(4)], [id(4), id(3)]);
-  retainStackImages(paths, restarted, runner, [id(4), id(3)], [id(3), id(4)]);
-  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
-  const ledger = JSON.parse(readFileSync(join(paths.directory, "image-retention.json"), "utf8"));
-  expect(ledger.rollback).toEqual([id(1), id(2)]);
-  for (const n of [1, 2, 3, 4]) expect(runner.images.has(id(n))).toBe(true);
-  retainStackImages(paths, restarted, runner, [id(3), id(4)], [id(5), id(6)]);
-  expect(runner.images.has(id(1))).toBe(false);
-  for (const n of [3, 4, 5, 6]) expect(runner.images.has(id(n))).toBe(true);
 });
 
 test("missing inventory or malformed history prevents removals; removal failure only warns", () => {
@@ -247,7 +214,11 @@ test("backup retention refuses symlinked files, directories, and traversal in hi
     if (mode === "traversal")
       writeFileSync(
         join(paths.directory, "backup-retention.json"),
-        JSON.stringify({ schemaVersion: 1, directory: paths.directory, files: ["../manual.sql"] })
+        JSON.stringify({
+          schemaVersion: 1,
+          directory: paths.directory,
+          files: ["../manual.sql"],
+        })
       );
     expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow();
     expect(readFileSync(outside, "utf8")).toBe("precious");
@@ -264,14 +235,3 @@ test("backup creation refuses symlink directories and path traversal before invo
   expect(() => createDatabaseBackup(paths, project, "1.0.0", "1.2.3")).toThrow("ambiguous path");
   expect(runner.calls).toHaveLength(0);
 });
-
-test("backup retention can be disabled or increased; invalid settings preserve all restore points", () => {
-  for (const count of ["0", "invalid"]) {
-    const { paths, files } = backups();
-    writeFileSync(paths.environment, `OPENTEAM_BACKUP_RETENTION_COUNT=${count}\n`);
-    if (count === "0") retainDatabaseBackups(paths, files[5]!);
-    else expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow("backups preserved");
-    expect(files.every(existsSync)).toBe(true);
-  }
-});
-

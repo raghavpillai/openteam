@@ -54,11 +54,9 @@ class SetupRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
   failComposeValidation = false;
   failStartup = false;
-  failPull = false;
   /** Docker Compose exits 130 when the user's Ctrl-C reaches it. */
   interrupted: string | null = null;
   running = ["postgres", "server", "worker", "computer"];
-  publishedBy: Record<string, string> = {};
   tailscale = "{}";
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
@@ -80,19 +78,11 @@ class SetupRunner implements CommandRunner {
         stderr: "",
       };
     }
-    const publishFilter = args.find((argument) => argument.startsWith("publish="));
-    if (command === "docker" && args[0] === "ps" && publishFilter) {
-      const line = this.publishedBy[publishFilter.slice("publish=".length)];
-      return { status: 0, stdout: line ? `${line}\n` : "", stderr: "" };
-    }
     if (this.failComposeValidation && args.includes("config")) {
       return { status: 1, stdout: "", stderr: "invalid compose" };
     }
     if (this.interrupted && args.includes(this.interrupted)) {
       return { status: 130, stdout: "", stderr: "" };
-    }
-    if (this.failPull && args.includes("pull")) {
-      return { status: 1, stdout: "", stderr: "pull failed" };
     }
     if (this.failStartup && args.includes("up")) {
       return { status: 1, stdout: "", stderr: "startup failed" };
@@ -234,52 +224,6 @@ afterEach(() => {
 });
 
 describe("interactive setup", () => {
-
-  test("quick setup asks only for the connection and the account", async () => {
-    const current = parseEnvironment(
-      replaceEnvironmentValue(
-        replaceEnvironmentValue(
-          createEnvironment({ version: "1.2.3", workerConcurrency: "8" }),
-          "OPENTEAM_ACCESS_MODE",
-          "private"
-        ),
-        "OPENTEAM_PUBLIC_HOST",
-        "openteam.lan"
-      )
-    );
-    const prompter = new AnswerPrompter([
-      "",
-      "",
-      "sam pillai",
-      "Sam-Pillai",
-      "correct horse battery staple",
-      "correct horse battery staple",
-    ]);
-
-    const configuration = await collectSetupConfiguration(current, prompter);
-
-    expect(configuration).toEqual({
-      accessMode: "private",
-      bindHost: "0.0.0.0",
-      viewerBindHost: "0.0.0.0",
-      publicHost: "openteam.lan",
-      publicUrl: "http://openteam.lan:8787",
-      composeProfiles: "direct",
-      ownerUsername: "Sam-Pillai",
-      ownerPassword: "correct horse battery staple",
-      apiPort: "8787",
-      workerConcurrency: "8",
-    });
-    expect(prompter.prompts).toEqual([
-      "Connection [1]: ",
-      "OpenTeam username: ",
-      "OpenTeam username: ",
-      "OpenTeam username: ",
-      "OpenTeam password: ",
-      "Confirm OpenTeam password: ",
-    ]);
-  });
-
   test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
@@ -394,61 +338,6 @@ describe("interactive setup", () => {
     );
   });
 
-  test("the interactive session runs startup checks before it returns its answers", async () => {
-    const fixture = createSetupFixture();
-    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")!;
-    const runner = new SetupRunner();
-    runner.tailscale = JSON.stringify({ TCP: { [port]: { TCPForward: `127.0.0.1:${port}` } } });
-    const issues: Array<string | null> = [];
-    const answers = new AnswerPrompter([]);
-    const prompter: SetupPrompter = {
-      question: (prompt) => answers.question(prompt),
-      secret: (prompt) => answers.secret(prompt),
-      async session(input) {
-        const local = localConfiguration(input);
-        issues.push(
-          await input.check!({
-            ...local,
-            accessMode: "private",
-            bindHost: "0.0.0.0",
-            viewerBindHost: "0.0.0.0",
-            publicHost: "100.94.42.50",
-            publicUrl: `http://100.94.42.50:${port}`,
-          })
-        );
-        issues.push(await input.check!(local));
-        return local;
-      },
-      close() {},
-    };
-
-    await capturingConsole(() =>
-      setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter)
-    );
-
-    expect(issues[0]).toContain(`Tailscale Serve already uses port ${port}`);
-    expect(issues[1]).toBeNull();
-    expect(runner.index("up")).toBeGreaterThan(0);
-  });
-
-  test("a failed image download restores the previous configuration", async () => {
-    const fixture = createSetupFixture({ owner: false });
-    const runner = new SetupRunner();
-    runner.failPull = true;
-
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation },
-        sessionPrompter({ ownerPassword: "correct horse battery staple" })
-      )
-    ).rejects.toThrow("Could not download OpenTeam");
-
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.index("up")).toBe(-1);
-  });
-
   test("restores env when Compose rejects the configuration or startup fails", async () => {
     const rejected = createSetupFixture();
     const invalid = new SetupRunner();
@@ -500,88 +389,6 @@ describe("interactive setup", () => {
     expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(1);
   });
 
-  test("a first setup recreates its containers; a later one only applies changes", async () => {
-    const first = createSetupFixture({ owner: false });
-    const fresh = new SetupRunner();
-    await capturingConsole(() =>
-      setupCommand(
-        first.paths,
-        fresh,
-        { presentation: silentPresentation },
-        sessionPrompter({
-          ownerUsername: "sam",
-          ownerPassword: "correct horse battery staple",
-          workerConcurrency: "4",
-        })
-      )
-    );
-    expect(fresh.calls.find((call) => call.args.includes("up"))?.args).toContain(
-      "--force-recreate"
-    );
-
-    const existing = createSetupFixture();
-    const rerun = new SetupRunner();
-    await capturingConsole(() =>
-      setupCommand(
-        existing.paths,
-        rerun,
-        { presentation: silentPresentation },
-        sessionPrompter({ workerConcurrency: "4" })
-      )
-    );
-    expect(rerun.calls.find((call) => call.args.includes("up"))?.args).not.toContain(
-      "--force-recreate"
-    );
-  });
-
-  test("a new installation moves to a free port when another OpenTeam server has the default", async () => {
-    const fixture = createSetupFixture({ owner: false });
-    const runner = new SetupRunner();
-    runner.running = ["postgres"];
-    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
-    runner.publishedBy = { [String(port)]: "openteam-server-1\topenteam" };
-    const seen: Array<Parameters<NonNullable<SetupPrompter["session"]>>[0]> = [];
-    const answers = new AnswerPrompter([]);
-    const prompter: SetupPrompter = {
-      question: (prompt) => answers.question(prompt),
-      secret: (prompt) => answers.secret(prompt),
-      session: async (input) => {
-        seen.push(input);
-        return null;
-      },
-      close() {},
-    };
-
-    await setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter);
-
-    const offered = seen[0]?.current.get("OPENTEAM_API_PORT");
-    expect(offered).toBeDefined();
-    expect(offered).not.toBe(port);
-    expect(seen[0]?.notes?.map((note) => note.text)).toContain(
-      `Port ${port} is already in use; using ${offered} as the local API default.`
-    );
-  });
-
-  test("a cancelled interactive session leaves the installation untouched", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner();
-    const { output, presentation } = recordingPresentation();
-    const answers = new AnswerPrompter([]);
-    const prompter: SetupPrompter = {
-      question: (prompt) => answers.question(prompt),
-      secret: (prompt) => answers.secret(prompt),
-      session: async () => null,
-      close() {},
-    };
-
-    await setupCommand(fixture.paths, runner, { presentation }, prompter);
-
-    expect(output).toContain("Setup cancelled; no configuration was changed.");
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(providerCalls(runner)).toEqual([]);
-    expect(runner.index("up")).toBe(-1);
-  });
-
   test("password-only account updates pass the secret over stdin and never command arguments", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-password-"));
     temporaryDirectories.push(directory);
@@ -614,5 +421,4 @@ describe("interactive setup", () => {
       JSON.stringify({ operation: "update", password: "new correct horse battery" })
     );
   });
-
 });

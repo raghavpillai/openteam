@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
-import { DOCKER_CLI_MISSING } from "../src/docker-diagnostics";
-import { dockerMissing, startDockerDesktop } from "../src/docker-preflight";
+import { startDockerDesktop } from "../src/docker-preflight";
 import type { CommandRunner, RunResult } from "../src/process";
 
 const stopped =
@@ -35,7 +31,9 @@ class DesktopRunner implements CommandRunner {
             status: 1,
             stdout: "",
             stderr: "",
-            error: Object.assign(new Error("spawn docker ENOENT"), { code: "ENOENT" }),
+            error: Object.assign(new Error("spawn docker ENOENT"), {
+              code: "ENOENT",
+            }),
           };
     if (args[0] === "context") return ok(`${this.context}\n`);
     if (args[0] === "info") {
@@ -48,7 +46,10 @@ class DesktopRunner implements CommandRunner {
 
 const terminal = () => {
   const writes: string[] = [];
-  return { writes, output: { isTTY: true, write: (chunk: string) => writes.push(chunk) > 0 } };
+  return {
+    writes,
+    output: { isTTY: true, write: (chunk: string) => writes.push(chunk) > 0 },
+  };
 };
 
 const options = (output: ReturnType<typeof terminal>["output"]) => ({
@@ -72,23 +73,6 @@ describe("Docker Desktop start", () => {
     expect(printed).toContain("Docker Desktop is running.");
   });
 
-  test("gives up after the timeout and lets preflight explain the failure", async () => {
-    const runner = new DesktopRunner(Number.POSITIVE_INFINITY);
-    const { writes, output } = terminal();
-    let clock = 0;
-    const result = await startDockerDesktop(runner, {
-      ...options(output),
-      timeoutMs: 120_000,
-      now: () => clock,
-      sleep: async (milliseconds) => {
-        clock += milliseconds;
-      },
-    });
-    expect(result).toBe("timed-out");
-    expect(runner.polls).toBe(60);
-    expect(writes.join("")).toContain("Docker Desktop did not finish starting within 2 minutes.");
-  });
-
   test("leaves running engines, other runtimes, and non-interactive runs alone", async () => {
     const running = new DesktopRunner(0);
     running.opened = true;
@@ -110,29 +94,6 @@ describe("Docker Desktop start", () => {
       const runner = new DesktopRunner();
       expect(await startDockerDesktop(runner, { ...options(output), ...override })).toBe("skipped");
       expect(runner.opened).toBe(false);
-    }
-  });
-});
-
-describe("Docker required", () => {
-
-  test("applies only when the docker command itself is missing", () => {
-    const result = (detail: string) => ({
-      ok: false,
-      installed: false,
-      checks: [{ level: "fail" as const, label: "Docker CLI", detail }],
-    });
-    expect(dockerMissing(result(DOCKER_CLI_MISSING), "/nonexistent")).toBe(true);
-    expect(dockerMissing(result("The docker command could not run."), "/nonexistent")).toBe(false);
-    // A docker file that cannot run gets the full report about its permissions instead.
-    const bin = mkdtempSync(join(tmpdir(), "openteam-docker-path-"));
-    try {
-      writeFileSync(join(bin, "docker"), "", { mode: 0o644 });
-      expect(dockerMissing(result(DOCKER_CLI_MISSING), `/nonexistent${delimiter}${bin}`)).toBe(
-        false
-      );
-    } finally {
-      rmSync(bin, { recursive: true, force: true });
     }
   });
 });

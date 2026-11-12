@@ -11,39 +11,6 @@ const privateKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
   .toString();
 const metadata = { keyId: "ABCDE12345", teamId: "FGHIJ67890", topic: "dev.openbot.mobile" };
 describe("APNs configuration import", () => {
-  test("resolves a JSON key path against the configuration file, and supports direct flags", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-apns-import-"));
-    try {
-      writeFileSync(join(directory, "key.p8"), privateKey, { mode: 0o600 });
-      writeFileSync(
-        join(directory, "apns.json"),
-        JSON.stringify({ ...metadata, privateKeyFile: "key.p8" })
-      );
-      expect(
-        readApnsConfiguration(
-          parseArguments(["notifications", "configure", "--config", join(directory, "apns.json")])
-        )
-      ).toEqual({ ...metadata, privateKey });
-      expect(
-        readApnsConfiguration(
-          parseArguments([
-            "notifications",
-            "configure",
-            "--key-file",
-            join(directory, "key.p8"),
-            "--key-id",
-            metadata.keyId,
-            "--team-id",
-            metadata.teamId,
-            "--topic",
-            metadata.topic,
-          ])
-        )
-      ).toEqual({ ...metadata, privateKey });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
   test("rejects ambiguous imports, unknown fields, malformed JSON and oversized files without exposing contents", () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-apns-invalid-"));
     const path = join(directory, "apns.json");

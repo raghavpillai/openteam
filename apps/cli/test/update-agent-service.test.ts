@@ -1,13 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths, readManifest, writeManifest } from "../src/config";
@@ -157,4 +150,3 @@ test("an agent starts after a reboot even when its old PID now belongs to anothe
     unrelated.kill();
   }
 });
-

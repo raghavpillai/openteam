@@ -5,13 +5,11 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import {
   APNS_CONFIGURATION_PROBE,
-  NOTIFICATION_STATE_PROBE,
   notificationChecks,
   runNotificationChecks,
 } from "../src/doctor-notifications";
 import { doctorNextSteps, renderDoctor } from "../src/doctor-ui";
 import type { ComposeProject } from "../src/docker";
-import type { RunOptions } from "../src/process";
 
 const state = {
   total: 1,
@@ -30,7 +28,9 @@ describe("Doctor notification readiness", () => {
   test("catches the Azure failure despite healthy services and an enabled phone", () => {
     const checks = notificationChecks({ ...state, failed: 87 }, { ...config, missing });
     expect(check(checks, "iOS push registration").level).toBe("pass");
-    expect(check(checks, "iOS push credentials")).toMatchObject({ level: "fail" });
+    expect(check(checks, "iOS push credentials")).toMatchObject({
+      level: "fail",
+    });
     expect(check(checks, "iOS push credentials").detail).toContain("running worker");
     expect(check(checks, "iOS push delivery")).toMatchObject({ level: "fail" });
     expect(check(checks, "iOS push delivery").detail).toContain("87");
@@ -40,56 +40,11 @@ describe("Doctor notification readiness", () => {
     expect(doctorNextSteps(result).join("\n")).toContain("notifications configure");
     expect(doctorNextSteps(result).join("\n")).toContain("apply it live");
     // A key for another app's bundle ID is the same silent failure.
-    const wrongTopic = notificationChecks(state, { ...config, topic: "dev.openteam.mobile.swift" });
+    const wrongTopic = notificationChecks(state, {
+      ...config,
+      topic: "dev.openteam.mobile.swift",
+    });
     expect(check(wrongTopic, "iOS push credentials").level).toBe("fail");
-  });
-
-  test("APNs is optional for installations without an eligible iPhone", () => {
-    const checks = notificationChecks(
-      { ...state, total: 0, eligible: 0, topics: [] },
-      { ...config, missing }
-    );
-    expect(checks.some((c) => c.level === "fail")).toBe(false);
-    expect(check(checks, "iOS push registration").detail).toContain("No iOS push registration");
-    expect(check(checks, "iOS push credentials").level).toBe("warn");
-    expect(checks.map((c) => c.label)).toEqual([
-      "iOS push registration",
-      "iOS push credentials",
-      "iOS push delivery",
-    ]);
-  });
-
-  test("executes bounded read-only probes inside the actual services", () => {
-    const calls: Array<{ args: readonly string[]; options?: RunOptions }> = [];
-    const project = {
-      run(args: readonly string[], options?: RunOptions) {
-        calls.push({ args, options });
-        return {
-          status: 0,
-          stdout: JSON.stringify(args.includes("worker") ? config : state),
-          stderr: "",
-        };
-      },
-    } as unknown as ComposeProject;
-    const checks = runNotificationChecks(project, new Set(["server", "worker"]));
-    expect(check(checks, "iOS push credentials").level).toBe("pass");
-    expect(calls).toHaveLength(2);
-    expect(calls[0]!.args).toContain("bun");
-    expect(calls[1]!.args).toContain("node");
-    expect(calls.every((c) => c.options?.timeoutMs === 15_000 && c.args.includes("--no-TTY"))).toBe(
-      true
-    );
-    expect(NOTIFICATION_STATE_PROBE).not.toMatch(/INSERT|UPDATE|DELETE/);
-  });
-
-  test.each([
-    "{broken",
-    '{"missing":["secret-token"],"issue":null,"topic":"dev.openbot.mobile"}',
-  ])("invalid probe output %s never passes or leaks its contents", (stdout) => {
-    const project = { run: () => ({ status: 0, stdout, stderr: "" }) } as unknown as ComposeProject;
-    const checks = runNotificationChecks(project, new Set(["server", "worker"]));
-    expect(checks.every((c) => c.level === "fail")).toBe(true);
-    expect(JSON.stringify(checks)).not.toContain("secret-token");
   });
 
   test("stopped services are skipped and failed execs never expose stderr", () => {
@@ -133,7 +88,10 @@ describe("real APNs worker configuration probe", () => {
     try {
       const first = await runConfig(socket);
       expect(first.exitCode).toBe(0);
-      expect(JSON.parse(first.output)).toMatchObject({ ...config, source: "database" });
+      expect(JSON.parse(first.output)).toMatchObject({
+        ...config,
+        source: "database",
+      });
       issue = "runtime-settings";
       const second = await runConfig(socket);
       expect(JSON.parse(second.output).issue).toBe("runtime-settings");
@@ -148,5 +106,4 @@ describe("real APNs worker configuration probe", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
-
 });

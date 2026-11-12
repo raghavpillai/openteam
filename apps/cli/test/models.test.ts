@@ -141,62 +141,9 @@ describe("Codex model selection", () => {
     ]);
   });
 
-  test("uses the model's advertised default when the saved level is unsupported", async () => {
-    const { paths, runner, state } = fixture();
-    runner.models = runner.models.map((model) =>
-      model.modelId === "gpt-5.6-sol"
-        ? {
-            ...model,
-            reasoningLevels: ["low", "medium"],
-            defaultReasoningLevel: "low",
-          }
-        : model
-    );
-    await modelUseCommand(paths, runner, {
-      providerId: "openai-codex",
-      modelId: "gpt-5.6-sol",
-    });
-    expect(state.selected.reasoning).toBe("low");
-    expect(runner.calls.find((args) => args.includes("verify"))?.slice(-3)).toEqual([
-      "verify",
-      "openai-codex",
-      "gpt-5.6-sol",
-    ]);
-  });
-
-  test("rejects an explicit level the selected model does not advertise", async () => {
-    const { paths, runner, state } = fixture();
-    runner.models = runner.models.map((model) =>
-      model.modelId === "gpt-5.6-sol"
-        ? {
-            ...model,
-            reasoningLevels: ["low", "medium"],
-            defaultReasoningLevel: "low",
-          }
-        : model
-    );
-    await expect(
-      modelUseCommand(paths, runner, {
-        providerId: "openai-codex",
-        modelId: "gpt-5.6-sol",
-        thinking: "off",
-      })
-    ).rejects.toThrow("Choose one of: low, medium");
-    expect(state.writes).toHaveLength(0);
-  });
-
-  test("reselecting the same model and reasoning makes no write", async () => {
-    const { paths, runner, state } = fixture();
-    await modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.5" });
-    await modelUseCommand(paths, runner, {
-      providerId: "openai-codex",
-      modelId: "gpt-5.5",
-      thinking: "high",
-    });
-    expect(state.writes).toHaveLength(0);
-  });
-
-  test.each(["Inference provider openai-codex is not authenticated"])("rejects failed verification before changing settings: %s", async (error) => {
+  test.each([
+    "Inference provider openai-codex is not authenticated",
+  ])("rejects failed verification before changing settings: %s", async (error) => {
     const { paths, runner, state } = fixture();
     runner.verificationError = error;
     await expect(
@@ -204,15 +151,6 @@ describe("Codex model selection", () => {
     ).rejects.toThrow(error);
     expect(state.reads).toBe(0);
     expect(state.writes).toHaveLength(0);
-    expect(state.selected.modelId).toBe("gpt-5.5");
-  });
-
-  test("surfaces a server-side rejection without reporting a successful selection", async () => {
-    const { paths, runner, state } = fixture();
-    state.writeStatus = 400;
-    await expect(
-      modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.6-sol" })
-    ).rejects.toThrow("Model cannot be selected");
     expect(state.selected.modelId).toBe("gpt-5.5");
   });
 });

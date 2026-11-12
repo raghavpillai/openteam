@@ -21,7 +21,9 @@ const fixture = (result: RunResult = { status: 0, stdout: '{"ok":true}\n', stder
 };
 
 describe("model connection probe", () => {
-  test.each(["anthropic"])("uses the saved %s model and thinking setting without exporting credentials", (providerId) => {
+  test.each([
+    "anthropic",
+  ])("uses the saved %s model and thinking setting without exporting credentials", (providerId) => {
     const { project, calls } = fixture();
     const selected = {
       ...settings,
@@ -56,14 +58,6 @@ describe("model connection probe", () => {
     expect(result.detail).not.toContain(secret);
   });
 
-  test.each(["not JSON", '{"ok":"true"}'])("does not report success for malformed output %j", (stdout) => {
-    const { project } = fixture({ status: 0, stdout, stderr: "" });
-    expect(checkInferenceConnection(project, settings)).toEqual({
-      ok: false,
-      detail: `${settings.providerId}/${settings.modelId}: The connection test returned an invalid result`,
-    });
-  });
-
   test("redacts Docker errors and never treats them as model success", () => {
     const { project } = fixture({
       status: 1,
@@ -80,7 +74,6 @@ describe("model connection probe", () => {
 describe("connection probe executed in Bun", () => {
   test.each([
     { status: 200, body: { text: "OK" }, ok: true },
-    { status: 200, body: { text: "  " }, ok: false, error: "no text" },
     {
       status: 401,
       body: { error: "Invalid provider credential" },

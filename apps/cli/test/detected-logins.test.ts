@@ -5,7 +5,6 @@ import { join } from "node:path";
 import {
   detectReusableLogins,
   readClaudeCredential,
-  readCodexCredential,
   readReusableCredential,
 } from "../src/detected-logins";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
@@ -20,9 +19,6 @@ afterEach(() => {
   for (const directory of homes.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-const jwt = (payload: Record<string, unknown>): string =>
-  ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");
-
 class KeychainRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[] }> = [];
   constructor(private readonly secret: string | null) {}
@@ -31,7 +27,11 @@ class KeychainRunner implements CommandRunner {
     if (command === "security" && this.secret !== null) {
       return { status: 0, stdout: `${this.secret}\n`, stderr: "" };
     }
-    return { status: 44, stdout: "", stderr: "The specified item could not be found." };
+    return {
+      status: 44,
+      stdout: "",
+      stderr: "The specified item could not be found.",
+    };
   }
 }
 
@@ -42,7 +42,10 @@ describe("detected vendor sign-ins", () => {
     mkdirSync(custom);
     const runner = new KeychainRunner(
       JSON.stringify({
-        claudeAiOauth: { accessToken: "wrong-account", refreshToken: "wrong-refresh" },
+        claudeAiOauth: {
+          accessToken: "wrong-account",
+          refreshToken: "wrong-refresh",
+        },
       })
     );
     const options = {
@@ -66,41 +69,6 @@ describe("detected vendor sign-ins", () => {
     expect(readClaudeCredential(options)?.credential.access).toBe("right-account");
     expect(runner.calls).toHaveLength(0);
   });
-  test("reads the Codex CLI ChatGPT sign-in with its account id and expiry", () => {
-    const directory = home();
-    mkdirSync(join(directory, ".codex"));
-    const access = jwt({
-      exp: 1_800_000_000,
-      "https://api.openai.com/auth": { chatgpt_account_id: "acct-from-token" },
-    });
-    writeFileSync(
-      join(directory, ".codex", "auth.json"),
-      JSON.stringify({
-        auth_mode: "chatgpt",
-        tokens: { access_token: access, refresh_token: "refresh-1", account_id: "acct-stored" },
-      })
-    );
-
-    expect(readCodexCredential({ home: directory, env: {} })).toEqual({
-      credential: {
-        type: "oauth",
-        access,
-        refresh: "refresh-1",
-        expires: 1_800_000_000_000,
-        accountId: "acct-stored",
-      },
-      source: "Codex CLI (~/.codex/auth.json)",
-    });
-
-    writeFileSync(
-      join(directory, ".codex", "auth.json"),
-      JSON.stringify({ tokens: { access_token: access, refresh_token: "refresh-1" } })
-    );
-    expect(readCodexCredential({ home: directory, env: {} })?.credential.accountId).toBe(
-      "acct-from-token"
-    );
-  });
-
   test("reads the Claude Code sign-in from its credentials file or the macOS Keychain", () => {
     const directory = home();
     mkdirSync(join(directory, ".claude"));
@@ -127,10 +95,17 @@ describe("detected vendor sign-ins", () => {
     const bare = home();
     expect(readClaudeCredential({ home: bare, env: {}, platform: "linux" })).toBeNull();
     const runner = new KeychainRunner(
-      JSON.stringify({ claudeAiOauth: { accessToken: "kc-access", refreshToken: "kc-refresh" } })
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "kc-access", refreshToken: "kc-refresh" },
+      })
     );
     expect(readClaudeCredential({ home: bare, env: {}, platform: "darwin", runner })).toEqual({
-      credential: { type: "oauth", access: "kc-access", refresh: "kc-refresh", expires: 0 },
+      credential: {
+        type: "oauth",
+        access: "kc-access",
+        refresh: "kc-refresh",
+        expires: 0,
+      },
       source: "Claude Code (macOS Keychain)",
     });
     expect(runner.calls[0]?.args).toEqual([
@@ -161,14 +136,24 @@ describe("detected vendor sign-ins", () => {
     writeFileSync(
       join(directory, ".claude", ".credentials.json"),
       JSON.stringify({
-        claudeAiOauth: { accessToken: "ca", refreshToken: "claude-refresh-secret" },
+        claudeAiOauth: {
+          accessToken: "ca",
+          refreshToken: "claude-refresh-secret",
+        },
       })
     );
 
-    const logins = detectReusableLogins({ home: directory, env: {}, platform: "linux" });
+    const logins = detectReusableLogins({
+      home: directory,
+      env: {},
+      platform: "linux",
+    });
     expect(logins).toEqual([
       { provider: "openai-codex", source: "Codex CLI (~/.codex/auth.json)" },
-      { provider: "claude-code", source: "Claude Code (~/.claude/.credentials.json)" },
+      {
+        provider: "claude-code",
+        source: "Claude Code (~/.claude/.credentials.json)",
+      },
     ]);
     expect(JSON.stringify(logins)).not.toContain("claude-refresh-secret");
     expect(

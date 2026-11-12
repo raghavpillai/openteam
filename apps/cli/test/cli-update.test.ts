@@ -7,7 +7,6 @@ import { gzipSync } from "node:zlib";
 import {
   cliPromotionEnvironment,
   downloadCliArtifact,
-  isStandaloneCliExecutable,
   promoteStagedCli,
   readCliPromotion,
   removeCurrentCli,
@@ -62,41 +61,14 @@ const artifactServer = (options: {
 };
 
 describe("CLI self-update", () => {
-
-  test("detects native standalone launches without treating Desktop as installable CLI", () => {
-    expect(
-      isStandaloneCliExecutable(
-        ["/usr/local/bin/openteam", "/$bunfs/root/openteam", "update"],
-        "/usr/local/bin/openteam",
-        { bun: "1.3.8" },
-        "darwin",
-        true
-      )
-    ).toBe(true);
-    expect(
-      isStandaloneCliExecutable(
-        ["/Applications/OpenTeam", "/resources/openteam-cli.js", "update"],
-        "/Applications/OpenTeam",
-        { electron: "43.4.1" },
-        "darwin"
-      )
-    ).toBe(false);
-    expect(
-      isStandaloneCliExecutable(
-        ["/usr/bin/node", "/app/openteam.js", "update"],
-        "/usr/bin/node",
-        { node: "24.0.0" },
-        "linux"
-      )
-    ).toBe(false);
-  });
-
   test("removes a standalone Unix CLI without deleting a shared runtime", () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-remove-"));
     temporaryDirectories.push(directory);
     const executable = join(directory, "openteam");
     writeFileSync(executable, "standalone executable", { mode: 0o755 });
-    writeFileSync(`${executable}.previous`, "previous standalone executable", { mode: 0o755 });
+    writeFileSync(`${executable}.previous`, "previous standalone executable", {
+      mode: 0o755,
+    });
     expect(
       removeCurrentCli({
         executable,

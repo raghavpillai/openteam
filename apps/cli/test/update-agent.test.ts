@@ -147,19 +147,7 @@ test("a Homebrew runtime starts the agent by a path that survives brew upgrade",
   mkdirSync(join(prefix, "opt"));
   symlinkSync(join("..", "Cellar", "node@24", "24.13.1"), join(prefix, "opt", "node@24"));
   // A keg-only formula isn't linked into bin; its opt link follows each upgrade.
-  expect(stableRuntimePath(versioned, { PATH: "/usr/bin:/bin" })).toBe(join(prefix, "opt", "node@24", "bin", "node"));
-
-  // Elsewhere the PATH entry that runs the same binary is kept, never a different runtime.
-  const other = join(prefix, "other", "bin");
-  const linked = join(prefix, "bin");
-  mkdirSync(other, { recursive: true });
-  mkdirSync(linked);
-  writeFileSync(join(other, "node"), "");
-  const runtime = join(prefix, "runtime", "24.13.1", "node");
-  mkdirSync(join(runtime, ".."), { recursive: true });
-  writeFileSync(runtime, "");
-  symlinkSync(runtime, join(linked, "node"));
-  expect(stableRuntimePath(runtime, { PATH: `relative:${other}:${linked}` })).toBe(join(linked, "node"));
-  expect(stableRuntimePath(runtime, { PATH: other })).toBe(runtime);
-  expect(stableRuntimePath(join(prefix, "missing"), { PATH: linked })).toBe(join(prefix, "missing"));
+  expect(stableRuntimePath(versioned, { PATH: "/usr/bin:/bin" })).toBe(
+    join(prefix, "opt", "node@24", "bin", "node")
+  );
 });

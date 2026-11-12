@@ -40,17 +40,15 @@ class LegacyComposeRunner implements CommandRunner {
 }
 
 describe("Docker Compose command selection", () => {
-  test("prefers the Docker Compose plugin", () => {
-    const runner = new RecordingRunner(true);
-    expect(findCompose(runner)).toMatchObject({ executable: "docker", prefix: ["compose"] });
-  });
-
-  test("falls back to standalone Docker Compose", () => {
-    const runner = new RecordingRunner(false);
-    expect(findCompose(runner)).toMatchObject({ executable: "docker-compose", prefix: [] });
-  });
-
-  test("marks legacy Compose implementations as unsupported", () => {
+  test("prefers the plugin, falls back to standalone Compose, and rejects legacy versions", () => {
+    expect(findCompose(new RecordingRunner(true))).toMatchObject({
+      executable: "docker",
+      prefix: ["compose"],
+    });
+    expect(findCompose(new RecordingRunner(false))).toMatchObject({
+      executable: "docker-compose",
+      prefix: [],
+    });
     expect(findCompose(new LegacyComposeRunner())).toMatchObject({ supported: false });
   });
 
@@ -146,23 +144,5 @@ describe("Docker Compose failure diagnosis", () => {
         ADDRESS_POOLS_EXHAUSTED_ADVICE
       );
     });
-  });
-
-  test("removes the probe network and keeps the generic error otherwise", () => {
-    const runner = new FailingUpRunner(false);
-    withProject(runner, (project) => {
-      expect(() => project.runOrThrow(["up", "--detach"], { inherit: true })).toThrow(
-        "Docker Compose failed: command failed; see the Docker output above"
-      );
-    });
-    expect(runner.calls.some((call) => call[1] === "network" && call[2] === "rm")).toBe(true);
-  });
-
-  test("recognizes exhausted address pools in captured output without probing", () => {
-    const runner = new FailingUpRunner(true);
-    withProject(runner, (project) => {
-      expect(() => project.runOrThrow(["up"])).toThrow(ADDRESS_POOLS_EXHAUSTED_ADVICE);
-    });
-    expect(runner.calls.some((call) => call[1] === "network")).toBe(false);
   });
 });

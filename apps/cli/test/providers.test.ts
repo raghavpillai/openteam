@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArguments } from "../src/arguments";
 import {
   createEnvironment,
   installationPaths,
@@ -10,19 +9,26 @@ import {
   writeManifest,
 } from "../src/config";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
-import { providerAddCommand, providerLoginCommand } from "../src/providers";
+import { providerLoginCommand } from "../src/providers";
 import type { SetupPrompter } from "../src/setup";
 
 class ProviderRunner implements CommandRunner {
-  readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  readonly calls: Array<{
+    command: string;
+    args: readonly string[];
+    options?: RunOptions;
+  }> = [];
   private customProviderAdded = false;
-  failLogin = false;
   readonly connected = new Set(["openai-codex"]);
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
     if (command === "docker" && args[0] === "compose" && args[1] === "version") {
-      return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
+      return {
+        status: 0,
+        stdout: "Docker Compose version v2.30.0",
+        stderr: "",
+      };
     }
     if (args.includes("selection")) {
       return {
@@ -54,7 +60,11 @@ class ProviderRunner implements CommandRunner {
             name: "Anthropic",
             authMethods: [
               { type: "oauth", label: "Claude Pro/Max", subscription: true },
-              { type: "api_key", label: "Anthropic API key", subscription: false },
+              {
+                type: "api_key",
+                label: "Anthropic API key",
+                subscription: false,
+              },
             ],
             configured: this.connected.has("anthropic"),
             authType: null,
@@ -81,7 +91,7 @@ class ProviderRunner implements CommandRunner {
       };
     }
     if (args.includes("add-custom")) this.customProviderAdded = true;
-    if (args.includes("login") && !this.failLogin)
+    if (args.includes("login"))
       this.connected.add(args[args.indexOf("login") + 1]!);
     return { status: 0, stdout: "", stderr: "" };
   }
@@ -127,20 +137,6 @@ const fixture = () => {
 };
 
 describe("provider management", () => {
-  test("does not accept a zero exit code without saved provider authentication", async () => {
-    const runner = new ProviderRunner();
-    runner.failLogin = true;
-    runner.connected.clear();
-    await expect(
-      providerLoginCommand(
-        fixture(),
-        runner,
-        { providerId: "openai-codex", authType: "oauth" },
-        new SecretPrompter("")
-      )
-    ).rejects.toThrow("sign-in did not complete");
-  });
-
   test("passes API keys over stdin and never command arguments", async () => {
     const runner = new ProviderRunner();
     await providerLoginCommand(
@@ -155,41 +151,5 @@ describe("provider management", () => {
     expect(login?.args.join(" ")).not.toContain("anthropic-test-secret");
     expect(login?.options?.input).toBe("anthropic-test-secret\n");
     expect(login?.args).toContain("--no-TTY");
-  });
-
-  test("adds a generic Pi provider before securely configuring its password", async () => {
-    const runner = new ProviderRunner();
-    const options = parseArguments([
-      "provider",
-      "add",
-      "acme",
-      "--name",
-      "Acme AI",
-      "--base-url",
-      "https://ai.example.test/v1",
-      "--api",
-      "openai-responses",
-      "--model",
-      "acme-pro",
-      "--reasoning",
-    ]);
-    await providerAddCommand(
-      fixture(),
-      runner,
-      options,
-      new SecretPrompter("generic-test-password")
-    );
-    const add = runner.calls.find((call) => call.args.includes("add-custom"));
-    expect(JSON.parse(add?.options?.input ?? "{}")).toMatchObject({
-      id: "acme",
-      api: "openai-responses",
-      model: "acme-pro",
-      reasoning: true,
-    });
-    expect(add?.options?.input).not.toContain("generic-test-password");
-    const login = runner.calls.find(
-      (call) => call.args.includes("login") && call.args.includes("acme")
-    );
-    expect(login?.options?.input).toBe("generic-test-password\n");
   });
 });

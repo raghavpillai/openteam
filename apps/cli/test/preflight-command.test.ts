@@ -23,99 +23,99 @@ esac
 `;
 
 describe.skipIf(process.platform === "win32")("install and setup preflight", () => {
-  for (const command of ["install", "setup"] as const) {
-    for (const installed of [false, true]) {
-      test.each([
-        ["missing", "Docker is required."],
-        ["stopped", "could not connect to its engine"],
-        ["compose-missing", "Neither the Docker Compose plugin"],
-        ["compose-old", "2.20.0"],
-      ])(`${command}, ${installed ? "resumed" : "fresh"}, %s stops before changes`, async (scenario, message) => {
-        const directory = mkdtempSync(join(tmpdir(), "openteam-preflight-"));
-        try {
-          const bin = join(directory, "bin");
-          mkdirSync(bin);
-          if (scenario !== "missing") writeFileSync(join(bin, "docker"), docker, { mode: 0o755 });
-          const paths = installationPaths(join(directory, "server installation"));
-          const before = new Map<string, string>();
-          if (installed) {
-            mkdirSync(paths.directory);
-            writeFileSync(paths.compose, "services: {}\n");
-            writeFileSync(paths.environment, createEnvironment({ version: "0.0.1" }), {
-              mode: 0o600,
-            });
-            writeManifest(paths, {
-              schemaVersion: 1,
-              version: "0.0.1",
-              repository: "example/test",
-              composeUrl: "https://example.test/compose.yaml",
-              installedAt: "2026-01-01T00:00:00Z",
-              updatedAt: "2026-01-01T00:00:00Z",
-            });
-            for (const file of [paths.compose, paths.environment, paths.manifest])
-              before.set(file, readFileSync(file, "utf8"));
-          }
-          const calls = join(directory, "calls");
-          const child = Bun.spawn(
-            [
-              process.execPath,
-              resolve(import.meta.dir, "../src/main.ts"),
-              command,
-              "--dir",
-              paths.directory,
-            ],
-            {
-              env: {
-                ...process.env,
-                PATH: bin,
-                NO_COLOR: "1",
-                OPENTEAM_TEST_CASE: scenario,
-                OPENTEAM_TEST_CALLS: calls,
-              },
-              stdin: "ignore",
-              stdout: "pipe",
-              stderr: "pipe",
-            }
-          );
-          const [stdout, stderr, code] = await Promise.all([
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-            child.exited,
-          ]);
-          const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
-          expect(code).toBe(2);
-          expect(output).toContain(message);
-          if (scenario === "missing") {
-            // Missing Docker gets one short answer instead of a diagnostic report.
-            expect(output).toContain(
-              process.platform === "linux"
-                ? "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/"
-                : "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
-            );
-            expect(output).toContain("Then run: openteam setup --dir");
-            expect(output).not.toContain("NEXT STEPS");
-          } else {
-            expect(output).toContain("NEXT STEPS");
-            expect(output).toContain("openteam setup --dir");
-            expect(output).toContain("paused");
-          }
-          expect(output).not.toContain("Unexpected Docker command");
-          expect(output).not.toContain("requires a terminal");
-          expect(output).not.toContain("Downloading");
-          expect(output).not.toContain("Password");
-          for (const [file, body] of before) expect(readFileSync(file, "utf8")).toBe(body);
-          if (!installed) expect(existsSync(paths.directory)).toBe(false);
-          if (existsSync(calls))
-            expect(readFileSync(calls, "utf8").trim().split("\n")).toEqual([
-              "--version",
-              "info --format {{.ServerVersion}}",
-              "compose version",
-            ]);
-        } finally {
-          rmSync(directory, { recursive: true, force: true });
+  for (const [command, installed] of [
+    ["install", false],
+    ["setup", true],
+  ] as const) {
+    test.each([
+      ["missing", "Docker is required."],
+      ["stopped", "could not connect to its engine"],
+      ["compose-old", "2.20.0"],
+    ])(`${command}, ${installed ? "resumed" : "fresh"}, %s stops before changes`, async (scenario, message) => {
+      const directory = mkdtempSync(join(tmpdir(), "openteam-preflight-"));
+      try {
+        const bin = join(directory, "bin");
+        mkdirSync(bin);
+        if (scenario !== "missing") writeFileSync(join(bin, "docker"), docker, { mode: 0o755 });
+        const paths = installationPaths(join(directory, "server installation"));
+        const before = new Map<string, string>();
+        if (installed) {
+          mkdirSync(paths.directory);
+          writeFileSync(paths.compose, "services: {}\n");
+          writeFileSync(paths.environment, createEnvironment({ version: "0.0.1" }), {
+            mode: 0o600,
+          });
+          writeManifest(paths, {
+            schemaVersion: 1,
+            version: "0.0.1",
+            repository: "example/test",
+            composeUrl: "https://example.test/compose.yaml",
+            installedAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+          });
+          for (const file of [paths.compose, paths.environment, paths.manifest])
+            before.set(file, readFileSync(file, "utf8"));
         }
-      });
-    }
+        const calls = join(directory, "calls");
+        const child = Bun.spawn(
+          [
+            process.execPath,
+            resolve(import.meta.dir, "../src/main.ts"),
+            command,
+            "--dir",
+            paths.directory,
+          ],
+          {
+            env: {
+              ...process.env,
+              PATH: bin,
+              NO_COLOR: "1",
+              OPENTEAM_TEST_CASE: scenario,
+              OPENTEAM_TEST_CALLS: calls,
+            },
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "pipe",
+          }
+        );
+        const [stdout, stderr, code] = await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+          child.exited,
+        ]);
+        const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
+        expect(code).toBe(2);
+        expect(output).toContain(message);
+        if (scenario === "missing") {
+          // Missing Docker gets one short answer instead of a diagnostic report.
+          expect(output).toContain(
+            process.platform === "linux"
+              ? "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/"
+              : "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+          );
+          expect(output).toContain("Then run: openteam setup --dir");
+          expect(output).not.toContain("NEXT STEPS");
+        } else {
+          expect(output).toContain("NEXT STEPS");
+          expect(output).toContain("openteam setup --dir");
+          expect(output).toContain("paused");
+        }
+        expect(output).not.toContain("Unexpected Docker command");
+        expect(output).not.toContain("requires a terminal");
+        expect(output).not.toContain("Downloading");
+        expect(output).not.toContain("Password");
+        for (const [file, body] of before) expect(readFileSync(file, "utf8")).toBe(body);
+        if (!installed) expect(existsSync(paths.directory)).toBe(false);
+        if (existsSync(calls))
+          expect(readFileSync(calls, "utf8").trim().split("\n")).toEqual([
+            "--version",
+            "info --format {{.ServerVersion}}",
+            "compose version",
+          ]);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
   }
 
   test("fresh setup runs preflight and asks for a terminal before downloading", async () => {

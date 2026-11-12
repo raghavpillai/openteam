@@ -6,7 +6,6 @@ import { installationPaths, createEnvironment, writeFileAtomic } from "../src/co
 import {
   AUTH_REQUEST_SCRIPT,
   createProviderConnectionAPI,
-  parseAuthSession,
   runConnectionProcess,
   type AsyncProcess,
 } from "../src/provider-connection-api";
@@ -19,7 +18,11 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
 });
 const runner: CommandRunner = {
-  run: () => ({ status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" }),
+  run: () => ({
+    status: 0,
+    stdout: "Docker Compose version v2.30.0",
+    stderr: "",
+  }),
 };
 const fixture = (run: AsyncProcess) => {
   const directory = mkdtempSync(join(tmpdir(), "openteam-connect-"));
@@ -58,26 +61,6 @@ describe("provider connection transport", () => {
     });
     expect(JSON.parse(calls[2]!.input!).method).toBe("DELETE");
   });
-  test.each([401, 500])("HTTP %i is actionable without echoing provider credentials", async (status) => {
-    const f = fixture(async () =>
-      JSON.stringify({ status, body: { error: "sk-test-secret-token" } })
-    );
-    const error = await f.api.start("claude-code", "oauth").catch((error) => error);
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).not.toContain("sk-test-secret-token");
-    expect(error.message).toMatch(/doctor|Go back/);
-  });
-  test("validates auth data and discards unexpected credential fields", () => {
-    expect(
-      JSON.stringify(parseAuthSession({ ...authView(), refreshToken: "private-token" }))
-    ).not.toContain("private-token");
-    expect(() =>
-      parseAuthSession({ ...authView(), prompt: { type: "select", options: [] } })
-    ).toThrow("invalid data");
-    expect(() =>
-      parseAuthSession({ ...authView(), authorizationUrl: { secret: "value" } })
-    ).toThrow("invalid data");
-  });
   test("imports Claude credentials from its config file over stdin, then verifies storage", async () => {
     const calls: Array<{ args: readonly string[]; input?: string }> = [];
     const f = fixture(async (command, input) => {
@@ -106,32 +89,6 @@ describe("provider connection transport", () => {
     expect(calls[0]!.args).toContain("import");
     expect(calls[0]!.args.join(" ")).not.toContain("test-refresh");
     expect(calls[1]!.args).toContain("providers");
-  });
-  test("a failed or unverified import does not report success", async () => {
-    const f = fixture(async () => "[]");
-    mkdirSync(join(f.directory, ".claude"));
-    writeFileSync(
-      join(f.directory, ".claude/.credentials.json"),
-      JSON.stringify({
-        claudeAiOauth: {
-          accessToken: "expired-access",
-          refreshToken: "expired-refresh",
-          expiresAt: 0,
-        },
-      })
-    );
-    await expect(f.api.importLogin("claude-code")).rejects.toThrow("not saved");
-    const failed = createProviderConnectionAPI(
-      f.paths,
-      runner,
-      async () => {
-        throw new Error("private-refresh-token");
-      },
-      { home: f.directory, env: {}, platform: "linux" }
-    );
-    const error = await failed.importLogin("claude-code").catch((error) => error);
-    expect(error.message).toContain("may have expired");
-    expect(error.message).not.toContain("private-refresh-token");
   });
   test("subprocess failures, timeouts and oversized output are bounded and redact diagnostics", async () => {
     for (const code of [

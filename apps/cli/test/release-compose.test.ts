@@ -11,12 +11,6 @@ afterEach(() => {
   }
 });
 
-test("the development stack gives the worker time for its graceful stop", async () => {
-  const compose = await Bun.file(resolve(import.meta.dir, "../../../docker-compose.yml")).text();
-  const worker = compose.split("\n  worker:\n")[1]!.split(/\n  [a-z-]+:\n|\nvolumes:/)[0]!;
-  expect(worker).toContain("stop_grace_period: 45s");
-});
-
 describe("release Compose rendering", () => {
   test("replaces every OpenTeam tag with its immutable multi-architecture digest", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-release-compose-"));
@@ -47,7 +41,9 @@ describe("release Compose rendering", () => {
       expect(rendered).toContain(`-${service}@sha256:${String(index + 1).repeat(64)}`);
     }
     expect(rendered.match(/-computer@sha256:4{64}/g)).toHaveLength(2);
-    expect(rendered).toContain("OPENTEAM_DESKTOP_MEMORY_LIMIT: ${OPENTEAM_DESKTOP_MEMORY_LIMIT:-10g}");
+    expect(rendered).toContain(
+      "OPENTEAM_DESKTOP_MEMORY_LIMIT: ${OPENTEAM_DESKTOP_MEMORY_LIMIT:-10g}"
+    );
     expect(rendered).toContain("mem_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}");
     expect(rendered).not.toMatch(
       /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m

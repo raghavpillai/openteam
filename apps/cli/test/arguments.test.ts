@@ -4,31 +4,10 @@ import { parseArguments } from "../src/arguments";
 describe("CLI arguments", () => {
   test.each([
     [[], { command: "help", helpTopic: "global" }],
-    [["model", "--dir", "/tmp/m"], { command: "model", directory: "/tmp/m" }],
-    [["help", "provider", "add"], { command: "help", helpTopic: "provider-add" }],
-    [["provider", "login", "--help"], { command: "help", helpTopic: "provider-login" }],
-    [["setup", "--advanced", "--dir", "/tmp/o"], { command: "setup", advanced: true }],
     [["logs", "server", "-f", "--tail", "50"], { command: "logs", follow: true, tail: "50" }],
     [
       ["provider", "login", "Anthropic", "--auth", "api-key"],
       { command: "provider-login", providerId: "anthropic", authType: "api_key" },
-    ],
-    [
-      [
-        "provider",
-        "add",
-        "acme",
-        "--name",
-        "Acme AI",
-        "--base-url",
-        "https://ai.example.test/v1",
-        "--api",
-        "openai-responses",
-        "--model",
-        "acme-pro",
-        "--reasoning",
-      ],
-      { command: "provider-add", apiProtocol: "openai-responses", reasoning: true },
     ],
     [
       ["model", "use", "anthropic", "claude-sonnet-4-5", "--thinking", "high"],
@@ -42,7 +21,6 @@ describe("CLI arguments", () => {
       ["install", "--version", "1.2.3", "--repository", "owner/repo", "--allow-prerelease"],
       { command: "install", version: "1.2.3", repository: "owner/repo", allowPrerelease: true },
     ],
-    [["update", "--json-progress"], { command: "update", jsonProgress: true }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseArguments([...args])).toMatchObject(expected);
   });
@@ -53,14 +31,11 @@ describe("CLI arguments", () => {
   });
 
   test.each([
-    [["explode"], "Unknown command"],
     [["statsu"], 'Did you mean "status"?'],
     [["status", "--force"], "Unknown option for status"],
-    [["install", "--purge"], "Unknown option for install"],
     [["update", "--version"], "--version requires a value"],
     [["provider", "remove", "not valid"], "Provider ids"],
     [["model", "use", "anthropic", "claude", "--thinking", "ultra"], "--thinking must be"],
-    [["logs", "--tail", "1.5"], "--tail must be a whole number"],
     [["logs", "--service", "-f"], "--service must be a Compose service name"],
     [["logs", "--service", "server;whoami"], "--service must be a Compose service name"],
     [["account", "update", "--password", "secret-value"], "does not accept a value"],

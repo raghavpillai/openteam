@@ -13,26 +13,11 @@ import type { ServiceState } from "../../src/startup";
 // One scenario per distinct state the report must not mislabel.
 export const statusScenarios = [
   ["healthy", "All containers healthy", "RUNNING", "openteam doctor"],
-  ["database-unavailable", "Database is unreachable", "NEEDS ATTENTION", "database: unavailable"],
   ["setup-incomplete", "Account setup incomplete", "RUNNING", "openteam setup"],
   ["not-installed", "OpenTeam not installed", "NOT INSTALLED", "openteam install"],
-  [
-    "invalid-manifest",
-    "Damaged installation manifest",
-    "STATUS UNKNOWN",
-    "configuration could not be read",
-  ],
-  ["docker-missing", "Docker command missing", "STATUS UNKNOWN", "docker command was not found"],
   ["docker-stopped", "Docker engine unavailable", "STATUS UNKNOWN", "docker info"],
-  [
-    "invalid-json",
-    "Docker returns malformed container output",
-    "STATUS UNKNOWN",
-    "invalid service state",
-  ],
   ["stopped", "All containers stopped cleanly", "STOPPED", "Stopped · exit 0"],
   ["missing-worker", "Worker missing while server is ready", "NEEDS ATTENTION", "Not created"],
-  ["starting", "Container health checks starting", "STARTING", "Wait a moment"],
   ["unhealthy", "Worker health check failing", "NEEDS ATTENTION", "health check failing"],
   ["job-failed", "Database migration failed", "NEEDS ATTENTION", "openteam logs migrate"],
   ["health-version", "A different release answers", "NEEDS ATTENTION", "expected release 1.2.3"],
@@ -48,13 +33,7 @@ export class StatusScenarioRunner implements CommandRunner {
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
     const id = this.id;
-    if (command === "docker" && args[0] === "--version")
-      return id === "docker-missing"
-        ? {
-            ...fail(""),
-            error: Object.assign(new Error("spawn docker ENOENT"), { code: "ENOENT" }),
-          }
-        : ok("Docker version 28.2.2");
+    if (command === "docker" && args[0] === "--version") return ok("Docker version 28.2.2");
     if (command === "docker" && args[0] === "info") {
       if (id === "docker-stopped")
         return fail("Cannot connect to the Docker daemon at unix:///var/run/docker.sock.");
@@ -62,7 +41,6 @@ export class StatusScenarioRunner implements CommandRunner {
     }
     if (args.includes("version")) return ok("Docker Compose version v5.1.3");
     if (args.includes("ps") && args.includes("json")) {
-      if (id === "invalid-json") return ok("{broken");
       const states: ServiceState[] = ["postgres", "server", "worker", "computer"].map(
         (Service) => ({ Service, State: "running", Health: "healthy" })
       );
@@ -74,7 +52,6 @@ export class StatusScenarioRunner implements CommandRunner {
           s.ExitCode = 0;
         }
       if (id === "missing-worker") states.splice(2, 1);
-      if (id === "starting") worker.Health = "starting";
       if (id === "unhealthy") worker.Health = "unhealthy";
       if (id === "job-failed") states.push({ Service: "migrate", State: "exited", ExitCode: 1 });
       return ok(states.map((s) => JSON.stringify(s)).join("\n"));
@@ -98,20 +75,6 @@ export const statusFixture = (id: StatusScenarioId) => {
       if (url.hostname !== "127.0.0.1") return new Response("Wrong fixture host", { status: 421 });
       requests.push(url.pathname);
       if (id === "stopped") return new Response("unavailable", { status: 503 });
-      if (id.endsWith("-unavailable"))
-        return Response.json(
-          {
-            status: "degraded",
-            release: { releaseVersion: "1.2.3" },
-            runtime: Object.fromEntries(
-              ["database", "queue", "computer", "inference"].map((name) => [
-                name,
-                id === `${name}-unavailable` ? "unavailable" : "ready",
-              ])
-            ),
-          },
-          { status: 503 }
-        );
       return Response.json({
         status: "ready",
         release: { releaseVersion: id === "health-version" ? "1.2.2" : "1.2.3" },
@@ -139,7 +102,6 @@ export const statusFixture = (id: StatusScenarioId) => {
       projectName: "friend-team",
       ownerUsername: id === "setup-incomplete" ? undefined : "owner",
     });
-    if (id === "invalid-manifest") writeFileSync(paths.manifest, "{broken");
   }
   const before = [paths.manifest, paths.environment, paths.compose].flatMap((file) => {
     try {

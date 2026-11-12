@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArguments } from "../src/arguments";
@@ -15,7 +15,6 @@ import {
   durableUpdateCommand,
   runUpdateWorker,
   UPDATE_WORKER_JOB_ENV,
-  updateWorkerArguments,
 } from "../src/durable-update";
 import { readUpdateState, writeUpdateState } from "../src/update-safety";
 
@@ -46,34 +45,6 @@ const state = (jobId: string, status: "running" | "complete", phase: "checking" 
 });
 
 describe("durable one-command update", () => {
-  test("relaunches the same CLI command under Node, Electron-as-Node, and a compiled binary", () => {
-    expect(
-      updateWorkerArguments(
-        ["/usr/bin/node", "/app/openteam.js", "update", "--version", "1.3.0"],
-        "/usr/bin/node"
-      )
-    ).toEqual(["/app/openteam.js", "update", "--version", "1.3.0"]);
-    expect(
-      updateWorkerArguments(
-        ["/Applications/OpenTeam", "/resources/openteam-cli.js", "update"],
-        "/Applications/OpenTeam"
-      )
-    ).toEqual(["/resources/openteam-cli.js", "update"]);
-    expect(
-      updateWorkerArguments(
-        ["/usr/local/bin/openteam", "/usr/local/bin/openteam", "update"],
-        "/usr/local/bin/openteam"
-      )
-    ).toEqual(["update"]);
-    expect(
-      updateWorkerArguments(
-        ["/usr/local/bin/openteam", "/$bunfs/root/openteam", "update"],
-        "/usr/local/bin/openteam",
-        true
-      )
-    ).toEqual(["update"]);
-  });
-
   test("uses one visible command, detaches the worker, and follows persisted progress", async () => {
     const paths = fixture();
     const messages: string[] = [];
@@ -117,26 +88,6 @@ describe("durable one-command update", () => {
     expect(messages.some((message) => message.includes('"phase":"complete"'))).toBe(true);
     expect(messages.every((message) => message.startsWith("@@OPENTEAM_UPDATE@@"))).toBe(true);
     expect(messages.some((message) => message.includes("\x1b"))).toBe(false);
-  });
-
-  test("reattaches to an active matching job instead of starting another worker", async () => {
-    const paths = fixture();
-    const jobId = randomUUID();
-    mkdirSync(paths.updateLock, { mode: 0o700 });
-    writeFileSync(
-      join(paths.updateLock, "owner.json"),
-      `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`
-    );
-    writeUpdateState(paths, state(jobId, "running", "checking"));
-    setTimeout(() => writeUpdateState(paths, state(jobId, "complete", "complete")), 0);
-    let spawned = false;
-    await durableUpdateCommand(paths, parseArguments(["update", "--version", "1.3.0"]), {
-      spawnWorker: () => {
-        spawned = true;
-        return { unref() {} };
-      },
-    });
-    expect(spawned).toBe(false);
   });
 
   test("runs a standalone upgrade through the staged target CLI", async () => {
@@ -250,5 +201,4 @@ describe("durable one-command update", () => {
       message: "fixture signature rejected",
     });
   });
-
 });

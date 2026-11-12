@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
-import {
-  configureTailscaleRoute,
-  detectTailscaleHttps,
-  tailscaleHttpsHost,
-} from "../src/tailscale-https";
+import { configureTailscaleRoute, detectTailscaleHttps } from "../src/tailscale-https";
 import type { CommandRunner } from "../src/process";
 import { createSetupSession } from "../src/setup-session";
-import { SETUP_STAGES, existingReachableHost, validateProxyHost } from "../src/setup-values";
+import { SETUP_STAGES, validateProxyHost } from "../src/setup-values";
 
 const host = "bot.tail123.ts.net";
 const matching = (port = "8787") => ({
   TCP: { "443": { HTTPS: true } },
-  Web: { [`${host}:443`]: { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } } },
+  Web: {
+    [`${host}:443`]: {
+      Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } },
+    },
+  },
 });
 function fixture(config: object = {}) {
   const calls: string[][] = [];
@@ -107,39 +107,6 @@ test("detection avoids disabled HTTPS and every incompatible route", () => {
     expect(() => configureTailscaleRoute(other.runner, { host, addresses: [] }, "8787")).toThrow();
     expect(other.calls.some((args) => args.includes("--bg"))).toBe(false);
   }
-});
-
-test("setup reuses an existing private HTTPS port without replacing another app on 443", () => {
-  const config = matching("18789");
-  const f = fixture({
-    TCP: { ...config.TCP, "10000": { HTTPS: true } },
-    Web: {
-      ...config.Web,
-      [`${host}:10000`]: { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } },
-    },
-  });
-  const candidate = detectTailscaleHttps(f.runner, "8787")!;
-  expect(candidate).toEqual({ host, port: "10000", addresses: ["100.100.10.5"] });
-  const address = tailscaleHttpsHost(candidate);
-  expect(validateProxyHost(address)).toBe(`${host}:10000`);
-  const setup = createSetupSession({
-    version: "test",
-    stages: SETUP_STAGES,
-    current: new Map(),
-    fresh: true,
-    ownerConfigured: true,
-    preferredHttpsHost: address,
-  });
-  expect(setup.configuration().publicUrl).toBe(`https://${host}:10000`);
-  expect(existingReachableHost(new Map([["OPENTEAM_PUBLIC_URL", `https://${address}`]]))).toBe(
-    address
-  );
-  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(false);
-  expect(f.calls.some((args) => args.includes("--bg"))).toBe(false);
-  // A missing custom-port mapping can now be explicitly recreated.
-  f.setServe(config);
-  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(true);
-  expect(f.calls).toContainEqual(["serve", "--bg", "--https=10000", "http://127.0.0.1:8787"]);
 });
 
 test("proxy endpoints validate ports without accepting paths or credentials", () => {

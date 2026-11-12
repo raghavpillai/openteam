@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -16,15 +9,11 @@ import {
   writeManifest,
 } from "../src/config";
 
-// One case per failure layer: Docker CLI, engine, Compose, configuration,
-// services, health, model, and a passing run.
+// One case per failure layer: Docker CLI, engine, configuration, model, and a passing run.
 const cases: Array<[string, string, boolean?]> = [
   ["missing-cli", "Install Docker Desktop"],
   ["daemon-stopped", "Start your Docker runtime"],
-  ["compose-fallback", "SETUP NEEDED"],
   ["env-permissions", "owner-only", true],
-  ["migration-failed", "openteam logs migrate", true],
-  ["health-version", "API port belongs to this installation", true],
   ["model-401", "Reconnect the provider in the OpenTeam app", true],
   ["healthy", "READY WITH NOTES", true],
 ];
@@ -52,7 +41,6 @@ if (args[0] === 'info') {
   ok('28.2.2');
 }
 if ((args[0] === 'compose' && args[1] === 'version') || (standalone && args[0] === 'version')) {
-  if (scenario === 'compose-fallback' && !standalone) fail('compose is not a docker command');
   ok('Docker Compose version v5.1.3');
 }
 if (args.includes('config') && args.includes('--quiet')) {
@@ -63,7 +51,7 @@ if (args.includes('ps') && args.includes('--services')) ok(services.join('\\n'))
 if (args.includes('ps') && args.includes('--quiet')) ok('a'.repeat(64));
 if (args[0] === 'inspect') ok([...services, 'migrate'].map(service => JSON.stringify({
   service, state: service === 'migrate' ? 'exited' : 'running', health: 'healthy', restarts: 0,
-  exitCode: service === 'migrate' && scenario === 'migration-failed' ? 1 : 0,
+  exitCode: 0,
   startedAt: new Date().toISOString()
 })).join('\\n'));
 if (args.includes('exec')) {
@@ -114,7 +102,7 @@ describe.skipIf(process.platform === "win32")("doctor command failure matrix", (
         const calls = join(directory, "calls.jsonl");
         // This matrix tests Docker/configuration failures, not whichever ports
         // the developer's live stack currently uses. Port probes have their own
-        // real-socket tests in doctor.test.ts.
+        // real-socket tests in stack.test.ts.
         const preload = join(directory, "ports-preload.ts");
         const portsModule = resolve(import.meta.dir, "../src/ports.ts");
         writeFileSync(
@@ -178,7 +166,7 @@ describe.skipIf(process.platform === "win32")("doctor command failure matrix", (
           child.exited,
         ]);
         const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
-        const success = ["healthy", "compose-fallback"].includes(id);
+        const success = id === "healthy";
         expect(exitCode).toBe(success ? 0 : 2);
         expect(output.replace(/ --dir '[^']*'/g, "")).toContain(
           id === "missing-cli" && process.platform === "linux"

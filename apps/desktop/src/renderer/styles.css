@@ -1700,24 +1700,78 @@ textarea,
   height: 41px;
   overflow: visible;
 }
+/* Animate only the two visual layers; keep progress out of avatar descendants. */
+@property --conversation-reveal {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
 .desktop-conversation-pill {
+  --conversation-rest-scale: .85;
+  --conversation-spring: linear(0, .4 12%, .82 28%, 1.06 45%, .985 65%, 1.006 82%, 1);
   position: relative;
+  isolation: isolate;
+  contain: layout style;
+  max-width: 100%;
   height: 41px;
   gap: 8px;
   border-radius: 999px;
-  padding: 7.5px 13.5px 7.5px 7.5px;
-  border: .5px solid var(--border);
-  background: var(--conversation-surface);
-  box-shadow: var(--conversation-pill-shadow);
+  padding: 7.5px 37.5px 7.5px 7.5px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
-.desktop-conversation-pill > span:nth-child(2) {
+.desktop-conversation-name,
+.desktop-conversation-avatar {
+  transform: translateX(12px);
+  transition: transform 640ms var(--conversation-spring);
+}
+.desktop-conversation-name {
+  position: relative;
+  min-width: 0;
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
 }
-.desktop-conversation-pill > span:first-child {
+.desktop-conversation-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
   width: 24px;
   height: 24px;
+}
+.desktop-conversation-surface {
+  --conversation-reveal: 0;
+  /* The pull peaks in transit and returns to a clean capsule at both ends. */
+  --conversation-pull: sin(calc(var(--conversation-reveal) * 180deg));
+  --conversation-surface-scale: calc(var(--conversation-rest-scale) + (1 - var(--conversation-rest-scale)) * var(--conversation-reveal));
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border: .5px solid var(--border);
+  background: var(--conversation-surface);
+  box-shadow: var(--conversation-pill-shadow);
+  border-radius: calc(22px / var(--conversation-surface-scale))
+    calc((22px + 7px * var(--conversation-pull)) / var(--conversation-surface-scale))
+    calc((22px - 5px * var(--conversation-pull)) / var(--conversation-surface-scale))
+    calc(22px / var(--conversation-surface-scale)) /
+    22px calc(22px - 5px * var(--conversation-pull))
+    calc(22px + 7px * var(--conversation-pull)) 22px;
+  transform: scale(
+    calc(var(--conversation-surface-scale) * (1 + .02 * var(--conversation-pull))),
+    calc(1 - .1 * var(--conversation-pull))
+  );
+  /* One small surface layer keeps its changing contour and shadow paint local. */
+  will-change: transform;
+  transition: --conversation-reveal 640ms var(--conversation-spring), scale 120ms ease-out;
+}
+.desktop-conversation-pill:is(:hover, :focus-visible, [aria-expanded="true"]) :is(.desktop-conversation-surface, .desktop-conversation-chevron) {
+  --conversation-reveal: 1;
+}
+.desktop-conversation-pill:is(:hover, :focus-visible, [aria-expanded="true"]) :is(.desktop-conversation-name, .desktop-conversation-avatar) {
+  transform: translateX(0);
 }
 .bot-details-summary {
   overflow: hidden;
@@ -1942,17 +1996,31 @@ textarea,
 .message-with-actions[data-role="assistant"][data-group-position="first"] .permission-widget,
 .message-with-actions[data-role="assistant"][data-group-position="middle"] .permission-widget { border-end-start-radius: 6px; }
 
-/* The reference chevron translates 6px over 140ms; file cards themselves do not lift. */
+/* Reveal the arrow only as the surface makes room for it. */
 .desktop-conversation-chevron {
+  --conversation-reveal: 0;
   position: absolute;
-  right: -18px;
-  opacity: 0;
-  transform: translateX(-6px);
-  transition: transform 140ms cubic-bezier(.22, 1, .36, 1), opacity 140ms cubic-bezier(.22, 1, .36, 1);
+  right: 12px;
+  opacity: clamp(0, calc((var(--conversation-reveal) - .55) / .45), 1);
+  transform: translateX(calc(-18px * (1 - var(--conversation-reveal))))
+    scale(calc(.85 + .15 * var(--conversation-reveal)));
+  transition: --conversation-reveal 640ms var(--conversation-spring);
 }
-.desktop-conversation-pill:is(:hover, :focus-visible) .desktop-conversation-chevron {
-  opacity: 1;
-  transform: translateX(0);
+.desktop-conversation-pill:active .desktop-conversation-surface {
+  scale: .985 .96;
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-conversation-pill,
+  .desktop-conversation-name,
+  .desktop-conversation-avatar,
+  .desktop-conversation-surface,
+  .desktop-conversation-chevron {
+    animation: none !important;
+    transition: none;
+  }
+  .desktop-conversation-pill:active .desktop-conversation-surface {
+    scale: none;
+  }
 }
 .openteam-table-preview {
   min-height: 100%;

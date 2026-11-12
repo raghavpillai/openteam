@@ -8,7 +8,7 @@ import {
   MessageCircle,
   Settings,
 } from "lucide-react";
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
 import { cn } from "../../lib/cn";
 import { measureUntilNextPaint } from "../../lib/performance";
@@ -51,6 +51,22 @@ export function DesktopHeader({
   const titleRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    if (!title) return;
+    // Reserve the arrow's space once; hover only transforms the visible surface.
+    const updateScale = (width: number) => {
+      if (width > 0) {
+        title.style.setProperty("--conversation-rest-scale", String(Math.max(0, 1 - 24 / width)));
+      }
+    };
+    updateScale(title.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateScale(entry.borderBoxSize[0]?.inlineSize ?? title.getBoundingClientRect().width);
+    });
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [selected?.id, selected?.kind]);
   const focusNext = (ref: { current: HTMLButtonElement | null }) =>
     requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
   const showSummary = () => {
@@ -150,12 +166,15 @@ export function DesktopHeader({
                   }}
                   type="button"
                 >
-                  {selectedBot ? (
-                    <BotAvatar bot={selectedBot} size="xs" />
-                  ) : (
-                    <MessageCircle className="size-4 text-violet-500" />
-                  )}
-                  <span className="truncate text-[13px] font-medium">{selected.name}</span>
+                  <span aria-hidden="true" className="desktop-conversation-surface" />
+                  <span className="desktop-conversation-avatar">
+                    {selectedBot ? (
+                      <BotAvatar bot={selectedBot} size="xs" className="size-full" />
+                    ) : (
+                      <MessageCircle className="size-4 text-violet-500" />
+                    )}
+                  </span>
+                  <span className="desktop-conversation-name truncate">{selected.name}</span>
                   <ChevronRight
                     aria-hidden
                     className="desktop-conversation-chevron size-3 shrink-0"

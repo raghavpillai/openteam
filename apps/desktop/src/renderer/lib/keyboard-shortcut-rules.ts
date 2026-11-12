@@ -14,9 +14,9 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, { title: string; descriptio
   search: { title: "Search", description: "Find a Bot, message or setting." },
   toggleSidebar: { title: "Show or hide the sidebar", description: "Switch between the full and compact sidebar." },
   settings: { title: "Settings", description: "Open these settings." },
-  dictate: { title: "Dictate", description: "Start or stop a voice note, in the chat and in appshots." },
-  previousBot: { title: "Previous Bot", description: "Go to the conversation above in the sidebar, or the previous Bot in an appshot." },
-  nextBot: { title: "Next Bot", description: "Go to the conversation below in the sidebar, or the next Bot in an appshot." },
+  dictate: { title: "Dictate", description: "Start or stop a voice note, in the chat and in ScreenBot." },
+  previousBot: { title: "Previous Bot", description: "Go to the conversation above in the sidebar, or the previous Bot in ScreenBot." },
+  nextBot: { title: "Next Bot", description: "Go to the conversation below in the sidebar, or the next Bot in ScreenBot." },
 };
 
 
@@ -39,7 +39,7 @@ export interface ShortcutCheck {
 
 /**
  * Whether `binding` can be saved for `action`: a real shortcut (Fn only for dictation, on a
- * Mac), not one the system needs, and not already used by another action or by the appshot
+ * Mac), not one the system needs, and not already used by another action or by the screenbot
  * trigger.
  */
 export const checkShortcut = (
@@ -47,7 +47,7 @@ export const checkShortcut = (
   binding: string,
   current: ShortcutBindings,
   mac: boolean,
-  appshotAccelerator: string | null = null
+  screenBotAccelerator: string | null = null
 ): string | null => {
   if (binding === FN_KEY) {
     if (action !== "dictate") return "Only dictation can use the Fn key on its own.";
@@ -57,7 +57,7 @@ export const checkShortcut = (
     if (!canonical) return "Include ⌘, ⌃ or ⌥ (or Ctrl or Alt) with a key.";
     const reserved = (mac ? RESERVED_MAC : RESERVED_OTHER).map((value) => canonicalShortcut(value, mac));
     if (reserved.includes(canonical)) return "Your system uses that shortcut. Pick another.";
-    if (appshotAccelerator && canonicalShortcut(appshotAccelerator, mac) === canonical) return "Appshots already use that shortcut.";
+    if (screenBotAccelerator && canonicalShortcut(screenBotAccelerator, mac) === canonical) return "ScreenBot already uses that shortcut.";
   }
   const target = canonicalShortcut(binding, mac);
   for (const other of SHORTCUT_ACTIONS) {

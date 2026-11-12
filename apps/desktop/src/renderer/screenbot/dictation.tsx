@@ -29,7 +29,7 @@ export function DictationButton({
   return (
     <button
       type="button"
-      className="appshot-mic"
+      className="screenbot-mic"
       data-state={state}
       disabled={disabled || state === "processing"}
       aria-label={recording ? "Stop dictation and insert text" : `Dictate (${shortcut})`}

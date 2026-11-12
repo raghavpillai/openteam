@@ -4,7 +4,7 @@ import type { DesktopNotificationTarget } from "@openteam/contracts/notification
 import type { ApplicationMenuAction } from "../main/application-menu";
 
 
-/** What the appshot overlay shows when the chat window couldn't do what it asked. Network
+/** What the screenbot overlay shows when the chat window couldn't do what it asked. Network
  * failures surface from fetch as a bare "Failed to fetch"; say what that means instead. */
 /** Subscribes to a channel's values; returns the unsubscribe. */
 const listen = (channel: string, callback: (value: unknown) => void) => {
@@ -13,7 +13,7 @@ const listen = (channel: string, callback: (value: unknown) => void) => {
   return () => { ipcRenderer.removeListener(channel, listener); };
 };
 
-const appshotError = (error: unknown, fallback: string) => {
+const screenBotError = (error: unknown, fallback: string) => {
   if (error instanceof TypeError && /fetch|network/i.test(error.message)) return "Couldn’t reach OpenTeam. Check your connection and try again.";
   return error instanceof Error && error.message ? error.message : fallback;
 };
@@ -113,7 +113,7 @@ const deliveryJournal = (value: unknown): unknown => {
   return value;
 };
 
-interface AppshotDelivery {
+interface ScreenBotDelivery {
   botId: string;
   content: string;
   nonce: string;
@@ -299,52 +299,52 @@ contextBridge.exposeInMainWorld("openteam", {
     onChange: (callback: (view: unknown) => void) => listen("openteam:shortcuts-changed", callback),
     onShortcut: (callback: (action: string) => void) => listen("openteam:shortcut", (action) => { if (typeof action === "string") callback(action); }),
   },
-  appshot: {
-    /** Bots the floating appshot composer can send to, most recent first. */
-    publishRoster: (roster: unknown) => ipcRenderer.send("openteam:appshot:roster", record(roster, "Appshot roster")),
-    /** Delivers an appshot already staged on disk by main (which validated it): only a
+  screenbot: {
+    /** Bots the floating screenbot composer can send to, most recent first. */
+    publishRoster: (roster: unknown) => ipcRenderer.send("openteam:screenbot:roster", record(roster, "ScreenBot roster")),
+    /** Delivers a ScreenBot already staged on disk by main (which validated it): only a
      * reference crosses IPC. */
-    onDeliver: (handler: (request: AppshotDelivery) => Promise<void>) => {
+    onDeliver: (handler: (request: ScreenBotDelivery) => Promise<void>) => {
       const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
-        const request = record(value, "Appshot delivery") as unknown as AppshotDelivery & { requestId: string };
-        const reply = (result: object) => ipcRenderer.send("openteam:appshot:delivered", { requestId: request.requestId, ...result });
+        const request = record(value, "ScreenBot delivery") as unknown as ScreenBotDelivery & { requestId: string };
+        const reply = (result: object) => ipcRenderer.send("openteam:screenbot:delivered", { requestId: request.requestId, ...result });
         stagingId(request.staged?.stagingId);
         handler(request).then(
           () => reply({ ok: true }),
-          (error: unknown) => reply({ ok: false, error: appshotError(error, "This appshot couldn’t be sent.") })
+          (error: unknown) => reply({ ok: false, error: screenBotError(error, "This screenshot couldn’t be sent.") })
         );
       };
-      ipcRenderer.on("openteam:appshot:deliver", listener);
-      return () => ipcRenderer.removeListener("openteam:appshot:deliver", listener);
+      ipcRenderer.on("openteam:screenbot:deliver", listener);
+      return () => ipcRenderer.removeListener("openteam:screenbot:deliver", listener);
     },
-    /** Dictation in the appshot composer: transcribe a recording made by the overlay. */
+    /** Dictation in the screenbot composer: transcribe a recording made by the overlay. */
     onTranscribe: (handler: (request: { audio: Uint8Array; mimeType: string }) => Promise<string>) => {
       const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
-        const { requestId, audio, mimeType } = record(value, "Appshot transcription");
-        const reply = (result: object) => ipcRenderer.send("openteam:appshot:delivered", { requestId, ...result });
+        const { requestId, audio, mimeType } = record(value, "ScreenBot transcription");
+        const reply = (result: object) => ipcRenderer.send("openteam:screenbot:delivered", { requestId, ...result });
         if (!(audio instanceof Uint8Array) || typeof mimeType !== "string") return reply({ ok: false, error: "That recording couldn’t be used." });
         handler({ audio, mimeType }).then(
           (text) => reply({ ok: true, text }),
-          (error: unknown) => reply({ ok: false, error: appshotError(error, "Transcription failed. Try again.") })
+          (error: unknown) => reply({ ok: false, error: screenBotError(error, "Transcription failed. Try again.") })
         );
       };
-      ipcRenderer.on("openteam:appshot:transcribe", listener);
-      return () => ipcRenderer.removeListener("openteam:appshot:transcribe", listener);
+      ipcRenderer.on("openteam:screenbot:transcribe", listener);
+      return () => ipcRenderer.removeListener("openteam:screenbot:transcribe", listener);
     },
-    /** The appshot trigger: both ⌘ keys by default, or a shortcut of the person's choosing. */
+    /** The screenbot trigger: both ⌘ keys by default, or a shortcut of the person's choosing. */
     shortcut: {
-      get: () => ipcRenderer.invoke("openteam:appshot:shortcut:get"),
-      set: (shortcut: unknown) => ipcRenderer.invoke("openteam:appshot:shortcut:set", shortcut),
-      reset: () => ipcRenderer.invoke("openteam:appshot:shortcut:set", null),
-      setRecording: (recording: boolean) => ipcRenderer.invoke("openteam:appshot:shortcut:recording", recording === true),
-      requestAccess: () => ipcRenderer.invoke("openteam:appshot:shortcut:request-access"),
+      get: () => ipcRenderer.invoke("openteam:screenbot:shortcut:get"),
+      set: (shortcut: unknown) => ipcRenderer.invoke("openteam:screenbot:shortcut:set", shortcut),
+      reset: () => ipcRenderer.invoke("openteam:screenbot:shortcut:set", null),
+      setRecording: (recording: boolean) => ipcRenderer.invoke("openteam:screenbot:shortcut:recording", recording === true),
+      requestAccess: () => ipcRenderer.invoke("openteam:screenbot:shortcut:request-access"),
       onChange: (callback: (status: unknown) => void) => {
-        return listen("openteam:appshot:shortcut-changed", callback);
+        return listen("openteam:screenbot:shortcut-changed", callback);
       },
     },
-    /** Main asks for a fresh Bot list each time an appshot is taken. */
+    /** Main asks for a fresh Bot list each time a ScreenBot is taken. */
     onRosterRequest: (callback: () => void) => {
-      return listen("openteam:appshot:roster-request", () => callback());
+      return listen("openteam:screenbot:roster-request", () => callback());
     },
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),

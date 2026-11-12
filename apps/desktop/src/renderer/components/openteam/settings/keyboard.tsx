@@ -14,7 +14,7 @@ import {
   checkShortcut,
   SHORTCUT_LABELS,
 } from "../../../lib/keyboard-shortcut-rules";
-import { AppshotShortcutSettings, Keycaps } from "./appshot-shortcut";
+import { ScreenBotShortcutSettings, Keycaps } from "./screenbot-shortcut";
 import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
 const errorText = (cause: unknown) =>
@@ -168,19 +168,19 @@ function ShortcutRow({
   );
 }
 
-/** Settings › Keyboard: the appshot trigger, and the app's own shortcuts. */
+/** Settings › Keyboard: the screenbot trigger, and the app's own shortcuts. */
 export default function KeyboardSettings() {
   const [recording, setRecording] = useState<ShortcutAction | null>(null);
-  const appshot = window.openteam?.appshot?.shortcut;
-  // While a shortcut is recorded, the global ones (the appshot trigger, Fn) must not act.
+  const screenbot = window.openteam?.screenbot?.shortcut;
+  // While a shortcut is recorded, the global ones (the screenbot trigger, Fn) must not act.
   useEffect(() => {
-    void appshot?.setRecording(recording !== null);
-  }, [appshot, recording]);
-  useEffect(() => () => { void appshot?.setRecording(false); }, [appshot]);
+    void screenbot?.setRecording(recording !== null);
+  }, [screenbot, recording]);
+  useEffect(() => () => { void screenbot?.setRecording(false); }, [screenbot]);
 
   return (
     <>
-      {window.openteam?.appshot && <AppshotShortcutSettings />}
+      {window.openteam?.screenbot && <ScreenBotShortcutSettings />}
       <SectionLabel>Shortcuts</SectionLabel>
       <SettingsGroup>
         {SHORTCUT_ACTIONS.map((action) => (

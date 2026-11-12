@@ -444,7 +444,7 @@ const readLazyClosures = async () => {
       inspector: ["src/renderer/components/openteam/inspector.tsx"],
       channelLibrary: ["src/renderer/components/openteam/channel-library.tsx"],
       avatarPicker: ["src/renderer/components/openteam/avatar-picker.tsx"],
-      appshotBridge: ["src/renderer/lib/appshot-bridge.ts"],
+      screenBotBridge: ["src/renderer/lib/screenbot-bridge.ts"],
       keyboardSettings: ["src/renderer/components/openteam/settings/keyboard.tsx"],
       botScreen: ["src/renderer/components/openteam/bot-screen.tsx"],
       vncProtocol: ["node_modules/@novnc/novnc/core/rfb.js"],

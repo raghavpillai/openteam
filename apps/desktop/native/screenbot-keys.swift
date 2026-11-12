@@ -1,8 +1,8 @@
-// appshot-keys: reports when both of a modifier's keys (left and right) go down together,
-// e.g. both Command keys, for the appshot shortcut. Electron's globalShortcut can't express
+// screenbot-keys: reports when both of a modifier's keys (left and right) go down together,
+// e.g. both Command keys, for the screenbot shortcut. Electron's globalShortcut can't express
 // a chord of modifiers alone.
 //
-// Usage: appshot-keys --chord command|option|shift|control|off [--fn]
+// Usage: screenbot-keys --chord command|option|shift|control|off [--fn]
 // stdout: "ready tap" | "ready poll", then "trigger" for each chord, and with --fn (or after
 //         "fn on") "fn" each time the Fn key is tapped on its own (dictation can use it).
 // stdin:  "chord <name|off>", "fn on|off", "pause" / "resume", EOF exits.
@@ -11,7 +11,7 @@
 // so it costs nothing while idle. Without it, it reads the global modifier state on a slow
 // timer (20 Hz, about 0.3% of one core), speeding up only while one of the chord's keys is held.
 //
-// appshot-keys --request-access asks macOS for Input Monitoring and prints the result.
+// screenbot-keys --request-access asks macOS for Input Monitoring and prints the result.
 
 import ApplicationServices
 import Foundation
@@ -171,7 +171,7 @@ var chordName = "command"
 if let index = CommandLine.arguments.firstIndex(of: "--chord"), index + 1 < CommandLine.arguments.count {
   chordName = CommandLine.arguments[index + 1]
 }
-// "off": the appshot trigger is an ordinary shortcut and the helper only watches Fn.
+// "off": the screenbot trigger is an ordinary shortcut and the helper only watches Fn.
 var chordOn = chordName != "off"
 guard let initial = Chord.named(chordOn ? chordName : "command") else {
   FileHandle.standardError.write("unknown chord \(chordName)\n".data(using: .utf8)!)

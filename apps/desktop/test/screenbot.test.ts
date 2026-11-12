@@ -3,38 +3,38 @@ import { applicationMenuTemplate } from "../src/main/application-menu";
 import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseAppshotRoster } from "../src/main/appshot-roster";
+import { parseScreenBotRoster } from "../src/main/screenbot-roster";
 import { sweepIncompleteDeliveryStages } from "../src/main/delivery-file-stage";
-import { spring } from "../src/renderer/appshot/motion";
+import { spring } from "../src/renderer/screenbot/motion";
 
 const bot = { id: "b1", name: "Atlas", title: "Research", color: "#27baae", icon: "classic", channelId: "c1" };
 
-describe("appshot roster", () => {
+describe("screenbot roster", () => {
   test("keeps only the fields the overlay renders", () => {
-    const roster = parseAppshotRoster({
+    const roster = parseScreenBotRoster({
       bots: [{ ...bot, instructions: "secret", avatarDataUrl: "data:image/png;base64,AA" }],
     });
     expect(roster).toEqual({ bots: [{ ...bot, avatarDataUrl: "data:image/png;base64,AA" }], dictation: false });
   });
 
   test("drops avatars that aren't image data URLs", () => {
-    const roster = parseAppshotRoster({ bots: [{ ...bot, avatarDataUrl: "https://example.com/a.png" }], dictation: true });
+    const roster = parseScreenBotRoster({ bots: [{ ...bot, avatarDataUrl: "https://example.com/a.png" }], dictation: true });
     expect(roster).toEqual({ bots: [bot], dictation: true });
   });
 
   test("rejects malformed rosters", () => {
-    expect(parseAppshotRoster(null)).toBeNull();
-    expect(parseAppshotRoster({ bots: [{ id: "b1" }] })).toBeNull();
-    expect(parseAppshotRoster({ bots: [{ ...bot, channelId: "" }] })).toBeNull();
-    expect(parseAppshotRoster({ bots: "nope" })).toBeNull();
+    expect(parseScreenBotRoster(null)).toBeNull();
+    expect(parseScreenBotRoster({ bots: [{ id: "b1" }] })).toBeNull();
+    expect(parseScreenBotRoster({ bots: [{ ...bot, channelId: "" }] })).toBeNull();
+    expect(parseScreenBotRoster({ bots: "nope" })).toBeNull();
   });
 });
 
-describe("appshot roster theme", () => {
+describe("screenbot roster theme", () => {
   test("carries only a known appearance setting to the overlay", () => {
     const bots = [{ id: "b", name: "B", color: "#000", icon: "bot", channelId: "c" }];
-    expect(parseAppshotRoster({ bots, dictation: true, theme: "dark" })?.theme).toBe("dark");
-    expect(parseAppshotRoster({ bots, dictation: true, theme: "neon" })?.theme).toBeUndefined();
+    expect(parseScreenBotRoster({ bots, dictation: true, theme: "dark" })?.theme).toBe("dark");
+    expect(parseScreenBotRoster({ bots, dictation: true, theme: "neon" })?.theme).toBeUndefined();
   });
 });
 
@@ -55,7 +55,7 @@ describe("delivery staging sweep", () => {
   });
 });
 
-describe("appshot springs", () => {
+describe("screenbot springs", () => {
   test("start at rest, overshoot when underdamped, and settle at 1", () => {
     const bouncy = spring(300, 19);
     expect(bouncy.at(0)).toBeCloseTo(0, 6);
@@ -72,26 +72,26 @@ describe("appshot springs", () => {
   });
 });
 
-test("the File menu offers Take Appshot and shows an ordinary shortcut without claiming it", () => {
+test("the File menu offers Open ScreenBot and shows an ordinary shortcut without claiming it", () => {
   const actions: string[] = [];
   const template = applicationMenuTemplate("darwin", (action) => actions.push(action), undefined, "CommandOrControl+Shift+2");
   const file = template.find((item) => item.label === "File");
   const items = file?.submenu as Array<{ label?: string; accelerator?: string; registerAccelerator?: boolean; click?: () => void }>;
-  const appshot = items.find((item) => item.label === "Take Appshot");
-  expect(appshot?.accelerator).toBe("CommandOrControl+Shift+2");
-  expect(appshot?.registerAccelerator).toBe(false);
-  appshot?.click?.();
-  expect(actions).toEqual(["appshot"]);
+  const screenbot = items.find((item) => item.label === "Open ScreenBot");
+  expect(screenbot?.accelerator).toBe("CommandOrControl+Shift+2");
+  expect(screenbot?.registerAccelerator).toBe(false);
+  screenbot?.click?.();
+  expect(actions).toEqual(["screenbot"]);
   expect(items.some((item) => (item as { role?: string }).role === "close")).toBe(true);
   // A both-key chord can't be shown as a menu accelerator.
   const chordMenu = applicationMenuTemplate("darwin", () => {}, undefined, null);
   const chordItems = chordMenu.find((item) => item.label === "File")?.submenu as Array<{ label?: string; accelerator?: string }>;
-  expect(chordItems.find((item) => item.label === "Take Appshot")?.accelerator).toBeUndefined();
+  expect(chordItems.find((item) => item.label === "Open ScreenBot")?.accelerator).toBeUndefined();
 });
 
-describe("appshot PNG encoder", () => {
+describe("screenbot PNG encoder", () => {
   test("round-trips BGRA screen pixels as an RGB PNG", async () => {
-    const { encodeScreenPng } = await import("../src/main/appshot-png");
+    const { encodeScreenPng } = await import("../src/main/screenbot-png");
     const { inflateSync, crc32 } = await import("node:zlib");
     const width = 37, height = 29;
     const bgra = new Uint8Array(width * height * 4);
@@ -135,7 +135,7 @@ describe("appshot PNG encoder", () => {
 });
 
 test("a dropped shot stops its PNG encode at the next slice", async () => {
-  const { encodeScreenPng } = await import("../src/main/appshot-png");
+  const { encodeScreenPng } = await import("../src/main/screenbot-png");
   const width = 64, height = 400;
   const pixels = new Uint8Array(width * height * 4).fill(200);
   const controller = new AbortController();

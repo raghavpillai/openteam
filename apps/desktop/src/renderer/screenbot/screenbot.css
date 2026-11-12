@@ -1,4 +1,4 @@
-/* The appshot overlay: a transparent, click-through layer the size of the display. Colors
+/* The screenbot overlay: a transparent, click-through layer the size of the display. Colors
    follow macOS materials: a frosted pane of the captured screen under a light or dark tint. */
 
 :root {
@@ -79,22 +79,22 @@ body {
   cursor: default;
 }
 
-.appshot-stage {
+.screenbot-stage {
   position: fixed;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
 }
 
-.appshot-stage [data-hit],
-.appshot-stage [data-hit] * {
+.screenbot-stage [data-hit],
+.screenbot-stage [data-hit] * {
   pointer-events: auto;
 }
 
 /* ---- Capture --------------------------------------------------------------------------- */
 
 /* Only exists during the intro: an invisible full-display layer would still cost GPU memory. */
-.appshot-flash {
+.screenbot-flash {
   position: absolute;
   inset: 0;
   display: none;
@@ -102,11 +102,11 @@ body {
   background: #fff;
 }
 
-.appshot-stage[data-phase="intro"] .appshot-flash {
+.screenbot-stage[data-phase="intro"] .screenbot-flash {
   display: block;
 }
 
-.appshot-fly {
+.screenbot-fly {
   position: absolute;
   left: 0;
   top: 0;
@@ -116,8 +116,8 @@ body {
   contain: layout paint;
 }
 
-.appshot-fly img,
-.appshot-thumb img {
+.screenbot-fly img,
+.screenbot-thumb img {
   display: block;
   width: 100%;
   height: 100%;
@@ -127,12 +127,12 @@ body {
 
 /* ---- The robot -------------------------------------------------------------------------- */
 
-.appshot-mascot-layer {
+.screenbot-mascot-layer {
   position: absolute;
   inset: 0;
 }
 
-.appshot-mascot {
+.screenbot-mascot {
   position: absolute;
   left: 0;
   top: 0;
@@ -141,36 +141,36 @@ body {
   filter: drop-shadow(0 5px 8px rgb(0 0 0 / 22%));
 }
 
-.appshot-mascot svg {
+.screenbot-mascot svg {
   display: block;
 }
 
 /* No idle loop at all: even a compositor-only animation makes the GPU composite this
    full-screen window every frame (~13% of a core). Between blinks the robot is still. */
-.appshot-mascot-gaze,
-.appshot-mascot-visor {
+.screenbot-mascot-gaze,
+.screenbot-mascot-visor {
   transition: transform 140ms cubic-bezier(0.25, 0.8, 0.3, 1);
 }
 
-.appshot-mascot-eyes {
+.screenbot-mascot-eyes {
   transform-box: fill-box;
   transform-origin: 50% 50%;
   transition: transform 70ms ease-in-out, opacity 120ms ease;
 }
 
-.appshot-mascot-eyes.is-blinking {
+.screenbot-mascot-eyes.is-blinking {
   transform: scaleY(0.12);
 }
 
-.appshot-mascot-happy {
+.screenbot-mascot-happy {
   opacity: 0;
   transition: opacity 120ms ease;
 }
 
-.appshot-mascot[data-happy] .appshot-mascot-eyes { opacity: 0; }
-.appshot-mascot[data-happy] .appshot-mascot-happy { opacity: 1; }
+.screenbot-mascot[data-happy] .screenbot-mascot-eyes { opacity: 0; }
+.screenbot-mascot[data-happy] .screenbot-mascot-happy { opacity: 1; }
 
-.appshot-hand {
+.screenbot-hand {
   position: absolute;
   left: 0;
   top: 0;
@@ -187,7 +187,7 @@ body {
   z-index: 4;
 }
 
-.appshot-sparks i {
+.screenbot-sparks i {
   position: absolute;
   left: -3px;
   top: -3px;
@@ -199,12 +199,12 @@ body {
   box-shadow: 0 0 6px rgb(94 216 202 / 70%);
 }
 
-.appshot-sparks i[data-tone="1"] { background: #ffffff; box-shadow: 0 0 6px rgb(255 255 255 / 80%); width: 4px; height: 4px; }
-.appshot-sparks i[data-tone="2"] { background: #ffd66b; box-shadow: 0 0 6px rgb(255 214 107 / 70%); width: 5px; height: 5px; }
+.screenbot-sparks i[data-tone="1"] { background: #ffffff; box-shadow: 0 0 6px rgb(255 255 255 / 80%); width: 4px; height: 4px; }
+.screenbot-sparks i[data-tone="2"] { background: #ffd66b; box-shadow: 0 0 6px rgb(255 214 107 / 70%); width: 5px; height: 5px; }
 
 /* ---- Goo -------------------------------------------------------------------------------- */
 
-.appshot-goo {
+.screenbot-goo {
   position: absolute;
   left: 0;
   top: 0;
@@ -215,21 +215,21 @@ body {
 /* While a scene animates, the shot and the goo get their own layers, so their per-frame
    repaints don't drag the rest of the stage along. At rest they drop them again: an idle
    full-display layer would hold GPU memory for nothing. */
-.appshot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .appshot-fly {
+.screenbot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .screenbot-fly {
   will-change: transform;
 }
 
-.appshot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .appshot-goo {
+.screenbot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .screenbot-goo {
   will-change: opacity;
 }
 
-.appshot-goo-tint {
+.screenbot-goo-tint {
   fill: var(--goo-tint);
 }
 
 /* ---- Card ------------------------------------------------------------------------------- */
 
-.appshot-card {
+.screenbot-card {
   position: absolute;
   left: 0;
   top: 0;
@@ -242,7 +242,7 @@ body {
 
 /* The card's shadow on its own layer, so it can hand over to the goo's independently of the
    glass (which must be opaque before the goo leaves). */
-.appshot-card::before {
+.screenbot-card::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -253,14 +253,14 @@ body {
   transition: box-shadow 200ms ease;
 }
 
-.appshot-card[data-dragging]::before {
+.screenbot-card[data-dragging]::before {
   box-shadow: 0 34px 80px -14px rgb(0 0 0 / 40%), 0 12px 26px -8px rgb(0 0 0 / 18%);
 }
 
-.appshot-goo-shadow-far { flood-color: #000; flood-opacity: var(--shadow-far); }
-.appshot-goo-shadow-near { flood-color: #000; flood-opacity: var(--shadow-near); }
+.screenbot-goo-shadow-far { flood-color: #000; flood-opacity: var(--shadow-far); }
+.screenbot-goo-shadow-near { flood-color: #000; flood-opacity: var(--shadow-near); }
 
-.appshot-card-glass {
+.screenbot-card-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -270,11 +270,11 @@ body {
   opacity: var(--glass-in);
 }
 
-.appshot-card[data-dragging] {
+.screenbot-card[data-dragging] {
   cursor: grabbing;
 }
 
-.appshot-card-glass::after {
+.screenbot-card-glass::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -284,7 +284,7 @@ body {
 }
 
 /* Bottom-anchored: a growing text field lifts the card top while the send button stays put. */
-.appshot-card-body {
+.screenbot-card-body {
   position: absolute;
   left: 0;
   right: 0;
@@ -294,13 +294,13 @@ body {
   padding: 14px 12px 12px 14px;
 }
 
-.appshot-in,
-.appshot-thumb {
+.screenbot-in,
+.screenbot-thumb {
   opacity: var(--content-in);
   transform: translateY(calc((1 - var(--content-in)) * 6px));
 }
 
-.appshot-thumb {
+.screenbot-thumb {
   position: relative;
   width: 104px;
   border-radius: 10px;
@@ -310,7 +310,7 @@ body {
   transition: transform 220ms cubic-bezier(0.3, 1.4, 0.5, 1), box-shadow 220ms ease;
 }
 
-.appshot-thumb::after {
+.screenbot-thumb::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -318,12 +318,12 @@ body {
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 30%);
 }
 
-.appshot-thumb:hover {
+.screenbot-thumb:hover {
   transform: scale(1.03) rotate(-0.6deg);
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 16%), 0 8px 20px rgb(0 0 0 / 18%);
 }
 
-.appshot-input {
+.screenbot-input {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -346,34 +346,34 @@ body {
   cursor: text;
 }
 
-.appshot-input[data-scrolls] {
+.screenbot-input[data-scrolls] {
   overflow-y: auto;
   mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 
-.appshot-input::placeholder {
+.screenbot-input::placeholder {
   color: var(--ink-tertiary);
 }
 
-.appshot-input::-webkit-scrollbar {
+.screenbot-input::-webkit-scrollbar {
   width: 0;
 }
 
-.appshot-error {
+.screenbot-error {
   margin: 8px 2px 0;
   font-size: 12px;
   line-height: 16px;
   color: #ff3b30;
 }
 
-.appshot-footer {
+.screenbot-footer {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 10px;
 }
 
-.appshot-hint {
+.screenbot-hint {
   margin-left: auto;
   font-size: 11px;
   color: var(--ink-tertiary);
@@ -382,21 +382,21 @@ body {
   transition: opacity 160ms ease;
 }
 
-.appshot-card:hover .appshot-hint,
-.appshot-card:focus-within .appshot-hint {
+.screenbot-card:hover .screenbot-hint,
+.screenbot-card:focus-within .screenbot-hint {
   opacity: 1;
 }
 
-.appshot-hint kbd {
+.screenbot-hint kbd {
   font: inherit;
   color: var(--ink-secondary);
 }
 
-.appshot-hint-dot {
+.screenbot-hint-dot {
   margin: 0 2px;
 }
 
-.appshot-send {
+.screenbot-send {
   display: grid;
   place-items: center;
   flex: none;
@@ -411,32 +411,32 @@ body {
   transition: transform 160ms cubic-bezier(0.3, 1.6, 0.5, 1), filter 160ms ease, background 200ms ease;
 }
 
-.appshot-send:hover {
+.screenbot-send:hover {
   transform: scale(1.06);
   filter: brightness(1.06);
 }
 
-.appshot-send:active {
+.screenbot-send:active {
   transform: scale(0.94);
   filter: brightness(0.94);
 }
 
-.appshot-send:focus-visible,
-.appshot-chip:focus-visible,
-.appshot-close:focus-visible,
-.appshot-sent-open:focus-visible {
+.screenbot-send:focus-visible,
+.screenbot-chip:focus-visible,
+.screenbot-close:focus-visible,
+.screenbot-sent-open:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent), transparent 50%);
   outline-offset: 1px;
 }
 
-.appshot-stage[data-inactive] .appshot-send {
+.screenbot-stage[data-inactive] .screenbot-send {
   background: var(--fill-strong);
   color: var(--ink-secondary);
   box-shadow: none;
 }
 
 /* The macOS notification close badge: on the corner, only while hovering. */
-.appshot-close {
+.screenbot-close {
   position: absolute;
   left: -6px;
   top: -6px;
@@ -458,24 +458,24 @@ body {
 }
 
 /* Only while composing: never during the intro, the send or the close. */
-.appshot-stage[data-phase="compose"] .appshot-card:hover .appshot-close,
-.appshot-stage[data-phase="compose"] .appshot-close:focus-visible {
+.screenbot-stage[data-phase="compose"] .screenbot-card:hover .screenbot-close,
+.screenbot-stage[data-phase="compose"] .screenbot-close:focus-visible {
   opacity: 1;
   transform: scale(1);
 }
 
-.appshot-close:hover {
+.screenbot-close:hover {
   color: var(--ink);
 }
 
 /* ---- Bot picker ------------------------------------------------------------------------- */
 
-.appshot-picker {
+.screenbot-picker {
   position: relative;
   min-width: 0;
 }
 
-.appshot-chip {
+.screenbot-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -493,29 +493,29 @@ body {
   transition: background 140ms ease;
 }
 
-.appshot-chip:hover,
-.appshot-chip[data-open] {
+.screenbot-chip:hover,
+.screenbot-chip[data-open] {
   background: var(--fill-strong);
 }
 
-.appshot-chip svg:last-child {
+.screenbot-chip svg:last-child {
   flex: none;
   color: var(--ink-secondary);
 }
 
-.appshot-chip-name {
+.screenbot-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.appshot-avatar-image {
+.screenbot-avatar-image {
   flex: none;
   border-radius: 50%;
   object-fit: cover;
 }
 
-.appshot-menu {
+.screenbot-menu {
   position: absolute;
   left: -4px;
   bottom: calc(100% + 8px);
@@ -526,14 +526,14 @@ body {
   border-radius: 12px;
   box-shadow: var(--edge), 0 18px 48px -10px rgb(0 0 0 / 34%), 0 4px 12px rgb(0 0 0 / 12%);
   transform-origin: 18px 100%;
-  animation: appshot-menu-in 180ms cubic-bezier(0.25, 1.35, 0.45, 1);
+  animation: screenbot-menu-in 180ms cubic-bezier(0.25, 1.35, 0.45, 1);
 }
 
-@keyframes appshot-menu-in {
+@keyframes screenbot-menu-in {
   from { opacity: 0; transform: scale(0.92) translateY(4px); }
 }
 
-.appshot-menu-glass {
+.screenbot-menu-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -542,7 +542,7 @@ body {
   box-shadow: var(--rim);
 }
 
-.appshot-menu-search {
+.screenbot-menu-search {
   position: relative;
   box-sizing: border-box;
   width: 100%;
@@ -559,11 +559,11 @@ body {
   user-select: text;
 }
 
-.appshot-menu-search::placeholder {
+.screenbot-menu-search::placeholder {
   color: var(--ink-tertiary);
 }
 
-.appshot-menu-list {
+.screenbot-menu-list {
   position: relative;
   max-height: 296px;
   overflow-y: auto;
@@ -576,29 +576,29 @@ body {
 }
 
 /* Near the top of the screen the menu opens downward instead. */
-.appshot-menu[data-side="below"] {
+.screenbot-menu[data-side="below"] {
   top: calc(100% + 8px);
   bottom: auto;
   transform-origin: 18px 0;
-  animation-name: appshot-menu-in-below;
+  animation-name: screenbot-menu-in-below;
 }
 
-@keyframes appshot-menu-in-below {
+@keyframes screenbot-menu-in-below {
   from { opacity: 0; transform: scale(0.92) translateY(-4px); }
 }
 
-.appshot-menu-list::-webkit-scrollbar {
+.screenbot-menu-list::-webkit-scrollbar {
   width: 0;
 }
 
-.appshot-menu-heading {
+.screenbot-menu-heading {
   padding: 3px 9px 4px;
   font-size: 11px;
   font-weight: 600;
   color: var(--ink-tertiary);
 }
 
-.appshot-menu-item {
+.screenbot-menu-item {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -609,19 +609,19 @@ body {
   color: var(--ink);
 }
 
-.appshot-menu-item[data-active] {
+.screenbot-menu-item[data-active] {
   background: var(--accent);
   color: #fff;
 }
 
-.appshot-menu-check {
+.screenbot-menu-check {
   display: grid;
   place-items: center;
   width: 14px;
   flex: none;
 }
 
-.appshot-menu-text {
+.screenbot-menu-text {
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -629,7 +629,7 @@ body {
   flex: 1;
 }
 
-.appshot-menu-name {
+.screenbot-menu-name {
   flex: none;
   max-width: 120px;
   overflow: hidden;
@@ -637,7 +637,7 @@ body {
   white-space: nowrap;
 }
 
-.appshot-menu-title {
+.screenbot-menu-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -646,19 +646,19 @@ body {
   color: var(--ink-secondary);
 }
 
-.appshot-menu-item[data-active] .appshot-menu-title,
-.appshot-menu-item[data-active] .appshot-menu-key {
+.screenbot-menu-item[data-active] .screenbot-menu-title,
+.screenbot-menu-item[data-active] .screenbot-menu-key {
   color: rgb(255 255 255 / 78%);
 }
 
-.appshot-menu-key {
+.screenbot-menu-key {
   flex: none;
   font: inherit;
   font-size: 12px;
   color: var(--ink-tertiary);
 }
 
-.appshot-menu-empty {
+.screenbot-menu-empty {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--ink-secondary);
@@ -666,7 +666,7 @@ body {
 
 /* ---- Sent ------------------------------------------------------------------------------- */
 
-.appshot-sent {
+.screenbot-sent {
   position: absolute;
   display: flex;
   align-items: center;
@@ -680,23 +680,23 @@ body {
   white-space: nowrap;
   transform: translate(-50%, -50%);
   box-shadow: var(--edge), 0 16px 40px -10px rgb(0 0 0 / 34%), 0 4px 10px rgb(0 0 0 / 12%);
-  animation: appshot-sent-in 420ms cubic-bezier(0.22, 1.5, 0.4, 1) both;
+  animation: screenbot-sent-in 420ms cubic-bezier(0.22, 1.5, 0.4, 1) both;
 }
 
-.appshot-sent[data-leaving] {
-  animation: appshot-sent-out 200ms ease-in both;
+.screenbot-sent[data-leaving] {
+  animation: screenbot-sent-out 200ms ease-in both;
 }
 
-@keyframes appshot-sent-in {
+@keyframes screenbot-sent-in {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); filter: blur(4px); }
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0); }
 }
 
-@keyframes appshot-sent-out {
+@keyframes screenbot-sent-out {
   to { opacity: 0; transform: translate(-50%, -40%) scale(0.94); filter: blur(2px); }
 }
 
-.appshot-sent-glass {
+.screenbot-sent-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -705,15 +705,15 @@ body {
   box-shadow: var(--rim);
 }
 
-.appshot-sent > :not(.appshot-sent-glass) {
+.screenbot-sent > :not(.screenbot-sent-glass) {
   position: relative;
 }
 
-.appshot-sent-text strong {
+.screenbot-sent-text strong {
   font-weight: 600;
 }
 
-.appshot-sent-open {
+.screenbot-sent-open {
   height: 24px;
   padding: 0 11px;
   border: 0;
@@ -726,20 +726,20 @@ body {
   transition: background 140ms ease;
 }
 
-.appshot-sent-open:hover {
+.screenbot-sent-open:hover {
   background: var(--fill-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .appshot-card-glass, .appshot-in, .appshot-thumb { transition: opacity 160ms ease; }
-  .appshot-sent,
-  .appshot-sent[data-leaving],
-  .appshot-menu { animation-duration: 1ms; }
+  .screenbot-card-glass, .screenbot-in, .screenbot-thumb { transition: opacity 160ms ease; }
+  .screenbot-sent,
+  .screenbot-sent[data-leaving],
+  .screenbot-menu { animation-duration: 1ms; }
 }
 
 /* ---- Dictation -------------------------------------------------------------------------- */
 
-.appshot-mic {
+.screenbot-mic {
   display: grid;
   place-items: center;
   flex: none;
@@ -753,26 +753,26 @@ body {
   transition: background 140ms ease, color 140ms ease, transform 160ms cubic-bezier(0.3, 1.6, 0.5, 1);
 }
 
-.appshot-mic:hover:not(:disabled) {
+.screenbot-mic:hover:not(:disabled) {
   background: var(--fill);
   color: var(--ink);
 }
 
-.appshot-mic:active:not(:disabled) {
+.screenbot-mic:active:not(:disabled) {
   transform: scale(0.92);
 }
 
-.appshot-mic[data-state="recording"],
-.appshot-mic[data-state="requesting"] {
+.screenbot-mic[data-state="recording"],
+.screenbot-mic[data-state="requesting"] {
   background: color-mix(in srgb, #ff3b30, transparent 86%);
   color: #ff3b30;
 }
 
-.appshot-mic:disabled {
+.screenbot-mic:disabled {
   opacity: 0.5;
 }
 
-.appshot-mic:focus-visible {
+.screenbot-mic:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent), transparent 50%);
   outline-offset: 1px;
 }
@@ -781,7 +781,7 @@ body {
    out under it, then back once the bar has retreated (the layer's own exit timing). */
 /* Clipped to the card: in the chat the glow lights the conversation, but over the overlay it
    would paint on whatever app is behind it. */
-.appshot-voice {
+.screenbot-voice {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -793,7 +793,7 @@ body {
 /* Concentric with the card: the same 4 px all round its bottom, and its 18 px radius is the
    card's 22 less that inset, so the corners run parallel. Its top edge lands on the footer
    row's, and Send stays where Send was. */
-.appshot-voice-bar {
+.screenbot-voice-bar {
   position: absolute;
   left: 4px;
   right: 4px;
@@ -802,36 +802,36 @@ body {
 }
 
 /* The card's type scale, not the chat window's. */
-.appshot-voice .vm-bar {
+.screenbot-voice .vm-bar {
   gap: 10px;
   font-size: 13px;
   line-height: 18px;
 }
 
-.appshot-voice .vm-chip-time {
+.screenbot-voice .vm-chip-time {
   font-size: 12px;
 }
 
-.appshot-voice .vm-wave {
+.screenbot-voice .vm-wave {
   height: 18px;
 }
 
-.appshot-footer > * {
+.screenbot-footer > * {
   transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1) 340ms;
 }
 
-.appshot-card[data-voice-mode] .appshot-footer > * {
+.screenbot-card[data-voice-mode] .screenbot-footer > * {
   opacity: 0;
   pointer-events: none;
   transition-delay: 0ms;
 }
 
 /* The few utilities the shared layer's markup uses; the overlay doesn't load Tailwind. */
-.appshot-voice .size-3 { width: 12px; height: 12px; }
-.appshot-voice .size-3\.5 { width: 14px; height: 14px; }
-.appshot-voice .block { display: block; }
-.appshot-voice .shrink-0 { flex-shrink: 0; }
-.appshot-voice .sr-only {
+.screenbot-voice .size-3 { width: 12px; height: 12px; }
+.screenbot-voice .size-3\.5 { width: 14px; height: 14px; }
+.screenbot-voice .block { display: block; }
+.screenbot-voice .shrink-0 { flex-shrink: 0; }
+.screenbot-voice .sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -843,7 +843,7 @@ body {
   border: 0;
 }
 
-.appshot-error-retry {
+.screenbot-error-retry {
   margin-left: 6px;
   padding: 0;
   border: 0;

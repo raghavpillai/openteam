@@ -28,8 +28,8 @@ export class KeyboardShortcutStore {
   constructor(private readonly options: {
     path: string;
     platform: NodeJS.Platform;
-    /** The appshot trigger when it's an ordinary shortcut: nothing else may use it. */
-    appshotAccelerator: () => string | null;
+    /** The screenbot trigger when it's an ordinary shortcut: nothing else may use it. */
+    screenBotAccelerator: () => string | null;
     onChange: (view: KeyboardShortcutsView) => void;
   }) {
     this.bindings = resolveShortcutBindings(null, this.mac);
@@ -57,7 +57,7 @@ export class KeyboardShortcutStore {
     return this.bindings[action];
   }
 
-  /** Why an appshot accelerator can't be used, because one of these shortcuts has it. */
+  /** Why a ScreenBot accelerator can't be used, because one of these shortcuts has it. */
   conflictWith(accelerator: string): string | null {
     const target = canonicalShortcut(accelerator, this.mac);
     const action = SHORTCUT_ACTIONS.find((candidate) => canonicalShortcut(this.bindings[candidate], this.mac) === target);
@@ -70,7 +70,7 @@ export class KeyboardShortcutStore {
     const name = action as ShortcutAction;
     const binding = value === null ? defaultShortcutBindings()[name] : typeof value === "string" ? canonicalShortcut(value, this.mac) : null;
     if (!binding) return Promise.reject(new Error("Include ⌘, ⌃ or ⌥ (or Ctrl or Alt) with a key."));
-    const error = checkShortcut(name, binding, this.bindings, this.mac, this.options.appshotAccelerator());
+    const error = checkShortcut(name, binding, this.bindings, this.mac, this.options.screenBotAccelerator());
     if (error) return Promise.reject(new Error(error));
     const run = this.saving.then(async () => {
       const next = { ...this.bindings, [name]: binding };

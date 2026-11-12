@@ -7,12 +7,12 @@ export const CHORD_MODIFIERS = ["command", "option", "shift", "control"] as cons
 export type ChordModifier = (typeof CHORD_MODIFIERS)[number];
 
 /** Either both keys of one modifier (left and right) or an ordinary global shortcut. */
-export type AppshotShortcut =
+export type ScreenBotShortcut =
   | { kind: "chord"; modifier: ChordModifier }
   | { kind: "accelerator"; accelerator: string };
 
-export interface AppshotShortcutStatus {
-  shortcut: AppshotShortcut;
+export interface ScreenBotShortcutStatus {
+  shortcut: ScreenBotShortcut;
   isDefault: boolean;
   /** The shortcut is listening right now. */
   active: boolean;
@@ -23,7 +23,7 @@ export interface AppshotShortcutStatus {
   fn: boolean;
 }
 
-export const defaultAppshotShortcut = (platform: NodeJS.Platform): AppshotShortcut =>
+export const defaultScreenBotShortcut = (platform: NodeJS.Platform): ScreenBotShortcut =>
   platform === "darwin"
     ? { kind: "chord", modifier: "command" }
     : { kind: "accelerator", accelerator: "CommandOrControl+Shift+2" };
@@ -74,7 +74,7 @@ const RESERVED_OTHER = [
   "Control+,", "Alt+TAB", "Alt+F4", "Control+ESCAPE", "Control+Alt+DELETE", "Super+L", "Super+D", "Super+TAB",
 ];
 
-/** Why an accelerator can't be the appshot shortcut, or null when it can. */
+/** Why an accelerator can't be the screenbot shortcut, or null when it can. */
 export const reservedShortcutReason = (accelerator: string, platform: NodeJS.Platform): string | null => {
   const canonical = canonicalAccelerator(accelerator, platform);
   const reserved = new Set((platform === "darwin" ? RESERVED_MAC : RESERVED_OTHER).map((value) => canonicalAccelerator(value, platform)));
@@ -84,7 +84,7 @@ export const reservedShortcutReason = (accelerator: string, platform: NodeJS.Pla
   return null;
 };
 
-export const parseAppshotShortcut = (value: unknown, platform: NodeJS.Platform): AppshotShortcut | null => {
+export const parseScreenBotShortcut = (value: unknown, platform: NodeJS.Platform): ScreenBotShortcut | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.kind === "chord") {
@@ -103,11 +103,11 @@ export const parseAppshotShortcut = (value: unknown, platform: NodeJS.Platform):
   return null;
 };
 
-const sameShortcut = (left: AppshotShortcut, right: AppshotShortcut) =>
+const sameShortcut = (left: ScreenBotShortcut, right: ScreenBotShortcut) =>
   left.kind === right.kind
   && (left.kind === "chord" ? left.modifier === (right as typeof left).modifier : left.accelerator === (right as typeof left).accelerator);
 
-export interface AppshotShortcutOptions {
+export interface ScreenBotShortcutOptions {
   platform: NodeJS.Platform;
   settingsPath: string;
   /** The modifier-chord helper; null where there is none (non-macOS). */
@@ -115,15 +115,15 @@ export interface AppshotShortcutOptions {
   registerAccelerator: (accelerator: string, onPress: () => void) => boolean;
   unregisterAccelerator: (accelerator: string) => void;
   onTrigger: () => void;
-  onStatus: (status: AppshotShortcutStatus) => void;
+  onStatus: (status: ScreenBotShortcutStatus) => void;
   /** The Fn key was tapped on its own (only while watching for it: dictation is bound to Fn). */
   onFn?: () => void;
 }
 
-/** Keeps the appshot trigger listening: one helper process for chords, or a global shortcut. */
-export class AppshotShortcutController {
-  private shortcut: AppshotShortcut;
-  private readonly fallback: AppshotShortcut;
+/** Keeps the screenbot trigger listening: one helper process for chords, or a global shortcut. */
+export class ScreenBotShortcutController {
+  private shortcut: ScreenBotShortcut;
+  private readonly fallback: ScreenBotShortcut;
   private helper: ChildProcessWithoutNullStreams | null = null;
   private helperMode: "tap" | "poll" | null = null;
   private registered: string | null = null;
@@ -137,22 +137,22 @@ export class AppshotShortcutController {
   /** Saves run one at a time, so the file and the live shortcut never disagree. */
   private saving: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly options: AppshotShortcutOptions) {
-    this.fallback = defaultAppshotShortcut(options.platform);
+  constructor(private readonly options: ScreenBotShortcutOptions) {
+    this.fallback = defaultScreenBotShortcut(options.platform);
     this.shortcut = this.fallback;
   }
 
   async start() {
     try {
       const saved = JSON.parse(await readFile(this.options.settingsPath, "utf8")) as { shortcut?: unknown };
-      this.shortcut = parseAppshotShortcut(saved.shortcut, this.options.platform) ?? this.fallback;
+      this.shortcut = parseScreenBotShortcut(saved.shortcut, this.options.platform) ?? this.fallback;
     } catch {
       this.shortcut = this.fallback;
     }
     this.apply();
   }
 
-  status(): AppshotShortcutStatus {
+  status(): ScreenBotShortcutStatus {
     const chord = this.shortcut.kind === "chord";
     return {
       shortcut: this.shortcut,
@@ -165,8 +165,8 @@ export class AppshotShortcutController {
   }
 
   /** Saves a new shortcut, or resets to the default with null. */
-  set(value: unknown): Promise<AppshotShortcutStatus> {
-    const next = value === null ? this.fallback : parseAppshotShortcut(value, this.options.platform);
+  set(value: unknown): Promise<ScreenBotShortcutStatus> {
+    const next = value === null ? this.fallback : parseScreenBotShortcut(value, this.options.platform);
     if (!next) {
       const accelerator = (value as { accelerator?: unknown } | null)?.accelerator;
       const reason = typeof accelerator === "string" && isValidAccelerator(accelerator) ? reservedShortcutReason(accelerator, this.options.platform) : null;
@@ -212,7 +212,7 @@ export class AppshotShortcutController {
     this.options.onStatus(this.status());
   }
 
-  /** While Settings records a new shortcut, the current one must not take appshots. */
+  /** While Settings records a new shortcut, the current one must not take ScreenBots. */
   setRecording(recording: boolean) {
     if (this.recording === recording) return;
     this.recording = recording;

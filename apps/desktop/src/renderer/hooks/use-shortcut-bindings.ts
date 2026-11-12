@@ -7,8 +7,8 @@ import {
 } from "../lib/keyboard-shortcuts";
 
 // The window's copy of the app's shortcut bindings: defaults until main answers, then kept in
-// step with every change. Shared by the chat window and the appshot overlay.
-const source = () => window.openteam?.shortcuts ?? window.appshot?.shortcuts;
+// step with every change. Shared by the chat window and the screenbot overlay.
+const source = () => window.openteam?.shortcuts ?? window.screenbot?.shortcuts;
 let bindings: ShortcutBindings = defaultShortcutBindings();
 const listeners = new Set<() => void>();
 let started = false;

@@ -1,9 +1,9 @@
-type AppshotShortcutView =
+type ScreenBotShortcutView =
   | { kind: "chord"; modifier: "command" | "option" | "shift" | "control" }
   | { kind: "accelerator"; accelerator: string };
 
-interface AppshotShortcutStatusView {
-  shortcut: AppshotShortcutView;
+interface ScreenBotShortcutStatusView {
+  shortcut: ScreenBotShortcutView;
   isDefault: boolean;
   active: boolean;
   mode: "tap" | "poll" | "shortcut" | null;
@@ -31,7 +31,7 @@ interface Window {
       subscribe: (callback: (visible: boolean) => void) => () => void;
       subscribeActivity?: (callback: (active: boolean) => void) => () => void;
     };
-    /** Feeds the floating appshot composer (src/renderer/lib/appshot-bridge.ts).. */
+    /** Feeds the floating screenbot composer (src/renderer/lib/screenbot-bridge.ts).. */
     shortcuts?: {
       get(): Promise<KeyboardShortcutsView>;
       set(action: string, binding: string | null): Promise<KeyboardShortcutsView>;
@@ -39,7 +39,7 @@ interface Window {
       onChange(callback: (view: KeyboardShortcutsView) => void): () => void;
       onShortcut(callback: (action: string) => void): () => void;
     };
-    appshot?: {
+    screenbot?: {
       publishRoster(roster: {
         bots: Array<{ id: string; name: string; title: string; color: string; icon: string; channelId: string; avatarDataUrl?: string }>;
         dictation: boolean;
@@ -55,12 +55,12 @@ interface Window {
       ): () => void;
       onRosterRequest(callback: () => void): () => void;
       shortcut: {
-        get(): Promise<AppshotShortcutStatusView>;
-        set(shortcut: AppshotShortcutView): Promise<AppshotShortcutStatusView>;
-        reset(): Promise<AppshotShortcutStatusView>;
+        get(): Promise<ScreenBotShortcutStatusView>;
+        set(shortcut: ScreenBotShortcutView): Promise<ScreenBotShortcutStatusView>;
+        reset(): Promise<ScreenBotShortcutStatusView>;
         setRecording(recording: boolean): Promise<void>;
         requestAccess(): Promise<boolean>;
-        onChange(callback: (status: AppshotShortcutStatusView) => void): () => void;
+        onChange(callback: (status: ScreenBotShortcutStatusView) => void): () => void;
       };
     };
     auth: {

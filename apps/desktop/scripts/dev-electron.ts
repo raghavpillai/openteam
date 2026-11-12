@@ -79,9 +79,9 @@ const bundleCommands = [
   ],
   [
     "build",
-    "src/preload/appshot.ts",
+    "src/preload/screenbot.ts",
     "--outfile",
-    "dist-electron/appshot-preload.cjs",
+    "dist-electron/screenbot-preload.cjs",
     "--target",
     "node",
     "--format",

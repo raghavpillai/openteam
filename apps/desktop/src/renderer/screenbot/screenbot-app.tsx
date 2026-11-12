@@ -15,7 +15,7 @@ import {
 } from "react";
 import { MIN_VOICE_NOTE_MS } from "@openteam/contracts/transcription";
 import { useVoiceRecorder, type Transcriber } from "../hooks/use-voice-recorder";
-import { AppshotBotAvatar, BotPicker } from "./bot-picker";
+import { ScreenBotBotAvatar, BotPicker } from "./bot-picker";
 import type { VoiceMemoMode } from "../components/openteam/voice-memo/voice-memo-layer";
 import { DictationButton, insertDictation } from "./dictation";
 import { Mascot, type MascotHandle } from "./mascot";
@@ -33,8 +33,8 @@ import {
   window01,
   type Rect,
 } from "./motion";
-import { refreshAppshotTheme } from "./theme";
-import type { AppshotBot, AppshotRoster, AppshotSendResult, AppshotShot } from "./types";
+import { refreshScreenBotTheme } from "./theme";
+import type { ScreenBotBot, ScreenBotRoster, ScreenBotSendResult, ScreenBotShot } from "./types";
 
 // Dictation looks like a voice note in the chat composer: the same bar, wave, glow and orb.
 // It carries the glow and orb libraries, so it loads when dictation is available.
@@ -55,8 +55,8 @@ const MASCOT = 58;
 const PERCH_RIGHT = 30;
 const PERCH_SHOWN = 0.77;
 const HAND = 13;
-const POSITION_KEY = "openteam:appshot:position";
-const BOT_KEY = "openteam:appshot:bot";
+const POSITION_KEY = "openteam:screenbot:position";
+const BOT_KEY = "openteam:screenbot:bot";
 const SENT_PILL_MS = 2_600;
 const SPARKS = 9;
 /** The thumbnail is 104 pt wide; 3× covers any Retina scale. */
@@ -79,7 +79,7 @@ interface LoadedShot {
   workArea: Rect;
 }
 
-const bridge = () => window.appshot;
+const bridge = () => window.screenbot;
 
 const readStorage = (key: string) => {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -143,7 +143,7 @@ const fitInside = (rect: Rect, scale: number, lift = 0): Rect => {
   return { x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2 - lift, width, height };
 };
 
-const pickBot = (roster: AppshotRoster, previous: string | null): string | null => {
+const pickBot = (roster: ScreenBotRoster, previous: string | null): string | null => {
   const ids = new Set(roster.bots.map((bot) => bot.id));
   for (const candidate of [previous, readStorage(BOT_KEY)]) {
     if (candidate && ids.has(candidate)) return candidate;
@@ -151,16 +151,16 @@ const pickBot = (roster: AppshotRoster, previous: string | null): string | null 
   return roster.bots[0]?.id ?? null;
 };
 
-export function AppshotApp() {
+export function ScreenBotApp() {
   const [shot, setShot] = useState<LoadedShot | null>(null);
-  const [roster, setRoster] = useState<AppshotRoster>({ bots: [], dictation: false });
+  const [roster, setRoster] = useState<ScreenBotRoster>({ bots: [], dictation: false });
   const [botId, setBotId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [phase, setPhaseState] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [focused, setFocused] = useState(true);
-  const [sent, setSent] = useState<{ bot: AppshotBot; leaving: boolean } | null>(null);
+  const [sent, setSent] = useState<{ bot: ScreenBotBot; leaving: boolean } | null>(null);
 
   const phaseRef = useRef<Phase>("idle");
   const setPhase = useCallback((next: Phase) => {
@@ -834,9 +834,9 @@ export function AppshotApp() {
 
   const playSend = async (
     signal: AbortSignal,
-    result: Promise<AppshotSendResult>,
-    onAway: (outcome: AppshotSendResult) => void
-  ): Promise<AppshotSendResult> => {
+    result: Promise<ScreenBotSendResult>,
+    onAway: (outcome: ScreenBotSendResult) => void
+  ): Promise<ScreenBotSendResult> => {
     const rest = snapshotRest();
     const viewport = { width: window.innerWidth, height: window.innerHeight };
     if (prefersReducedMotion()) {
@@ -853,7 +853,7 @@ export function AppshotApp() {
       }
       return outcome;
     }
-    let known: AppshotSendResult | null = null;
+    let known: ScreenBotSendResult | null = null;
     void result.then((value) => { known = value; });
     const pullIn = collapse(rest);
     const CROUCH = 0.14;
@@ -1068,7 +1068,7 @@ export function AppshotApp() {
     setText("");
     flushDraft("");
     const result = bridge()!.send({ shotId: loaded.id, botId: target.id, content: sentText }).catch(
-      (): AppshotSendResult => ({ ok: false, error: "This appshot couldn’t be sent." })
+      (): ScreenBotSendResult => ({ ok: false, error: "This screenshot couldn’t be sent." })
     );
     const signal = startScene();
     const outcome = await playSend(signal, result, () => {
@@ -1098,7 +1098,7 @@ export function AppshotApp() {
   useEffect(() => {
     const api = bridge();
     if (!api) return;
-    const stopShot = api.onShot(async (incoming: AppshotShot) => {
+    const stopShot = api.onShot(async (incoming: ScreenBotShot) => {
       const signal = startScene();
       window.clearTimeout(sentTimer.current);
       window.clearTimeout(sentLeaveTimer.current);
@@ -1114,7 +1114,7 @@ export function AppshotApp() {
         if (dictation.elapsedMs < MIN_VOICE_NOTE_MS) dictation.cancel();
         else dictation.stop();
       } else if (dictation.state === "requesting" || dictation.state === "error") dictation.cancel();
-      refreshAppshotTheme(incoming.roster.theme);
+      refreshScreenBotTheme(incoming.roster.theme);
       const { blob, url } = await decodeShot(incoming.image);
       if (signal.aborted) {
         URL.revokeObjectURL(url);
@@ -1158,16 +1158,34 @@ export function AppshotApp() {
         setShot(ready);
       });
     });
+    // Hidden by main rather than by Esc here (⌘W, opening the chat): end like a close, keeping
+    // the draft, releasing the mic and the images.
+    const stopHidden = api.onHidden(() => {
+      if (phaseRef.current === "idle") return;
+      startScene();
+      window.clearTimeout(sentTimer.current);
+      window.clearTimeout(sentLeaveTimer.current);
+      sendAfterDictation.current = false;
+      if (voiceRef.current.state !== "idle") voiceRef.current.cancel();
+      endDrag();
+      setMenuOpen(false);
+      setSent(null);
+      interactive.current = false;
+      if (phaseRef.current === "compose" || phaseRef.current === "intro") flushDraft(textRef.current);
+      setPhase("idle");
+      releaseShot();
+    });
     const stopRoster = api.onRoster((next) => {
       // An older list (from a shot that was already in flight) never replaces a newer one.
       if ((next.version ?? 0) < rosterVersion.current) return;
       rosterVersion.current = next.version ?? rosterVersion.current;
-      refreshAppshotTheme(next.theme);
+      refreshScreenBotTheme(next.theme);
       setRoster(next);
       setBotId((current) => pickBot(next, current));
     });
     return () => {
       stopShot();
+      stopHidden();
       stopRoster();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1228,7 +1246,7 @@ export function AppshotApp() {
       const target = document.elementFromPoint(x, y) as Element | null;
       // After a send the card is gone (only faded): just the pill takes clicks.
       const hit = phaseRef.current === "compose" ? !!target?.closest("[data-hit]")
-        : phaseRef.current === "sent" ? !!target?.closest(".appshot-sent")
+        : phaseRef.current === "sent" ? !!target?.closest(".screenbot-sent")
         : false;
       setInteractive(hit || !!dragging.current);
     };
@@ -1258,7 +1276,7 @@ export function AppshotApp() {
     const onFocus = () => {
       setFocused(true);
       const active = document.activeElement;
-      if ((phaseRef.current === "intro" || phaseRef.current === "compose") && (!active || active === document.body || active.classList.contains("appshot-close"))) {
+      if ((phaseRef.current === "intro" || phaseRef.current === "compose") && (!active || active === document.body || active.classList.contains("screenbot-close"))) {
         input.current?.focus();
       }
     };
@@ -1386,7 +1404,7 @@ export function AppshotApp() {
   // ---- Interaction ---------------------------------------------------------------------
 
   const onInput = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    // Keys typed while the card is leaving would come back as the next appshot's draft.
+    // Keys typed while the card is leaving would come back as the next screenbot's draft.
     if (phaseRef.current !== "compose" && phaseRef.current !== "intro") return;
     setText(event.target.value);
     setError(null);
@@ -1411,7 +1429,7 @@ export function AppshotApp() {
   const onCardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || phaseRef.current !== "compose") return;
     const target = event.target as HTMLElement;
-    if (target.closest("textarea, button, input, [role=option], .appshot-menu")) return;
+    if (target.closest("textarea, button, input, [role=option], .screenbot-menu")) return;
     event.preventDefault();
     dragging.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     card.current?.setPointerCapture(event.pointerId);
@@ -1456,61 +1474,61 @@ export function AppshotApp() {
   return (
     <div
       ref={stage}
-      className="appshot-stage"
+      className="screenbot-stage"
       data-phase={phase}
       data-inactive={!focused || undefined}
       style={shot ? undefined : { visibility: "hidden" }}
     >
-      <div className="appshot-mascot-layer">
+      <div className="screenbot-mascot-layer">
         <Mascot ref={mascot} size={MASCOT} />
       </div>
 
-      <svg ref={goo} className="appshot-goo" width={stageWidth} height={stageHeight} aria-hidden="true">
+      <svg ref={goo} className="screenbot-goo" width={stageWidth} height={stageHeight} aria-hidden="true">
         <defs>
-          <filter id="appshot-goo" ref={(element) => { gooFilters.current[0] = element; }} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+          <filter id="screenbot-goo" ref={(element) => { gooFilters.current[0] = element; }} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
             <feGaussianBlur in="SourceGraphic" stdDeviation="9" />
             <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -12" />
           </filter>
           {/* The card's own shadow (--shadow: two layers, each offset, blurred and pulled in
               by its spread), drawn under the goo's shape, so the two hand over as one. A box
               shadow's blur radius is two standard deviations. */}
-          <filter id="appshot-goo-shadow" ref={(element) => { gooFilters.current[1] = element; }} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+          <filter id="screenbot-goo-shadow" ref={(element) => { gooFilters.current[1] = element; }} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
             <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="soft" />
             <feColorMatrix in="soft" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 26 -12" result="shape" />
             <feMorphology in="shape" operator="erode" radius="14" result="farShape" />
             <feGaussianBlur in="farShape" stdDeviation="32" result="farBlur" />
             <feOffset in="farBlur" dy="26" result="farOffset" />
-            <feFlood className="appshot-goo-shadow-far" result="farColor" />
+            <feFlood className="screenbot-goo-shadow-far" result="farColor" />
             <feComposite in="farColor" in2="farOffset" operator="in" result="far" />
             <feMorphology in="shape" operator="erode" radius="8" result="nearShape" />
             <feGaussianBlur in="nearShape" stdDeviation="11" result="nearBlur" />
             <feOffset in="nearBlur" dy="10" result="nearOffset" />
-            <feFlood className="appshot-goo-shadow-near" result="nearColor" />
+            <feFlood className="screenbot-goo-shadow-near" result="nearColor" />
             <feComposite in="nearColor" in2="nearOffset" operator="in" result="near" />
             <feMerge><feMergeNode in="far" /><feMergeNode in="near" /></feMerge>
           </filter>
-          <mask ref={gooMask} id="appshot-goo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="0" height="0" style={{ maskType: "alpha" }}>
-            <g filter="url(#appshot-goo)">
+          <mask ref={gooMask} id="screenbot-goo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="0" height="0" style={{ maskType: "alpha" }}>
+            <g filter="url(#screenbot-goo)">
               <rect ref={(element) => { gooShapes.current[0] = element; }} fill="#fff" />
               <circle ref={(element) => { gooDrops.current[0] = element; }} fill="#fff" />
             </g>
           </mask>
         </defs>
-        <g ref={gooShadow} filter="url(#appshot-goo-shadow)">
+        <g ref={gooShadow} filter="url(#screenbot-goo-shadow)">
           <rect ref={(element) => { gooShapes.current[1] = element; }} fill="#fff" />
           <circle ref={(element) => { gooDrops.current[1] = element; }} fill="#fff" />
         </g>
-        <g mask="url(#appshot-goo-mask)">
+        <g mask="url(#screenbot-goo-mask)">
           {shot?.texture && (
             <image href={shot.texture} x="0" y="0" width={stageWidth} height={stageHeight} preserveAspectRatio="none" />
           )}
-          <rect ref={gooTint} className="appshot-goo-tint" x="0" y="0" width="0" height="0" />
+          <rect ref={gooTint} className="screenbot-goo-tint" x="0" y="0" width="0" height="0" />
         </g>
       </svg>
 
       <div
         ref={card}
-        className="appshot-card"
+        className="screenbot-card"
         data-hit=""
         data-voice-mode={voiceMode ?? undefined}
         style={{ width: CARD_WIDTH, ...(bot ? { ["--send" as string]: bot.color } : {}) }}
@@ -1522,22 +1540,22 @@ export function AppshotApp() {
       >
         <div
           ref={glass}
-          className="appshot-card-glass"
+          className="screenbot-card-glass"
           aria-hidden="true"
           // Until the blurred texture is ready, a solid fill: the card is never see-through.
           style={shot?.texture ? { backgroundImage: `url(${shot.texture})`, backgroundSize: `${stageWidth}px ${stageHeight}px` } : { backgroundColor: "var(--glass-solid)" }}
         />
-        <div ref={body} className="appshot-card-body">
+        <div ref={body} className="screenbot-card-body">
           <div
             ref={thumb}
-            className="appshot-thumb"
+            className="screenbot-thumb"
             style={{ aspectRatio: viewport ? `${viewport.width} / ${viewport.height}` : "16 / 10" }}
           >
             {shot && <img alt="Screenshot" src={shot.thumb} draggable={false} />}
           </div>
           <textarea
             ref={input}
-            className="appshot-input appshot-in"
+            className="screenbot-input screenbot-in"
             rows={1}
             value={text}
             readOnly={phase === "sending" || phase === "sent" || phase === "closing"}
@@ -1551,15 +1569,15 @@ export function AppshotApp() {
           />
           {/* The notice ("Using the system default microphone") shows here too, as in the chat. */}
           {(error || voice.error || voice.notice) && (
-            <div className="appshot-error appshot-in" role="alert">
+            <div className="screenbot-error screenbot-in" role="alert">
               {error ?? voice.error ?? voice.notice}
               {!error && voice.canRetry && (
-                <button type="button" className="appshot-error-retry" onClick={voice.retry}>Try again</button>
+                <button type="button" className="screenbot-error-retry" onClick={voice.retry}>Try again</button>
               )}
             </div>
           )}
           {/* Under the voice bar it's hidden: inert, so Tab can't reach its buttons either. */}
-          <div className="appshot-footer appshot-in" inert={voiceMode !== null}>
+          <div className="screenbot-footer screenbot-in" inert={voiceMode !== null}>
             {bot && (
               <BotPicker
                 bots={roster.bots}
@@ -1575,9 +1593,9 @@ export function AppshotApp() {
                 }}
               />
             )}
-            <span className="appshot-hint" aria-hidden="true">
-              <kbd>↩</kbd> send <span className="appshot-hint-dot">·</span> <kbd>⇧↩</kbd> new line
-              {voice.available && <><span className="appshot-hint-dot">·</span> <kbd>{dictateText}</kbd> dictate</>}
+            <span className="screenbot-hint" aria-hidden="true">
+              <kbd>↩</kbd> send <span className="screenbot-hint-dot">·</span> <kbd>⇧↩</kbd> new line
+              {voice.available && <><span className="screenbot-hint-dot">·</span> <kbd>{dictateText}</kbd> dictate</>}
             </span>
             {voice.available && (
               <DictationButton
@@ -1590,7 +1608,7 @@ export function AppshotApp() {
             )}
             <button
               type="button"
-              className="appshot-send"
+              className="screenbot-send"
               aria-label={bot ? `Send to ${bot.name}` : "Send"}
               disabled={!bot || phase !== "compose"}
               onClick={() => void send()}
@@ -1600,8 +1618,8 @@ export function AppshotApp() {
           </div>
         </div>
         {voiceLayerMode && (
-          <div className="appshot-voice">
-            <div className="appshot-voice-bar">
+          <div className="screenbot-voice">
+            <div className="screenbot-voice-bar">
             <Suspense fallback={null}>
               <VoiceMemoLayer
                 anchor={VOICE_ANCHOR}
@@ -1624,20 +1642,20 @@ export function AppshotApp() {
         )}
         {/* After the text field in the markup: when the panel regains focus, Chromium focuses the
             first focusable element, and that must be the composer, not the close badge. */}
-        <button type="button" className="appshot-close" data-glass="" aria-label="Close" tabIndex={phase === "compose" ? 0 : -1} onClick={() => void close()}>
+        <button type="button" className="screenbot-close" data-glass="" aria-label="Close" tabIndex={phase === "compose" ? 0 : -1} onClick={() => void close()}>
           <X size={9} strokeWidth={3.2} />
         </button>
       </div>
 
-      <div ref={fly} className="appshot-fly" aria-hidden="true">
+      <div ref={fly} className="screenbot-fly" aria-hidden="true">
         {shot && <img alt="" src={shot.url} draggable={false} />}
       </div>
-      <i ref={(element) => { hands.current[0] = element; }} className="appshot-hand" />
-      <i ref={(element) => { hands.current[1] = element; }} className="appshot-hand" />
-      <div ref={sparks} className="appshot-sparks" aria-hidden="true">
+      <i ref={(element) => { hands.current[0] = element; }} className="screenbot-hand" />
+      <i ref={(element) => { hands.current[1] = element; }} className="screenbot-hand" />
+      <div ref={sparks} className="screenbot-sparks" aria-hidden="true">
         {Array.from({ length: SPARKS }, (_, index) => <i key={index} data-tone={index % 3} />)}
       </div>
-      <div ref={flash} className="appshot-flash" />
+      <div ref={flash} className="screenbot-flash" />
 
       {sent && position.current && card.current && (
         <SentPill
@@ -1670,7 +1688,7 @@ function SentPill({
   onOpen,
   onHold,
 }: {
-  bot: AppshotBot;
+  bot: ScreenBotBot;
   leaving: boolean;
   anchor: { x: number; y: number };
   onOpen: () => void;
@@ -1678,7 +1696,7 @@ function SentPill({
 }) {
   return (
     <div
-      className="appshot-sent"
+      className="screenbot-sent"
       data-hit=""
       data-centered=""
       data-leaving={leaving || undefined}
@@ -1687,12 +1705,12 @@ function SentPill({
       onPointerEnter={() => onHold(true)}
       onPointerLeave={() => onHold(false)}
     >
-      <span className="appshot-sent-glass" data-glass="" aria-hidden="true" />
-      <AppshotBotAvatar bot={bot} size={20} />
-      <span className="appshot-sent-text">
+      <span className="screenbot-sent-glass" data-glass="" aria-hidden="true" />
+      <ScreenBotBotAvatar bot={bot} size={20} />
+      <span className="screenbot-sent-text">
         Sent to <strong>{bot.name}</strong>
       </span>
-      <button type="button" className="appshot-sent-open" onClick={onOpen}>
+      <button type="button" className="screenbot-sent-open" onClick={onOpen}>
         Open
       </button>
     </div>

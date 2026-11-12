@@ -1,4 +1,4 @@
-export interface AppshotBot {
+export interface ScreenBotBot {
   id: string;
   name: string;
   title: string;
@@ -8,18 +8,18 @@ export interface AppshotBot {
   avatarDataUrl?: string;
 }
 
-export interface AppshotRoster {
-  bots: AppshotBot[];
+export interface ScreenBotRoster {
+  bots: ScreenBotBot[];
   dictation: boolean;
   theme?: "light" | "dark" | "system";
   /** Increases with every list main receives; older ones are ignored. */
   version?: number;
 }
 
-export interface AppshotRect { x: number; y: number; width: number; height: number }
+export interface ScreenBotRect { x: number; y: number; width: number; height: number }
 
-/** Mirrors `AppshotShot` in src/main/appshot.ts. */
-export interface AppshotShot {
+/** Mirrors `ScreenBotShot` in src/main/screenbot.ts. */
+export interface ScreenBotShot {
   id: string;
   image: Uint8Array;
   width: number;
@@ -27,23 +27,24 @@ export interface AppshotShot {
   offsetX: number;
   offsetY: number;
   /** The display's work area (no menu bar or Dock), in overlay coordinates. */
-  workArea: AppshotRect;
-  roster: AppshotRoster;
+  workArea: ScreenBotRect;
+  roster: ScreenBotRoster;
   rosterVersion: number;
   draft: string;
 }
 
-export type AppshotSendResult = { ok: true; botName: string } | { ok: false; error: string };
+export type ScreenBotSendResult = { ok: true; botName: string } | { ok: false; error: string };
 
-export interface AppshotBridge {
+export interface ScreenBotBridge {
   platform: string;
-  onShot(callback: (shot: AppshotShot) => void): () => void;
-  onRoster(callback: (roster: AppshotRoster) => void): () => void;
+  onShot(callback: (shot: ScreenBotShot) => void): () => void;
+  onRoster(callback: (roster: ScreenBotRoster) => void): () => void;
+  onHidden(callback: () => void): () => void;
   ready(): void;
   setInteractive(interactive: boolean): void;
   focus(): void;
   saveDraft(draft: string): void;
-  send(request: { shotId: string; botId: string; content: string }): Promise<AppshotSendResult>;
+  send(request: { shotId: string; botId: string; content: string }): Promise<ScreenBotSendResult>;
   transcribe(audio: Uint8Array, mimeType: string): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   close(shotId: string): void;
   openChat(botId: string): void;
@@ -53,6 +54,6 @@ export interface AppshotBridge {
 
 declare global {
   interface Window {
-    appshot?: AppshotBridge;
+    screenbot?: ScreenBotBridge;
   }
 }

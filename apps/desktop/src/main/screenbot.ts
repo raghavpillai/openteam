@@ -13,17 +13,17 @@ import {
   type NativeImage,
 } from "electron";
 
-import { encodeScreenPng } from "./appshot-png";
-import { isRecord, parseAppshotRoster, text, type AppshotRoster } from "./appshot-roster";
+import { encodeScreenPng } from "./screenbot-png";
+import { isRecord, parseScreenBotRoster, text, type ScreenBotRoster } from "./screenbot-roster";
 
-export type { AppshotBot, AppshotRoster } from "./appshot-roster";
+export type { ScreenBotBot, ScreenBotRoster } from "./screenbot-roster";
 
 /** Over 25 MB the server rejects an attachment, so a huge PNG falls back to JPEG. */
 const MAX_PNG_BYTES = 24 * 1024 * 1024;
-/** An idle overlay is kept warm for the next appshot, then released. */
+/** An idle overlay is kept warm for the next screenbot, then released. */
 const IDLE_RELEASE_MS = 2 * 60_000;
 const DELIVERY_TIMEOUT_MS = 20_000;
-/** The longest message that goes with an appshot (the composer stops there too). */
+/** The longest message that goes with a ScreenBot (the composer stops there too). */
 const MAX_CONTENT = 100_000;
 const PRESS_COALESCE_MS = 300;
 /** The overlay's intro; a retake waits until the composer is up. */
@@ -32,7 +32,7 @@ const TRANSCRIBE_TIMEOUT_MS = 60_000;
 /** Matches the voice note limit the server accepts. */
 const MAX_DICTATION_BYTES = 25 * 1024 * 1024;
 
-export interface AppshotShot {
+export interface ScreenBotShot {
   id: string;
   /** JPEG of the display, decoded once and shared by every layer of the overlay. */
   image: Uint8Array;
@@ -43,12 +43,12 @@ export interface AppshotShot {
   offsetY: number;
   /** The display's work area (no menu bar or Dock), in overlay coordinates. */
   workArea: { x: number; y: number; width: number; height: number };
-  roster: AppshotRoster;
+  roster: ScreenBotRoster;
   rosterVersion: number;
   draft: string;
 }
 
-export type AppshotSendResult = { ok: true; botName: string } | { ok: false; error: string };
+export type ScreenBotSendResult = { ok: true; botName: string } | { ok: false; error: string };
 
 interface DeliveryReply {
   requestId: string;
@@ -75,8 +75,8 @@ interface EncodedShot { bytes: Uint8Array; mimeType: string; fileName: string; w
 const pngFor = async (image: NativeImage, signal: AbortSignal): Promise<EncodedShot> => {
   const { width, height } = image.getSize();
   const png = await encodeScreenPng(image.toBitmap(), width, height, "bgra", signal);
-  if (png.byteLength <= MAX_PNG_BYTES) return { bytes: png, mimeType: "image/png", fileName: "Appshot.png", width, height };
-  return { bytes: image.toJPEG(92), mimeType: "image/jpeg", fileName: "Appshot.jpg", width, height };
+  if (png.byteLength <= MAX_PNG_BYTES) return { bytes: png, mimeType: "image/png", fileName: "Screenshot.png", width, height };
+  return { bytes: image.toJPEG(92), mimeType: "image/jpeg", fileName: "Screenshot.jpg", width, height };
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,7 +84,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const SCREEN_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
-export interface DesktopAppshotOptions {
+export interface DesktopScreenBotOptions {
   preloadPath: string;
   /** Loads the overlay page: the Vite server in development, the bundle otherwise. */
   loadPage: (window: BrowserWindow) => Promise<void>;
@@ -96,15 +96,15 @@ export interface DesktopAppshotOptions {
 }
 
 /**
- * Appshots: a hotkey captures the display under the pointer, and a floating composer on top
+ * ScreenBot: a hotkey captures the display under the pointer, and a floating composer on top
  * of every app sends the shot to a Bot. The overlay is one transparent, click-through panel
  * the size of the display, so its animations can travel anywhere on screen. Delivery runs in
  * the signed-in main window, through the same durable send path as the chat composer.
  */
-export class DesktopAppshot {
+export class DesktopScreenBot {
   private overlay: BrowserWindow | null = null;
   private overlayLoading: Promise<BrowserWindow> | null = null;
-  private roster: AppshotRoster = { bots: [], dictation: false };
+  private roster: ScreenBotRoster = { bots: [], dictation: false };
   /** Increases with every roster the main window publishes, so an older one never wins. */
   private rosterVersion = 0;
   private capture: Capture | null = null;
@@ -118,38 +118,38 @@ export class DesktopAppshot {
   private transcribing = false;
   private releaseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly deliveries = new Map<string, (reply: DeliveryReply) => void>();
-  /** Stage timings of the latest appshot, logged with OPENTEAM_APPSHOT_DEBUG=1. */
+  /** Stage timings of the latest screenbot, logged with OPENTEAM_SCREENBOT_DEBUG=1. */
   private timing: Record<string, number> = {};
   private mark(stage: string) {
     this.timing[stage] = Math.round((performance.now() - (this.timing.pressed ?? performance.now())) * 10) / 10;
   }
 
-  constructor(private readonly options: DesktopAppshotOptions) {
-    ipcMain.on("openteam:appshot:roster", this.onRoster);
-    ipcMain.on("openteam:appshot:delivered", this.onDelivered);
+  constructor(private readonly options: DesktopScreenBotOptions) {
+    ipcMain.on("openteam:screenbot:roster", this.onRoster);
+    ipcMain.on("openteam:screenbot:delivered", this.onDelivered);
     // The overlay can only show itself for a shot main just gave it, and only take clicks or
     // focus while that shot is on screen: a misbehaving page can't float over everything.
-    ipcMain.on("appshot:ready", this.fromOverlay(() => {
+    ipcMain.on("screenbot:ready", this.fromOverlay(() => {
       if (!this.awaitingReveal || !this.capture) return;
       this.awaitingReveal = false;
       this.reveal();
     }));
-    ipcMain.on("appshot:interactive", this.fromOverlay((_event, interactive: unknown) => {
+    ipcMain.on("screenbot:interactive", this.fromOverlay((_event, interactive: unknown) => {
       const overlay = this.overlay;
       if (!overlay) return;
       overlay.setIgnoreMouseEvents(!(interactive === true && overlay.isVisible() && this.capture), { forward: true });
     }));
-    ipcMain.on("appshot:focus", this.fromOverlay(() => {
+    ipcMain.on("screenbot:focus", this.fromOverlay(() => {
       if (this.overlay?.isVisible() && this.capture) this.overlay.focus();
     }));
-    ipcMain.on("appshot:draft", this.fromOverlay((_event, value: unknown) => {
+    ipcMain.on("screenbot:draft", this.fromOverlay((_event, value: unknown) => {
       this.draft = text(value, 100_000) ?? "";
     }));
     // A close that finishes after a new shot arrived belongs to the old shot: ignore it.
-    ipcMain.on("appshot:closed", this.fromOverlay((_event, shotId: unknown) => {
+    ipcMain.on("screenbot:closed", this.fromOverlay((_event, shotId: unknown) => {
       if (!this.capture || this.capture.id === shotId) this.hideOverlay();
     }));
-    ipcMain.on("appshot:open-chat", this.fromOverlay((_event, botId: unknown) => {
+    ipcMain.on("screenbot:open-chat", this.fromOverlay((_event, botId: unknown) => {
       const bot = this.roster.bots.find((candidate) => candidate.id === botId);
       if (!bot) return;
       this.hideOverlay();
@@ -157,12 +157,12 @@ export class DesktopAppshot {
       // The same navigation as a notification: open the chat at its newest message.
       this.options.mainWindow()?.webContents.send("openteam:notification-click", { channelId: bot.channelId });
     }));
-    ipcMain.handle("appshot:transcribe", async (event, request: unknown) => {
-      if (!this.ownsSender(event)) throw new Error("Appshot is unavailable");
+    ipcMain.handle("screenbot:transcribe", async (event, request: unknown) => {
+      if (!this.ownsSender(event)) throw new Error("ScreenBot is unavailable");
       return this.transcribe(request);
     });
-    ipcMain.handle("appshot:send", async (event, request: unknown) => {
-      if (!this.ownsSender(event)) throw new Error("Appshot is unavailable");
+    ipcMain.handle("screenbot:send", async (event, request: unknown) => {
+      if (!this.ownsSender(event)) throw new Error("ScreenBot is unavailable");
       return this.send(request);
     });
   }
@@ -210,10 +210,10 @@ export class DesktopAppshot {
     this.timing = { pressed: performance.now() };
     try {
       // Refresh the Bot list while the screen is captured; the overlay updates if it changed.
-      this.options.mainWindow()?.webContents.send("openteam:appshot:roster-request");
+      this.options.mainWindow()?.webContents.send("openteam:screenbot:roster-request");
       if (!(await this.ensureScreenAccess())) return;
       const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-      // A second appshot retakes the screen without the floating composer in it.
+      // A second screenbot retakes the screen without the floating composer in it.
       if (this.overlay?.isVisible()) {
         this.overlay.setOpacity(0);
         await delay(80);
@@ -245,7 +245,7 @@ export class DesktopAppshot {
       overlay.setBounds(display.bounds);
       const bounds = overlay.getBounds();
       const scale = display.scaleFactor;
-      const shot: AppshotShot = {
+      const shot: ScreenBotShot = {
         id: this.capture.id,
         // A Buffer is already a Uint8Array: no extra copy before IPC.
         image: image.toJPEG(90),
@@ -267,10 +267,10 @@ export class DesktopAppshot {
       // Full frame rate for the intro; throttled again once hidden.
       overlay.webContents.setBackgroundThrottling(false);
       this.awaitingReveal = true;
-      overlay.webContents.send("appshot:shot", shot);
+      overlay.webContents.send("screenbot:shot", shot);
       this.mark("sent");
     } catch (error) {
-      console.error("OpenTeam appshot failed", error);
+      console.error("OpenTeam screenbot failed", error);
       this.overlay?.setOpacity(1);
       this.releaseIfHidden();
     } finally {
@@ -292,7 +292,7 @@ export class DesktopAppshot {
       type: "info",
       message: "Allow OpenTeam to record your screen",
       detail:
-        "Appshots capture your screen so you can send it to a Bot. Turn on OpenTeam in Privacy & Security › Screen & System Audio Recording, then reopen OpenTeam.",
+        "ScreenBot captures your screen so you can send it to a Bot. Turn on OpenTeam in Privacy & Security › Screen & System Audio Recording, then reopen OpenTeam.",
       buttons: ["Open System Settings", "Not Now"],
       defaultId: 0,
       cancelId: 1,
@@ -344,12 +344,12 @@ export class DesktopAppshot {
       roundedCorners: false,
       hiddenInMissionControl: true,
       acceptFirstMouse: true,
-      title: "Appshot",
+      title: "ScreenBot",
       webPreferences: {
         preload: this.options.preloadPath,
         // Its own storage: the chat window's holds the server address and session, which a
         // page showing screen content has no business reading or changing.
-        partition: "persist:appshot",
+        partition: "persist:screenbot",
         // Hidden between uses: let Chromium throttle it (no frames, slowed timers). Each shot
         // turns throttling off for its intro and composer.
         backgroundThrottling: true,
@@ -401,9 +401,9 @@ export class DesktopAppshot {
     overlay.focus();
     this.mark("shown");
     this.shownAt = performance.now();
-    if (process.env.OPENTEAM_APPSHOT_DEBUG === "1") {
+    if (process.env.OPENTEAM_SCREENBOT_DEBUG === "1") {
       const { pressed: _pressed, ...stages } = this.timing;
-      console.info("OpenTeam appshot timing (ms)", JSON.stringify(stages));
+      console.info("OpenTeam screenbot timing (ms)", JSON.stringify(stages));
     }
     const capture = this.capture;
     // Encode the full-quality copy while the intro plays, ready for an immediate send.
@@ -419,6 +419,9 @@ export class DesktopAppshot {
     this.awaitingReveal = false;
     overlay.setIgnoreMouseEvents(true, { forward: true });
     overlay.hide();
+    // Hidden from here (⌘W, opening the chat, a reload): the page must stand down too, or a
+    // dictation would keep recording in a hidden window.
+    if (!overlay.webContents.isDestroyed()) overlay.webContents.send("screenbot:hidden");
     overlay.webContents.setBackgroundThrottling(true);
     this.dropCapture();
     this.armRelease(overlay);
@@ -442,23 +445,23 @@ export class DesktopAppshot {
     }, IDLE_RELEASE_MS);
   }
 
-  private async send(value: unknown): Promise<AppshotSendResult> {
-    if (!isRecord(value)) return { ok: false, error: "This appshot couldn’t be sent." };
+  private async send(value: unknown): Promise<ScreenBotSendResult> {
+    if (!isRecord(value)) return { ok: false, error: "This screenshot couldn’t be sent." };
     const botId = text(value.botId, 200);
     const content = typeof value.content === "string" ? value.content : null;
     const shotId = text(value.shotId, 200);
     const capture = this.capture;
     const bot = this.roster.bots.find((candidate) => candidate.id === botId);
     if (!capture || capture.id !== shotId || content === null) {
-      return { ok: false, error: "Take the appshot again." };
+      return { ok: false, error: "Take the screenshot again." };
     }
-    if (content.length > MAX_CONTENT) return { ok: false, error: "That message is too long to send with an appshot." };
+    if (content.length > MAX_CONTENT) return { ok: false, error: "That message is too long to send with a screenshot." };
     // One send per shot at a time; the duplicate would only write another full-size copy.
-    if (capture.sending) return { ok: false, error: "This appshot is already sending." };
+    if (capture.sending) return { ok: false, error: "This screenshot is already sending." };
     if (!bot) return { ok: false, error: "That Bot is no longer available." };
     const mainWindow = this.options.mainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) {
-      return { ok: false, error: "Open OpenTeam to send appshots." };
+      return { ok: false, error: "Open OpenTeam to use ScreenBot." };
     }
     capture.sending = true;
     let reply: DeliveryReply;
@@ -471,15 +474,15 @@ export class DesktopAppshot {
       const stagingId = randomUUID();
       await this.options.stageDelivery(stagingId, image.bytes);
       stagedId = stagingId;
-      reply = await this.askMainWindow(mainWindow, "openteam:appshot:deliver", {
+      reply = await this.askMainWindow(mainWindow, "openteam:screenbot:deliver", {
         botId: bot.id,
         content: content.trim(),
         // One delivery per shot: a retry after a timeout can't send it twice.
-        nonce: `appshot-${capture.id}`,
+        nonce: `screenbot-${capture.id}`,
         staged: { stagingId, fileName: image.fileName, mimeType: image.mimeType, byteSize: image.bytes.byteLength, width: image.width, height: image.height },
       }, DELIVERY_TIMEOUT_MS);
     } catch {
-      reply = { requestId: "", ok: false, error: "This appshot couldn’t be sent." };
+      reply = { requestId: "", ok: false, error: "This screenshot couldn’t be sent." };
     } finally {
       capture.sending = false;
     }
@@ -487,14 +490,14 @@ export class DesktopAppshot {
     // chat window may already have queued a send that reads it; a retry is still safe (same
     // nonce), and losing the image would be worse than a leftover file.
     if (!reply.ok && !reply.unanswered && stagedId) void this.options.discardDelivery(stagedId).catch(() => undefined);
-    if (!reply.ok) return { ok: false, error: reply.error || "This appshot couldn’t be sent." };
+    if (!reply.ok) return { ok: false, error: reply.error || "This screenshot couldn’t be sent." };
     this.draft = "";
     // Delivered: this shot is done and can't be sent again.
     if (this.capture === capture) this.capture = null;
     return { ok: true, botName: bot.name };
   }
 
-  /** One request to the signed-in main window, answered on `openteam:appshot:delivered`. */
+  /** One request to the signed-in main window, answered on `openteam:screenbot:delivered`. */
   private askMainWindow(mainWindow: BrowserWindow, channel: string, payload: Record<string, unknown>, timeoutMs: number) {
     const requestId = randomUUID();
     // A page still loading has no listener yet, so the message would be lost and the overlay
@@ -529,7 +532,7 @@ export class DesktopAppshot {
     const mainWindow = this.options.mainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: "Open OpenTeam to use dictation." };
     this.transcribing = true;
-    const reply = await this.askMainWindow(mainWindow, "openteam:appshot:transcribe", { audio: value.audio, mimeType }, TRANSCRIBE_TIMEOUT_MS)
+    const reply = await this.askMainWindow(mainWindow, "openteam:screenbot:transcribe", { audio: value.audio, mimeType }, TRANSCRIBE_TIMEOUT_MS)
       .finally(() => { this.transcribing = false; });
     if (!reply.ok) return { ok: false, error: reply.error || "Transcription failed. Try again." };
     return { ok: true, text: reply.text ?? "" };
@@ -537,13 +540,13 @@ export class DesktopAppshot {
 
   private readonly onRoster = (event: IpcMainEvent, value: unknown) => {
     if (event.sender !== this.options.mainWindow()?.webContents) return;
-    const roster = parseAppshotRoster(value);
+    const roster = parseScreenBotRoster(value);
     if (!roster) return;
     // An empty list is the chat window signing out: the draft was that account's.
     if (roster.bots.length === 0) this.draft = "";
     this.roster = roster;
     this.rosterVersion += 1;
-    if (this.overlay?.isVisible()) this.overlay.webContents.send("appshot:roster", { ...roster, version: this.rosterVersion });
+    if (this.overlay?.isVisible()) this.overlay.webContents.send("screenbot:roster", { ...roster, version: this.rosterVersion });
   };
 
   private readonly onDelivered = (event: IpcMainEvent, value: unknown) => {

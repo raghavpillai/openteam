@@ -3,7 +3,7 @@ export const ELECTRON_BUNDLE_ARTIFACTS = [
   "host-utility.js",
   "openteam-cli.js",
   "preload.cjs",
-  "appshot-preload.cjs",
+  "screenbot-preload.cjs",
 ] as const;
 
 export interface DevElectronEnvironment {

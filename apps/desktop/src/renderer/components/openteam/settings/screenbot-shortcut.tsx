@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
-type Shortcut = AppshotShortcutView;
-type Status = AppshotShortcutStatusView;
+type Shortcut = ScreenBotShortcutView;
+type Status = ScreenBotShortcutStatusView;
 
 const mac = () => window.openteam?.platform === "darwin";
 
@@ -66,9 +66,9 @@ export function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   );
 }
 
-/** Settings › Keyboard › Appshots: the shortcut, with Change and Reset. */
-export function AppshotShortcutSettings() {
-  const bridge = window.openteam?.appshot?.shortcut;
+/** Settings › Keyboard › ScreenBot: the shortcut, with Change and Reset. */
+export function ScreenBotShortcutSettings() {
+  const bridge = window.openteam?.screenbot?.shortcut;
   const [status, setStatus] = useState<Status | null>(null);
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState<string[]>([]);
@@ -164,7 +164,7 @@ export function AppshotShortcutSettings() {
 
   return (
     <>
-      <SectionLabel>Appshots</SectionLabel>
+      <SectionLabel>ScreenBot</SectionLabel>
       <SettingsGroup>
         <SettingsRow
           title="Shortcut"

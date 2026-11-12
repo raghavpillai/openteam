@@ -1,3 +1,4 @@
+import { RoutineDefinitionError } from "./routine-definition-error";
 import { isWindowVisible } from "../../lib/window-visibility";
 import {
   routineExecutionStatusPresentation,
@@ -27,6 +28,15 @@ import {
   type RoutineSchedulePreset,
   type RoutineView,
   routineDraftValid,
+  recoverRoutineCreation,
+  type RoutineCreateAttempt,
+  routineScheduleUpdate,
+  routineUpdateInput,
+  routineDefinitionEqual,
+  routineEditorResumeState,
+  type RoutineEditorSaveState,
+  synchronizeRoutineEnabled,
+  routineSchedulesError,
   routineIsRunning,
   routinePresentationValue,
   routineScheduleDrafts,
@@ -769,9 +779,23 @@ interface RoutineSaveContext {
   dirty: boolean;
   saving: boolean;
   toggling: boolean;
+  contentConflict: boolean;
   pending: RoutineDraft | null;
   attached: boolean;
+  createAttempt?: RoutineCreateAttempt;
+  saveState: RoutineEditorSaveState;
 }
+
+// Save and control responses can arrive in a different order from their commits.
+const rememberRoutine = (context: RoutineSaveContext, incoming: RoutineView): RoutineView => {
+  const current = context.routine;
+  const latest =
+    current && current.id === incoming.id && current.revision > incoming.revision
+      ? current
+      : incoming;
+  context.routine = latest;
+  return latest;
+};
 
 const newDraft = (): RoutineDraft => ({
   name: "",
@@ -793,14 +817,18 @@ const draftFromRoutine = (routine: RoutineView): RoutineDraft => ({
   schedules: routineScheduleDrafts(routine).map(scheduleDraftItem),
 });
 
-const draftValid = (draft: RoutineDraft) =>
-  draft.name.trim().length > 0 &&
-  draft.prompt.trim().length > 0 &&
-  draft.schedules.length > 0 &&
-  draft.schedules.length <= 8 &&
-  draft.schedules.every(({ schedule }) =>
-    routineDraftValid({ name: draft.name, prompt: draft.prompt, schedule })
+const draftValid = (draft: RoutineDraft, routine: RoutineView | null = null) => {
+  if (!draft.name.trim() || !draft.prompt.trim()) return false;
+  const schedules = draft.schedules.map(({ schedule }) => schedule);
+  if (routine && Object.keys(routineScheduleUpdate(routine, schedules)).length === 0) return true;
+  return (
+    schedules.length > 0 &&
+    !routineSchedulesError(schedules, routine) &&
+    schedules.every((schedule) =>
+      routineDraftValid({ name: draft.name, prompt: draft.prompt, schedule })
+    )
   );
+};
 
 export function RoutineEditor({
   active,
@@ -821,7 +849,9 @@ export function RoutineEditor({
   const [expandedSchedule, setExpandedSchedule] = useState<number | null>(null);
   const [addScheduleOpen, setAddScheduleOpen] = useState(false);
   const [loading, setLoading] = useState(Boolean(routineId));
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "conflict">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "conflict">(
+    "idle"
+  );
   const [runError, setRunError] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toggleSaving, setToggleSaving] = useState(false);
@@ -839,8 +869,10 @@ export function RoutineEditor({
       dirty: false,
       saving: false,
       toggling: false,
+      contentConflict: false,
       pending: null,
       attached: active,
+      saveState: "idle",
     };
   }
   const saveContext = contextRef.current;
@@ -848,8 +880,20 @@ export function RoutineEditor({
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    const resumed = routineEditorResumeState(saveContext, routineId);
+    if (resumed) {
+      // Hiding the inspector must not discard a pending save, its draft, or a create receipt.
+      setRoutine(resumed.routine);
+      setDraft(resumed.draft);
+      setDirty(resumed.dirty);
+      setSaveState(resumed.saveState);
+      setToggleSaving(saveContext.toggling);
+      setLoading(false);
+      return;
+    }
     setLoading(Boolean(routineId));
     setSaveState("idle");
+    saveContext.saveState = "idle";
     setRoutine(null);
     saveContext.routine = null;
     setExecutions([]);
@@ -891,50 +935,97 @@ export function RoutineEditor({
     context: RoutineSaveContext,
     value: RoutineDraft
   ): Promise<void> {
-    if (!draftValid(value)) return;
-    if (context.saving) {
+    if (context.contentConflict || !draftValid(value, context.routine)) return;
+    if (context.saving || context.toggling) {
       context.pending = value;
       return;
     }
     const schedules = value.schedules.map(({ schedule }) => schedule);
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const trigger = routineTriggerValue(schedules, timeZone);
+    // Floating calendar schedules resolve through the installation's configured zone.
+    // Explicit zones on existing listeners remain attached to their drafts.
+    const trigger = routineTriggerValue(schedules);
     context.saving = true;
+    context.saveState = "saving";
     if (context.attached) setSaveState("saving");
     try {
       const presentation = routinePresentationValue(schedules);
       const current = context.routine;
       const update = (base: RoutineView) =>
-        api.updateRoutine(base.id, {
-          name: value.name.trim(),
-          prompt: value.prompt.trim(),
-          trigger,
-          presentation,
-          expectedRevision: base.revision,
-        });
+        api.updateRoutine(
+          base.id,
+          routineUpdateInput(
+            base,
+            { name: value.name, prompt: value.prompt, schedules },
+            context.draft.enabled
+          )
+        );
       let saved: RoutineView;
       if (!current) {
-        saved = await api.createRoutine(context.ownerId, context.ownerKind, {
+        const input = {
           name: value.name.trim(),
           prompt: value.prompt.trim(),
           trigger,
           presentation,
           enabled: value.enabled,
-        });
+        };
+        context.createAttempt ??= { clientId: crypto.randomUUID(), input };
+        saved = await recoverRoutineCreation(
+          context.createAttempt,
+          input,
+          (original, clientId) =>
+            api.createRoutine(context.ownerId, context.ownerKind, original, clientId),
+          async (recovered) => {
+            // Keep the recovered ID even if either control or content saving fails.
+            const receipt = rememberRoutine(context, recovered);
+            if (context.attached) setRoutine(receipt);
+            // Apply Pause before the optional content update: server validation can
+            // reject that update even when the draft passed local validation.
+            const prepared = await synchronizeRoutineEnabled(
+              receipt,
+              () => context.draft.enabled,
+              (base, enabled) => api.setRoutineEnabled(base, enabled),
+              (id) => api.routine(id),
+              (error) => error instanceof ClientError && error.status === 409
+            );
+            if (!routineDefinitionEqual(recovered, prepared)) {
+              throw new ClientError(
+                "This routine changed elsewhere. Reopen it to load the latest version.",
+                "routine_revision_conflict",
+                409
+              );
+            }
+            // Retain the control's revision even if edited content is rejected below.
+            const latest = rememberRoutine(context, prepared);
+            if (context.attached) setRoutine(latest);
+            return latest;
+          },
+          update
+        );
       } else {
         // A full draft cannot be safely retried against a newer revision: it
         // would silently restore stale instructions or schedules.
         saved = await update(current);
       }
-      context.routine = saved;
-      if (context.attached) setRoutine(saved);
-      if (context.draft === value) {
+      const latest = rememberRoutine(context, saved);
+      if (context.attached) setRoutine(latest);
+      // A toggle may have refreshed this very save before its response arrived.
+      // Only matching instructions can clear that provisional conflict.
+      if (routineDefinitionEqual(saved, latest)) context.contentConflict = false;
+      if (context.draft === value && !context.contentConflict) {
         context.dirty = false;
         if (context.attached) setDirty(false);
       }
-      if (context.attached) setSaveState("saved");
+      context.saveState = context.contentConflict ? "conflict" : "saved";
+      if (context.attached) setSaveState(context.saveState);
     } catch (error) {
-      if (context.attached) setSaveState(error instanceof ClientError && error.status === 409 ? "conflict" : "error");
+      // A definitive validation failure did not create a resource. Allow corrected input
+      // to start a fresh attempt; uncertain transport/server failures retain the nonce.
+      if (!context.routine && error instanceof ClientError && [400, 422].includes(error.status)) {
+        context.createAttempt = undefined;
+      }
+      if (error instanceof ClientError && error.status === 409) context.contentConflict = true;
+      context.saveState = context.contentConflict ? "conflict" : "error";
+      if (context.attached) setSaveState(context.saveState);
     } finally {
       context.saving = false;
       const pending = context.pending;
@@ -954,8 +1045,9 @@ export function RoutineEditor({
       setRunError(false);
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
-      if (!draftValid(next)) {
-        setSaveState("idle");
+      if (!draftValid(next, context.routine)) {
+        if (!context.saving && !context.contentConflict) context.saveState = "idle";
+        setSaveState(context.saveState);
         return;
       }
       if (immediate) void persist(context, next);
@@ -980,11 +1072,23 @@ export function RoutineEditor({
         return;
       }
       try {
-        const [history, latest] = await Promise.all([api.routineExecutions(current), api.routine(current)]);
+        const [history, latest] = await Promise.all([
+          api.routineExecutions(current),
+          api.routine(current),
+        ]);
         if (!stopped) {
           setExecutions(history);
           const context = contextRef.current;
-          if (context?.routine?.id === current && !context.dirty && !context.saving && !context.toggling && latest.revision > context.routine.revision) {
+          if (
+            context?.routine?.id === current &&
+            !context.dirty &&
+            !context.saving &&
+            !context.toggling &&
+            latest.revision >= context.routine.revision &&
+            (latest.revision > context.routine.revision ||
+              latest.enabled !== context.routine.enabled ||
+              latest.validationError !== context.routine.validationError)
+          ) {
             const refreshed = draftFromRoutine(latest);
             context.routine = latest;
             context.draft = refreshed;
@@ -1012,7 +1116,7 @@ export function RoutineEditor({
       saveContext.attached = false;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
-      if (saveContext.dirty && draftValid(saveContext.draft)) {
+      if (saveContext.dirty && draftValid(saveContext.draft, saveContext.routine)) {
         void persist(saveContext, saveContext.draft);
       }
     };
@@ -1021,7 +1125,20 @@ export function RoutineEditor({
   const running = routine
     ? routineIsRunning({ ...routine, latestExecution: executions[0] ?? routine.latestExecution })
     : false;
-  const valid = draftValid(draft);
+  const valid = draftValid(draft, routine);
+  const scheduleError =
+    routine &&
+    Object.keys(
+      routineScheduleUpdate(
+        routine,
+        draft.schedules.map(({ schedule }) => schedule)
+      )
+    ).length === 0
+      ? null
+      : routineSchedulesError(
+          draft.schedules.map(({ schedule }) => schedule),
+          routine
+        );
 
   const toggleActive = (enabled: boolean) => {
     const context = contextRef.current;
@@ -1041,17 +1158,29 @@ export function RoutineEditor({
         return await api.setRoutineEnabled(base, enabled);
       } catch (error) {
         if (!(error instanceof ClientError) || error.status !== 409) throw error;
-        const latest = await api.routine(base.id);
-        context.routine = latest;
+        const latest = rememberRoutine(context, await api.routine(base.id));
+        if (!routineDefinitionEqual(base, latest)) {
+          if (context.dirty || context.saving || context.pending) {
+            // Retain unsaved input, but never pair it with permission to overwrite
+            // newly discovered instructions. Explicit reload resolves this fence.
+            context.contentConflict = true;
+            context.saveState = "conflict";
+            if (context.attached) setSaveState("conflict");
+          } else {
+            const refreshed = { ...draftFromRoutine(latest), enabled: context.draft.enabled };
+            context.draft = refreshed;
+            if (context.attached) setDraft(refreshed);
+          }
+        }
         return latest.enabled === enabled ? latest : api.setRoutineEnabled(latest, enabled);
       }
     };
     void commit()
       .then((saved) => {
-        context.routine = saved;
-        if (context.attached) setRoutine(saved);
+        const latest = rememberRoutine(context, saved);
+        if (context.attached) setRoutine(latest);
         if (context.draft === next) {
-          const confirmed = { ...next, enabled: saved.enabled };
+          const confirmed = { ...next, enabled: latest.enabled };
           context.draft = confirmed;
           if (context.attached) setDraft(confirmed);
         }
@@ -1062,12 +1191,43 @@ export function RoutineEditor({
           context.draft = rolledBack;
           if (context.attached) setDraft(rolledBack);
         }
+        context.saveState = "error";
         if (context.attached) setSaveState("error");
       })
       .finally(() => {
         context.toggling = false;
         if (context.attached) setToggleSaving(false);
+        if (!context.saving && context.pending) {
+          const pending = context.pending;
+          context.pending = null;
+          void persist(context, pending);
+        }
       });
+  };
+
+  const reloadLatest = async () => {
+    const context = contextRef.current;
+    const current = context?.routine;
+    if (!context || !current || context.saving || context.toggling) return;
+    try {
+      const latest = rememberRoutine(context, await api.routine(current.id));
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      context.pending = null;
+      context.contentConflict = false;
+      context.draft = draftFromRoutine(latest);
+      context.dirty = false;
+      context.saveState = "idle";
+      if (context.attached) {
+        setRoutine(latest);
+        setDraft(context.draft);
+        setDirty(false);
+        setSaveState("idle");
+      }
+    } catch {
+      // Keep the conflict and the draft available so reload can be retried.
+      if (context.attached) setSaveState("conflict");
+    }
   };
 
   const deleteRoutine = async () => {
@@ -1221,6 +1381,12 @@ export function RoutineEditor({
               </div>
             )}
           </div>
+          <RoutineDefinitionError error={routine?.validationError} />
+          {scheduleError && (
+            <p role="alert" className="px-2 text-[12px] text-destructive">
+              {scheduleError}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-1">
@@ -1231,17 +1397,27 @@ export function RoutineEditor({
           {saveState === "saving"
             ? "Saving…"
             : saveState === "conflict"
-              ? "This routine changed elsewhere. Reopen it to load the latest version."
-            : saveState === "error"
-              ? "Couldn't save this routine."
-              : runError
-                ? "Couldn't start a test run."
-                : !routine && valid
-                  ? "Saving…"
-                  : !routine
-                    ? ""
-                    : ""}
+              ? "This routine changed elsewhere. Reload the latest version to continue editing."
+              : saveState === "error"
+                ? "Couldn't save this routine."
+                : runError
+                  ? "Couldn't start a test run."
+                  : !routine && valid
+                    ? "Saving…"
+                    : !routine
+                      ? ""
+                      : ""}
         </div>
+        {(saveState === "conflict" || saveContext.contentConflict) && (
+          <Button
+            className="h-7 justify-self-center px-2 text-[12px]"
+            disabled={saveContext.saving || toggleSaving}
+            onClick={() => void reloadLatest()}
+            variant="secondary"
+          >
+            Reload latest
+          </Button>
+        )}
       </div>
     </div>
   );

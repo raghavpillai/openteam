@@ -429,6 +429,8 @@ model Routine {
   enabled         Boolean             @default(true)
   revision        Int                 @default(1)
   nextRunAt       DateTime?
+  validationError String?
+  scheduleAnchorAt DateTime?
   lastRunAt       DateTime?
   pausedAt        DateTime?
   deletedAt       DateTime?

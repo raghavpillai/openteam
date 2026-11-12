@@ -422,6 +422,8 @@ export const terminalGroupRoutineExecutionStatus = (
 };
 
 export class WakeWorker {
+  private routineRecoveryCursor: string | null = null;
+  private routineFollowUpCursor: string | null = null;
   private readonly concurrentAutomations = new Set<Promise<void>>();
   private stopping = false;
   readonly prisma: PrismaClient;
@@ -877,6 +879,7 @@ export class WakeWorker {
   private async recoverRoutineExecutions(): Promise<void> {
     const executions = await this.prisma.routineExecution.findMany({
       where: {
+        ...(this.routineRecoveryCursor ? { id: { gt: this.routineRecoveryCursor } } : {}),
         status: { in: ["queued", "running"] },
         OR: [{ runId: { not: null } }, { channelMessageId: { not: null } }],
         routine: {
@@ -891,33 +894,47 @@ export class WakeWorker {
         run: { select: { status: true, completedAt: true, error: true } },
       },
       take: 100,
+      orderBy: { id: "asc" },
     });
+    this.routineRecoveryCursor = executions.length === 100 ? executions.at(-1)!.id : null;
     for (const execution of executions) {
-      if (execution.runId && execution.run) {
-        const updated = await this.prisma.$transaction(async tx => {
-          const settled = await reconcileRoutineExecution(tx, execution.runId!);
-          if (settled) await this.routines.afterExecution(tx, settled);
-          return settled;
-        });
-        if (updated && execution.routine.botId) {
-          await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
+      try {
+        if (execution.runId && execution.run) {
+          const updated = await this.prisma.$transaction(async tx => {
+            const settled = await reconcileRoutineExecution(tx, execution.runId!);
+            if (settled) await this.routines.afterExecution(tx, settled);
+            return settled;
+          });
+          if (updated && execution.routine.botId) {
+            await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
+          }
+          continue;
         }
-        continue;
-      }
-      if (execution.channelMessageId && execution.routine.channelId) {
-        await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
+        if (execution.channelMessageId && execution.routine.channelId) {
+          await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
+        }
+      } catch {
+        // One broken destination or transient follow-up failure must not hold
+        // every other routine's recovery hostage. Its durable state is retried.
+        console.warn("Routine execution recovery deferred", { executionId: execution.id });
       }
     }
     // A follow-up holding coalesced events has no wake or room turn until the run before it settles.
     const followUps = await this.prisma.routineExecution.findMany({
       where: {
+        ...(this.routineFollowUpCursor ? { id: { gt: this.routineFollowUpCursor } } : {}),
         status: "queued", runId: null, channelMessageId: null,
         routine: { OR: [{ bot: { status: "active" } }, { channel: { kind: "group", archivedAt: null } }] },
       },
-      select: { routineId: true },
+      select: { id: true, routineId: true },
       take: 100,
+      orderBy: { id: "asc" },
     });
-    for (const { routineId } of followUps) await this.routines.runEventFollowUp(routineId);
+    this.routineFollowUpCursor = followUps.length === 100 ? followUps.at(-1)!.id : null;
+    for (const { routineId } of followUps) {
+      try { await this.routines.runEventFollowUp(routineId); }
+      catch { console.warn("Routine follow-up recovery deferred", { routineId }); }
+    }
   }
 
   private async recoverGroupRoutineExecution(
@@ -943,7 +960,12 @@ export class WakeWorker {
       });
       if (!round) return;
       const state = await groupRoutineState(tx, rootMessageId);
-      if (state.active) return;
+      if (state.active) {
+        // Dispatch commits before advancing a room round. A transient handoff
+        // failure must recover periodically, without requiring a worker restart.
+        if (["queued", "running"].includes(round.status)) return { roundId: round.id };
+        return;
+      }
       const status = state.failed ? "failed" : "completed";
       const finishedAt = state.completedAt ?? round.completedAt ?? new Date();
       const errorKind =
@@ -969,7 +991,7 @@ export class WakeWorker {
         data: {
           runLedger: appendRoutineRunLedger(execution.routine.runLedger, {
             id: execution.id,
-            trigger: execution.kind === "scheduled" ? "schedule" : "manual",
+            trigger: Array.isArray(execution.events) && execution.events.length ? "event" : execution.kind === "scheduled" ? "schedule" : "manual",
             startedAt: (
               execution.startedAt ??
               execution.enqueuedAt ??
@@ -997,7 +1019,8 @@ export class WakeWorker {
       });
       return { executionId: execution.id, routineId: execution.routineId };
     });
-    if (settled) await this.routines.afterGroupExecution(settled);
+    if (settled?.roundId) await this.messaging.advanceRound(settled.roundId);
+    else if (settled?.executionId) await this.routines.afterGroupExecution(settled);
   }
 
   private async handleProvision(job: JobWithMetadata<ProvisionData>): Promise<void> {
@@ -1238,6 +1261,20 @@ export class WakeWorker {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const candidates = [];
         for (const candidate of pendingCandidates) {
+          const handoff = candidate.type === "automation.wake_parent" ? await tx.automationResult.findUnique({
+            where: { wakeRunId: candidate.runId },
+            select: { run: { select: { botId: true, status: true, error: true, requestStoppedAt: true } } },
+          }) : null;
+          const automationRoot = (candidate.payload as { automationContextRunId?: string } | null)?.automationContextRunId;
+          if ((handoff && (handoff.run.botId !== botId || requestIsStopped(handoff.run))) ||
+              (candidate.run.origin === "routine" && automationRoot &&
+              (await automationContinuationRoute(tx, botId, automationRoot))?.origin !== "routine")) {
+            const completedAt = new Date();
+            const error = { code: "automation_context_ended" };
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt, error } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
+            continue;
+          }
           if (candidate.type === "user.reaction" && (!candidate.run.channelId ||
               !await tx.channel.findFirst({ where: {
                 id: candidate.run.channelId, archivedAt: null, members: { some: { botId } },
@@ -1320,8 +1357,10 @@ export class WakeWorker {
           const folded = batch.folded.map((wake) => wake.id);
           await tx.inboxEvent.updateMany({ where: { id: { in: folded } }, data: { status: "completed", claimedAt: settledAt, completedAt: settledAt } });
           await tx.run.updateMany({ where: { id: { in: batch.folded.map((wake) => wake.runId) } }, data: { status: "completed", startedAt: settledAt, completedAt: settledAt } });
-          for (const wake of batch.folded)
+          for (const wake of batch.folded) {
+            await tx.inboxEvent.update({ where: { id: wake.id }, data: { payload: { ...(wake.payload as Prisma.JsonObject), batchedIntoRunId: inbox.runId } } });
             await tx.event.create({ data: { topic: "inbox.completed", entityId: wake.id, payload: { inboxId: wake.id, runId: wake.runId, batchedIntoRunId: inbox.runId } } });
+          }
           // The claimed wake carries the whole batch from now on, also if it is claimed again.
           await tx.inboxEvent.update({ where: { id: inbox.id }, data: { payload: { ...(inbox.payload as Prisma.JsonObject), content: batch.content } } });
           const messageId = (inbox.payload as { messageId?: unknown }).messageId;
@@ -1991,6 +2030,7 @@ export class WakeWorker {
         id: true,
         routineId: true,
         kind: true,
+        events: true,
         status: true,
         scheduledFor: true,
         enqueuedAt: true,
@@ -2015,7 +2055,7 @@ export class WakeWorker {
       data: {
         runLedger: appendRoutineRunLedger(execution.routine.runLedger, {
           id: execution.id,
-          trigger: execution.kind === "scheduled" ? "schedule" : "manual",
+          trigger: Array.isArray(execution.events) && execution.events.length ? "event" : execution.kind === "scheduled" ? "schedule" : "manual",
           startedAt: (
             execution.startedAt ??
             execution.enqueuedAt ??

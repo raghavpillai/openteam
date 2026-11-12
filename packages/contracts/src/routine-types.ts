@@ -41,6 +41,7 @@ export interface RoutineView {
   timezone: string;
   timezoneMode: string;
   enabled: boolean;
+  validationError?: string | null;
   revision: number;
   nextRunAt: string | null;
   lastRunAt: string | null;

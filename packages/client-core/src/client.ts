@@ -778,14 +778,14 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     routine: (routineId: string) =>
       transport.request<RoutineView>(`/api/v0/routines/${encodeURIComponent(routineId)}`),
-    createRoutine: (ownerId: string, ownerKind: "bot" | "group", input: CreateRoutineInput) =>
+    createRoutine: (ownerId: string, ownerKind: "bot" | "group", input: CreateRoutineInput, clientId?: string) =>
       transport.request<RoutineView>(
         ownerKind === "bot"
           ? `/api/v0/bots/${encodeURIComponent(ownerId)}/routines`
           : `/api/v0/channels/${encodeURIComponent(ownerId)}/routines`,
         {
           method: "POST",
-          body: JSON.stringify({ ...input, clientId: createId() }),
+          body: JSON.stringify({ ...input, clientId: clientId ?? createId() }),
         }
       ),
     updateRoutine: (routineId: string, input: UpdateRoutineInput) =>

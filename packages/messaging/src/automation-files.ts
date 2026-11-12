@@ -1,16 +1,17 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Prisma } from "@openteam/db";
-import { firstCronSchedule, parseStoredTrigger, triggerIdentity } from "./automation-trigger";
+import { cronSchedules, parseStoredTrigger, triggerIdentity } from "./automation-trigger";
 import {
   atomicWrite,
+  digest,
   fileTimes,
   jsonFile,
   listDirectories,
   readText,
   uniqueSlug,
 } from "./file-state";
-import { nextRoutineRun, normalizeRoutineSchedule } from "./routines";
+import { nextRoutineTriggerRun, normalizeRoutineSchedule } from "./routines";
 
 const MAX_AUTOMATION_NAME = 80;
 
@@ -37,7 +38,23 @@ export interface ParsedAutomation {
   raisedNotices: Prisma.InputJsonValue;
   runs: AutomationRun[];
   nextRunAt: Date | null;
+  scheduleAnchorAt: Date;
+  historyError: string | null;
+  projection: { routineId: string; revision: number; definitionDigest: string; creationCallId: string | null; creationRunId: string | null; originBotId: string | null; originSlug: string | null } | null;
+  projectionUnchanged: boolean;
 }
+
+// Runtime fields are projections, not authored instructions. A revision marker
+// lets reconciliation distinguish an old, untouched projection from a user edit.
+export const automationDefinitionDigest = (value: Record<string, unknown>): string => digest(JSON.stringify({
+  name: value.name,
+  prompt: value.prompt,
+  trigger: value.trigger,
+  schedule: value.schedule,
+  triggerPresentation: value.triggerPresentation,
+  enabled: value.enabled,
+  provenance: value.provenance,
+}));
 
 const object = (value: unknown, label: string): Record<string, unknown> => {
   if (!value || Array.isArray(value) || typeof value !== "object")
@@ -112,23 +129,23 @@ export const parseAutomationFile = async (
     .replace(/\s+/g, " ")
     .slice(0, MAX_AUTOMATION_NAME);
   const prompt = required(value.prompt, "automation prompt", Number.MAX_SAFE_INTEGER);
-  let trigger: Record<string, unknown>;
-  try {
-    trigger = parseStoredTrigger(value.trigger);
-  } catch (triggerError) {
-    if (typeof value.schedule !== "string" || !value.schedule.trim()) throw triggerError;
-    trigger = parseStoredTrigger({
-      type: "cron",
-      schedule: required(value.schedule, "schedule", 500),
-    });
-  }
-  const cronSchedule = firstCronSchedule(trigger);
-  const schedule =
-    cronSchedule !== null
-      ? normalizeRoutineSchedule(cronSchedule, userZone, {
-          enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM !== "false",
-        })
-      : null;
+  // Legacy schedule-only documents remain supported. An explicitly authored
+  // malformed trigger must never silently become just its first cron listener.
+  let trigger = parseStoredTrigger(value.trigger !== undefined ? value.trigger : {
+    type: "cron", schedule: required(value.schedule, "schedule", Number.MAX_SAFE_INTEGER),
+  });
+  const schedules = cronSchedules(trigger).map((candidate) => normalizeRoutineSchedule(candidate, userZone, {
+    enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM !== "false",
+  }));
+  let scheduleIndex = 0;
+  if (trigger.type === "cron") trigger = { ...trigger, schedule: schedules[0]?.scheduleText };
+  else if (trigger.type === "group" && Array.isArray(trigger.listeners)) trigger = {
+    ...trigger,
+    listeners: trigger.listeners.map((listener: Record<string, unknown>) => listener.type === "cron"
+      ? { ...listener, schedule: schedules[scheduleIndex++]?.scheduleText }
+      : listener),
+  };
+  const schedule = schedules[0] ?? null;
   let triggerPresentation: Record<string, unknown> | null = null;
   if (value.triggerPresentation && typeof value.triggerPresentation === "object") {
     try {
@@ -174,10 +191,37 @@ export const parseAutomationFile = async (
   ];
   const pendingNotices = notices(value.pendingNotices);
   const raisedNotices = notices(value.raisedNotices);
-  const runs = parseAutomationRuns(
-    await readText(join(automationPath, "..", "runs.json"), Number.MAX_SAFE_INTEGER)
-  );
+  let historyError: string | null = null;
+  let runs: AutomationRun[] = [];
+  try {
+    const history = await readText(join(automationPath, "..", "runs.json"), Number.MAX_SAFE_INTEGER);
+    if (history !== null && !Array.isArray(JSON.parse(history))) throw new Error("runs.json must contain an array");
+    runs = parseAutomationRuns(history);
+  } catch (error) {
+    // History is a recoverable projection; it cannot invalidate executable instructions.
+    historyError = error instanceof Error ? error.message : String(error);
+  }
+  const rawProjection = value.projection && typeof value.projection === "object" && !Array.isArray(value.projection)
+    ? value.projection as Record<string, unknown> : null;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const projection = rawProjection && typeof rawProjection.routineId === "string" && uuid.test(rawProjection.routineId)
+    && Number.isSafeInteger(rawProjection.revision) && Number(rawProjection.revision) >= 1
+    && typeof rawProjection.definitionDigest === "string"
+    ? {
+        routineId: rawProjection.routineId,
+        revision: Number(rawProjection.revision),
+        definitionDigest: rawProjection.definitionDigest,
+        creationCallId: typeof rawProjection.creationCallId === "string" ? rawProjection.creationCallId : null,
+        creationRunId: typeof rawProjection.creationRunId === "string" && uuid.test(rawProjection.creationRunId) ? rawProjection.creationRunId : null,
+        originBotId: typeof rawProjection.originBotId === "string" && uuid.test(rawProjection.originBotId) ? rawProjection.originBotId : null,
+        originSlug: typeof rawProjection.originSlug === "string" ? rawProjection.originSlug : null,
+      } : null;
   const anchor = lastRunAt ?? createdAt;
+  const suppliedAnchor = finiteMilliseconds(rawProjection?.scheduleAnchorAt);
+  // Keep legacy single-interval phase. Multiple relative listeners share an
+  // installation anchor so manual/event history cannot change their cadence.
+  const scheduleAnchorAt = suppliedAnchor !== null ? new Date(suppliedAnchor)
+    : cronSchedules(trigger).length > 1 ? createdAt : anchor;
   return {
     name,
     prompt,
@@ -191,11 +235,22 @@ export const parseAutomationFile = async (
     pendingNotices,
     raisedNotices,
     runs,
-    nextRunAt: enabled && schedule ? nextRoutineRun(schedule, anchor) : null,
+    nextRunAt: enabled && schedule ? nextRoutineTriggerRun(trigger, schedule, anchor, userZone, scheduleAnchorAt) : null,
+    scheduleAnchorAt,
+    historyError,
+    projection,
+    projectionUnchanged: projection?.definitionDigest === automationDefinitionDigest(value),
   };
 };
 
 export const renderAutomationFile = (routine: {
+  id?: string;
+  botId?: string | null;
+  slug?: string;
+  revision?: number;
+  scheduleAnchorAt?: Date | null;
+  creationCallId?: string | null;
+  creationRunId?: string | null;
   name: string;
   prompt: string;
   trigger: Prisma.JsonValue;
@@ -224,7 +279,7 @@ export const renderAutomationFile = (routine: {
     groupCron && typeof (groupCron as { schedule?: unknown }).schedule === "string"
       ? String((groupCron as { schedule: string }).schedule)
       : null;
-  return jsonFile({
+  const document = {
     name: routine.name,
     prompt: routine.prompt,
     ...(cron
@@ -244,6 +299,19 @@ export const renderAutomationFile = (routine: {
     ...(Array.isArray(routine.raisedNotices) && routine.raisedNotices.length > 0
       ? { raisedNotices: routine.raisedNotices }
       : {}),
+  };
+  return jsonFile({
+    ...document,
+    ...(routine.id ? { projection: {
+      routineId: routine.id,
+      revision: routine.revision ?? 1,
+      definitionDigest: automationDefinitionDigest(document),
+      scheduleAnchorAt: routine.scheduleAnchorAt?.getTime() ?? null,
+      creationCallId: routine.creationCallId ?? null,
+      creationRunId: routine.creationRunId ?? null,
+      originBotId: routine.botId ?? null,
+      originSlug: routine.slug ?? null,
+    } } : {}),
   });
 };
 
@@ -255,7 +323,8 @@ export const writeAutomationFiles = async (
   input: Parameters<typeof renderAutomationFile>[0] & {
     slug?: string;
     runLedger?: unknown;
-  }
+  },
+  onHistoryError?: (error: unknown) => Promise<void>
 ): Promise<{ slug: string; directory: string }> => {
   const root = join(botDirectory, "automations");
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -263,7 +332,12 @@ export const writeAutomationFiles = async (
   const slug = input.slug ?? uniqueSlug(input.name, "automation", occupied);
   const directory = join(root, slug);
   await atomicWrite(join(directory, "automation.json"), renderAutomationFile(input));
-  await atomicWrite(join(directory, "runs.json"), renderRunsFile(input.runLedger ?? []));
+  try {
+    await atomicWrite(join(directory, "runs.json"), renderRunsFile(input.runLedger ?? []));
+  } catch (error) {
+    if (!onHistoryError) throw error;
+    await onHistoryError(error);
+  }
   return { slug, directory };
 };
 

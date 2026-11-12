@@ -35,7 +35,7 @@ test("background subagent completion revives the parent with Bot's dedicated sou
     {
       id: "subagent-1",
       parentBotId: "parent",
-      parentRunId: "parent-run-1",
+      parentRunId: "11111111-1111-4111-8111-111111111111",
       parentChannelId: "channel-1",
       description: "Check release",
       prompt: "Check that the release checklist passes on main and report any failing step.",
@@ -71,15 +71,15 @@ test("a task a routine started reports back to the routine as quiet work nobody 
   await worker.notifySubagentParent(
     {
       run: {
-        findFirst: async () => ({ id: "routine-run-1", origin: "routine", inboxEvents: [{ payload: {} }] }),
+        findFirst: async () => ({ id: "22222222-2222-4222-8222-222222222222", origin: "routine", inboxEvents: [{ payload: {} }] }),
         findUnique: async () => ({ inboxEvents: [] }),
       },
       automationResult: { findUnique: async () => null },
-      routineExecution: { findUnique: async ({ where }: any) => (where.runId === "routine-run-1" ? { routine: { name: "Price watch", slug: "price-watch" } } : null) },
+      routineExecution: { findUnique: async ({ where }: any) => (where.runId === "22222222-2222-4222-8222-222222222222" ? { routine: { name: "Price watch", slug: "price-watch" } } : null) },
       channel: { findUnique: async () => ({ kind: "direct", name: "Parent" }) },
       bot: { findUnique: async () => ({ id: "parent", status: "active" }) },
     } as never,
-    { id: "subagent-1", parentBotId: "parent", parentRunId: "routine-run-1", parentChannelId: "channel-1", description: "Check price",
+    { id: "subagent-1", parentBotId: "parent", parentRunId: "22222222-2222-4222-8222-222222222222", parentChannelId: "channel-1", description: "Check price",
       prompt: "Check the price of the blue kettle", subagentType: "computerUse", currentRunId: "child-run-1", outputPath: "/tmp/r.jsonl" },
     "completed",
     "Status: done\nStill $49."
@@ -192,7 +192,7 @@ test("a background result from a group room keeps its room note in the batch", a
       channel: { findUnique: async () => ({ kind: "group", name: "Launch" }) },
       bot: { findUnique: async () => ({ id: "parent", status: "active" }) },
     } as never,
-    { id: "s", parentBotId: "parent", parentRunId: "r", parentChannelId: "room", description: "Draft", prompt: "Draft the launch post", subagentType: "executor", currentRunId: "c", outputPath: "/tmp/x" },
+    { id: "s", parentBotId: "parent", parentRunId: "33333333-3333-4333-8333-333333333333", parentChannelId: "room", description: "Draft", prompt: "Draft the launch post", subagentType: "executor", currentRunId: "c", outputPath: "/tmp/x" },
     "failed",
     "Timed out."
   );

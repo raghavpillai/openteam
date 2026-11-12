@@ -58,7 +58,7 @@ test("folder identifiers reject traversal, separators, and null bytes", () => {
   expect(safeFolderId("valid-slug_123")).toBe("valid-slug_123");
 });
 
-test("automation parsing applies schedule fallback and validates incompatible groups", async () => {
+test("automation parsing accepts legacy schedules and rejects malformed explicit triggers", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-auto-adversarial-"));
   const automationPath = join(root, "automation.json");
   try {
@@ -67,7 +67,6 @@ test("automation parsing applies schedule fallback and validates incompatible gr
       JSON.stringify({
         name: "Fallback",
         prompt: "Use the cron fallback.",
-        trigger: { type: "not-supported" },
         schedule: "@every 5m",
       })
     );
@@ -80,6 +79,10 @@ test("automation parsing applies schedule fallback and validates incompatible gr
     expect(fallback.schedule?.intervalSeconds).toBe(300);
     expect(fallback.enabled).toBe(true);
     expect(fallback.provenance).toBe("untrusted");
+    await expect(parseAutomationFile(automationPath, JSON.stringify({
+      name: "Invalid explicit trigger", prompt: "Do not discard listeners.",
+      schedule: "@every 5m", trigger: { type: "not-supported" },
+    }), "UTC")).rejects.toThrow("unsupported automation trigger type");
 
     await atomicWrite(
       automationPath,

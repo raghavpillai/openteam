@@ -1,0 +1,689 @@
+{
+  "testedCommit": "c0bf70b3c3f9a21953e96575bed560cca801f027",
+  "interpretation": "Rows are scenarios, not independent bugs. Reproduction validates observed behavior; the decision evaluates usefulness and scope.",
+  "totals": {
+    "Include in #275": 29,
+    "Control": 10,
+    "Policy decision": 4,
+    "Repair constraint": 1,
+    "Separate fix": 27,
+    "Defer": 4
+  },
+  "rows": [
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 1,
+      "scenario": "daily schedules",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 2,
+      "scenario": "weekly plus daily",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 3,
+      "scenario": "pinned schedules in different zones",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 4,
+      "scenario": "long interval before short interval",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 5,
+      "scenario": "calendar before interval",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 6,
+      "scenario": "phased intervals",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 7,
+      "scenario": "eight schedules",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1",
+      "reason": "Same first-time-listener calculation defect; this is a scope variant, not an independent bug."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 8,
+      "scenario": "non-time listener preceding the only time listener still schedules correctly",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "The first time listener is found even when an event listener precedes it; event-only groups correctly have no next run."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 9,
+      "scenario": "one cron expression with multiple hours is unaffected",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Multiple hours inside one cron work; disabled routines correctly remain unscheduled."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 10,
+      "scenario": "later invalid and too-frequent schedules pass file validation but fail API validation",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "Validate every listener through the same normalization used by the API, including the minimum interval."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 11,
+      "scenario": "API-created bot routine starts correct, then unchanged file sync corrupts nextRunAt",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C1/C2",
+      "reason": "Confirms normal API-created routines are affected by unchanged file sync; same two core defects."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 12,
+      "scenario": "pause stays paused; resume of a single schedule is rewound to the paused period",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Sync overwrites a valid runtime scheduling decision with historical file state. Preserve durable cadence and occurrence state."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 13,
+      "scenario": "editing a single schedule is rewound to before the edit",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Sync overwrites a valid runtime scheduling decision with historical file state. Preserve durable cadence and occurrence state."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 14,
+      "scenario": "downtime catch-up is undone for single cron; historical occurrences run again on later passes",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Sync overwrites a valid runtime scheduling decision with historical file state. Preserve durable cadence and occurrence state."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 15,
+      "scenario": "downtime catch-up is undone for single interval; historical occurrences run again on later passes",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Sync overwrites a valid runtime scheduling decision with historical file state. Preserve durable cadence and occurrence state."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 16,
+      "scenario": "manual run shifts a single relative interval only after file sync",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "The pre-/post-sync discrepancy is real. Recommend manual runs leave scheduled cadence unchanged; document that policy."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 17,
+      "scenario": "event delivery shifts a mixed routine's relative interval only after file sync",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Same discrepancy for event runs. Keep event history separate from the scheduled-cadence anchor."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 18,
+      "scenario": "timezone updates of a single unpinned cron are rewound by file sync",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Sync overwrites a valid runtime scheduling decision with historical file state. Preserve durable cadence and occurrence state."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 19,
+      "scenario": "invalid later file schedule aborts dispatch before a healthy unrelated routine",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "Invalid later schedules also break failure recording. Quarantine the definition and keep unrelated routines dispatching."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 20,
+      "scenario": "group-owned multi-cron routine survives bot file sync and dispatches the second listener",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Group-owned calendar routines bypass bot file reconciliation; this bounds the original defect."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 21,
+      "scenario": "separate grouped-schedule validation gap: two valid listeners can fire less than five minutes apart",
+      "reproduction": "Observed on rerun",
+      "decision": "Policy decision",
+      "workstream": "S1",
+      "reason": "The combined schedule violates the documented five-minute floor. Recommend rejecting too-close combinations while coalescing exact coincidences."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 22,
+      "scenario": "a helper-only file-sync fix must pass the installation zone explicitly",
+      "reproduction": "Observed on rerun",
+      "decision": "Repair constraint",
+      "workstream": "C1",
+      "reason": "Pass the installation zone explicitly to the shared helper; its fallback can represent a pinned first listener. This is not another production failure."
+    },
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "case": 23,
+      "scenario": "separate helper limitation: relative grouped intervals lose the longer interval's cadence, including group owners",
+      "reproduction": "Observed on rerun",
+      "decision": "Policy decision",
+      "workstream": "S1",
+      "reason": "Independent relative schedules need stable listener-specific anchors. Recommend independent cadence; do not pretend a helper substitution supplies it."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 1,
+      "scenario": "a syntax error soft-deletes an existing routine even though its definition file still exists",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "Soft deletion is reversible, not data deletion. Keep invalid definitions visible and disabled with an error; do not silently run obsolete instructions."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 2,
+      "scenario": "an unreadable automation file blocks the entire sync-then-dispatch pass repeatedly",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "The structural file fault escapes the per-routine catch and aborts sync before dispatch. Isolate reads and advance recovery past bad folders."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 3,
+      "scenario": "an unreadable runs.json soft-deletes a routine whose automation.json is valid",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2/C3",
+      "reason": "History projection failure must not invalidate an otherwise valid authored definition. Recover or flag the ledger independently."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 4,
+      "scenario": "legacy schedule fallback silently strips all other listeners after a malformed group edit",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "Apply legacy fallback only when no explicit trigger exists; never replace an explicitly invalid group with its first cron."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 5,
+      "scenario": "crash after dispatch commit but before file projection creates a permanent duplicate-key dispatch trap",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Stale projection rewinds a committed occurrence and repeatedly collides with its unique execution key. Same runtime-authority family."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 6,
+      "scenario": "ordinary concurrent reconciliation and dispatch can erase a committed run and poison future dispatch without any crash",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Real interleaving erases committed runtime state without any injected data corruption. Same authority/coordination defect."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 7,
+      "scenario": "create rollback leaves an active ghost routine; retrying the same call ID creates a duplicate",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "D1",
+      "reason": "Rollback plus file import loses request identity, and retry creates two active jobs. Add durable operation/projection recovery."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 8,
+      "scenario": "delete rollback removes the file; later sync deletes the routine despite the DB rollback",
+      "reproduction": "Observed on rerun",
+      "decision": "Defer",
+      "workstream": "D1",
+      "reason": "The eventual delete still matches the requested operation. This establishes acknowledgement inconsistency, not a separate wrong-intent deletion bug."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 9,
+      "scenario": "control: overlapping executions record one skip and preserve its lastRunAt through sync",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Ordinary overlapping execution handling records one skip as intended."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 10,
+      "scenario": "50 backlogged routines monopolize every dispatch page and create overlap skips while a healthy bot starves",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Starvation is driven by repeated historical rewinds. Fix that cause, then retest fairness before claiming another independent bug."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 11,
+      "scenario": "file import bypasses the 50-routines-per-owner API limit",
+      "reproduction": "Observed on rerun",
+      "decision": "Policy decision",
+      "workstream": "V1",
+      "reason": "API and file limits differ. Decide whether trusted file imports share the cap; preserve existing configurations through migration."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 12,
+      "scenario": "control: eight concurrent schedulers dispatch one occurrence exactly once",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "The existing locks dispatch a single occurrence once across eight concurrent callers."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 13,
+      "scenario": "100 live executions starve recovery of a completed execution on another routine",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X4",
+      "reason": "The unpaged 100-row recovery scan repeatedly selects live entries and overlooks terminal work. Rotate or paginate the scan."
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "case": 14,
+      "scenario": "year-old five-minute interval exceeds dispatch transaction timeout instead of catching up in constant time",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "S2",
+      "reason": "Catch-up is linear in missed ticks; an independent capture confirmed Prisma P2028 here. Use arithmetic advancement; the timeout threshold is machine-dependent."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 1,
+      "scenario": "one unavailable event listener blocks delivery to a healthy bot on every retry",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X4",
+      "reason": "Per-listener error isolation is useful, but this fixture manually archives an active bot's DM. Normal retirement also disables its routines."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 2,
+      "scenario": "a group dispatch handoff failure leaves a queued round stuck until startup-style round recovery",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X5",
+      "reason": "After a post-commit advance error, periodic recovery leaves the queued room round untouched. Retry the handoff during recovery."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 3,
+      "scenario": "a late shell callback resumes an explicitly stopped and cancelled automation",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X1",
+      "reason": "A real late callback can pass Stop fences and queue a parent notification. Check root stop state at routing, claim and handoff."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 4,
+      "scenario": "a callback queued before WakeParent remains claimable after the automation handed off",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X1",
+      "reason": "Merge with terminal-context fencing. It proves unnecessary continuation; most dynamic tools already reject an ended handoff."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 5,
+      "scenario": "a callback with an unknown automation run ID is routed into the user-facing foreground",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "V1",
+      "reason": "A fabricated ID in trusted callback input falls into the foreground route. Validate it; this is not evidence of external unauthorized access."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 6,
+      "scenario": "a failed batched continuation is marked successful because a folded newer run was marked completed",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X2",
+      "reason": "A completed folded receipt masks the failed processing turn. Derive outcome from the actual executing continuation and batch relationships."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 7,
+      "scenario": "an invalid Teams regex is accepted as enabled and silently never matches",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "V1",
+      "reason": "Reject invalid patterns on save with a useful error. This is event validation, not the first-listener scheduling root."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 8,
+      "scenario": "one failed follow-up launch rolls back root settlement and blocks recovery for another bot",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X4",
+      "reason": "Cross-bot abort is the defect. Rolling back settlement with a failed follow-up is reasonable; isolate and retry each recovery item."
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "case": 9,
+      "scenario": "file imports bypass the API refusal of unscoped high-volume GitHub listeners",
+      "reproduction": "Observed on rerun",
+      "decision": "Policy decision",
+      "workstream": "V1",
+      "reason": "Share this policy across imports if required. File/API guardrail inconsistency is confirmed; an authorization bypass was not established."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 1,
+      "scenario": "interval-first grouped schedules retain an invalid due time after a timezone change",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C4",
+      "reason": "Time-zone recalculation is gated by the first-derived schedule kind. Recompute from all relevant listeners."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 2,
+      "scenario": "first timezone detection pins later floating schedules to the first pinned listener's zone",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C4",
+      "reason": "A pinned first listener's zone is not the original installation zone for later floating listeners. Preserve each listener's semantics."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 3,
+      "scenario": "first timezone detection misses floating cron listeners when an interval is first",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C4",
+      "reason": "Same first-derived metadata defect: migration misses floating calendar listeners behind an interval."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 4,
+      "scenario": "a long valid cron accepted by the schedule API is truncated and soft-deleted by file sync",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C3",
+      "reason": "A valid accepted expression is truncated on import. Preserve it or reject consistently at input; never truncate executable configuration."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 5,
+      "scenario": "desktop prompt-only edit: Sunday represented as 7 becomes Saturday",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 6,
+      "scenario": "desktop prompt-only edit: a monthly-plus-weekly rule loses its weekday",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 7,
+      "scenario": "desktop prompt-only edit: an advanced rule loses its month-day constraint",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 8,
+      "scenario": "desktop edit makes a valid hourly */60 cron unsavable by clamping its step to 59",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 9,
+      "scenario": "desktop prompt-only edit replaces an explicitly pinned schedule's timezone with the device zone",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 10,
+      "scenario": "desktop-generated triggers ignore a settings timezone override and stay pinned across later changes",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U2",
+      "reason": "Creation explicitly pins to the device zone, bypassing the configured override and later zone following. Use the user's resolved setting."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 11,
+      "scenario": "stale desktop presentation hides a file schedule edit and restores the old time on the next prompt edit",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Invalidate or verify presentation when the authored trigger changes; stale UI metadata must not restore old scheduling instructions."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 12,
+      "scenario": "desktop prompt-only edit of a mixed event/time routine silently removes its event listener",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U1",
+      "reason": "Preserve the exact original trigger on unrelated edits instead of reconstructing a narrower schedule."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 13,
+      "scenario": "advanced every-N-days weekday restrictions still generate weekend runs",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U3",
+      "reason": "The day-step branch interacts with cron DOM/DOW OR semantics. Preserve selected restrictions or reject unsupported combinations."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 14,
+      "scenario": "two valid desktop cards can expand beyond the server's eight-listener limit",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U3",
+      "reason": "Validate expanded listeners, not just editor card count, and explain the limit before save."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 15,
+      "scenario": "group routine overlap protection ends while its background shell is still running",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X5",
+      "reason": "The persisted running-shell fixture shows missing overlap accounting. Add real shell lifecycle coverage before finalizing the fix."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 16,
+      "scenario": "control: bot routines retain overlap protection while a background shell is running",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Bot execution settlement correctly waits for its persisted pending background shell."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 17,
+      "scenario": "worker settlement rewrites event-run history as scheduled-run history",
+      "reproduction": "Observed on rerun",
+      "decision": "Defer",
+      "workstream": "H1",
+      "reason": "File history mislabels event executions as scheduled executions; runtime firing is unaffected. Low-cost accuracy follow-up."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 18,
+      "scenario": "sweep: desktop round trips introduce no failure classes beyond the minimized cases",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "The Cartesian editor sweep found variants of already-minimized failures, not additional root causes."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 19,
+      "scenario": "sweep: independent calendar and phased-interval invariants, seed 275",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Independent calendar/group/phased-interval oracle passed within its eight-day comparison horizon."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "case": 20,
+      "scenario": "sweep: independent calendar and phased-interval invariants, seed 276",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "A second seed/date pass likewise found no additional timing mismatch in that corpus."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 1,
+      "scenario": "coalescing a new event changes a queued bot run's prompt without changing its recorded revision",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "X3",
+      "reason": "The queued inbox executes a different prompt from its recorded immutable revision. Freeze it or explicitly transition the execution revision."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 2,
+      "scenario": "control: coalescing a group event preserves the queued execution's original instruction",
+      "reproduction": "Observed on rerun",
+      "decision": "Control",
+      "workstream": "none",
+      "reason": "Group coalescing preserves the pending execution's saved prompt, supporting the intended snapshot invariant."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 3,
+      "scenario": "a prompt-only update resets a group interval's due time without any file reconciliation",
+      "reproduction": "Observed on rerun",
+      "decision": "Include in #275",
+      "workstream": "C2",
+      "reason": "Even without files, metadata-only updates re-anchor relative intervals. Preserve next-run state when scheduling state did not change."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 4,
+      "scenario": "an uncertain create retried with edited input silently returns the original routine",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "R1",
+      "reason": "Returning the original receipt for the same key is normal. Fix changed-payload conflict/recovery in the form/API; blind key rotation risks duplicates."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 5,
+      "scenario": "a UUID-shaped folder can make a different routine resolve when addressed by UUID",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "I1",
+      "reason": "Resolve an existing UUID before slug fallback. The observed wrong winner depends on SQL plan/order; unguarded agent mutations are affected."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "case": 6,
+      "scenario": "a run fired by a later schedule is described to the model as firing on the first schedule",
+      "reproduction": "Observed on rerun",
+      "decision": "Defer",
+      "workstream": "H1",
+      "reason": "The correct later-listener dispatch is isolated before sync overwrites it. Fix its misleading description alongside multi-schedule support; it is not another missed-run proof."
+    },
+    {
+      "suite": "repro-issue-275-advanced-cadence.ts",
+      "case": 1,
+      "scenario": "Advanced Every 45 minutes alternates 45- and 15-minute gaps",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U3",
+      "reason": "Cron */45 is correct cron but does not implement an elapsed 45-minute promise. Change the editor representation or supported choices."
+    },
+    {
+      "suite": "repro-issue-275-advanced-cadence.ts",
+      "case": 2,
+      "scenario": "Advanced Every N days discards selected month days",
+      "reproduction": "Observed on rerun",
+      "decision": "Separate fix",
+      "workstream": "U3",
+      "reason": "Same day-step restriction-loss family as the weekday case. Do not count this as another independent bug."
+    },
+    {
+      "suite": "repro-issue-275-advanced-cadence.ts",
+      "case": 3,
+      "scenario": "Advanced summaries omit selected months",
+      "reproduction": "Observed on rerun",
+      "decision": "Defer",
+      "workstream": "H1",
+      "reason": "The actual month-restricted timing is correct; the summary is misleading. Fix as a small UI accuracy task."
+    }
+  ]
+}

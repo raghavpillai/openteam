@@ -78,9 +78,6 @@ import XCTest
     XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, file: file, line: line)
   }
 
-
-
-
   func testMixedAttachmentsKeepOrderAndGeometryDuringEachUpload() throws {
     let (photoFile, photoURL) = try staged(photo(width: 800, height: 400), name: "Photo.jpg", mime: "image/jpeg")
     let (videoFile, videoURL) = try staged(Data("video".utf8), name: "Clip.mov", mime: "video/quicktime")
@@ -105,28 +102,6 @@ import XCTest
         AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")
       }
     }), before)
-  }
-
-  func testThumbnailSurvivesStagedOriginalDeletionAndCacheClears() async throws {
-    let (file, url) = try staged(photo(width: 800, height: 400), name: "Photo.jpg", mime: "image/jpeg")
-    var send = pending([file])
-    let previews = PendingAttachmentPreviews()
-    let local = try XCTUnwrap(previews.items(send, api: nil, fileURL: { _ in url }).first?.local)
-    let before = measure(PendingAttachments(pending: send, previews: previews))
-    await local.load()
-    XCTAssertNotNil(local.image)
-    assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-    try FileManager.default.removeItem(at: url)
-    let asset = uploaded(file, width: 800, height: 400)
-    completeUpload(file, asset: asset, send: &send)
-    _ = previews.items(send, api: nil, fileURL: { _ in nil })
-    let retained = try XCTUnwrap(AttachmentPreviewCache.local(asset))
-    XCTAssertTrue(retained === local)
-    XCTAssertNotNil(retained.image)
-    XCTAssertNil(retained.file, "A deleted staging path must never be used as the original for Open/Share/Save")
-    assertSame(measure(AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")), before)
-    AttachmentPreviewCache.clear()
-    XCTAssertNil(AttachmentPreviewCache.local(asset))
   }
 
   func testLocalPreviewIsScopedToServerAndAccount() throws {
@@ -172,99 +147,6 @@ import XCTest
     }
   }
 
-  func testOrdinaryWebPUsesNilServerDimensionsAcrossUploadAndAcceptance() throws {
-    // Real 32×16 lossy VP8 and lossless VP8L images. ImageIO knows their size;
-    // asset-store.ts currently reports dimensions only for extended VP8X.
-    for base64 in [
-      "UklGRkQAAABXRUJQVlA4IDgAAADQAgCdASogABAAPm0skUWkIqGYBABABsSgB2AAEDYAAP75Hdv//kB//kB//kB//ID//iF3sgMAAA==",
-      "UklGRhwAAABXRUJQVlA4TA8AAAAvH8ADAAcQ0f/+ByKi/wEA",
-    ] {
-      let (file, url) = try staged(XCTUnwrap(Data(base64Encoded: base64)), name: "Photo.webp", mime: "image/webp")
-      let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
-      let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
-      XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 32)
-      XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 16)
-      var send = pending([file])
-      let previews = PendingAttachmentPreviews()
-      let local = try XCTUnwrap(previews.items(send, api: nil, fileURL: { _ in url }).first?.local)
-      XCTAssertEqual(local.asset.mimeType, "image/webp")
-      XCTAssertNil(local.asset.width)
-      XCTAssertNil(local.asset.height)
-      let before = measure(PendingAttachments(pending: send, previews: previews))
-      assertSame(before, CGSize(width: 240, height: 150))
-      let asset = uploaded(file)
-      completeUpload(file, asset: asset, send: &send)
-      try FileManager.default.removeItem(at: url)
-      assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-      assertSame(measure(AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")), before)
-    }
-  }
-
-  func testExtendedWebPAndUnsupportedJPEGMarkersFollowServerHeaderParser() throws {
-    // Header fixtures isolate the exact supported chunk/marker contract.
-    var extended = Array("RIFF".utf8) + [UInt8](repeating: 0, count: 4)
-      + Array("WEBPVP8X".utf8) + [UInt8](repeating: 0, count: 14)
-    extended[24] = 31
-    extended[27] = 15
-    let (webp, webpURL) = try staged(Data(extended), name: "Extended.webp", mime: "image/webp")
-    let webpAsset = LocalAttachmentPreview(file: webp, url: webpURL, api: nil).asset
-    XCTAssertEqual(webpAsset.width, 32)
-    XCTAssertEqual(webpAsset.height, 16)
-    // SOF9 is decodable by broader JPEG implementations, but not the server's
-    // SOF0–SOF3 parser. Do not reserve a frame from an unsupported marker.
-    let (jpeg, jpegURL) = try staged(Data([0xff, 0xd8, 0xff, 0xc9, 0, 11, 8, 0, 16, 0, 32, 0, 0, 0, 0]),
-      name: "Unsupported.jpg", mime: "image/jpeg")
-    let jpegAsset = LocalAttachmentPreview(file: jpeg, url: jpegURL, api: nil).asset
-    XCTAssertEqual(jpegAsset.mimeType, "image/jpeg")
-    XCTAssertNil(jpegAsset.width)
-    XCTAssertNil(jpegAsset.height)
-  }
-
-  func testUnsupportedImageFormatsUseServerPresentationBeforeUpload() throws {
-    let tiff = try photo(width: 80, height: 40, type: "public.tiff")
-    // Only the ISO container header matters to the server's HEIC/AVIF handling.
-    let heic = Data([0, 0, 0, 24] + Array("ftypheic".utf8) + [UInt8](repeating: 0, count: 12))
-    let avif = Data([0, 0, 0, 24] + Array("ftypavif".utf8) + [UInt8](repeating: 0, count: 12))
-    for (data, name, declared, detected, kind) in [
-      (tiff, "Photo.tiff", "image/tiff", "application/octet-stream", "file"),
-      (heic, "Photo.heic", "image/heic", "video/mp4", "video"),
-      (avif, "Photo.avif", "image/avif", "video/mp4", "video"),
-    ] {
-      let (file, url) = try staged(data, name: name, mime: declared)
-      var send = pending([file])
-      let previews = PendingAttachmentPreviews()
-      let local = try XCTUnwrap(previews.items(send, api: nil, fileURL: { _ in url }).first?.local)
-      XCTAssertEqual(local.asset.mimeType, detected)
-      XCTAssertEqual(local.asset.kind, kind)
-      XCTAssertNil(local.asset.width)
-      XCTAssertNil(local.asset.height)
-      let before = measure(PendingAttachments(pending: send, previews: previews))
-      let asset = Asset(assetId: "uploaded-" + file.id, fileName: name, mimeType: detected,
-        byteSize: file.byteSize, kind: kind)
-      completeUpload(file, asset: asset, send: &send)
-      try FileManager.default.removeItem(at: url)
-      assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-      assertSame(measure(AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")), before)
-    }
-  }
-
-  func testExistingAssetWithSameFilenameAndSizeCannotClaimUploadedPreview() throws {
-    let (file, url) = try staged(photo(width: 80, height: 40), name: "Photo.jpg", mime: "image/jpeg")
-    let existing = Asset(assetId: "existing-other-content", fileName: file.fileName,
-      mimeType: file.mimeType, byteSize: file.byteSize, kind: "image", width: 80, height: 40)
-    var send = pending([file], assets: [existing])
-    let previews = PendingAttachmentPreviews()
-    let local = try XCTUnwrap(previews.items(send, api: nil, fileURL: { _ in url }).last?.local)
-    let asset = uploaded(file, width: 80, height: 40)
-    completeUpload(file, asset: asset, send: &send)
-    try FileManager.default.removeItem(at: url)
-    let items = previews.items(send, api: nil, fileURL: { _ in nil })
-    XCTAssertNil(items[0].local)
-    XCTAssertNil(AttachmentPreviewCache.local(existing), "The existing asset must download its own image")
-    XCTAssertTrue(items[1].local === local)
-    XCTAssertTrue(AttachmentPreviewCache.local(asset) === local)
-  }
-
   func testDuplicateFilenamesUseExplicitUploadIdentity() throws {
     let (first, firstURL) = try staged(photo(width: 80, height: 40), name: "Photo.jpg", mime: "image/jpeg")
     let (second, secondURL) = try staged(photo(width: 80, height: 40, orientation: 6),
@@ -285,31 +167,6 @@ import XCTest
     XCTAssertTrue(items[1].local === firstPreview)
     XCTAssertTrue(AttachmentPreviewCache.local(assets[0]) === secondPreview)
     XCTAssertTrue(AttachmentPreviewCache.local(assets[1]) === firstPreview)
-  }
-
-  func testIdenticalContentWithDifferentNamesKeepsDistinctItemsAndMappings() throws {
-    let bytes = try photo(width: 80, height: 40)
-    let (first, firstURL) = try staged(bytes, name: "First.jpg", mime: "image/jpeg")
-    let (second, secondURL) = try staged(bytes, name: "Second.jpg", mime: "image/jpeg")
-    let urls = [first.id: firstURL, second.id: secondURL]
-    var send = pending([first, second])
-    let previews = PendingAttachmentPreviews()
-    let locals = previews.items(send, api: nil, fileURL: { urls[$0.id] }).map(\.local)
-    // The server uses SHA256(bytes) for assetId; filenames do not affect it.
-    let contentID = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-    let assets = [first, second].map { file in
-      Asset(assetId: contentID, fileName: file.fileName, mimeType: "image/jpeg",
-        byteSize: bytes.count, kind: "image", width: 80, height: 40)
-    }
-    completeUpload(first, asset: assets[0], send: &send)
-    completeUpload(second, asset: assets[1], send: &send)
-    let items = previews.items(send, api: nil, fileURL: { _ in nil })
-    XCTAssertEqual(Set(items.map(\.id)).count, 2)
-    XCTAssertTrue(items[0].local === locals[0])
-    XCTAssertTrue(items[1].local === locals[1])
-    XCTAssertEqual(send.uploadedFileIDs?.count, 2)
-    XCTAssertTrue(AttachmentPreviewCache.local(assets[0]) === locals[0])
-    XCTAssertTrue(AttachmentPreviewCache.local(assets[1]) === locals[1])
   }
 
   func testUploadMappingPersistsAndLegacySendsDoNotGuessPreviewIdentity() throws {

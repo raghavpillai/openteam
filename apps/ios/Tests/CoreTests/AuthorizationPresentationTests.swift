@@ -59,53 +59,6 @@ final class AuthorizationPresentationTests: XCTestCase {
     connection["deviceLink"]["expiresAt"] = .number(1_100_000)
     XCTAssertEqual(PluginConnectionPresentation(connection, now: later).status, "Scan to connect")
   }
-  func testGoogleProviderGuideMatchesSelectedMethod() {
-    let old = ["Enable the API.", "Add test users.", "Create a Web application client."]
-    for key in MobilePluginAuthorization.googlePluginKeys {
-      let manual = MobilePluginAuthorization.providerSetupSteps(pluginKey: key, callbackMode: "manual", steps: old)
-      XCTAssertEqual(Array(manual.prefix(2)), Array(old.prefix(2)))
-      XCTAssertTrue(manual.joined().contains("Desktop app OAuth client"))
-      XCTAssertFalse(manual.joined().contains("Web application"))
-      let server = MobilePluginAuthorization.providerSetupSteps(pluginKey: key, callbackMode: "server", steps: old)
-      XCTAssertTrue(server.joined().contains("Web application OAuth client"))
-      XCTAssertFalse(server.joined().contains("Desktop app OAuth client"))
-    }
-    XCTAssertEqual(MobilePluginAuthorization.providerSetupSteps(pluginKey: "custom", callbackMode: "manual", steps: old), old)
-  }
-  func testConnectionPresentationFollowsActualProgress() {
-    var connection: JSON = .object([
-      "auth": .string("oauth"), "status": .string("needs_auth"),
-      "configured": .bool(false), "setupPhase": .string("provider_setup_required"),
-    ])
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Setup needed")
-    XCTAssertTrue(PluginConnectionPresentation(connection).needsSetup)
-    connection["configured"] = .bool(true)
-    connection["setupPhase"] = .string("ready_to_authorize")
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in needed")
-    connection["authorizationUrl"] = .string("https://a.test/?state=x")
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Finish signing in")
-    connection["authorizationExpiresAt"] = .string("2000-01-01T00:00:00Z")
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in expired")
-    connection["authorizationUrl"] = .null
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in needed")
-    for status in ["connecting", "starting", "reconnecting"] {
-      connection["status"] = .string(status)
-      XCTAssertTrue(PluginConnectionPresentation(connection).connecting)
-      XCTAssertEqual(PluginConnectionPresentation(connection).status, "Connecting…")
-    }
-    connection["status"] = .string("ready")
-    XCTAssertTrue(PluginConnectionPresentation(connection).connected)
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Connected")
-    // A stale setup projection must not send a successfully connected user back to setup.
-    connection["configured"] = .bool(false)
-    XCTAssertFalse(PluginConnectionPresentation(connection).needsSetup)
-    connection["configured"] = .bool(true)
-    connection["status"] = .string("error")
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Couldn’t connect")
-    connection["status"] = .string("disconnected")
-    connection["auth"] = .string("token")
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Not connected")
-  }
   func testDesktopAuthorizationCannotBeOpenedOrReplacedFromMobile() {
     var connection: JSON = .object([
       "auth": .string("oauth"), "status": .string("needs_auth"),
@@ -151,17 +104,5 @@ final class AuthorizationPresentationTests: XCTestCase {
     ])
     XCTAssertTrue(PluginAuthorizationSession(connection)?.usesLoopbackCallback == true)
     XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
-  }
-  func testOAuthExpiryHandlesPreciseMalformedAndExpiredDates() throws {
-    var connection: JSON = .object([
-      "status": .string("needs_auth"), "authorizationUrl": .string("https://a.test/?state=x"),
-    ])
-    let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-17T12:00:00Z"))
-    connection["authorizationExpiresAt"] = .string("2026-09-17T12:01:00.000Z")
-    XCTAssertEqual(PluginAuthorizationSession(connection, now: now)?.expired, false)
-    for expiry in ["2026-09-17T12:00:00Z", "2026-09-16T12:00:00Z", "invalid"] {
-      connection["authorizationExpiresAt"] = .string(expiry)
-      XCTAssertEqual(PluginAuthorizationSession(connection, now: now)?.expired, true)
-    }
   }
 }

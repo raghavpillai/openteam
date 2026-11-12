@@ -47,9 +47,4 @@ final class SidebarPluginTests: XCTestCase {
     try account.clear()
     XCTAssertNil(try account.load().sidebarPlugins)
   }
-
-  func testOldCachesRemainReadable() throws {
-    let old = Data(#"{"messages":{},"drafts":{},"outbox":[]}"#.utf8)
-    XCTAssertNil(try JSONDecoder().decode(SavedState.self, from: old).sidebarPlugins)
-  }
 }

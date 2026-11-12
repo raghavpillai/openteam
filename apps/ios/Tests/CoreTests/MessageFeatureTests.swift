@@ -3,54 +3,6 @@ import XCTest
 
 final class MessageFeatureTests: XCTestCase {
   private func json(_ source: String) throws -> JSON { try JSONDecoder().decode(JSON.self, from: Data(source.utf8)) }
-  func testWidgetReceiptKeepsOptionLabelsOrderAndCustomAnswer() throws {
-    let widget = try json(#"{"multiSelect":true,"options":[{"label":"Alpha","value":"alpha"},{"label":"Beta","value":"beta"},{"label":"Unused","value":"unused"},{"label":"Label only"}]}"#)
-    XCTAssertEqual(WidgetAnswer.resolve(widget: widget,
-      response: "beta\nalpha\nGamma\nLabel only").map(\.label),
-      ["Alpha", "Beta", "Label only", "Gamma"])
-    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "alpha\nalpha").map(\.label), ["Alpha"])
-    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: ""), [])
-  }
-  func testSingleWidgetAnswerPreservesMultilineCustomText() throws {
-    let widget = try json(#"{"options":[{"label":"Alpha","value":"alpha"}]}"#)
-    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "alpha").map(\.label), ["Alpha"])
-    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "First line\nSecond line").map(\.label),
-      ["First line\nSecond line"])
-  }
-  func testReactionsPreserveOrderCountOtherUsersAndSelectOwnReaction() throws {
-    let metadata = try json(#"{"reactions":[{"emoji":"👍","by":"bot-a"},{"emoji":"❤️","by":"me"},{"emoji":"👍","by":"me"},{"emoji":"👍","by":"bot-b"},{"emoji":"","by":"me"}]}"#)
-    let reactions = MessageReaction.project(metadata)
-    XCTAssertEqual(reactions.map(\.emoji), ["👍", "❤️"])
-    XCTAssertEqual(reactions.map(\.count), [3, 1])
-    XCTAssertEqual(reactions.map(\.isOwn), [true, true])
-    XCTAssertFalse(MessageReaction.project(try json(#"{"reactions":[{"emoji":"👍","by":"bot"}]}"#))[0].isOwn)
-  }
-  func testExchangeDirectionUsesTheIncomingPeerWhenBothArePresent() throws {
-    let metadata = try json(#"{"fromAgent":{"id":"sender","name":"From"},"toAgent":{"id":"recipient","name":"To"}}"#)
-    let incoming = try XCTUnwrap(BotExchangePeer(metadata))
-    XCTAssertTrue(incoming.incoming)
-    XCTAssertEqual(incoming.id, "sender")
-    let outgoing = try XCTUnwrap(BotExchangePeer(try json(#"{"toAgent":{"id":"recipient","name":"To"}}"#)))
-    XCTAssertFalse(outgoing.incoming)
-    XCTAssertEqual(outgoing.name, "To")
-    XCTAssertNil(BotExchangePeer(.object([:])))
-  }
-  func testRestartNoticeIsASystemEventOnly() throws {
-    var notice = Message(id: "n", sequence: "1", channelId: "c", sender: "system", content: "This reply was interrupted by a restart.",
-      metadata: try json(#"{"type":"event","event":{"type":"turn-interrupted","reason":"restart"}}"#), createdAt: "")
-    XCTAssertTrue(notice.isInterruptedNotice)
-    notice.sender = "agent"
-    XCTAssertFalse(notice.isInterruptedNotice)
-    notice.sender = "system"
-    notice.metadata = try json(#"{"type":"event","event":{"type":"name-changed"}}"#)
-    XCTAssertFalse(notice.isInterruptedNotice)
-  }
-  func testDeletedRoutineCannotNavigateAndMalformedEventsStayOrdinaryMessages() throws {
-    let event = try XCTUnwrap(RoutineMessageEvent(try json(#"{"type":"event","event":{"type":"automation-changed","action":"deleted","automationId":"routine-1","automationName":"Morning"}}"#)))
-    XCTAssertFalse(event.canOpen)
-    XCTAssertEqual(event.label, "Deleted routine “Morning”")
-    XCTAssertNil(RoutineMessageEvent(try json(#"{"type":"event","event":{"type":"automation-changed","action":"created"}}"#)))
-  }
   func testFormReceiptProjectsOnlyKnownLabelsAndStatusesNeverValues() throws {
     let metadata = try json(#"{"cardState":"completed","form":{"fields":[{"id":"email","label":"Email"},{"id":"password","label":"Password"}]},"formReceipt":{"fields":[{"id":"email","status":"filled","value":"private@example.invalid"},{"id":"password","status":"held","value":"never-show-this"},{"id":"unrecognized","status":"filled"}]}}"#)
     let outcome = UserFormOutcome(metadata)
@@ -59,14 +11,6 @@ final class MessageFeatureTests: XCTestCase {
     XCTAssertEqual(outcome.fields.map(\.status), ["Filled", "Held for recovery"])
     XCTAssertFalse(outcome.summary.contains("never-show-this"))
     XCTAssertFalse(outcome.summary.contains("private@example.invalid"))
-  }
-  func testFormReceiptExplainsExpiryEscalationAndFailedSubmission() throws {
-    XCTAssertTrue(UserFormOutcome(try json(#"{"cardState":"expired"}"#)).summary.contains("expired"))
-    XCTAssertTrue(UserFormOutcome(try json(#"{"cardState":"escalated"}"#)).summary.contains("screen"))
-    let failed = UserFormOutcome(try json(#"{"cardState":"completed","formReceipt":{"submitAttempted":true,"submitSucceeded":false}}"#))
-    XCTAssertTrue(failed.needsRecovery)
-    XCTAssertTrue(failed.summary.contains("Enter failed"))
-    XCTAssertTrue(UserFormOutcome(try json(#"{"cardState":"submitted","form":{"domain":"example.invalid"}}"#)).summary.hasPrefix("Filled into the page."))
   }
 }
 

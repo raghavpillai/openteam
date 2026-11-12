@@ -56,5 +56,4 @@ final class MobileReleaseTests: XCTestCase {
       XCTAssertThrowsError(try MobileReleaseFeed.decode(Data(invalid.utf8)))
     }
   }
-
 }

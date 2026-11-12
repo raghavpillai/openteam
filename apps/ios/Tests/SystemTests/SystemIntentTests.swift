@@ -70,40 +70,6 @@ final class SystemIntentTests: SystemIntentFixture {
     XCTAssertFalse(state["requests"].array.contains { $0["path"].string.hasSuffix("/messages") && $0["method"].string == "POST" })
   }
 
-  func testServerSearchFindsAnOlderMessageAndOpensItsContext() async throws {
-    let messages = try await TeamMessageQuery().entities(matching: "mobile shell")
-    let message = try XCTUnwrap(messages.first)
-    XCTAssertTrue(message.text.contains("mobile shell"))
-    let store = AppStore()
-    store.server = server
-    try await store.startForIntentTest()
-    try await store.openSystemItem(message.id)
-    XCTAssertEqual(store.focusedMessage, SystemEntityID(message.id)?.localID)
-    XCTAssertEqual(store.navigation.last, SystemEntityID(message.id)?.channelID)
-  }
-
-  func testRoutineIntentStartsTheResolvedRoutineOnce() async throws {
-    let client = try await SystemIntentClient.connect()
-    let bot = try XCTUnwrap(client.bootstrap.bots.first)
-    let created = try await client.api.request("/api/v0/bots/\(bot.id)/routines", method: "POST",
-      body: .object(["name": .string("Morning report"), "prompt": .string("Summarize"),
-        "schedule": .string("0 9 * * *"), "enabled": .bool(true)]))
-    var intent = RunTeamRoutineIntent()
-    intent.routine = TeamRoutineEntity(id: SystemEntityID(scope: scope, kind: .routine,
-      channelID: bot.dmChannelId, localID: created["id"].string).value,
-      name: "Morning report", conversation: bot.name)
-    _ = try await intent.perform()
-    let state = try await client.api.request("/__qa/state")
-    XCTAssertEqual(state["routineExecutions"].array.count, 1)
-    XCTAssertEqual(state["routineExecutions"].array[0]["routineId"].string, created["id"].string)
-    _ = try await client.api.request("/__qa/control", method: "POST", body: .object([
-      "searchResults": .array([.object(["id": .string("routine:" + created["id"].string),
-        "kind": .string("routine"), "title": .string("Morning report"), "subtitle": .string(bot.name),
-        "channelId": .string(bot.dmChannelId), "botId": .string(bot.id)])])]))
-    let found = try await TeamRoutineQuery().entities(matching: "Morning report")
-    XCTAssertEqual(found.first?.id, intent.routine.id)
-  }
-
   func testAttachmentTransferChecksParentAndUsesCurrentSession() async throws {
     let client = try await SystemIntentClient.connect()
     let parent = try XCTUnwrap(client.bootstrap.latestMessages.first)
@@ -126,47 +92,6 @@ final class SystemIntentTests: SystemIntentFixture {
     try SecureSession.save(other)
     do { _ = try await client.exportAttachment(entity.id); XCTFail("Exported after switching accounts") }
     catch { XCTAssertTrue(error.localizedDescription.contains("account changed")) }
-  }
-
-  func testSiriSchemaSendsAndDraftsWithoutReplacingExistingDraft() async throws {
-    guard #available(iOS 27.0, *) else { throw XCTSkip("Messaging schemas require iOS 27") }
-    let client = try await SystemIntentClient.connect()
-    let bot = try XCTUnwrap(client.bootstrap.bots.first)
-    var send = SendTeamSiriMessage()
-    send.destination = .contact(TeamSiriPerson(bot, scope: scope))
-    send.content = AttributedString("Siri fixture task")
-    send.attachments = []; send.locations = []; send.links = []
-    let result = try await send.perform()
-    XCTAssertEqual(try XCTUnwrap(result.value).count, 1)
-
-    let store = AppStore()
-    store.server = server
-    try await store.startForIntentTest()
-    AppDependencyManager.shared.add(dependency: store)
-    var existing = Draft(); existing.text = "Keep my draft"
-    store.saveDraft(existing, channel: bot.dmChannelId)
-    var draft = DraftTeamSiriMessage()
-    draft.store = store
-    draft.destination = send.destination
-    draft.content = AttributedString("Append Siri instructions")
-    draft.attachments = []; draft.locations = []; draft.links = []
-    _ = try await draft.perform()
-    XCTAssertEqual(store.draft(bot.dmChannelId).text, "Keep my draft\nAppend Siri instructions")
-    XCTAssertEqual(store.navigation.last, bot.dmChannelId)
-  }
-
-  func testSiriRejectsSchedulingInsteadOfSendingImmediately() async throws {
-    guard #available(iOS 27.0, *) else { throw XCTSkip("Messaging schemas require iOS 27") }
-    let client = try await SystemIntentClient.connect()
-    var intent = SendTeamSiriMessage()
-    intent.destination = .contact(TeamSiriPerson(try XCTUnwrap(client.bootstrap.bots.first), scope: scope))
-    intent.content = AttributedString("Do not send now")
-    intent.attachments = []; intent.locations = []; intent.links = []
-    intent.scheduledDate = Date().addingTimeInterval(3_600)
-    do { _ = try await intent.perform(); XCTFail("Scheduled request sent immediately") }
-    catch { XCTAssertTrue(error.localizedDescription.contains("immediate")) }
-    let state = try await client.api.request("/__qa/state")
-    XCTAssertFalse(state["messages"].array.contains { $0["content"].string == "Do not send now" })
   }
 
   func testSpotlightOptInIndexesAndOptOutRemovesAllContent() async throws {

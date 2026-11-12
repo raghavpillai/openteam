@@ -27,7 +27,6 @@ export class BrowserNetworkFixture {
   ];
   patches: unknown[] = [];
   protocols = ["working", "unavailable"];
-  staleProtocols = false;
   view() {
     const id = this.settings.sourceOrder.find(
       (id) =>
@@ -43,7 +42,7 @@ export class BrowserNetworkFixture {
       runtime: {
         routeEpoch: `${this.settings.revision}-${id}`,
         connectivity: {
-          epoch: this.staleProtocols ? "obsolete" : `${this.settings.revision}-${id}`,
+          epoch: `${this.settings.revision}-${id}`,
           sourceId: id, checkedAt: "2026-11-10T03:15:00.000Z",
           ipv4: { state: this.protocols[0] },
           ipv6: { state: this.protocols[1], ...(this.protocols[1] === "unavailable" ? { reason: "connect_failed" } : {}) },
@@ -57,16 +56,6 @@ export class BrowserNetworkFixture {
         blockedConnections: 0,
       },
     };
-  }
-  control(input: any) {
-    if (input.protocols) this.protocols = input.protocols;
-    if (typeof input.staleProtocols === "boolean") this.staleProtocols = input.staleProtocols;
-    if (input.sourceOrder) {
-      this.settings.sourceOrder = input.sourceOrder;
-      this.settings.revision++;
-    }
-    for (const update of input.devices ?? [])
-      Object.assign(this.devices.find((d) => d.machineId === update.machineId) ?? {}, update);
   }
   handle(path: string, method: string, input: any): Response | null {
     if (path === "/api/v0/server-settings/browser-network/quality" && method === "POST") {

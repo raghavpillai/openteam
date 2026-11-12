@@ -128,26 +128,19 @@ The script needs `bun`, `curl` and ripgrep (`rg`):
 bash apps/ios/scripts/verify.sh <simulator-udid> [result-dir]
 ```
 
-It starts fixtures on ports 19997, 19992, 20070, 20071, 20072, 20081, 20085, 20093
-and 20137 (reusing any already running) and writes logs and the result
-bundle to `output/swift-native-<timestamp>/` unless you pass a result directory. It
-uses ad hoc simulator signing so the discovery tests can exercise Keychain persistence
-across cold launches.
+It starts fixtures on ports 19997 and 19992 (reusing any already running) and writes
+logs and the result bundle to `output/swift-native-<timestamp>/` unless you pass a
+result directory. The default UI suites are a lean smoke set: sign-in and saved-session
+reset (`AuthFlowUITests`), send and retry (`NativeSmokeTests`) and private attachments
+(`AttachmentUITests`). It uses ad hoc simulator signing so the saved-session test can
+exercise Keychain persistence across cold launches.
 
-Suites that need their own fixture run from separate schemes in
-`OpenTeamNative.xcodeproj/xcshareddata/xcschemes`:
-
-- `RoutineSchedule` runs `RoutineScheduleUITests` (fixture on port 20032).
-- `SearchNavigation` checks search, result highlighting and history paging against a
-  fixture started with `SWIFT_PARITY_PORT=20124`.
-- `NativePush` checks notification delivery, read sync and notification taps against
-  `scripts/native-push-fixture.ts` (port 20016), which proxies a parity fixture on
-  20015 and injects real notifications into the disposable simulator named by
-  `SWIFT_PUSH_QA_SIMULATOR`.
-
-Some suites read their fixture address from an environment variable. Pass it to
-`xcodebuild` with a `TEST_RUNNER_` prefix, for example
-`TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` (default 19992).
+The `NativePush` scheme checks notification taps and read sync against
+`scripts/native-push-fixture.ts` (port 20016), which proxies a parity fixture on
+20015 and injects real notifications into the disposable simulator named by
+`SWIFT_PUSH_QA_SIMULATOR`. `NativeSmokeTests` and `NativePushUITests` read their
+fixture address from `NATIVE_SMOKE_SERVER` and `NATIVE_PUSH_SERVER`; pass them to
+`xcodebuild` with a `TEST_RUNNER_` prefix.
 
 The `SystemIntents` scheme runs hosted tests of the real intents, Keychain and
 Spotlight with synthetic data. Start the fixture and the upload proxy (port 20086,
@@ -165,13 +158,11 @@ xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test
 ```
 
-`SystemIntegrationUITests` (part of the `OpenTeamNative` scheme, fixture on port
-20085) checks the **Siri and Spotlight** switch through the signed-in UI. Use
-isolated simulators for these suites: they save synthetic sessions in Keychain and
-clear the app's Spotlight index. Manual Shortcuts UI checks need a simulator build
+Use isolated simulators for these suites: they save synthetic sessions in Keychain
+and clear the app's Spotlight index. Manual Shortcuts UI checks need a simulator build
 signed with a team; with ad hoc signing, `linkd` may not find the App Shortcuts
 provider. On the iOS 27.1 Duo simulator the app can stay in the foreground after
-Home, so the voice background check skips there.
+Home, so the push suite's background checks skip there.
 
 Simulators don't show the share sheet's per-Bot suggestions until you run
 `bash apps/ios/scripts/enable-share-suggestions.sh <simulator-udid>` after each boot

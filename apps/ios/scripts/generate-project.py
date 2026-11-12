@@ -138,7 +138,7 @@ app_ref = reference(app_target, 'OpenTeamNative.app'); test_ref = reference(test
 (schemes / 'OpenTeamNative.xcscheme').write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2660" version="1.7">
 <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{app_ref}</BuildActionEntry></BuildActionEntries></BuildAction>
-<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}<SkippedTests><Test Identifier="NativePushUITests"/><Test Identifier="RoutineScheduleUITests"/><Test Identifier="SearchNavigationUITests"/></SkippedTests></TestableReference></Testables></TestAction>
+<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}<SkippedTests><Test Identifier="NativePushUITests"/></SkippedTests></TestableReference></Testables></TestAction>
 <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0">{app_ref}</BuildableProductRunnable></LaunchAction>
 <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{app_ref}</BuildableProductRunnable></ProfileAction>
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
@@ -152,7 +152,6 @@ system_scheme = system_scheme.replace('shouldUseLaunchSchemeArgsEnv="YES"', 'sho
 system_scheme = system_scheme.replace('</Testables></TestAction>', '</Testables><EnvironmentVariables><EnvironmentVariable key="OPENTEAM_SYSTEM_TEST_HOST" value="1" isEnabled="YES"/></EnvironmentVariables></TestAction>')
 (schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
-visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="NativePushUITests"/><Test Identifier="RoutineScheduleUITests"/><Test Identifier="SearchNavigationUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
-# Suites that need their own fixture port (or a disposable push simulator) run separately.
-for name in ['NativePush', 'RoutineSchedule', 'SearchNavigation']:
-    (schemes / f'{name}.xcscheme').write_text(visual_scheme.replace('SelectedUITests', f'{name}UITests'))
+visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
+# The push suite needs a disposable simulator and its own fixture, so it runs separately.
+(schemes / 'NativePush.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'NativePushUITests'))

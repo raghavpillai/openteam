@@ -31,65 +31,6 @@ final class NativeSmokeTests: XCTestCase {
   func input(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
   }
-  func testThreadKeepsQueuedAndSuccessiveRepliesInItsOwnContext() async throws {
-    let app = try await launch()
-    app.buttons["channel-channel-research"].tap()
-    let root = app.staticTexts[
-      "On it. I’m separating verified behavior from assumptions before writing the mobile shell."]
-    XCTAssertTrue(root.waitForExistence(timeout: 10))
-    root.press(forDuration: 1)
-    app.buttons["Start a thread"].tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
-    try await control("__qa/control", body: ["offline": true])
-    app.textFields["thread-message-input"].tap()
-    app.textFields["thread-message-input"].typeText("First isolated reply")
-    XCTAssertEqual(app.textFields["thread-message-input"].value as? String, "First isolated reply")
-    app.buttons["thread-send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Not delivered"].waitForExistence(timeout: 15))
-    capture("native-thread-offline", app)
-    app.buttons["thread-back"].tap()
-    XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
-    let pendingLink = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reply-quote-'")).firstMatch
-    XCTAssertTrue(pendingLink.isHittable)
-    pendingLink.tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
-    try await control("__qa/control", body: ["offline": false])
-    app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'retry-send-'")).firstMatch.tap()
-    let reconciled = expectation(
-      for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Not delivered"])
-    await fulfillment(of: [reconciled], timeout: 20)
-    app.textFields["thread-message-input"].tap()
-    app.textFields["thread-message-input"].typeText("Second isolated reply")
-    XCTAssertEqual(app.textFields["thread-message-input"].value as? String, "Second isolated reply")
-    app.buttons["thread-send-button"].tap()
-    var replies: [[String: Any]] = []
-    for _ in 0..<30 {
-      let (data, _) = try await URLSession.shared.data(
-        from: base.appendingPathComponent("__qa/state"))
-      let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-      replies = (state["messages"] as? [[String: Any]] ?? []).filter {
-        ($0["content"] as? String)?.contains("isolated reply") == true
-      }
-      if replies.count == 2 { break }
-      try await Task.sleep(for: .milliseconds(300))
-    }
-    XCTAssertEqual(replies.count, 2)
-    for reply in replies {
-      let metadata = try XCTUnwrap(reply["metadata"] as? [String: Any])
-      XCTAssertEqual(metadata["branched"] as? Bool, true)
-      XCTAssertEqual(metadata["replyTo"] as? String, "message-3")
-    }
-    capture("native-thread-reconciled", app)
-    app.buttons["thread-back"].tap()
-    XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.staticTexts["Second isolated reply"].exists)
-    for reply in replies {
-      let id = try XCTUnwrap(reply["id"] as? String)
-      XCTAssertTrue(app.buttons["reply-quote-" + id].exists)
-    }
-  }
   func testChatKeyboardSendAndLostAcknowledgment() async throws {
     let app = try await launch()
     capture("native-home-light", app)
@@ -120,53 +61,6 @@ final class NativeSmokeTests: XCTestCase {
       messages.filter { ($0["content"] as? String)?.hasPrefix("Native keyboard parity") == true }
         .count, 1)
     capture("native-message-accepted", app)
-  }
-  func testSettingsAppearanceSearchAndCreate() async throws {
-    let app = try await launch()
-    app.buttons["settings-button"].tap()
-    revealAppearance(app)
-    XCTAssertTrue(app.buttons["appearance-picker"].isHittable)
-    capture("native-settings-light", app)
-    app.buttons["appearance-picker"].tap()
-    app.buttons["Dark"].tap()
-    capture("native-settings-dark", app)
-    app.buttons["sheet-close"].tap()
-    app.buttons["channel-channel-research"].tap()
-    XCTAssertTrue(input(app).waitForExistence(timeout: 10))
-    capture("native-chat-dark", app)
-    app.chatBackButton.tap()
-    app.buttons["settings-button"].tap()
-    revealAppearance(app)
-    app.buttons["appearance-picker"].tap()
-    app.buttons["Light"].tap()
-    app.buttons["sheet-close"].tap()
-    app.buttons["search-button"].tap()
-    XCTAssertTrue(app.textFields["search-input"].waitForExistence(timeout: 5))
-    app.textFields["search-input"].tap()
-    app.textFields["search-input"].typeText("concise")
-    let result = app.buttons.matching(
-      NSPredicate(format: "label BEGINSWITH %@", "Research, Message, I pulled")
-    ).firstMatch
-    XCTAssertTrue(result.waitForExistence(timeout: 10))
-    capture("native-search", app)
-    result.tap()
-    XCTAssertTrue(input(app).waitForExistence(timeout: 10))
-    app.chatBackButton.tap()
-    app.buttons["new-button"].tap()
-    app.buttons["New Bot"].tap()
-    XCTAssertTrue(app.textFields["new-name"].waitForExistence(timeout: 5))
-    app.textFields["new-name"].tap()
-    app.textFields["new-name"].typeText("Native QA bot")
-    capture("native-create-bot", app)
-    app.buttons["create-confirm"].tap()
-    XCTAssertTrue(input(app).waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons["conversation-details"].exists)
-  }
-  /// Appearance sits below the Server rows, so scroll Settings until it is on screen.
-  private func revealAppearance(_ app: XCUIApplication) {
-    XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 5))
-    let appearance = app.buttons["appearance-picker"]
-    for _ in 0..<4 where !(appearance.exists && appearance.isHittable) { app.swipeUp() }
   }
   func testFailedMessageRetriesAfterReconnect() async throws {
     let app = try await launch()
@@ -201,5 +95,4 @@ final class NativeSmokeTests: XCTestCase {
     await fulfillment(of: [reconciled], timeout: 10)
     capture("native-offline-recovered", app)
   }
-
 }

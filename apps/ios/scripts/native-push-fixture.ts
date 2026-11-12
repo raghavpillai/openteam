@@ -8,11 +8,7 @@ let receipts: any[] = [];
 let alerts: any[] = [];
 let observations: any[] = [];
 let reads: Record<string, any> = {};
-let cursor = 1, badgeCount = 0, unavailable = false;
-let failRegistration = 0, registrationDelay = 0, failUnregister = 0;
-let readFailures = 0, readDelayMs = 0, lostReadResponses = 0, offline = false;
-let snapshotDelayMs = 0;
-let historyDelayMs = 0;
+let cursor = 1, badgeCount = 0;
 let fixtureEpoch = 0;
 let presence: any[] = [], smartEnabled = true;
 const routing = () => ({ smartEnabled, serverTime: Date.now(), iosActiveUntil: 0, macActiveUntil: 0 });
@@ -59,10 +55,7 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
   if (path === "/__push/reset") {
     fixtureEpoch++;
     presence = []; smartEnabled = true;
-    registration = null; receipts = []; alerts = []; observations = []; reads = {}; cursor++; badgeCount = 0; unavailable = false; failRegistration = 0; registrationDelay = 0; failUnregister = 0;
-    readFailures = 0; readDelayMs = 0; lostReadResponses = 0; offline = false;
-    snapshotDelayMs = 0;
-    historyDelayMs = 0;
+    registration = null; receipts = []; alerts = []; observations = []; reads = {}; cursor++; badgeCount = 0;
     await fetch(upstream + "/__qa/reset", { method: "POST", body: "{}" });
     return reply({ ok: true });
   }
@@ -75,19 +68,6 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     return reply(routing());
   }
   if (path === "/__push/observation") { observations.push(body); return reply({ok: true}); }
-  if (path === "/__push/control") {
-    unavailable = body.unavailable ?? unavailable;
-    failRegistration = body.failRegistration ?? failRegistration;
-    registrationDelay = body.registrationDelay ?? registrationDelay;
-    failUnregister = body.failUnregister ?? failUnregister;
-    readFailures = body.readFailures ?? readFailures;
-    readDelayMs = body.readDelayMs ?? readDelayMs;
-    lostReadResponses = body.lostReadResponses ?? lostReadResponses;
-    offline = body.offline ?? offline;
-    snapshotDelayMs = body.snapshotDelayMs ?? snapshotDelayMs;
-    historyDelayMs = body.historyDelayMs ?? historyDelayMs;
-    return reply({ok:true});
-  }
   if (path === "/__push/deliver") {
     alerts.push(body);
     badgeCount = unreadAlertCount();
@@ -107,47 +87,22 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     const supported = await inject({kind:"badge-sync", probe:body.probe, readState:body.readState});
     return reply({ok:true,simulatorUnsupported:!supported});
   }
-  if (offline && path.startsWith("/api/")) return reply({message:"QA network outage"},503);
   if (path === "/api/v0/notification-devices" && request.method === "POST") {
     receipts.push({method:request.method, path, ...body});
-    if (registrationDelay) await Bun.sleep(registrationDelay);
     if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
-    if (failRegistration-- > 0) return reply({message:"QA registration unavailable"},503);
     registration = body;
     return reply({installationId:body.installationId,platform:"ios",enabled:true,lastSeenAt:new Date().toISOString()});
   }
   if (path.startsWith("/api/v0/notification-devices/") && request.method === "DELETE") {
     receipts.push({method:request.method,path});
-    if (failUnregister-- > 0) return reply({message:"QA unregister unavailable"},503);
     registration = null;
     return reply({ok:true});
   }
   if (path === "/api/v0/notification-state") {
-    if (unavailable) return reply({message:"QA offline"},503);
-    const snapshot = {cursor:String(cursor),badgeCount,readStates:Object.values(reads),notificationRouting:routing()};
-    if (snapshotDelayMs) await Bun.sleep(snapshotDelayMs);
-    return reply(snapshot);
+    return reply({cursor:String(cursor),badgeCount,readStates:Object.values(reads),notificationRouting:routing()});
   }
-  const isRead = path.endsWith("/read") && request.method === "POST";
-  if (isRead) {
-    receipts.push({method:request.method,path,...body});
-    if (readFailures > 0) {
-      readFailures--;
-      return reply({message:"QA read unavailable"},503);
-    }
-    if (readDelayMs) await Bun.sleep(readDelayMs);
-    if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
-  }
+  if (path.endsWith("/read") && request.method === "POST") receipts.push({method:request.method,path,...body});
   const response = await fetch(upstream + path + url.search, {method:request.method, headers:request.headers, body: text || undefined});
-  if (path.endsWith("/history") && historyDelayMs) {
-    // Hold an already-created response, so a notification can announce a newer
-    // message while this older page remains in flight.
-    const value = await response.json();
-    receipts.push({method:request.method,path,stage:"history-captured",at:Date.now()});
-    await Bun.sleep(historyDelayMs);
-    if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
-    return reply(value, response.status);
-  }
   if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
   if (path === "/api/v0/client-bootstrap" && response.ok) {
     const value: any = await response.json();
@@ -172,10 +127,6 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     cursor++;
     badgeCount = unreadAlertCount();
     await notifyClients();
-    if (lostReadResponses > 0) {
-      lostReadResponses--;
-      return reply({message:"QA acknowledgement lost after committing read"},503);
-    }
     return reply({ ...value, ...reads[channelId] });
   }
   return response;

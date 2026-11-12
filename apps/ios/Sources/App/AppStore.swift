@@ -380,11 +380,6 @@ final class AppStore {
         }
       #endif
       testing = args.contains("--ui-testing")
-      #if targetEnvironment(simulator)
-        if testing, args.contains("--qa-interrupted-reset") {
-          UserDefaults.standard.set(true, forKey: LocalDataReset.pendingKey)
-        }
-      #endif
       if let index = args.firstIndex(of: "--server"), args.indices.contains(index + 1) {
         server = args[index + 1]
       }
@@ -403,25 +398,7 @@ final class AppStore {
           await connect(username: "", password: "")
         }
         if let index = args.firstIndex(of: "--open-channel"), args.indices.contains(index + 1) {
-          let channelID = args[index + 1]
-          if let draftIndex = args.firstIndex(of: "--visual-draft"),
-            args.indices.contains(draftIndex + 1)
-          {
-            var value = Draft()
-            value.text = args[draftIndex + 1]
-            saveDraft(value, channel: channelID)
-          }
-          // XCTest's launch transport can truncate literal newline arguments.
-          if let draftIndex = args.firstIndex(of: "--visual-draft-base64"),
-            args.indices.contains(draftIndex + 1),
-            let data = Data(base64Encoded: args[draftIndex + 1]),
-            let text = String(data: data, encoding: .utf8)
-          {
-            var value = Draft()
-            value.text = text
-            saveDraft(value, channel: channelID)
-          }
-          navigation = [channelID]
+          navigation = [args[index + 1]]
         }
         return
       }

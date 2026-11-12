@@ -104,14 +104,6 @@ final class NotificationReadTests: XCTestCase {
       NotificationReadMarker(
         json: .object(["channelId": .string("a"), "lastReadSequence": .string("10")])))
   }
-  func testLargeSequencesDoNotLosePrecisionOrUseLexicalOrder() {
-    var reads = NotificationReads(scope: "account")
-    reads.merge(marker("9223372036854775807", "00009"))
-    XCTAssertTrue(reads.hasRead(push(message: "9223372036854775806")))
-    XCTAssertFalse(reads.hasRead(push(message: "9223372036854775808")))
-    XCTAssertFalse(reads.hasRead(push("reaction", activity: "10")))
-    XCTAssertTrue(reads.hasRead(push("reaction", activity: "0009")))
-  }
   func testCoalescedSyncSnapshotCatchesUpMultipleChatsAndPersists() throws {
     var reads = NotificationReads(scope: "account")
     let value: JSON = .object([

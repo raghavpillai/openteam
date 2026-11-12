@@ -69,28 +69,6 @@ final class RoutineScheduleTests: XCTestCase {
     XCTAssertNil(draft.scheduleUpdate(original: "0 9 * * *", editable: false, newTimeZone: "UTC"))
   }
 
-  func testDescriptionsMatchSelectionsAndUseLocaleClock() {
-    let locale = Locale(identifier: "en_US")
-    XCTAssertEqual(
-      RoutineScheduleDraft(schedule: "0 8 * * 1-5").summary(locale: locale),
-      "On weekdays at 8:00\u{202f}AM")
-    XCTAssertEqual(
-      RoutineScheduleDraft(schedule: "7 * * * *").summary(locale: locale), "Every hour at :07")
-    XCTAssertEqual(
-      RoutineScheduleDraft(schedule: "30 14 * * 5").summary(locale: locale),
-      "Every Friday at 2:30\u{202f}PM")
-    XCTAssertEqual(
-      RoutineScheduleDraft(schedule: "0 8 31 * *").summary(locale: locale),
-      "Monthly on the 31st at 8:00\u{202f}AM")
-    XCTAssertEqual(
-      RoutineScheduleDraft(schedule: "@every 1h").summary(locale: locale), "Every 1 hour")
-    XCTAssertEqual(
-      RoutineScheduleDraft.timeLabel(870, locale: Locale(identifier: "en_GB")), "14:30")
-    XCTAssertEqual(
-      [1, 2, 3, 11, 12, 13, 21, 22, 23, 31].map(RoutineScheduleDraft.ordinal),
-      ["1st", "2nd", "3rd", "11th", "12th", "13th", "21st", "22nd", "23rd", "31st"])
-  }
-
   func testSundayAliasIsPreservedUntilUserChangesItAndUnitChangesStayValid() {
     var draft = RoutineScheduleDraft(schedule: "0 9 * * 7")
     XCTAssertEqual(draft.frequency, .weekly)

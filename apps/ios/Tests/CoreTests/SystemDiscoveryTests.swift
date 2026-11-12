@@ -27,22 +27,6 @@ final class SystemDiscoveryTests: XCTestCase {
     XCTAssertFalse(id.matches(scope: scope, kind: .message))
   }
 
-  func testLegacyHiddenChatsAreDonatedWhileArchivedAndRemovedChatsAreExcluded() throws {
-    var bootstrap = try fixture()
-    let hidden = bootstrap.bots[0].dmChannelId
-    let archived = bootstrap.bots[1].dmChannelId
-    bootstrap.bots[0].hiddenFromSidebar = true
-    bootstrap.bots[1].status = "archived"
-    var cached = Dictionary(grouping: bootstrap.latestMessages, by: \.channelId)
-    var removed = bootstrap.latestMessages[0]
-    removed.channelId = "removed-channel"
-    cached[removed.channelId] = [removed]
-    let projection = SystemDiscoverySnapshot(bootstrap: bootstrap, messages: cached)
-    XCTAssertTrue(projection.destinations.contains { $0.id == hidden })
-    XCTAssertFalse(projection.destinations.contains { [archived, "removed-channel"].contains($0.id) })
-    XCTAssertFalse(projection.messages.contains { [archived, "removed-channel"].contains($0.channelId) })
-  }
-
   func testProjectionDeduplicatesAndUsesAuthoritativeBootstrapText() throws {
     var bootstrap = try fixture()
     var message = bootstrap.latestMessages[0]

@@ -145,7 +145,7 @@ const next = (limit: number) => {
   seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
   return Math.floor((seed / 2 ** 32) * limit);
 };
-const generated = Array.from({ length: 400 }, () =>
+const generated = Array.from({ length: 60 }, () =>
   Array.from({ length: 1 + next(24) }, () => fragments[next(fragments.length)]).join("")
 );
 

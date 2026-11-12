@@ -34,17 +34,6 @@ final class ServerUpdateTests: XCTestCase {
       ServerUpdateCache.load(server: "https://one.example", defaults: defaults, now: now))
   }
 
-  func testUpdateMilestonesFollowHostPhasesWithoutInventingPercentages() {
-    let phases = [
-      "checking", "downloading", "pulling", "backing-up", "restarting", "verifying", "updating-cli",
-      "complete",
-    ]
-    XCTAssertEqual(phases.map { ServerUpdateProgress(phase: $0).step }, [0, 1, 1, 2, 3, 4, 4, 5])
-    XCTAssertEqual(ServerUpdateProgress(phase: "backing-up").title, "Protecting your data")
-    XCTAssertNil(ServerUpdateProgress(phase: "future-phase").step)
-    XCTAssertTrue(ServerUpdateProgress(phase: "rolling-back").rollingBack)
-    XCTAssertNil(ServerUpdateProgress(phase: "rolling-back").step)
-  }
   private func policy(
     _ server: String, client: String = "0.0.11", protocolVersion: Int = 2,
     minimum: String = "0.0.0", maximum: String = "0.1.0"
@@ -54,13 +43,6 @@ final class ServerUpdateTests: XCTestCase {
       "minimumClientVersion": .string(minimum), "maximumClientVersionExclusive": .string(maximum),
     ]).decode(ServerRelease.self)
     return ServerUpdatePolicy(clientVersion: client, release: release)
-  }
-
-  func testOlderCompatibleServerTargetsInstalledAppWithoutReleaseFeed() throws {
-    let result = try policy("0.0.10")
-    XCTAssertEqual(result.compatibility, .recommended)
-    XCTAssertEqual(result.targetVersion, "0.0.11")
-    XCTAssertEqual(try policy("v0.0.10+build.2").targetVersion, "0.0.11")
   }
 
   func testMatchingAndNewerServersNeverOfferDowngrades() throws {

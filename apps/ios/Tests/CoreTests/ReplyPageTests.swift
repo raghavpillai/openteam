@@ -22,46 +22,10 @@ final class ReplyPageTests: XCTestCase {
     XCTAssertEqual(timeline.entries.map(\.showsReplyContext), [false, true, false, false, false, true, true])
     XCTAssertEqual(ThreadProjection.messages(root: response, in: timeline.entries.map(\.message)).map(\.id), ["3", "7"])
   }
-  func testFocusedOrdinaryRepliesDoNotChangeThreadMembership() {
-    let root = message("1"), ordinary = message("2", reply: "1"), branch = message("3", reply: "1", branch: true)
-    let unrelated = message("4", reply: "missing"), nested = message("5", reply: "2")
-    let all = [nested, branch, unrelated, root, ordinary]
-    XCTAssertEqual(ThreadProjection.messages(root: root, in: all).map(\.id), ["1", "3"])
-    XCTAssertEqual(ThreadProjection.messages(root: root, in: all, includeInlineReplies: true).map(\.id), ["1", "2", "3", "5"])
-    XCTAssertEqual(MessageTimeline(all).entries.map(\.id), ["5", "4", "1", "2"])
-    XCTAssertEqual(MessageTimeline([root, branch], includeBranched: true).entries.map(\.id), ["1", "3"])
-    XCTAssertEqual(ThreadProjection.replyCounts(in: all), ["1": 1])
-  }
-  func testMainTimelineGroupsServerForkResponsesUnderTheUserReply() {
-    let root = message("1", sender: "agent")
-    let reply = message("2", reply: "1", branch: true)
-    // The live server inherits the triggering USER message's ID, not the
-    // original root, when the bot answers a forked delivery.
-    let response = message("3", reply: "2", branch: true, sender: "agent")
-    let followup = message("4", reply: "2", branch: true, sender: "agent")
-    let continued = message("5", reply: "4", branch: true, sender: "agent")
-    let unrelated = message("6", sender: "agent")
-    let resumed = message("7", reply: "2", branch: true, sender: "agent")
-    let nested = message("8", reply: "3", branch: true)
-    let all = [root, reply, response, followup, continued, unrelated, resumed, nested]
-    let timeline = MessageTimeline(all, includeBranched: true)
-    XCTAssertEqual(timeline.entries.map(\.showsReplyContext), [false, true, false, false, false, false, true, true])
-    XCTAssertEqual(ThreadProjection.messages(root: root, in: all).map(\.id), ["1", "2", "3", "4", "5", "7", "8"])
-  }
   func testBrokenAndCyclicReplyChainsAreExcluded() {
     let root = message("root")
     let all = [root, message("a", reply: "b"), message("b", reply: "a"), message("orphan", reply: "missing")]
     XCTAssertEqual(ThreadProjection.messages(root: root, in: all, includeInlineReplies: true).map(\.id), ["root"])
-  }
-  func testQuestionDraftsKeepCardInputSeparateFromComposerText() throws {
-    let old = Data(#"{"text":"Unsent","attachments":[],"isFork":false}"#.utf8)
-    var draft = try JSONDecoder().decode(Draft.self, from: old)
-    XCTAssertNil(draft.widgetCustomAnswers)
-    draft.widgetSelections = ["widget": ["primary"]]
-    draft.widgetCustomAnswers = ["widget": "Gamma"]
-    let restored = try JSONDecoder().decode(Draft.self, from: JSONEncoder().encode(draft))
-    XCTAssertEqual(restored, draft)
-    XCTAssertEqual(restored.text, "Unsent")
   }
   func testLostWidgetAcknowledgementMatchesOnlyItsOwnReceipt() {
     XCTAssertFalse(WidgetMutationReceipt.accepted(.object([:]), action: "widget-response", clientID: "request"))

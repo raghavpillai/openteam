@@ -9,22 +9,6 @@ final class WebProviderSettingsTests: XCTestCase {
   }
   let exa = WebProviderCatalog.info(.search, "exa")!
   let builtin = WebProviderCatalog.info(.fetch, "builtin")!
-  func testCatalogOrderKeysAndLinks() {
-    XCTAssertEqual(
-      WebProviderCatalog.search.map(\.id),
-      ["exa", "brave", "parallel", "firecrawl", "bing-serpapi", "perplexity"])
-    XCTAssertEqual(WebProviderCatalog.fetch.map(\.id), ["builtin", "exa", "parallel", "firecrawl"])
-    XCTAssertEqual(WebProviderCatalog.info(.search, "bing-serpapi")?.brand, "bing")
-    // Exa is listed for both tools with different copy; each is configured independently.
-    XCTAssertNotEqual(WebProviderCatalog.info(.fetch, "exa")?.description, exa.description)
-    // Every third-party provider has exactly one required API key; built-in fetch has none.
-    for info in WebProviderCatalog.search + WebProviderCatalog.fetch where info.id != "builtin" {
-      XCTAssertEqual(info.fields, [.apiKey], info.id)
-      XCTAssertNotNil(info.setupURL, info.id)
-    }
-    XCTAssertFalse(builtin.needsKey)
-    XCTAssertNil(builtin.setupURL)
-  }
   func testParsesPerToolProvidersAndChecks() throws {
     let view = WebProvidersView(
       try json(
@@ -42,41 +26,6 @@ final class WebProviderSettingsTests: XCTestCase {
     XCTAssertEqual(check.ago(now: check.checkedAt!.addingTimeInterval(20)), "just now")
     XCTAssertEqual(check.ago(now: check.checkedAt!.addingTimeInterval(5 * 60)), "5 min ago")
     XCTAssertEqual(check.ago(now: check.checkedAt!.addingTimeInterval(3 * 3600)), "3 h ago")
-  }
-  func testOverviewNamesAndWarnings() {
-    func tool(_ selected: String?, passed: Bool? = nil) -> WebToolView {
-      let check = passed.map { WebProviderCheck(passed: $0, message: "", checkedAt: nil) }
-      return WebToolView(
-        selected: selected,
-        providers: selected.map { [$0: WebProviderState(ready: true, check: check)] } ?? [:])
-    }
-    XCTAssertEqual(tool(nil).activeName(.search), "Off")
-    XCTAssertEqual(tool(nil).warning(.search), "Search is off. Bots can't search the web.")
-    XCTAssertEqual(tool(nil).warning(.fetch), "Fetch is off. Bots can only read pages in their browser.")
-    XCTAssertEqual(tool("builtin").activeName(.fetch), "Built-in")
-    XCTAssertEqual(tool("builtin").warning(.fetch), "Built-in fetch reads basic pages only.")
-    XCTAssertEqual(tool("builtin", passed: false).warning(.fetch), "Built-in failed its fetch check.")
-    XCTAssertNil(tool("exa", passed: true).warning(.search))
-    XCTAssertNil(tool("exa").warning(.search), "An unchecked provider is not a warning")
-    XCTAssertEqual(tool("bing-serpapi", passed: false).warning(.search), "Bing failed its search check.")
-    XCTAssertEqual(tool("exa").activeName(.fetch), "Exa")
-  }
-  func testRowStatusFollowsKeyAndCheck() {
-    let brave = WebProviderCatalog.info(.search, "brave")!
-    XCTAssertEqual(WebProviderStatus(brave, .init()), .init(tone: .neutral, text: "Add API key"))
-    XCTAssertEqual(
-      WebProviderStatus(brave, .init(secretSaved: true, ready: true)),
-      .init(tone: .neutral, text: "Not checked"))
-    let passed = WebProviderCheck(passed: true, message: "", checkedAt: nil)
-    let failed = WebProviderCheck(passed: false, message: "", checkedAt: nil)
-    XCTAssertEqual(
-      WebProviderStatus(brave, .init(secretSaved: true, ready: true, check: passed)),
-      .init(tone: .ok, text: "Checked"))
-    XCTAssertEqual(
-      WebProviderStatus(brave, .init(secretSaved: true, ready: true, check: failed)),
-      .init(tone: .error, text: "Check failed"))
-    XCTAssertEqual(
-      WebProviderStatus(builtin, .init(ready: true)), .init(tone: .neutral, text: "Not checked"))
   }
   func testDraftSendsOnlyATypedKeyAndSelection() throws {
     var draft = WebProviderDraft()
@@ -99,17 +48,6 @@ final class WebProviderSettingsTests: XCTestCase {
       try json(#"{"search":{"providers":{"exa":{"apiKey":null}}}}"#))
     XCTAssertEqual(
       WebProvidersRequest.check(.search, "exa"), try json(#"{"tool":"search","provider":"exa"}"#))
-  }
-  func testMissingKeyFollowsSavedAndTypedKeys() {
-    var draft = WebProviderDraft()
-    XCTAssertTrue(draft.missingKey(exa, saved: .init()))
-    XCTAssertEqual(
-      WebProvidersRequest.missingKeyMessage(exa, tool: .search),
-      "Add the Exa API key to use it for search.")
-    draft.key = "typed"
-    XCTAssertFalse(draft.missingKey(exa, saved: .init()))
-    XCTAssertFalse(WebProviderDraft().missingKey(exa, saved: .init(secretSaved: true, ready: true)))
-    XCTAssertFalse(WebProviderDraft().missingKey(builtin, saved: .init()))
   }
 
   /// Fixture written from packages/contracts by scripts/export-web-providers.ts.

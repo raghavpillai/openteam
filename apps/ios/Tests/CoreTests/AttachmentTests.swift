@@ -57,18 +57,4 @@ final class AttachmentTests: XCTestCase {
     XCTAssertEqual(recipe["plugins"].array, [])
     XCTAssertEqual(recipe["id"], .null)
   }
-
-  func testBotCacheDropsRetiredInstructionsFieldWhenReencoded() throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let bot = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url)).bots[0]
-    var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(bot)) as! [String: Any]
-    legacy["instructions"] = "Retired legacy guidance"
-    let restored = try JSONDecoder().decode(Bot.self, from: JSONSerialization.data(withJSONObject: legacy))
-    let saved = try JSONSerialization.jsonObject(with: JSONEncoder().encode(restored)) as! [String: Any]
-    XCTAssertNil(saved["instructions"])
-    XCTAssertEqual(saved["title"] as? String, bot.title)
-    XCTAssertEqual(saved["description"] as? String, bot.description)
-  }
-
 }

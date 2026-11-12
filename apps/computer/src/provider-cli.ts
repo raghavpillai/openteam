@@ -26,6 +26,7 @@ import {
   modelsEndpoint,
 } from "./chat-provider-registry";
 import { createModelRuntime } from "./model-runtime";
+import { updateModelsConfig } from "./models-config";
 import {
   authOptionLabel,
   createAuthQuestion,
@@ -204,22 +205,6 @@ const importOAuthCredential = async (providerId: string): Promise<void> => {
   console.log(`${provider.name} sign-in was imported and is ready.`);
 };
 
-const readModelsDocument = async (): Promise<Record<string, unknown>> => {
-  if (!existsSync(modelsPath)) return { providers: {} };
-  const parsed = JSON.parse(await readFile(modelsPath, "utf8"));
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Pi models.json must contain an object");
-  }
-  return parsed as Record<string, unknown>;
-};
-
-const writeModelsDocument = async (document: Record<string, unknown>): Promise<void> => {
-  await mkdir(dirname(modelsPath), { recursive: true });
-  const temporary = `${modelsPath}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, modelsPath);
-};
-
 type CustomProviderInput = {
   id: string;
   name: string;
@@ -279,60 +264,54 @@ const customProviderInput = (value: unknown): CustomProviderInput => {
 
 const addCustomProvider = async (): Promise<void> => {
   const input = customProviderInput(JSON.parse(await stdinText()));
-  const document = await readModelsDocument();
-  const configuredProviders =
-    document.providers &&
-    typeof document.providers === "object" &&
-    !Array.isArray(document.providers)
-      ? (document.providers as Record<string, unknown>)
-      : {};
   const runtime = await createRuntime();
-  if (
-    CHAT_PROVIDERS.has(input.id) ||
-    (runtime.getProvider(input.id) && !(input.id in configuredProviders))
-  ) {
-    throw new Error(`Custom providers cannot replace built-in provider ${input.id}`);
-  }
-  if (input.createOnly && input.id in configuredProviders) {
-    throw new Error(`Custom provider ${input.id} already exists`);
-  }
-  const providers = { ...configuredProviders };
-  providers[input.id] = {
-    name: input.name,
-    baseUrl: input.baseUrl,
-    api: input.api,
-    ...(input.noAuth
-      ? // The OpenAI SDK requires a nonempty placeholder even for servers with no auth.
-        { apiKey: KEYLESS_API_KEY }
-      : {}),
-    models: input.model
-      ? [
-          {
-            id: input.model,
-            name: input.model,
-            reasoning: input.reasoning,
-            contextWindow: input.contextWindow,
-            maxTokens: input.maxTokens,
-          },
-        ]
-      : [],
-  };
-  await writeModelsDocument({ ...document, providers });
+  await updateModelsConfig(modelsPath, (document) => {
+    const configuredProviders = document.providers ?? {};
+    if (
+      CHAT_PROVIDERS.has(input.id) ||
+      (runtime.getProvider(input.id) && !(input.id in configuredProviders))
+    ) {
+      throw new Error(`Custom providers cannot replace built-in provider ${input.id}`);
+    }
+    if (input.createOnly && input.id in configuredProviders) {
+      throw new Error(`Custom provider ${input.id} already exists`);
+    }
+    const providers = { ...configuredProviders };
+    providers[input.id] = {
+      name: input.name,
+      baseUrl: input.baseUrl,
+      api: input.api,
+      ...(input.noAuth
+        ? // The OpenAI SDK requires a nonempty placeholder even for servers with no auth.
+          { apiKey: KEYLESS_API_KEY }
+        : {}),
+      models: input.model
+        ? [
+            {
+              id: input.model,
+              name: input.model,
+              reasoning: input.reasoning,
+              contextWindow: input.contextWindow,
+              maxTokens: input.maxTokens,
+            },
+          ]
+        : [],
+    };
+    document.providers = providers;
+    return true;
+  });
   console.log(`Added custom provider ${input.name} (${input.id}).`);
 };
 
 const removeCustomProvider = async (providerId: string): Promise<void> => {
-  const document = await readModelsDocument();
-  const providers =
-    document.providers &&
-    typeof document.providers === "object" &&
-    !Array.isArray(document.providers)
-      ? { ...(document.providers as Record<string, unknown>) }
-      : {};
-  if (!(providerId in providers))
-    throw new Error(`Custom provider ${providerId} is not configured`);
-  delete providers[providerId];
-  await writeModelsDocument({ ...document, providers });
+  await updateModelsConfig(modelsPath, (document) => {
+    const providers = { ...document.providers };
+    if (!(providerId in providers))
+      throw new Error(`Custom provider ${providerId} is not configured`);
+    delete providers[providerId];
+    document.providers = providers;
+    return true;
+  });
   const runtime = await createRuntime();
   await runtime.logout(providerId).catch(() => undefined);
   console.log(`Removed custom provider ${providerId}.`);

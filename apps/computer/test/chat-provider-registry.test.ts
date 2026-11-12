@@ -29,6 +29,51 @@ const model = (provider: string, id: string) => ({
   contextWindow: 128000,
   maxTokens: 8192,
 });
+const inputMetadataCases: Array<
+  [string, Record<string, unknown>, Array<"text" | "image"> | undefined]
+> = [
+  ["nested vision", { modalities: { input: ["text", "image"] } }, ["text", "image"]],
+  ["nested text", { modalities: { input: ["text"] } }, ["text"]],
+  ["nested image only", { modalities: { input: ["image"] } }, ["text", "image"]],
+  ["nested empty", { modalities: { input: [] } }, ["text"]],
+  ["flat vision", { input_modalities: ["text", "image"] }, ["text", "image"]],
+  [
+    "flat takes precedence",
+    { input_modalities: ["text"], modalities: { input: ["image"] } },
+    ["text"],
+  ],
+  [
+    "invalid flat falls back",
+    { input_modalities: null, modalities: { input: ["image"] } },
+    ["text", "image"],
+  ],
+  ["extra modalities", { modalities: { input: ["audio", "image", "video"] } }, ["text", "image"]],
+  ["mixed values", { modalities: { input: [null, {}, "image"] } }, ["text", "image"]],
+  ["audio alone", { modalities: { input: ["audio"] } }, ["text"]],
+  ["missing metadata", {}, undefined],
+  ["output alone", { modalities: { output: ["image"] } }, undefined],
+  ["null metadata", { modalities: null }, undefined],
+  ["array metadata", { modalities: ["image"] }, undefined],
+  ["string input", { modalities: { input: "image" } }, undefined],
+];
+for (const previous of [undefined, ["text"], ["text", "image"]] as const) {
+  for (const [label, metadata, advertised] of inputMetadataCases) {
+    test(`input metadata: ${label}, previous=${JSON.stringify(previous)}`, async () => {
+      const f = await fixture({
+        magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
+      });
+      f.connected.clear();
+      f.connected.add("magpie");
+      if (previous)
+        f.runtime.registerProvider("magpie", {
+          models: [{ ...model("magpie", "vision-chat"), input: [...previous] }],
+        } as never);
+      f.state.body = { data: [{ id: "vision-chat", ...metadata }] };
+      const catalog = await f.registry.catalog("magpie");
+      expect(catalog.models[0]?.input).toEqual(advertised ?? (previous ? [...previous] : ["text"]));
+    });
+  }
+}
 async function fixture(custom: Record<string, unknown> = {}) {
   const directory = await mkdtemp(join(tmpdir(), "openteam-chat-registry-"));
   dirs.push(directory);
@@ -103,20 +148,24 @@ describe("provider-first chat registry", () => {
     f.connected.clear();
     f.connected.add("openai");
     // The known fixture is text-only, just like the affected persisted Azure model.
-    f.state.body = { data: [
-      { id: "gpt-chat", input_modalities: ["text", "image"] },
-      { id: "gpt-6-new-vision", input_modalities: ["text", "image", "audio"] },
-      { id: "gpt-6-new-text", input_modalities: ["text"] },
-      { id: "gpt-6-unknown" },
-    ] };
+    f.state.body = {
+      data: [
+        { id: "gpt-chat", input_modalities: ["text", "image"] },
+        { id: "gpt-6-new-vision", input_modalities: ["text", "image", "audio"] },
+        { id: "gpt-6-new-text", input_modalities: ["text"] },
+        { id: "gpt-6-unknown" },
+      ],
+    };
     const catalog = await f.registry.catalog("openai");
-    expect(catalog.models.map(m => [m.id, m.input])).toEqual([
+    expect(catalog.models.map((m) => [m.id, m.input])).toEqual([
       ["gpt-chat", ["text", "image"]],
       ["gpt-6-new-vision", ["text", "image"]],
       ["gpt-6-new-text", ["text"]],
       ["gpt-6-unknown", ["text"]],
     ]);
-    f.runtime.registerProvider("openai", { models: [{ ...catalog.models[0]!, input: ["text", "image"] }] } as never);
+    f.runtime.registerProvider("openai", {
+      models: [{ ...catalog.models[0]!, input: ["text", "image"] }],
+    } as never);
     f.state.body = { data: [{ id: "gpt-chat", input_modalities: ["text"] }] };
     expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text"]);
     f.state.body = { data: [{ id: "gpt-chat" }] };
@@ -383,8 +432,10 @@ describe("provider-first chat registry", () => {
       thinkingLevelMap: { off: null, low: "low" },
     });
     const restarted = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(), modelsPath: f.path,
-      modelsStorePath: join(f.path, '..', 'restart-models-store.json'), refreshOnCreate: false,
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: f.path,
+      modelsStorePath: join(f.path, "..", "restart-models-store.json"),
+      refreshOnCreate: false,
     });
     await restarted.refresh({ allowNetwork: false });
     expect(restarted.getModel("openai-codex", "gpt-6.1-sol")?.input).toEqual(["text", "image"]);
@@ -552,12 +603,20 @@ test("the usable window is the smallest advertised input limit, else the fallbac
   expect(inputWindow([1_050_000, 922_000], 128_000)).toBe(922_000);
   expect(inputWindow([200_000, undefined, "100000", 0, -1, 1.5], 128_000)).toBe(200_000);
   expect(inputWindow([], 128_000)).toBe(128_000);
-  expect(openRouterEndpointPromptCap({ data: { endpoints: [
-    { context_length: 1_050_000, max_prompt_tokens: 922_000 },
-    { context_length: 1_050_000, max_prompt_tokens: null },
-    { context_length: 1_050_000, max_prompt_tokens: 930_000 },
-  ] } })).toBe(922_000);
-  expect(openRouterEndpointPromptCap({ data: { endpoints: [{ context_length: 1_000_000 }] } })).toBeUndefined();
+  expect(
+    openRouterEndpointPromptCap({
+      data: {
+        endpoints: [
+          { context_length: 1_050_000, max_prompt_tokens: 922_000 },
+          { context_length: 1_050_000, max_prompt_tokens: null },
+          { context_length: 1_050_000, max_prompt_tokens: 930_000 },
+        ],
+      },
+    })
+  ).toBe(922_000);
+  expect(
+    openRouterEndpointPromptCap({ data: { endpoints: [{ context_length: 1_000_000 }] } })
+  ).toBeUndefined();
   expect(openRouterEndpointPromptCap({ data: [] })).toBeUndefined();
   expect(openRouterEndpointPromptCap(null)).toBeUndefined();
 });
@@ -566,7 +625,9 @@ test("a provider's separate input cap bounds its context window", async () => {
   const f = await fixture();
   f.connected.clear();
   f.connected.add("anthropic");
-  f.state.body = { data: [{ id: "claude-chat", context_window: 1_000_000, max_input_tokens: 872_000 }] };
+  f.state.body = {
+    data: [{ id: "claude-chat", context_window: 1_000_000, max_input_tokens: 872_000 }],
+  };
   expect((await f.registry.catalog("anthropic")).models[0]?.contextWindow).toBe(872_000);
   f.state.body = { data: [{ id: "claude-chat", max_input_tokens: 200_000 }] };
   expect((await f.registry.catalog("anthropic")).models[0]?.contextWindow).toBe(200_000);
@@ -592,13 +653,26 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
     data: {
       id: "openai/gpt-6.1-sol",
       endpoints: [
-        { provider_name: "OpenAI", context_length: 1_050_000, max_prompt_tokens: 922_000, max_completion_tokens: 128_000 },
-        { provider_name: "Azure", context_length: 1_050_000, max_prompt_tokens: null, max_completion_tokens: 128_000 },
+        {
+          provider_name: "OpenAI",
+          context_length: 1_050_000,
+          max_prompt_tokens: 922_000,
+          max_completion_tokens: 128_000,
+        },
+        {
+          provider_name: "Azure",
+          context_length: 1_050_000,
+          max_prompt_tokens: null,
+          max_completion_tokens: 128_000,
+        },
       ],
     },
   };
   const fetcher = f.fetcher;
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (raw: URL | string | Request, init: RequestInit) => {
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
+    raw: URL | string | Request,
+    init: RequestInit
+  ) => {
     const url = new URL(String(raw));
     if (url.pathname.endsWith("/endpoints")) {
       f.calls.push({ url, init });
@@ -611,13 +685,19 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
   expect((await registry.catalog("openrouter")).models[0]?.contextWindow).toBe(1_050_000);
   expect(f.calls.some((c) => c.url.pathname.endsWith("/endpoints"))).toBe(false);
   const saved = async () => {
-    await registry.verify({ providerId: "openrouter", modelId: "openai/gpt-6.1-sol", reasoning: "medium" });
+    await registry.verify({
+      providerId: "openrouter",
+      modelId: "openai/gpt-6.1-sol",
+      reasoning: "medium",
+    });
     return JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0];
   };
   expect(await saved()).toMatchObject({ contextWindow: 922_000, maxTokens: 128_000 });
   const request = f.calls.find((c) => c.url.pathname.endsWith("/endpoints"))!;
   expect(request.url.pathname).toBe("/api/v1/models/openai/gpt-6.1-sol/endpoints");
-  expect(new Headers(request.init.headers).get("authorization")).toBe("Bearer synthetic-openrouter-key");
+  expect(new Headers(request.init.headers).get("authorization")).toBe(
+    "Bearer synthetic-openrouter-key"
+  );
   // Without a published cap, or when the lookup fails, the advertised window stays.
   endpoints = { data: { endpoints: [{ context_length: 1_050_000 }] } };
   expect((await saved()).contextWindow).toBe(1_050_000);
@@ -639,19 +719,30 @@ test("a saved OpenRouter model without the prompt cap picks it up on refresh", a
   });
   const f = await fixture({
     openrouter: {
-      models: [saved("openai/gpt-6.1-sol", 1_050_000), saved("vendor/uncapped", 400_000), saved("vendor/smaller", 200_000)],
+      models: [
+        saved("openai/gpt-6.1-sol", 1_050_000),
+        saved("vendor/uncapped", 400_000),
+        saved("vendor/smaller", 200_000),
+      ],
     },
   });
-  const caps: Record<string, unknown> = { "openai/gpt-6.1-sol": 922_000, "vendor/smaller": 300_000 };
+  const caps: Record<string, unknown> = {
+    "openai/gpt-6.1-sol": 922_000,
+    "vendor/smaller": 300_000,
+  };
   let refreshed = 0;
   f.runtime.refresh = (async () => {
     refreshed++;
     return { errors: new Map(), aborted: false };
   }) as ModelRuntime["refresh"];
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (raw: URL | string | Request) => {
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
+    raw: URL | string | Request
+  ) => {
     const id = new URL(String(raw)).pathname.replace(/^\/api\/v1\/models\/|\/endpoints$/g, "");
     if (id === "vendor/uncapped") throw new Error("offline");
-    return Response.json({ data: { endpoints: [{ context_length: 1_050_000, max_prompt_tokens: caps[id] }] } });
+    return Response.json({
+      data: { endpoints: [{ context_length: 1_050_000, max_prompt_tokens: caps[id] }] },
+    });
   }) as typeof fetch);
   const windows = async () =>
     Object.fromEntries(

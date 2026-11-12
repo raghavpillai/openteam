@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { type Api, getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
@@ -10,6 +8,11 @@ import {
   type ServerInferenceSettings,
 } from "@openteam/contracts";
 import { CHAT_PROVIDER_DEFINITIONS } from "./chat-provider-definitions";
+import {
+  type ModelProviderConfig,
+  readModelsConfig as configFile,
+  updateModelsConfig,
+} from "./models-config";
 import {
   availableInferenceModels,
   replacementFor,
@@ -23,14 +26,11 @@ export type ChatModel = Model<Api> & {
   defaultReasoningLevel?: PiReasoningLevel;
   recommended?: boolean;
 };
-type CustomConfig = {
-  name?: string;
-  baseUrl?: string;
-  api?: string;
-  apiKey?: string;
-  models?: Array<Record<string, unknown>>;
+type CustomConfig = ModelProviderConfig;
+const providerSettings = (config?: CustomConfig) => {
+  const { models: _models, ...settings } = config ?? {};
+  return settings;
 };
-type Config = { providers?: Record<string, CustomConfig>; [key: string]: unknown };
 type Entry = Record<string, unknown> & { id: string };
 const object = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -169,19 +169,6 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
   };
 };
 
-const configFile = async (path: string): Promise<Config> => {
-  try {
-    const value: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!object(value) || (value.providers !== undefined && !object(value.providers)))
-      throw new Error("Invalid provider registry");
-    return value as Config;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new Error(
-      "The custom provider registry is invalid. Repair models.json before loading providers."
-    );
-  }
-};
 export const modelsEndpoint = (baseUrl: string, anthropic = false): URL => {
   const url = new URL(baseUrl);
   if (
@@ -467,8 +454,8 @@ export class ChatProviderRegistry {
   async verify(settings: ServerInferenceSettings): Promise<void> {
     // Check retirements before making network requests, and access before accepting a saved choice.
     const existingModel = this.runtime().getModel(settings.providerId, settings.modelId);
-    if (existingModel)
-      requireInferenceModel(this.runtime(), settings);
+    if (existingModel) requireInferenceModel(this.runtime(), settings);
+    const before = (await configFile(this.modelsPath)).providers?.[settings.providerId];
     const catalog = await this.catalog(settings.providerId);
     const provider = catalog.providers.find((p) => p.id === settings.providerId);
     if (!provider)
@@ -496,14 +483,6 @@ export class ChatProviderRegistry {
       !existingModel ||
       JSON.stringify(existingModel.input) !== JSON.stringify(model.input)
     ) {
-      const document = await configFile(this.modelsPath);
-      document.providers ??= {};
-      const config = (document.providers[provider.id] ??= {});
-      if (
-        config.baseUrl &&
-        config.baseUrl.replace(/\/+$/, "") !== model.baseUrl.replace(/\/+$/, "")
-      )
-        throw new Error("Provider settings changed. Reload the model list and retry.");
       if (provider.id === "openrouter") {
         const cap = await this.openRouterPromptCap(model);
         if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
@@ -521,25 +500,50 @@ export class ChatProviderRegistry {
         maxTokens,
         api,
         baseUrl,
+        compat,
+        samplingParams,
+        headers,
       } = model;
-      config.models = [
-        ...(config.models ?? []).filter((m) => m.id !== id),
-        {
-          id,
-          name,
-          reasoning,
-          reasoningLevels,
-          defaultReasoningLevel,
-          thinkingLevelMap,
-          input,
-          cost,
-          contextWindow,
-          maxTokens,
-          api,
-          baseUrl,
-        },
-      ];
-      await this.save(document);
+      await updateModelsConfig(this.modelsPath, (document) => {
+        const current = document.providers?.[provider.id];
+        if (
+          (before && !current) ||
+          !isDeepStrictEqual(providerSettings(before), providerSettings(current))
+        ) {
+          throw new Error("Provider settings changed. Reload the model list and retry.");
+        }
+        document.providers ??= {};
+        const config = (document.providers[provider.id] ??= {});
+        const saved = config.models?.find((m) => m.id === id);
+        if (before?.models?.some((m) => m.id === id) && !saved) {
+          throw new Error("Model settings changed. Reload the model list and retry.");
+        }
+        const dynamic = provider.id === "openrouter" || provider.id === "openai-codex";
+        // Existing custom models own their endpoint, protocol, headers, sampling
+        // and compatibility settings. Capability repair changes only their input.
+        const snapshot =
+          saved && !dynamic
+            ? { ...saved, input }
+            : {
+                ...(saved ?? { compat, samplingParams, headers }),
+                id,
+                name,
+                reasoning,
+                reasoningLevels,
+                defaultReasoningLevel,
+                thinkingLevelMap,
+                input,
+                cost,
+                contextWindow,
+                maxTokens,
+                api,
+                baseUrl: saved?.baseUrl ?? baseUrl,
+              };
+        if (saved && isDeepStrictEqual(saved, snapshot)) return false;
+        config.models = [...(config.models ?? []).filter((m) => m.id !== id), snapshot];
+        return true;
+      });
+      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
     }
   }
   /**
@@ -547,31 +551,31 @@ export class ChatProviderRegistry {
    * saved before the cap was published (or checked) compacts in time without re-selection.
    */
   async refreshPromptCaps(): Promise<void> {
-    const caps = new Map<string, number>();
+    const caps = new Map<string, { cap: number; baseUrl: string }>();
     for (const model of (await configFile(this.modelsPath)).providers?.openrouter?.models ?? []) {
       if (!validId(model.id) || typeof model.baseUrl !== "string") continue;
       const cap = await this.openRouterPromptCap({ id: model.id, baseUrl: model.baseUrl });
-      if (cap && cap < positive(model.contextWindow, Infinity)) caps.set(model.id, cap);
+      if (cap && cap < positive(model.contextWindow, Infinity))
+        caps.set(model.id, { cap, baseUrl: model.baseUrl });
     }
     if (!caps.size) return;
-    // Re-read so a selection saved during the lookups isn't overwritten.
-    const document = await configFile(this.modelsPath);
-    for (const model of document.providers?.openrouter?.models ?? []) {
-      const cap = caps.get(String(model.id));
-      if (cap) model.contextWindow = Math.min(positive(model.contextWindow, cap), cap);
-    }
-    await this.save(document);
-  }
-  private async save(document: Config): Promise<void> {
-    await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
-    const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
-      await rename(temp, this.modelsPath);
-    } finally {
-      await rm(temp, { force: true });
-    }
-    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+    const changed = await updateModelsConfig(this.modelsPath, (document) => {
+      let changed = false;
+      for (const model of document.providers?.openrouter?.models ?? []) {
+        const result = caps.get(String(model.id));
+        if (
+          result &&
+          model.baseUrl === result.baseUrl &&
+          result.cap < positive(model.contextWindow, Infinity)
+        ) {
+          model.contextWindow = result.cap;
+          changed = true;
+        }
+      }
+      return changed;
+    });
+    if (changed)
+      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
   }
   /** The model's endpoint prompt cap, or nothing when OpenRouter doesn't publish one. */
   private async openRouterPromptCap(

@@ -11,39 +11,23 @@ import {
 
 describe("routine execution restart reconciliation", () => {
   test("redrives only interrupted wakes that owe the user a visible delivery", () => {
-    for (const origin of [
-      "user",
-      "bootstrap",
-      "connector",
-      "handoff_resume",
-      "broadcast",
-    ] as const) {
+    for (const origin of ["user", "bootstrap", "connector", "handoff_resume", "broadcast"] as const)
       expect(runOwesUserDelivery(origin)).toBe(true);
-    }
-    for (const origin of ["agent", "group", "routine", "event", "background_revival"] as const) {
+    for (const origin of ["agent", "group", "routine", "event", "background_revival"] as const)
       expect(runOwesUserDelivery(origin)).toBe(false);
-    }
   });
 
-  test("maps terminal linked runs without terminating live runs", () => {
-    expect(terminalRoutineExecutionStatus("completed")).toBe("completed");
-    expect(terminalRoutineExecutionStatus("failed")).toBe("failed");
-    expect(terminalRoutineExecutionStatus("interrupted")).toBe("failed");
-    expect(terminalRoutineExecutionStatus("cancelled")).toBe("cancelled");
-    expect(terminalRoutineExecutionStatus("queued")).toBeNull();
-    expect(terminalRoutineExecutionStatus("running")).toBeNull();
-    expect(terminalRoutineExecutionStatus("waiting_approval")).toBeNull();
-  });
-
-  test("maps terminal group rounds and preserves live rounds", () => {
-    expect(terminalGroupRoutineExecutionStatus("queued", [])).toBeNull();
-    expect(terminalGroupRoutineExecutionStatus("running", ["completed"])).toBeNull();
-    expect(terminalGroupRoutineExecutionStatus("failed", ["completed"])).toBe("failed");
-    expect(terminalGroupRoutineExecutionStatus("completed", [])).toBe("completed");
-    expect(terminalGroupRoutineExecutionStatus("completed", ["completed", "failed"])).toBe(
-      "failed"
-    );
-    expect(terminalGroupRoutineExecutionStatus("completed", ["failed", "skipped"])).toBe("failed");
+  test("maps terminal linked runs and group rounds without terminating live ones", () => {
+    for (const [run, execution] of [
+      ["completed", "completed"], ["failed", "failed"], ["interrupted", "failed"], ["cancelled", "cancelled"],
+      ["queued", null], ["running", null], ["waiting_approval", null],
+    ] as const)
+      expect(terminalRoutineExecutionStatus(run)).toBe(execution);
+    for (const [round, deliveries, execution] of [
+      ["queued", [], null], ["running", ["completed"], null], ["failed", ["completed"], "failed"], ["completed", [], "completed"],
+      ["completed", ["completed", "failed"], "failed"], ["completed", ["failed", "skipped"], "failed"],
+    ] as const)
+      expect(terminalGroupRoutineExecutionStatus(round, [...deliveries])).toBe(execution);
   });
 
   test("repairs a terminal group execution and its durable ledger", async () => {

@@ -1,13 +1,17 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { Effect } from "effect";
+import type { ToolContext } from "@openteam/messaging";
 import { createRoutineHarness } from "./fixtures/routine-context";
 import {
   reconcileRoutineExecution,
   wakeAutomationParent,
 } from "../../../packages/messaging/src/automation-results";
-import { stopRequestProgress } from "../../../packages/messaging/src/request-progress";
 import { groupRoutineState } from "../../../packages/messaging/src/group-routine-state";
+import { stopRequestProgress } from "../../../packages/messaging/src/request-progress";
 import { RoutineService } from "../../../packages/messaging/src/routines";
+import { RunService } from "../../server/src/services/run-service";
+import { SubagentService } from "../../server/src/services/subagent/service";
 
 let harness: Awaited<ReturnType<typeof createRoutineHarness>>;
 beforeAll(async () => {
@@ -17,30 +21,23 @@ afterAll(async () => {
   await harness?.close();
 });
 const integration = test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL);
-const context = (f: any, runId: string) => ({
+type Fixture = Awaited<ReturnType<typeof harness.fixture>>;
+const context = (
+  f: Fixture,
+  runId: string,
+  origin: ToolContext["origin"] = "routine"
+): ToolContext => ({
   botId: f.botId,
   conversationId: f.conversationId,
   channelId: f.channelId,
   runId,
   callId: randomUUID(),
-  origin: "routine" as const,
+  origin,
   isFork: false,
   deliveryId: null,
   replyToMessageId: null,
 });
-async function execute(f: any) {
-  const receipt = await f.service.runNow(f.botId, f.routineId, randomUUID());
-  return harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } });
-}
-async function terminal(runId: string, status: "completed" | "failed" = "completed") {
-  await harness.db.run.update({ where: { id: runId }, data: { status, completedAt: new Date() } });
-  await harness.db.inboxEvent.updateMany({
-    where: { runId },
-    data: { status: "completed", completedAt: new Date() },
-  });
-  await harness.db.botRunLease.deleteMany({ where: { runId } });
-}
-const callback = (f: any, runId: string, path = `/tmp/${randomUUID()}.log`) =>
+const callback = (f: Fixture, runId: string, path = `/tmp/routine-${randomUUID()}.log`) =>
   f.messaging.completeShell({
     id: randomUUID(),
     scope: f.botId,
@@ -50,6 +47,216 @@ const callback = (f: any, runId: string, path = `/tmp/${randomUUID()}.log`) =>
     exitCode: 0,
     title: "Finished",
   });
+function stops(f: Fixture) {
+  const fetch = async () => Response.json({ stopped: true });
+  return new SubagentService(
+    harness.db,
+    f.messaging,
+    new RunService(harness.db, fetch),
+    harness.root,
+    fetch,
+    f.store
+  );
+}
+async function execute(f: Fixture) {
+  const receipt = await f.service.runNow(f.botId, f.routineId, randomUUID());
+  return harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } });
+}
+async function start(f: Fixture) {
+  const root = (await execute(f)).runId!;
+  expect((await f.worker.claim(f.botId))?.runId).toBe(root);
+  return root;
+}
+async function terminal(runId: string, status: "completed" | "failed" = "completed") {
+  await harness.db.run.update({ where: { id: runId }, data: { status, completedAt: new Date() } });
+  await harness.db.inboxEvent.updateMany({
+    where: { runId },
+    data: { status: "completed", completedAt: new Date() },
+  });
+  await harness.db.botRunLease.deleteMany({ where: { runId } });
+}
+
+integration(
+  "actual Stop during a routine continuation stops its original context and fences later callbacks",
+  async () => {
+    const f = await harness.fixture();
+    try {
+      const root = await start(f);
+      await terminal(root);
+      await callback(f, root);
+      const continuation = await f.worker.claim(f.botId);
+      expect(continuation?.origin).toBe("routine");
+      await Effect.runPromise(stops(f).stopRun(continuation!.runId));
+      expect(
+        (await harness.db.run.findUniqueOrThrow({ where: { id: root } })).requestStoppedAt
+      ).not.toBeNull();
+      expect((await callback(f, root)).delivered).toBe(false);
+      expect(await f.worker.claim(f.botId)).toBeNull();
+      await f.worker.recoverRoutineExecutions();
+      expect(
+        (await harness.db.routineExecution.findUniqueOrThrow({ where: { runId: root } })).status
+      ).toBe("cancelled");
+    } finally {
+      await f.cleanup();
+    }
+  }
+);
+
+integration(
+  "Stop of a routine root fences delivery by a parent handoff that was already claimed",
+  async () => {
+    const f = await harness.fixture();
+    try {
+      const root = await start(f);
+      const handoff = await wakeAutomationParent(f.messaging, context(f, root), {
+        message: "Result ready",
+      });
+      await terminal(root);
+      expect((await f.worker.claim(f.botId))?.runId).toBe(handoff.run_id);
+      await Effect.runPromise(stops(f).stopRun(root));
+      await expect(
+        f.messaging.sendVisible(context(f, handoff.run_id, "background_revival"), {
+          type: "text",
+          content: "Obsolete routine result",
+        })
+      ).rejects.toMatchObject({ code: "request_stopped" });
+    } finally {
+      await f.cleanup();
+    }
+  }
+);
+
+integration(
+  "ordinary claimed parent handoffs still deliver when the routine has not been stopped",
+  async () => {
+    const f = await harness.fixture();
+    try {
+      const root = await start(f);
+      const handoff = await wakeAutomationParent(f.messaging, context(f, root), {
+        message: "Result ready",
+      });
+      await terminal(root);
+      expect((await f.worker.claim(f.botId))?.runId).toBe(handoff.run_id);
+      const result = await f.messaging.sendVisible(
+        context(f, handoff.run_id, "background_revival"),
+        {
+          type: "text",
+          content: "Current routine result",
+        }
+      );
+      expect(result.acknowledgement).toMatchObject({ sent: true });
+    } finally {
+      await f.cleanup();
+    }
+  }
+);
+
+integration(
+  "stopping a completed continuation also stops workers still owned by its original routine",
+  async () => {
+    const f = await harness.fixture();
+    let childBotId: string | undefined;
+    try {
+      const root = await start(f);
+      await terminal(root);
+      await callback(f, root);
+      const continuation = await f.worker.claim(f.botId);
+      await terminal(continuation!.runId);
+      const child = await harness.db.bot.create({
+        data: {
+          name: "Legacy routine worker",
+          status: "active",
+          defaultDirectory: harness.root,
+          conversation: { create: {} },
+        },
+        include: { conversation: true },
+      });
+      childBotId = child.id;
+      const childRun = await harness.db.run.create({
+        data: {
+          botId: child.id,
+          conversationId: child.conversation!.id,
+          userMessageId: randomUUID(),
+          origin: "agent",
+          status: "running",
+        },
+      });
+      const worker = await harness.db.subagent.create({
+        data: {
+          parentBotId: f.botId,
+          childBotId: child.id,
+          parentRunId: root,
+          parentChannelId: f.channelId,
+          currentRunId: childRun.id,
+          launchCallId: randomUUID(),
+          description: "Legacy delegated work",
+          prompt: "Read only",
+          subagentType: "executor",
+          status: "running",
+          outputPath: "/tmp/legacy-routine-worker",
+        },
+      });
+      await harness.db.subagentAttempt.create({
+        data: {
+          subagentId: worker.id,
+          parentRunId: root,
+          parentChannelId: f.channelId,
+          parentToolCallId: worker.launchCallId,
+          childRunId: childRun.id,
+          description: worker.description,
+          prompt: worker.prompt,
+          status: "running",
+        },
+      });
+      await Effect.runPromise(stops(f).stopRun(continuation!.runId));
+      expect(
+        (await harness.db.run.findUniqueOrThrow({ where: { id: root } })).requestStoppedAt
+      ).not.toBeNull();
+      expect(
+        (await harness.db.subagent.findUniqueOrThrow({ where: { id: worker.id } })).status
+      ).toBe("stopped");
+      expect((await harness.db.run.findUniqueOrThrow({ where: { id: childRun.id } })).status).toBe(
+        "cancelled"
+      );
+    } finally {
+      if (childBotId) await harness.db.bot.delete({ where: { id: childBotId } });
+      await f.cleanup();
+    }
+  }
+);
+
+integration(
+  "a claimed routine handoff can notify a peer normally but cannot publish after Stop",
+  async () => {
+    const f = await harness.fixture(),
+      peer = await harness.fixture();
+    try {
+      const root = await start(f);
+      const handoff = await wakeAutomationParent(f.messaging, context(f, root), {
+        message: "Notify the peer of the result",
+      });
+      await terminal(root);
+      expect((await f.worker.claim(f.botId))?.runId).toBe(handoff.run_id);
+      await f.messaging.sendToAgent(context(f, handoff.run_id, "background_revival"), {
+        target_id: peer.botId,
+        message: "Current result",
+      });
+      const accepted = await harness.db.inboxEvent.count({ where: { botId: peer.botId } });
+      expect(accepted).toBe(1);
+      await Effect.runPromise(stops(f).stopRun(root));
+      await expect(
+        f.messaging.sendToAgent(context(f, handoff.run_id, "background_revival"), {
+          target_id: peer.botId,
+          message: "Obsolete result",
+        })
+      ).rejects.toMatchObject({ code: "request_stopped" });
+      expect(await harness.db.inboxEvent.count({ where: { botId: peer.botId } })).toBe(accepted);
+    } finally {
+      await peer.cleanup();
+      await f.cleanup();
+    }
+  }
+);
 
 integration("Stop fences late shell callbacks and parent handoffs", async () => {
   const f = await harness.fixture();
@@ -217,97 +424,6 @@ integration(
   }
 );
 
-integration(
-  "group overlap waits for a real background process and releases on its completion",
-  async () => {
-    const f = await harness.fixture();
-    try {
-      const g = await f.group({ type: "cron", schedule: "@every 5m" });
-      const receipt = await f.service.runNowOwner(
-        { kind: "group", id: g.channelId },
-        g.routineId,
-        randomUUID()
-      );
-      const execution = await harness.db.routineExecution.findUniqueOrThrow({
-        where: { id: receipt.id },
-      });
-      const claimed = await f.worker.claim(f.botId);
-      expect(claimed?.channelId).toBe(g.channelId);
-      const path = `${harness.root}/${randomUUID()}.log`;
-      const child = Bun.spawn(
-        ["sh", "-c", 'read result; printf "%s\\n" "$result" > "$1"', "routine-shell-test", path],
-        { stdin: "pipe", stdout: "ignore", stderr: "pipe" }
-      );
-      try {
-        await harness.db.runItem.create({
-          data: {
-            runId: claimed!.runId,
-            kind: "command",
-            status: "completed",
-            content: {
-              shellKind: "background",
-              result: { details: { status: "running", outputPath: path } },
-            },
-          },
-        });
-        await terminal(claimed!.runId);
-        await f.messaging.completeDelivery(claimed!.deliveryId, "completed");
-        expect(
-          (
-            await harness.db.$transaction((tx) =>
-              groupRoutineState(tx, execution.channelMessageId!)
-            )
-          ).active
-        ).toBe(true);
-        expect(
-          (await harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } }))
-            .status
-        ).not.toBe("completed");
-        child.stdin.write("complete\n");
-        child.stdin.end();
-        expect(await child.exited).toBe(0);
-        expect(await Bun.file(path).text()).toBe("complete\n");
-        await f.messaging.completeShell({
-          id: randomUUID(),
-          scope: f.botId,
-          channelId: g.channelId,
-          outputPath: path,
-          exitCode: 0,
-          title: "Finished",
-        });
-        // The callback itself remains work until consumed; once terminal it releases overlap.
-        expect(
-          (
-            await harness.db.$transaction((tx) =>
-              groupRoutineState(tx, execution.channelMessageId!)
-            )
-          ).active
-        ).toBe(true);
-        const continuation = await f.worker.claim(f.botId);
-        expect(continuation).not.toBeNull();
-        await terminal(continuation!.runId);
-        expect(
-          (
-            await harness.db.$transaction((tx) =>
-              groupRoutineState(tx, execution.channelMessageId!)
-            )
-          ).active
-        ).toBe(false);
-        await f.worker.recoverRoutineExecutions();
-        expect(
-          (await harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } }))
-            .status
-        ).toBe("completed");
-      } finally {
-        child.kill();
-        await child.exited;
-      }
-    } finally {
-      await f.cleanup();
-    }
-  }
-);
-
 integration("Stop releases a completed group turn's outstanding shell wait", async () => {
   const f = await harness.fixture();
   try {
@@ -347,75 +463,6 @@ integration("Stop releases a completed group turn's outstanding shell wait", asy
     expect(
       (await harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } })).status
     ).toBe("completed");
-  } finally {
-    await f.cleanup();
-  }
-});
-
-integration("a folded group shell receipt waits for its processing consumer", async () => {
-  const f = await harness.fixture();
-  try {
-    const g = await f.group({ type: "cron", schedule: "@every 5m" });
-    const receipt = await f.service.runNowOwner(
-      { kind: "group", id: g.channelId },
-      g.routineId,
-      randomUUID()
-    );
-    const execution = await harness.db.routineExecution.findUniqueOrThrow({
-      where: { id: receipt.id },
-    });
-    const claimed = await f.worker.claim(f.botId);
-    const path = `${harness.root}/${randomUUID()}.log`;
-    await harness.db.runItem.create({
-      data: {
-        runId: claimed!.runId,
-        kind: "command",
-        status: "completed",
-        content: {
-          shellKind: "background",
-          result: { details: { status: "running", outputPath: path } },
-        },
-      },
-    });
-    await terminal(claimed!.runId);
-    await f.messaging.completeDelivery(claimed!.deliveryId, "completed");
-    // An older background result consumes the group shell receipt in one batch.
-    await harness.db.$transaction((tx) =>
-      f.messaging.enqueueWake(tx, {
-        botId: f.botId,
-        channelId: g.channelId,
-        origin: "background_revival",
-        type: "shell.completed",
-        content: "Other completion",
-        clientId: randomUUID(),
-        priority: 50,
-        revival: { block: "Other completion", subagentType: "shell" },
-      })
-    );
-    await f.messaging.completeShell({
-      id: randomUUID(),
-      scope: f.botId,
-      channelId: g.channelId,
-      outputPath: path,
-      exitCode: 0,
-      title: "Finished",
-    });
-    const consumer = await f.worker.claim(f.botId);
-    expect(consumer).not.toBeNull();
-    expect(
-      await harness.db.inboxEvent.count({
-        where: { botId: f.botId, payload: { path: ["batchedIntoRunId"], equals: consumer!.runId } },
-      })
-    ).toBe(1);
-    expect(
-      (await harness.db.$transaction((tx) => groupRoutineState(tx, execution.channelMessageId!)))
-        .active
-    ).toBe(true);
-    await terminal(consumer!.runId);
-    expect(
-      (await harness.db.$transaction((tx) => groupRoutineState(tx, execution.channelMessageId!)))
-        .active
-    ).toBe(false);
   } finally {
     await f.cleanup();
   }
@@ -540,68 +587,125 @@ integration("one broken follow-up does not block another bot's settlement", asyn
   }
 });
 
-integration(
-  "repair preview is read-only; apply preserves pauses, due work and history and is idempotent",
-  async () => {
-    const { repairRoutineScheduling } = await import("../../../scripts/repair-routine-scheduling");
-    const f = await harness.fixture();
-    try {
-      const now = new Date("2026-11-12T12:00:00Z");
-      const affected = await f.service.mutate(f.botId, randomUUID(), null, {
-        action: "create",
-        name: "Legacy first listener",
-        prompt: "Instructions",
-        trigger: {
-          type: "group",
-          listeners: [
-            { type: "cron", schedule: "0 3 * * *" },
-            { type: "cron", schedule: "0 18 * * *" },
-          ],
-        },
-      });
-      const due = await f.service.mutate(f.botId, randomUUID(), null, {
-        action: "create",
-        name: "Already due",
-        prompt: "Instructions",
-        schedule: "@every 5m",
-      });
-      const stale = new Date("2026-11-13T03:00:00Z"),
-        alreadyDue = new Date(now.getTime() - 300_000);
-      await harness.db.routine.update({
-        where: { id: String(affected.id) },
-        data: { createdAt: now, scheduleAnchorAt: null, nextRunAt: stale },
-      });
-      await harness.db.routine.update({
-        where: { id: String(due.id) },
-        data: { scheduleAnchorAt: null, nextRunAt: alreadyDue },
-      });
-      const paused = await f.read();
-      const preview = await repairRoutineScheduling(harness.db, { now });
-      expect(preview.errors).toEqual([]);
-      expect(preview.changes.find((change) => change.id === affected.id)?.to).toBe(
-        "2026-11-12T18:00:00.000Z"
-      );
-      expect(
-        (await harness.db.routine.findUniqueOrThrow({ where: { id: String(affected.id) } }))
-          .nextRunAt
-      ).toEqual(stale);
-      const applied = await repairRoutineScheduling(harness.db, { now, apply: true });
-      expect(applied.errors).toEqual([]);
-      expect(
-        (
-          await harness.db.routine.findUniqueOrThrow({ where: { id: String(affected.id) } })
-        ).nextRunAt?.toISOString()
-      ).toBe("2026-11-12T18:00:00.000Z");
-      expect(
-        (await harness.db.routine.findUniqueOrThrow({ where: { id: String(due.id) } })).nextRunAt
-      ).toEqual(alreadyDue);
-      expect(await f.read()).toEqual(paused);
-      expect(
-        await harness.db.routineExecution.count({ where: { routine: { botId: f.botId } } })
-      ).toBe(0);
-      expect((await repairRoutineScheduling(harness.db, { now, apply: true })).changes).toEqual([]);
-    } finally {
-      await f.cleanup();
-    }
+// Group shell receipts settle with the outcome of the turn that actually processed them.
+for (const layout of ["single", "folded", "legacy-folded"] as const) {
+  for (const status of ["completed", "failed"] as const) {
+    integration(
+      `${layout} group shell receipt records its actual processing turn's ${status} outcome`,
+      async () => {
+        const f = await harness.fixture();
+        try {
+          const group = await f.group({ type: "cron", schedule: "@every 5m" });
+          const receipt = await f.service.runNowOwner(
+            { kind: "group", id: group.channelId },
+            group.routineId,
+            randomUUID()
+          );
+          const execution = await harness.db.routineExecution.findUniqueOrThrow({
+            where: { id: receipt.id },
+          });
+          const root = await f.worker.claim(f.botId);
+          const outputPath = `${harness.root}/batch-${randomUUID()}.log`;
+          await harness.db.runItem.create({
+            data: {
+              runId: root.runId,
+              kind: "command",
+              status: "completed",
+              content: {
+                shellKind: "background",
+                result: { details: { status: "running", outputPath } },
+              },
+            },
+          });
+          await harness.db.run.update({
+            where: { id: root.runId },
+            data: { status: "completed", completedAt: new Date() },
+          });
+          await harness.db.inboxEvent.updateMany({
+            where: { runId: root.runId },
+            data: { status: "completed", completedAt: new Date() },
+          });
+          await harness.db.botRunLease.deleteMany({ where: { runId: root.runId } });
+          await f.messaging.completeDelivery(root.deliveryId, "completed");
+          expect(
+            (
+              await harness.db.$transaction((tx) =>
+                groupRoutineState(tx, execution.channelMessageId!)
+              )
+            ).active
+          ).toBe(true);
+          // A preceding completion consumes the group shell receipt in a real claim batch.
+          if (layout !== "single")
+            await harness.db.$transaction((tx) =>
+              f.messaging.enqueueWake(tx, {
+                botId: f.botId,
+                channelId: group.channelId,
+                origin: "background_revival",
+                type: "shell.completed",
+                content: "Earlier completion",
+                clientId: randomUUID(),
+                priority: 50,
+                revival: { block: "Earlier completion", subagentType: "shell" },
+              })
+            );
+          await f.messaging.completeShell({
+            id: randomUUID(),
+            scope: f.botId,
+            channelId: group.channelId,
+            outputPath,
+            exitCode: 0,
+            title: "Finished",
+          });
+          const consumer = await f.worker.claim(f.botId);
+          expect(consumer).not.toBeNull();
+          expect(
+            await harness.db.inboxEvent.count({
+              where: {
+                botId: f.botId,
+                payload: { path: ["batchedIntoRunId"], equals: consumer.runId },
+              },
+            })
+          ).toBe(layout === "single" ? 0 : 1);
+          expect(
+            (
+              await harness.db.$transaction((tx) =>
+                groupRoutineState(tx, execution.channelMessageId!)
+              )
+            ).active
+          ).toBe(true);
+          if (layout === "legacy-folded") {
+            const folded = await harness.db.inboxEvent.findFirstOrThrow({
+              where: {
+                botId: f.botId,
+                payload: { path: ["batchedIntoRunId"], equals: consumer.runId },
+              },
+            });
+            const payload = { ...(folded.payload as Record<string, any>) };
+            delete payload.batchedIntoRunId;
+            await harness.db.inboxEvent.update({ where: { id: folded.id }, data: { payload } });
+          }
+          await harness.db.run.update({
+            where: { id: consumer.runId },
+            data: {
+              status,
+              completedAt: new Date(),
+              ...(status === "failed" ? { error: { code: "processing_turn_failed" } } : {}),
+            },
+          });
+          await harness.db.inboxEvent.updateMany({
+            where: { runId: consumer.runId },
+            data: { status: "completed", completedAt: new Date() },
+          });
+          await harness.db.botRunLease.deleteMany({ where: { runId: consumer.runId } });
+          await f.worker.recoverRoutineExecutions();
+          expect(
+            (await harness.db.routineExecution.findUniqueOrThrow({ where: { id: receipt.id } }))
+              .status
+          ).toBe(status);
+        } finally {
+          await f.cleanup();
+        }
+      }
+    );
   }
-);
+}

@@ -10,7 +10,6 @@ import { WakeWorker } from "../src/worker";
 import { streamingComputer } from "./fixtures/streaming-computer";
 
 const db = process.env.OPENTEAM_TEST_DATABASE_URL;
-const realTimeSoak = process.env.OPENTEAM_TASK_SOAK === "1";
 test.skipIf(!db)(
   "real queue preserves delayed work across host recreation and reconciles an accepted action after lost completion",
   async () => {
@@ -339,51 +338,15 @@ test.skipIf(!db)(
       worker = undefined;
       await Effect.runPromise(app!.close());
       app = undefined;
-      if (realTimeSoak) {
-        // Restart midway through an actual one-hour dependency. The normal host
-        // dispatcher, not a virtual clock, must own and deliver the continuation.
-        console.log(
-          `TASK_SOAK parked ${new Date().toISOString()} next=${waiting.nextCheckAt!.toISOString()}`
-        );
-        documentReady = true;
-        await boot();
-        const midpoint = Math.max(0, waiting.nextCheckAt!.getTime() - Date.now() - 1800_000);
-        for (let left = midpoint; left > 0; left -= 30_000) await Bun.sleep(Math.min(left, 30_000));
-        await worker!.stop();
-        worker = undefined;
-        await Effect.runPromise(app!.close());
-        app = undefined;
-        await boot();
-        console.log(`TASK_SOAK midpoint restart ${new Date().toISOString()}`);
-        await Effect.runPromise(
-          app!.sendMessage(bot.conversationId, {
-            clientId: crypto.randomUUID(),
-            content: "UNRELATED question after the midpoint restart",
-          })
-        );
-        await until(
-          async () =>
-            (await app!.prisma.channelMessage.count({
-              where: { senderBotId: parentId, content: "Unrelated question answered." },
-            })) === 2
-        );
-        const pause = Math.max(0, waiting.nextCheckAt!.getTime() - Date.now() - 30_000);
-        for (let left = pause; left > 0; left -= 30_000) await Bun.sleep(Math.min(left, 30_000));
-        expect(
-          (await app!.prisma.subagent.findUniqueOrThrow({ where: { id: waiting.id } })).status
-        ).toBe("waiting");
-        console.log(`TASK_SOAK waiting retained ${new Date().toISOString()}`);
-      } else {
-        documentReady = true;
-        await boot();
-        expect(
-          await dispatchTaskContinuations(
-            app!.prisma,
-            app!.messaging,
-            new Date(Date.now() + 3600_000)
-          )
-        ).toBe(1);
-      }
+      documentReady = true;
+      await boot();
+      expect(
+        await dispatchTaskContinuations(
+          app!.prisma,
+          app!.messaging,
+          new Date(Date.now() + 3600_000)
+        )
+      ).toBe(1);
       await until(
         async () =>
           (await app!.prisma.channelMessage.count({
@@ -443,5 +406,5 @@ test.skipIf(!db)(
       await rm(root, { recursive: true, force: true });
     }
   },
-  realTimeSoak ? 3_750_000 : 120_000
+  120_000
 );

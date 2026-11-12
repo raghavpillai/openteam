@@ -46,11 +46,9 @@ describe("bounded periodic reconciliation", () => {
       passes += 1;
     } while (cursor !== null);
 
-    expect(passes).toBe(125);
+    expect(passes).toBe(Math.ceil(1_000 / AUTOMATION_RECONCILE_BATCH_SIZE));
     expect(transactionCount).toBe(1_000);
     expect(reconciled).toEqual(ids);
-    // The previous implementation did all 1,000 transactions on every one-second tick.
-    expect(AUTOMATION_RECONCILE_BATCH_SIZE).toBe(8);
   });
 
   test("unchanged agent/group snapshots use bulk lookups, then a conditional no-op", async () => {

@@ -130,7 +130,7 @@ export class TranscriptFingerprintCache {
   }
 }
 
-export const transcriptEventsFingerprint = (events: unknown): string =>
+const transcriptEventsFingerprint = (events: unknown): string =>
   createHash("sha256").update(JSON.stringify(events)).digest("hex");
 
 class BotRunLeaseContended extends Error {}

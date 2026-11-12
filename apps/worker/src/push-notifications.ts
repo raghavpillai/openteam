@@ -62,7 +62,7 @@ export const pushDeviceSessionIsDeliverable = (
     ? !device.authRequired
     : device.authRequired && Boolean(device.authSession && device.authSession.expiresAt > now));
 
-export const claimOutboxDeliveries = async (
+const claimOutboxDeliveries = async (
   client: Pick<PrismaClient, "$queryRaw">,
   topic: string,
   limit: number

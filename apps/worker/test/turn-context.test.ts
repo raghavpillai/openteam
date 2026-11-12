@@ -2,25 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { timestampUserTurn } from "@openteam/messaging";
 import {
   contextScopeForRun,
+  resolveTurnMemoryExchange,
   runtimeRequestSourceForOrigin,
+  TranscriptFingerprintCache,
+  TurnStoppedError,
+  turnCompletionFailure,
   turnContentWithNotes,
   wakeResetsSelfSummaryCount,
 } from "../src/worker";
 
 describe("OpenTeam-style runtime context routing", () => {
-  test("isolates each room for groups, DM, A2A, bootstrap, and events", () => {
+  test("isolates each room for groups, DM, A2A, bootstrap, and events, and a malformed group keeps the home context", () => {
     const conversationId = crypto.randomUUID();
     const groupId = crypto.randomUUID();
-    expect(contextScopeForRun("group", groupId, conversationId)).toEqual({
-      scope: "channel",
-      scopeId: groupId,
-    });
-    for (const origin of ["user", "agent", "bootstrap", "event"] as const) {
-      expect(contextScopeForRun(origin, groupId, conversationId)).toEqual({
-        scope: "channel",
-        scopeId: groupId,
-      });
-    }
+    for (const origin of ["group", "user", "agent", "bootstrap", "event"] as const)
+      expect(contextScopeForRun(origin, groupId, conversationId)).toEqual({ scope: "channel", scopeId: groupId });
+    expect(contextScopeForRun("group", null, conversationId)).toEqual({ scope: "home", scopeId: conversationId });
   });
 
   test("isolates automation runs while continuations reuse the automation context", () => {
@@ -31,41 +28,18 @@ describe("OpenTeam-style runtime context routing", () => {
     expect(contextScopeForRun("background_revival", null, conversation, first).scopeId).toBe(conversation);
   });
 
-  test("does not let a malformed group channel change the member home context", () => {
-    const conversationId = crypto.randomUUID();
-    expect(contextScopeForRun("group", null, conversationId)).toEqual({
-      scope: "home",
-      scopeId: conversationId,
-    });
-  });
-
-  test("maps durable origins to Bot's exact active request-source names", () => {
-    expect(runtimeRequestSourceForOrigin("user")).toBe("turn");
-    expect(runtimeRequestSourceForOrigin("bootstrap")).toBe("turn");
-    expect(runtimeRequestSourceForOrigin("agent")).toBe("agent");
-    expect(runtimeRequestSourceForOrigin("group")).toBe("agent");
-    expect(runtimeRequestSourceForOrigin("routine")).toBe("automation");
-    expect(runtimeRequestSourceForOrigin("event")).toBe("event");
-    expect(runtimeRequestSourceForOrigin("background_revival")).toBe("background-revival");
-    expect(runtimeRequestSourceForOrigin("handoff_resume")).toBe("handoff-resume");
-    expect(runtimeRequestSourceForOrigin("broadcast")).toBe("broadcast");
+  test.each([
+    ["user", "turn"], ["bootstrap", "turn"], ["agent", "agent"], ["group", "agent"], ["routine", "automation"],
+    ["event", "event"], ["background_revival", "background-revival"], ["handoff_resume", "handoff-resume"], ["broadcast", "broadcast"],
+  ] as const)("maps durable origin %s to Bot's active request source %s", (origin, source) => {
+    expect(runtimeRequestSourceForOrigin(origin)).toBe(source);
   });
 
   test("does not reset summary counts for event taps or background-task completion", () => {
-    for (const type of [
-      "agent.message",
-      "group.message",
-      "routine.scheduled",
-      "subagent.task",
-      "subagent.resume",
-    ]) {
+    for (const type of ["agent.message", "group.message", "routine.scheduled", "subagent.task", "subagent.resume"])
       expect(wakeResetsSelfSummaryCount(type)).toBe(true);
-    }
-    expect(wakeResetsSelfSummaryCount("subagent.completed")).toBe(false);
-    expect(wakeResetsSelfSummaryCount("subagent.failed")).toBe(false);
-    expect(wakeResetsSelfSummaryCount("subagent.stopped")).toBe(false);
-    expect(wakeResetsSelfSummaryCount("subagent.cancelled")).toBe(false);
-    expect(wakeResetsSelfSummaryCount("timeline.event")).toBe(false);
+    for (const type of ["subagent.completed", "subagent.failed", "subagent.stopped", "subagent.cancelled", "timeline.event"])
+      expect(wakeResetsSelfSummaryCount(type)).toBe(false);
   });
 
   test("puts turn notes in one reminder block ahead of the timestamped query", () => {
@@ -135,4 +109,55 @@ describe("reaction context routing", () => {
     expect(turnContentWithNotes({ origin: "user", inboxType: "user.reaction", runtimeProfile: "agent", notes: [note] }, content))
       .toBe(`<system_reminder>\n${note}\n</system_reminder>\n${content}`);
   });
+});
+
+describe("turn completion", () => {
+  test("only completed turns succeed; stops are not failures; runtime messages are kept", () => {
+    const completion = (status: string, error?: { message: string }) =>
+      turnCompletionFailure({ type: "turn.completed", turnId: "run", status, ...(error ? { error } : {}) } as never);
+    expect(completion("completed")).toBeNull();
+    const interrupted = completion("interrupted");
+    expect(interrupted?.message).toBe("Computer turn ended with status interrupted");
+    expect(interrupted).not.toBeInstanceOf(TurnStoppedError);
+    const cancelled = completion("cancelled");
+    expect(cancelled).toBeInstanceOf(TurnStoppedError);
+    expect(cancelled?.message).toBe("Computer turn ended with status cancelled");
+    expect(completion("failed", { message: "OAuth module could not load" })?.message).toBe("OAuth module could not load");
+  });
+});
+
+describe("memory recording exchange", () => {
+  const occurredAt = new Date("2026-08-27T20:07:24.726Z");
+  test("prefers clean visible messages and joins visible agent replies", () => {
+    expect(resolveTurnMemoryExchange({
+      visibleUser: { content: "  Remember cobalt headers.  ", createdAt: occurredAt },
+      internalUser: { content: "<timestamp>wrapped</timestamp><user_query>[t190u] stale</user_query>", createdAt: new Date(0) },
+      visibleAssistant: [{ content: " First update. " }, { content: "Final answer." }],
+      internalAssistant: [{ content: "Checked the headers." }, { content: " " }],
+    })).toEqual({ user: "Remember cobalt headers.", assistant: "First update.\nFinal answer.\nChecked the headers.", occurredAt: occurredAt.getTime() });
+  });
+
+  test("falls back to internal messages, still reviews reaction-only or silent turns, and needs a user side", () => {
+    expect(resolveTurnMemoryExchange({
+      visibleUser: null,
+      internalUser: { content: "Internal request", createdAt: occurredAt },
+      visibleAssistant: [],
+      internalAssistant: [{ content: "Internal draft" }, { content: "Internal response" }],
+    })).toEqual({ user: "Internal request", assistant: "Internal draft\nInternal response", occurredAt: occurredAt.getTime() });
+    expect(resolveTurnMemoryExchange({ visibleUser: { content: "FYI I'm vegetarian now", createdAt: occurredAt }, internalUser: null, visibleAssistant: [], internalAssistant: [] }))
+      .toEqual({ user: "FYI I'm vegetarian now", assistant: "", occurredAt: occurredAt.getTime() });
+    expect(resolveTurnMemoryExchange({ visibleUser: null, internalUser: null, visibleAssistant: [{ content: "Hi" }], internalAssistant: [] })).toBeNull();
+  });
+});
+
+test("transcript projection fingerprints expire and stay LRU bounded", () => {
+  const cache = new TranscriptFingerprintCache(2, 100);
+  cache.remember("bot-a", "a", 0);
+  cache.remember("bot-b", "b", 0);
+  expect(cache.matches("bot-a", "a", 1)).toBe(true);
+  cache.remember("bot-c", "c", 2);
+  expect(cache.size).toBe(2);
+  expect(cache.matches("bot-b", "b", 3)).toBe(false);
+  expect(cache.matches("bot-a", "a", 3)).toBe(true);
+  expect(cache.matches("bot-a", "a", 100)).toBe(false);
 });

@@ -601,7 +601,7 @@ import XCTest
     XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Photos must close the entire tray")
 
     // A panel can't cover the keyboard, so it leaves at once beneath a still of
-    // the chat. Back keeps it away; it returns once, when the tray closes.
+    // the chat, and rises back into place on Back and when the tray closes.
     let keyboard = app.keyboards.firstMatch
     if !keyboard.exists {
       app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.tap()
@@ -617,8 +617,7 @@ import XCTest
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
     app.buttons["attach-back"].tap()
     XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
-    try await Task.sleep(for: .seconds(0.6))
-    XCTAssertFalse(keyboard.exists, "Back to the menu must not bring the keyboard up and down again")
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the menu above the keyboard")
     XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
     app.buttons["attach-camera"].tap()
     XCTAssertTrue(shutter.waitForExistence(timeout: 5))

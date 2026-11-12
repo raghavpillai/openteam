@@ -29,21 +29,6 @@ struct AttachmentTrayActions {
   private var window: UIWindow?
   private weak var chatWindow: UIWindow?
   private var controller: AttachmentTrayController?
-  /// The software keyboard, in screen coordinates; null while none is up.
-  private var keyboardFrame = CGRect.null
-
-  private init() {
-    let center = NotificationCenter.default
-    center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil,
-      queue: .main) { [weak self] note in
-      let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .null
-      MainActor.assumeIsolated { self?.keyboardFrame = frame }
-    }
-    center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil,
-      queue: .main) { [weak self] _ in
-      MainActor.assumeIsolated { self?.keyboardFrame = .null }
-    }
-  }
 
   func present(from button: UIView, actions: AttachmentTrayActions) {
     guard controller == nil, let scene = button.window?.windowScene else { return }
@@ -54,7 +39,7 @@ struct AttachmentTrayActions {
     window.backgroundColor = .clear
     window.overrideUserInterfaceStyle = button.traitCollection.userInterfaceStyle
     let controller = AttachmentTrayController(
-      source: button, actions: actions, keyboard: keyboardFrame
+      source: button, actions: actions
     ) { [weak self] in self?.dismissed() }
     window.rootViewController = controller
     // Not key while the menu shows: the composer's text field keeps first responder.
@@ -138,19 +123,14 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   private var transition: UIViewPropertyAnimator?
   /// iOS draws the keyboard above every app window, so the panels can't cover
   /// it, and the embedded picker needs this window to be key, which takes the
-  /// keyboard from the field anyway. As a panel opens, the field gives the
-  /// keyboard up at once beneath a still of the chat, so neither the transcript
-  /// nor the composer moves under the tray; it takes the keyboard back once,
-  /// when the tray closes, rather than on every return to the menu.
+  /// keyboard from the field anyway. The menu opens above the live keyboard. As
+  /// a panel opens, the field gives the keyboard up at once beneath a still of
+  /// the chat, so neither the transcript nor the composer moves under the tray;
+  /// the keyboard rises back into the still's gap on Back or when the tray closes.
   private weak var typing: UIResponder?
   private var still: UIView?
   /// The composer as the still shows it, where added attachments settle.
   private var heldComposer: CGRect?
-  /// The keyboard when the tray opened, in screen coordinates.
-  private let keyboardAtOpen: CGRect
-  /// Whether the menu opened over a keyboard, which it then covers, as in the
-  /// reference, rather than tucking itself into the space above it.
-  private var overKeyboard = false
 
   private let backdrop = UIControl()
   private let card = UIView()
@@ -186,9 +166,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   static let control: CGFloat = 44
   static let controlInset: CGFloat = 24
 
-  init(source: UIView, actions: AttachmentTrayActions, keyboard: CGRect,
-    finished: @escaping () -> Void) {
-    keyboardAtOpen = keyboard
+  init(source: UIView, actions: AttachmentTrayActions, finished: @escaping () -> Void) {
     sourceButton = source
     self.source = source.convert(source.bounds, to: nil)
     self.actions = actions
@@ -382,10 +360,8 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     // The card's lower-leading corner sits just outside the + button, which it covers.
     let x = min(max(view.safeAreaInsets.left + 4, actions.contentLeading() + 4, anchor.x - 31),
       view.bounds.width - view.safeAreaInsets.right - Self.menuWidth - 4)
-    // Over the keyboard, the reference centres the menu 18 points below +,
-    // across the composer and the top of the keyboard.
-    let maxY = overKeyboard ? min(anchor.y + 18 + height / 2, view.bounds.height - 6)
-      : min(anchor.y + 31, view.bounds.height - 6)
+    // Above a keyboard, which stays live and visible beneath the menu.
+    let maxY = min(anchor.y + 31, view.bounds.height - 6)
     return CGRect(x: x, y: maxY - height, width: Self.menuWidth, height: height)
   }
   /// Both panels sit 12 points from the column's edges, as in the reference, and
@@ -417,10 +393,6 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     typing = UIResponder.current
     loadViewIfNeeded()
     view.layoutIfNeeded()
-    if keyboardCoversBelow(), typing?.isFirstResponder == true {
-      overKeyboard = true
-      freezeChat()
-    }
     panel.frame = panelFrame
     picker?.view.frame = panel.bounds
     card.transform = .identity
@@ -497,6 +469,9 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     menu.isUserInteractionEnabled = false
     menu.accessibilityElementsHidden = false
     if morphSnapshot != nil { panel.alpha = 0 }
+    // The keyboard rises back into the gap the still keeps for it as the panel
+    // folds into the menu, so the menu returns above a live keyboard.
+    releaseStill(typing: true) {}
     let target = menuFrame
     animate(Motion.morph, animations: {
       self.card.frame = target
@@ -524,12 +499,6 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
 
   // MARK: Keyboard
 
-  /// A software keyboard below + (not a hardware keyboard's shortcut bar).
-  private func keyboardCoversBelow() -> Bool {
-    guard !keyboardAtOpen.isNull, !keyboardAtOpen.isEmpty, let screen = view.window?.screen else { return false }
-    let local = view.convert(keyboardAtOpen, from: screen.coordinateSpace)
-    return local.minY > anchor.y && local.minY < view.bounds.height - 1 && local.height > 100
-  }
 
   private func freezeChat() {
     // The chat's own window, without this tray's menu above it (or the

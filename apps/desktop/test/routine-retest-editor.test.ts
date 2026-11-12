@@ -23,6 +23,7 @@ const stubExports = [
   "Pause",
   "X",
   "Button",
+  "ButtonPrimitive",
   "DropdownMenu",
   "DropdownMenuContent",
   "DropdownMenuItem",

@@ -2,17 +2,23 @@
 
 This work implements the confirmed defect families from [the original 75-case triage](issue-275-triage.md). The original reproduction scripts characterize commit `c0bf70b3c3f9a21953e96575bed560cca801f027`; their assertions intentionally describe broken behavior and are not the acceptance suite for this branch. The table below gives each original case a current disposition. Multiple cases share one regression-tested cause.
 
+## Publication verification after integrating main
+
+Integrated `origin/main` at `2090e228ca7a43aefc3f38d708e8e1e5b3b2eb48`, retaining both imports in the editor's only merge conflict. The component harness now also stubs main's shared `ButtonPrimitive`; no routine logic was changed for the merge.
+
+Reran the complete acceptance set on a new disposable PostgreSQL database with actual `db:push` and raw schema SQL: **331 tests passed across 41 isolated files, zero failures and zero skips**. All 12 typecheck tasks, all four architecture checks, server/worker/renderer builds, worker Node syntax checking, and whitespace checks passed. [Post-integration per-file results and source fingerprint](issue-275-pr-results.json) identify the publication state. The upgrade/repair evidence and limitations below remain applicable; this does not claim live-provider or browser-layout testing.
+
 ## Pull request readiness audit
 
 The original issue was re-read and its exact New York 03:00/18:09 trigger matched to the parser and database regression. The parser expects 23:09 UTC; the database test imports, dispatches the second listener exactly once, reapplies stale files, and verifies that due time and committed history do not rewind. Both are included in the passing acceptance set. The parser and original-listener variant checks were rerun during this audit: two passed, zero failures (14 other checks were filtered out).
 
 All **75 original investigation rows** have a disposition: **61 implemented scenarios/constraints, 10 preserved controls, three deliberately retained compatibility policies, and one documented delete-acknowledgment limitation**. These are scenarios, not 61 independent defects. The retained policies are combined minimum spacing, file-import owner caps, and file-import high-volume listener scope. The delete case still eventually performs the requested deletion; it does not guarantee atomic file/SQL acknowledgment. These entries must not be described as newly fixed bugs.
 
-The complete changed source file set and its content hash still match the latest **331-pass** acceptance result. The additional agent findings and parent execution finding are covered by the linked repeat suites below. The work is ready for pull request review and staging within that scope; changes remain local and uncommitted, and this is not a claim of merge-CI or live-provider certification. The documented legacy recovery, DST, filesystem atomicity, historical-anchor, and client-restart limits remain.
+At that audit, the complete changed source file set and its content hash matched the **331-pass** repeat acceptance result; publication verification above records the subsequent main integration. The additional agent findings and parent execution finding are covered by the linked repeat suites below. The work is ready for pull request review and staging within that scope; that audit was performed before publication, and it is not a claim of merge-CI or live-provider certification. The documented legacy recovery, DST, filesystem atomicity, historical-anchor, and client-restart limits remain.
 
 ## Repeat verification with three independent subagents
 
-The latest acceptance run passed **331 targeted tests across 41 isolated test files, zero failures and zero skips**, on a fresh PostgreSQL database installed with production `db:push`, including raw SQL constraints and search triggers. [Per-file results and the source fingerprint](issue-275-repeat-results.json) describe this verified state. The three independent reviewers covered scheduling, file reconciliation, and editor behavior; the parent added execution-outcome checks.
+The earlier repeat acceptance run passed **331 targeted tests across 41 isolated test files, zero failures and zero skips**, on a fresh PostgreSQL database installed with production `db:push`, including raw SQL constraints and search triggers. [Per-file results and the source fingerprint](issue-275-repeat-results.json) describe this verified state. The three independent reviewers covered scheduling, file reconciliation, and editor behavior; the parent added execution-outcome checks.
 
 This pass found and fixed additional defects missed by the previous run:
 

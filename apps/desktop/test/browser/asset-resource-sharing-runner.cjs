@@ -4,7 +4,6 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 app.setPath("userData", process.env.ASSET_SHARING_PROFILE);
 app.whenReady().then(async () => {
-  const baseline = process.env.ASSET_SHARING_BASELINE === "1";
   const reports = [];
   const ux = {};
   const win = new BrowserWindow({
@@ -84,16 +83,16 @@ app.whenReady().then(async () => {
     const shared = probe.images[0].source;
     const initial = probe;
     check(
-      probe.requests === (baseline ? 2 : 1),
-      "isolated alias request count matches the selected implementation"
+      probe.requests === 1,
+      "aliases of one asset share a single request"
     );
     check(
-      probe.blobCount === (baseline ? 2 : 1),
-      "isolated alias blob count matches the selected implementation"
+      probe.blobCount === 1,
+      "aliases of one asset share a single blob"
     );
     check(
-      (probe.images[0].source === probe.images[1].source) === !baseline,
-      "alias URL ownership matches the selected implementation"
+      probe.images[0].source === probe.images[1].source,
+      "aliases of one asset share one object URL"
     );
     check(
       (await hash(shared)) === process.env.ASSET_SHARING_HASH,
@@ -187,8 +186,8 @@ app.whenReady().then(async () => {
       frame.some((image) => !image.source || image.width !== 1024)
     ).length;
     check(
-      baseline ? missingTransitionFrames > 0 : missingTransitionFrames === 0,
-      "an alias-only change reuses warm image pixels without a blank animation frame in the candidate"
+      missingTransitionFrames === 0,
+      "an alias-only change reuses warm image pixels without a blank animation frame"
     );
     await evaluate("window.holdAssetRequests(false); window.releaseAssetRequests()");
     await ready(1);
@@ -211,7 +210,7 @@ app.whenReady().then(async () => {
       [`${first}&case=pending`, `${second}&case=pending`],
       ["pending-first", "pending-second"]
     );
-    probe = await waitFor((probe) => probe.requests >= pendingStart + (baseline ? 2 : 1));
+    probe = await waitFor((probe) => probe.requests >= pendingStart + 1);
     await render([`${second}&case=pending`], ["pending-second"]);
     await evaluate("window.holdAssetRequests(false); window.releaseAssetRequests()");
     probe = await ready(1);
@@ -220,14 +219,14 @@ app.whenReady().then(async () => {
       "removing the first pending alias does not cancel the remaining consumer's load"
     );
     check(
-      probe.requests === pendingStart + (baseline ? 2 : 1),
+      probe.requests === pendingStart + 1,
       "the surviving pending consumer finishes without a replacement request"
     );
 
     await evaluate("window.holdAssetRequests(true)");
     const abandonedStart = (await read()).requests;
     await render([`${first}&case=abandoned`, `${second}&case=abandoned`]);
-    probe = await waitFor((probe) => probe.requests >= abandonedStart + (baseline ? 2 : 1));
+    probe = await waitFor((probe) => probe.requests >= abandonedStart + 1);
     const createdBeforeAbandon = probe.created;
     await render([]);
     probe = await waitFor((probe) =>
@@ -261,7 +260,7 @@ app.whenReady().then(async () => {
     await evaluate("window.holdAssetRequests(true)");
     const raceStart = (await read()).requests;
     await render([`${first}&case=credential-race`, `${second}&case=credential-race`]);
-    probe = await waitFor((probe) => probe.requests >= raceStart + (baseline ? 2 : 1));
+    probe = await waitFor((probe) => probe.requests >= raceStart + 1);
     const oldGeneration = probe.generation;
     await evaluate("window.invalidateAssetCredentials()");
     probe = await waitFor((probe) =>
@@ -279,7 +278,7 @@ app.whenReady().then(async () => {
     await evaluate("window.holdAssetRequests(false); window.releaseAssetRequests()");
     probe = await ready(2);
     check(
-      probe.created === createdAtRace + (baseline ? 2 : 1) &&
+      probe.created === createdAtRace + 1 &&
         (await hash(probe.images[0].source)) === process.env.ASSET_SHARING_HASH,
       "only fresh-generation aliases publish blobs after a slow credential race"
     );
@@ -287,12 +286,12 @@ app.whenReady().then(async () => {
     await evaluate("window.unmountAssetResources()");
     fs.writeFileSync(
       process.env.ASSET_SHARING_RESULT,
-      JSON.stringify({ baseline, initial, reports, ux }, null, 2)
+      JSON.stringify({ initial, reports, ux }, null, 2)
     );
   } catch (error) {
     fs.writeFileSync(
       process.env.ASSET_SHARING_RESULT,
-      JSON.stringify({ baseline, reports, ux, error: String(error) }, null, 2)
+      JSON.stringify({ reports, ux, error: String(error) }, null, 2)
     );
     process.exitCode = 1;
   } finally {

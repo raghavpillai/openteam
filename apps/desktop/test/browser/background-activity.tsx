@@ -173,19 +173,11 @@ else
       { ...run, id: "latest-result", status: "completed", requestState: "complete" },
     ];
     tasks = Array.from({ length: 8 }, (_, i) => ({ ...task, id: `parked-${i}`, subagentId: `parked-${i}`, status: "waiting" as const }));
-    if (new URLSearchParams(location.search).has("baseline")) {
-      await expectCaption("Waiting for a result", "main reproduction: delivered latest reply plus old wait and eight parked children falsely shows activity");
-    } else {
-      await expectCaption(null, "patched reproduction: delivered latest reply plus old wait and eight parked children is idle");
-      activeRun = run;
-      await expectCaption("Searching the web", "patched reproduction: actual wake restores activity");
-      activeRun = undefined;
-      await expectCaption(null, "patched reproduction: wake completes and old follow-up stays silent");
-    }
-    if (new URLSearchParams(location.search).has("baseline")) {
-      console.log("BACKGROUND_ACTIVITY_RESULT " + JSON.stringify({ passed: reports.length, reports }));
-      return;
-    }
+    await expectCaption(null, "delivered latest reply plus old wait and eight parked children is idle");
+    activeRun = run;
+    await expectCaption("Searching the web", "an actual wake restores activity");
+    activeRun = undefined;
+    await expectCaption(null, "wake completes and old follow-up stays silent");
     parkedRuns = [];
     for (const theme of ["light", "dark"]) {
       document.documentElement.dataset.theme = theme;

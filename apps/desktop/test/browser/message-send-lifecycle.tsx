@@ -314,19 +314,14 @@ async function shortThreadReply() {
 try {
   await controller.restore();
   const reports = [];
-  const recording = new URLSearchParams(location.search).has("retry-bar-recording");
-  if (recording) {
-    reports.push(await scenario("dark", "retry-failure"));
-    reports.push(await scenario("dark", "transient-retry"));
-  } else {
-    for(const theme of reducedMotion ? ["dark"] : ["dark", "light"])
-      for(const mode of (reducedMotion ? ["delayed", "failed"] :
-        ["delayed", "failed", "uncertain-safe-retry", "uncertain-late-echo"]) as
-        ("delayed" | "transient-retry" | "retry-failure" | "failed" | "uncertain-safe-retry" | "uncertain-late-echo")[])
-        reports.push(await scenario(theme, mode));
-    reports.push(await scenario("dark", "transient-retry"));
-    reports.push(await shortThreadReply());
-  }
+  for(const theme of reducedMotion ? ["dark"] : ["dark", "light"])
+    for(const mode of (reducedMotion ? ["delayed", "failed"] :
+      ["delayed", "failed", "uncertain-safe-retry", "uncertain-late-echo"]) as
+      ("delayed" | "transient-retry" | "retry-failure" | "failed" | "uncertain-safe-retry" | "uncertain-late-echo")[])
+      reports.push(await scenario(theme, mode));
+  reports.push(await scenario("dark", "retry-failure"));
+  reports.push(await scenario("dark", "transient-retry"));
+  reports.push(await shortThreadReply());
   console.log("LIFECYCLE_RESULT " + JSON.stringify({reports}));
 } catch(error) {
   console.log("LIFECYCLE_RESULT " + JSON.stringify({error: String(error)}));

@@ -10,22 +10,7 @@ const output = resolve(
     resolve(import.meta.dir, "../../../output/chat-scroll-stress")
 );
 const reduced = process.argv.includes("--reduced-motion");
-const replaceModule = process.argv.find((arg) => arg.startsWith("--replace-module="))?.slice(17);
-const withSource = process.argv.find((arg) => arg.startsWith("--with-source="))?.slice(14);
-if (Boolean(replaceModule) !== Boolean(withSource)) throw Error("Supply both control source paths");
 const server = await createServer({
-  plugins:
-    replaceModule && withSource
-      ? [
-          {
-            name: "scroll-regression-control",
-            enforce: "pre",
-            load(id) {
-              if (id === resolve(replaceModule)) return readFile(resolve(withSource), "utf8");
-            },
-          },
-        ]
-      : [],
   root: resolve(import.meta.dir, ".."),
   configFile: resolve(import.meta.dir, "../vite.config.ts"),
   cacheDir: join(temporary, "cache"),

@@ -33,8 +33,6 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
  assert(button('#form', 'Continue').disabled, 'required password blocks submission');
  setValue(document.querySelector<HTMLInputElement>('#form input[type=password]')!, 'fixture-secret'); await wait();
  assert(!document.body.textContent!.includes('fixture-secret'), 'password is masked');
- (window as any).parityReady = true; // Runner captures the initial real Chromium view.
- await wait(500);
  button('#form', 'Continue').click(); button('#form', 'Continue').click(); await wait();
  assert(delivered.filter((item) => item.kind === 'form').length === 1, 'one submission while pending');
  release!(); await wait(); assert(!document.querySelector('#form input'), 'values removed after submission');

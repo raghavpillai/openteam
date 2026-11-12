@@ -20,18 +20,6 @@ const rendererFailure = rendererFailureArgument
 if (rendererFailure && !conversation) throw new Error("Renderer failures require --conversation");
 if (rendererFailure && !["markdown", "plugin", "file"].includes(rendererFailure))
   throw new Error("Unknown renderer failure mode");
-const withoutRendererBoundary = process.argv.includes("--without-renderer-boundary");
-if (withoutRendererBoundary && !rendererFailure)
-  throw new Error("Boundary control requires an injected failure");
-// An audit control can replace only these production modules, while executing
-// the exact same fixture, dependencies, delays, and assertions as the fixed run.
-const control = process.argv.find((arg) => arg.startsWith("--control-dir="))?.slice(14);
-if (control && !navigation) throw new Error("Source controls require --navigation");
-const controlFiles = new Set([
-  "src/renderer/state/use-openteam.ts",
-  "src/renderer/components/openteam/chat-pane.tsx",
-  "src/renderer/components/openteam/thread-tray.tsx",
-]);
 const server = await createServer({
   root: resolve(import.meta.dir, ".."),
   cacheDir: join(directory, "vite-cache"),
@@ -41,23 +29,10 @@ const server = await createServer({
     conversation || navigation
       ? [
           {
-            name: "navigation-audit-control",
+            name: "inject-renderer-failures",
             enforce: "pre" as const,
-            async load(id: string) {
+            load(id: string) {
               const path = relative(resolve(import.meta.dir, ".."), id.split("?")[0]!);
-              if (
-                withoutRendererBoundary &&
-                path === "src/renderer/components/ai-elements/message.tsx"
-              ) {
-                const source = await readFile(id.split("?")[0]!, "utf8");
-                const handler =
-                  "  static getDerivedStateFromError() {\n    return { failed: true };\n  }\n";
-                if (!source.includes(handler))
-                  throw new Error("Renderer boundary control no longer matches");
-                return source.replace(handler, "");
-              }
-              if (control && controlFiles.has(path))
-                return readFile(resolve(control, path), "utf8");
               if (
                 rendererFailure === "markdown" &&
                 path === "src/renderer/components/ai-elements/message-response.tsx"

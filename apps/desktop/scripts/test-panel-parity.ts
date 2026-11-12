@@ -1,43 +1,17 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { createRequire } from "node:module";
-import { createServer } from "vite";
+// Search palette and Create Bot panel checks; both runners share one fixture page.
+import { runAndPrint } from "../test/browser/run-electron-fixture";
 
-const require = createRequire(import.meta.url);
-const directory = await mkdtemp(join(tmpdir(), "openteam-panel-parity-"));
-const server = await createServer({
-  root: resolve(import.meta.dir, ".."),
-  configFile: resolve(import.meta.dir, "../vite.config.ts"),
-  server: { port: 0, strictPort: false },
+await runAndPrint({
+  name: "panel-parity",
+  runner: "panel-parity-runner.cjs",
+  page: "panel-parity.html",
+  env: (dir, url) => ({ PANEL_TEST_DIR: dir, PANEL_TEST_URL: url }),
+  timeoutMs: 45_000,
 });
-try {
-  await server.listen();
-  const url = `${server.resolvedUrls!.local[0]}test/browser/panel-parity.html`;
-  const child = Bun.spawn(
-    [
-      require("electron") as string,
-      resolve(import.meta.dir, "../test/browser/panel-parity-runner.cjs"),
-    ],
-    {
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: undefined,
-        PANEL_TEST_DIR: directory,
-        PANEL_TEST_URL: url,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    }
-  );
-  const timeout = setTimeout(() => child.kill(), 45_000);
-  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  clearTimeout(timeout);
-  if (code) throw new Error(`Electron failed: ${stderr}`);
-  const result = JSON.parse(await readFile(join(directory, "results.json"), "utf8"));
-  if (result.error) throw new Error(result.error);
-  console.log(JSON.stringify(result, null, 2));
-} finally {
-  await server.close();
-  await rm(directory, { recursive: true, force: true });
-}
+await runAndPrint({
+  name: "search-parity",
+  runner: "search-parity-runner.cjs",
+  page: "panel-parity.html",
+  env: (dir, url) => ({ SEARCH_TEST_DIR: dir, SEARCH_TEST_URL: url }),
+  timeoutMs: 90_000,
+});

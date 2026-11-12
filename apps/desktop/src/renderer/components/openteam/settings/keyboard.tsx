@@ -121,7 +121,7 @@ function ShortcutRow({
 
   const label = SHORTCUT_LABELS[action];
   const description = recording
-    ? `Press the new shortcut${action === "dictate" && mac ? ", or 🌐 Fn on its own" : ""}. Esc cancels.`
+    ? "Press the new shortcut. Esc cancels."
     : label.description;
 
   return (

@@ -25,7 +25,6 @@ declare global {
       versionOffline: boolean;
       statusOffline: boolean;
       links: string[];
-      requests: string[];
       desktop: (next: Partial<OpenTeamUpdateStatus>) => void;
       server: (next: Partial<ServerStatus>) => void;
     };
@@ -73,7 +72,6 @@ const fixture = (window.fixture = {
   versionOffline: false,
   statusOffline: false,
   links: [] as string[],
-  requests: [] as string[],
   desktop(next: Partial<OpenTeamUpdateStatus>) {
     desktop = { ...desktop, ...next };
     for (const listener of desktopListeners) listener(desktop);
@@ -88,11 +86,6 @@ window.addEventListener("openteam:deep-link", (event) => {
 });
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
-  fixture.requests.push(url.pathname);
-  if (url.pathname === "/api/v0/server-settings/machines") return Response.json([]);
-  if (url.pathname === "/api/v0/server-settings/computer-display") return Response.json({ width: 1280, height: 800 });
-  if (url.pathname.endsWith("/local-mac/messages")) return Response.json({ sendWithoutAsking: false, allowedRecipients: [] });
-  if (url.pathname === "/api/v0/system/activity") return Response.json({ cpuPercent: 5, memoryPercent: 20, diskPercent: 10 });
   if (url.pathname === "/api/v0/system/version") {
     if (fixture.offline || fixture.versionOffline) throw new Error("Server restarting");
     return Response.json({ releaseVersion: server.currentVersion,
@@ -130,13 +123,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 };
 window.openteam = {
   versions: { app: "0.0.11" },
-  auth: {
-    machineStatus: async () => ({ machineId: "local-mac", connected: true, configured: true, error: null }),
-  },
-  computer: {
-    get: async () => ({ version: 1, machine: { machineId: "local-mac", label: "This Mac" }, messagesSupported: true, messagesEnabled: false }),
-    messagesPermissions: async () => null,
-  },
   updates: {
     status: async () => desktop,
     check: async () => desktop,
@@ -147,9 +133,7 @@ window.openteam = {
   },
 } as unknown as NonNullable<Window["openteam"]>;
 
-const [{ default: ComputerSettings }, { default: ServerSettings }, { default: UpdatesSettings }, { SidebarBotOrderContext }] = await Promise.all([
-  import("../../src/renderer/components/openteam/settings/computer"),
-  import("../../src/renderer/components/openteam/settings/server"),
+const [{ default: UpdatesSettings }, { SidebarBotOrderContext }] = await Promise.all([
   import("../../src/renderer/components/openteam/settings/updates"),
   import("../../src/renderer/lib/sidebar-bot-order"),
 ]);
@@ -158,7 +142,7 @@ createRoot(document.getElementById("root")!).render(
     {/* Scout sits above Chief of Staff in the sidebar, although Chief of Staff started first. */}
     <SidebarBotOrderContext.Provider value={["b-scout", "b-chief"]}>
       <main className="mx-auto max-w-[720px] p-8">
-        {new URLSearchParams(location.search).has("computer") ? <ComputerSettings /> : new URLSearchParams(location.search).has("server") ? <ServerSettings /> : <UpdatesSettings />}
+        <UpdatesSettings />
       </main>
     </SidebarBotOrderContext.Provider>
   </StrictMode>

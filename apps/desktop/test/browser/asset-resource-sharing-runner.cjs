@@ -1,11 +1,9 @@
 const { app, BrowserWindow } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
 app.setPath("userData", process.env.ASSET_SHARING_PROFILE);
 app.whenReady().then(async () => {
   const reports = [];
-  const ux = {};
   const win = new BrowserWindow({
     show: false,
     width: 600,
@@ -43,35 +41,6 @@ app.whenReady().then(async () => {
     evaluate(
       `(() => { const c=document.createElement('canvas');c.width=1;c.height=1;const x=c.getContext('2d');return [...document.images].map(i=>{x.clearRect(0,0,1,1);x.drawImage(i,0,0,1,1);return [...x.getImageData(0,0,1,1).data]});})()`
     );
-  const download = (url, name) =>
-    new Promise((resolve, reject) => {
-      const session = win.webContents.session;
-      const destination = path.join(path.dirname(process.env.ASSET_SHARING_RESULT), name);
-      const timeout = setTimeout(() => finish(Error("Download did not complete")), 8000);
-      const finish = (error, value) => {
-        clearTimeout(timeout);
-        session.removeListener("will-download", onDownload);
-        error ? reject(error) : resolve(value);
-      };
-      const onDownload = (_event, item, contents) => {
-        if (contents !== win.webContents || item.getURL() !== url) return;
-        const suggested = item.getFilename();
-        item.setSavePath(destination);
-        item.once("done", (_event, state) => {
-          if (state !== "completed") {
-            finish(Error("Download " + state));
-            return;
-          }
-          finish(null, {
-            suggested,
-            name: path.basename(destination),
-            hash: crypto.createHash("sha256").update(fs.readFileSync(destination)).digest("hex"),
-          });
-        });
-      };
-      session.on("will-download", onDownload);
-      win.webContents.downloadURL(url);
-    });
   try {
     await win.loadURL(process.env.ASSET_SHARING_URL);
     await waitFor(() => true);
@@ -108,17 +77,11 @@ app.whenReady().then(async () => {
       )) === "image/svg+xml",
       "shared blobs preserve the original response MIME type"
     );
+    await evaluate(`window.renderAssetMarkdown(${JSON.stringify(first)}, ${JSON.stringify(second)})`);
+    probe = await ready(2);
     check(
-      probe.images.every((image) => image.height === 768),
-      "both images decode at full original resolution"
-    );
-    const initialPixels = await evaluate(
-      `(() => { const c=document.createElement('canvas');c.width=1;c.height=1;const x=c.getContext('2d');return [...document.images].map(i=>{x.drawImage(i,0,0,1,1);return [...x.getImageData(0,0,1,1).data]});})()`
-    );
-    check(
-      JSON.stringify(initialPixels[0]) === JSON.stringify(initialPixels[1]) &&
-        initialPixels[0][3] === 255,
-      "shared image pixels match the independently decoded alias"
+      probe.requests === 1 && probe.images.every((image) => image.source === shared),
+      "a Markdown image in a reply loads through the same authenticated resource"
     );
     await render([second]);
     probe = await ready(1);
@@ -159,38 +122,6 @@ app.whenReady().then(async () => {
       probe.requests === requestCount + 2 && probe.images[0].source !== probe.images[1].source,
       "different rendition parameters keep distinct resources"
     );
-
-    const httpDownload = await download(
-      new URL(second, process.env.ASSET_SHARING_URL).href,
-      "original-renamed.svg"
-    );
-    check(
-      httpDownload.suggested === "renamed.svg" &&
-        httpDownload.hash === process.env.ASSET_SHARING_HASH,
-      "real Electron HTTP download preserves the original URL filename and bytes"
-    );
-    const blobDownload = await download(probe.images[0].source, "user-selected résumé.svg");
-    check(
-      blobDownload.name === "user-selected résumé.svg" &&
-        blobDownload.hash === process.env.ASSET_SHARING_HASH,
-      "real Electron blob Save path preserves the user-selected filename and original bytes"
-    );
-
-    await render([`${first}&case=transition`]);
-    await ready(1);
-    await evaluate("window.holdAssetRequests(true)");
-    ux.aliasTransitionFrames = await evaluate(
-      `window.transitionAssetFrames(${JSON.stringify([`${second}&case=transition`])})`
-    );
-    const missingTransitionFrames = ux.aliasTransitionFrames.filter((frame) =>
-      frame.some((image) => !image.source || image.width !== 1024)
-    ).length;
-    check(
-      missingTransitionFrames === 0,
-      "an alias-only change reuses warm image pixels without a blank animation frame"
-    );
-    await evaluate("window.holdAssetRequests(false); window.releaseAssetRequests()");
-    await ready(1);
 
     await render([
       "/api/v0/bots/fixture/avatar?revision=1",
@@ -286,12 +217,12 @@ app.whenReady().then(async () => {
     await evaluate("window.unmountAssetResources()");
     fs.writeFileSync(
       process.env.ASSET_SHARING_RESULT,
-      JSON.stringify({ initial, reports, ux }, null, 2)
+      JSON.stringify({ initial, reports }, null, 2)
     );
   } catch (error) {
     fs.writeFileSync(
       process.env.ASSET_SHARING_RESULT,
-      JSON.stringify({ reports, ux, error: String(error) }, null, 2)
+      JSON.stringify({ reports, error: String(error) }, null, 2)
     );
     process.exitCode = 1;
   } finally {

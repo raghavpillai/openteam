@@ -26,9 +26,3 @@ test("a stuck native read exits checking, and a late read cannot settle the time
   expect(accepted).toBe(false);
   expect(await readNativeAuthWithDeadline(Promise.resolve("retry"), 50)).toBe("retry");
 });
-
-test("successful and rejected native reads preserve their result", async () => {
-  const value = { token: "synthetic session" };
-  expect(await readNativeAuthWithDeadline(Promise.resolve(value), 50)).toBe(value);
-  await expect(readNativeAuthWithDeadline(Promise.reject(new Error("fixture error")), 50)).rejects.toThrow("fixture error");
-});

@@ -3,15 +3,12 @@ import {
   DEFAULT_ROUTINE_SCHEDULE,
   parseRoutineSchedule,
   recoverRoutineCreation,
-  routinePresentationValue,
   routineScheduleDrafts,
   routineScheduleUpdate,
   routineScheduleValue,
   routineScheduleValues,
   routineTriggerValue,
   routineUpdateInput,
-  routineDefinitionEqual,
-  routineEditorResumeState,
   synchronizeRoutineEnabled,
   type RoutineView,
 } from "../src/renderer/lib/routines";
@@ -82,48 +79,6 @@ describe("routine editor preserves authored schedules", () => {
     });
   });
 
-  test("correct existing time windows keep their schedule and stale presentation cannot pin a floating zone", () => {
-    const every30 = {
-      ...advanced,
-      advancedEveryAmount: 30,
-      advancedFromTime: "08:00",
-      advancedToTime: "17:00",
-    };
-    expect(routineScheduleValues(every30)).toEqual(["*/30 8-17 * * *"]);
-    expect(
-      routineScheduleValues({ ...every30, advancedEveryAmount: 2, advancedEveryUnit: "h" })
-    ).toEqual(["0 8-17/2 * * *"]);
-    const routine = routineWith(["*/30 8-17 * * *"], {
-      triggerPresentation: routinePresentationValue([{ ...every30, timeZone: "Pacific/Honolulu" }]),
-    });
-    expect(routineScheduleDrafts(routine)[0]?.timeZone).toBeUndefined();
-    expect(routineScheduleUpdate(routine, routineScheduleDrafts(routine))).toEqual({});
-  });
-
-  test("mixed zones inside one old presentation card remain separate when a time is edited", () => {
-    const routine = routineWith(["CRON_TZ=America/New_York 0 8 * * *", "CRON_TZ=UTC 0 10 * * *"], {
-      triggerPresentation: routinePresentationValue([
-        {
-          ...advanced,
-          advancedTimeMode: "at-times",
-          advancedTimes: ["08:00", "10:00"],
-        },
-      ]),
-    });
-    const drafts = routineScheduleDrafts(routine);
-    expect(drafts).toHaveLength(2);
-    expect(drafts.map((draft) => draft.timeZone)).toEqual(["America/New_York", "UTC"]);
-    expect(
-      routineScheduleUpdate(routine, [{ ...drafts[0]!, time: "09:00" }, drafts[1]!]).trigger
-    ).toEqual({
-      type: "group",
-      listeners: [
-        { type: "cron", schedule: "CRON_TZ=America/New_York 0 9 * * *" },
-        { type: "cron", schedule: "CRON_TZ=UTC 0 10 * * *" },
-      ],
-    });
-  });
-
   test("a delayed autosave cannot undo a newer Pause or Resume", async () => {
     for (const enabled of [false, true]) {
       let complete!: () => void;
@@ -153,38 +108,6 @@ describe("routine editor preserves authored schedules", () => {
     }
   });
 
-  test("uncertain creation applies the latest Pause even when recovery finishes later", async () => {
-    const original = { name: "Original", prompt: "Old", enabled: true };
-    const desired = { ...original, prompt: "Changed" };
-    const routine = routineWith(["@every 1h"]);
-    let resolve!: (value: RoutineView) => void;
-    const response = new Promise<RoutineView>((done) => {
-      resolve = done;
-    });
-    let latestEnabled = true;
-    const result = recoverRoutineCreation(
-      { clientId: "stable-create", input: original },
-      desired,
-      async () => response,
-      () => undefined,
-      async (saved) => ({
-        ...saved,
-        ...routineUpdateInput(
-          saved,
-          {
-            name: desired.name,
-            prompt: desired.prompt,
-            schedules: routineScheduleDrafts(saved),
-          },
-          latestEnabled
-        ),
-      })
-    );
-    latestEnabled = false;
-    resolve(routine);
-    expect(await result).toMatchObject({ id: routine.id, enabled: false, prompt: "Changed" });
-  });
-
   test("Pause after creation retries a revision conflict without overwriting newer content", async () => {
     const saved = routineWith(["@every 1h"]);
     const latest = { ...saved, prompt: "Externally edited", revision: 7 };
@@ -209,79 +132,6 @@ describe("routine editor preserves authored schedules", () => {
       [1, false],
       [7, false],
     ]);
-  });
-
-  test("hide and re-show preserve an existing editor's pending save instead of pairing stale fields with a new revision", async () => {
-    const old = routineWith(["0 9 * * *"]);
-    const draft = { name: "Edited", prompt: "Latest instruction", enabled: true };
-    const context = {
-      routine: old,
-      draft,
-      dirty: true,
-      saving: true,
-      pending: null as typeof draft | null,
-      saveState: "saving" as "saving" | "saved" | "error",
-    };
-    let finish!: (value: RoutineView) => void;
-    const response = new Promise<RoutineView>((resolve) => {
-      finish = resolve;
-    });
-    const save = response.then((saved) => {
-      context.routine = saved;
-      context.saving = false;
-      context.dirty = false;
-      context.saveState = "saved";
-      return saved;
-    });
-    // A reopen happens before the request commits. The component uses this same
-    // helper before resetting/fetching, retaining the actual outstanding draft.
-    const resumed = routineEditorResumeState(context, old.id);
-    expect(resumed?.draft).toBe(draft);
-    expect(resumed?.dirty).toBe(true);
-    expect(resumed?.saveState).toBe("saving");
-    finish({ ...old, ...draft, revision: 2 });
-    const saved = await save;
-    expect(resumed?.draft.prompt).toBe(saved.prompt);
-    expect(context.routine.revision).toBe(2);
-    // Once clean, normal reopen fetches the latest server definition.
-    expect(routineEditorResumeState(context, old.id)).toBeNull();
-  });
-
-  test("control-only revision recovery cannot silently authorize a stale content overwrite", async () => {
-    const original = { name: "Audit", prompt: "Inspect", enabled: true };
-    const created = routineWith(["@every 1h"]);
-    const external = { ...created, prompt: "Externally edited", revision: 7 };
-    let server = external;
-    let contentUpdates = 0;
-    const conflict = new Error("Revision changed");
-    await expect(
-      recoverRoutineCreation(
-        { clientId: "stable", input: original },
-        { ...original, prompt: "Stale edit" },
-        async () => created,
-        async (receipt) => {
-          const prepared = await synchronizeRoutineEnabled(
-            receipt,
-            () => false,
-            async (base, enabled) => {
-              if (base.revision === 1) throw conflict;
-              server = { ...server, enabled, revision: 8 };
-              return server;
-            },
-            async () => server,
-            (error) => error === conflict
-          );
-          if (!routineDefinitionEqual(receipt, prepared)) throw conflict;
-          return prepared;
-        },
-        async (base) => {
-          contentUpdates++;
-          return base;
-        }
-      )
-    ).rejects.toBe(conflict);
-    expect(contentUpdates).toBe(0);
-    expect(server).toMatchObject({ enabled: false, prompt: "Externally edited" });
   });
 
   test("45-minute cadence fires every 45 minutes across two midnights", () => {

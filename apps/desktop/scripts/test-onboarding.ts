@@ -1,7 +1,7 @@
 /** Run the actual setup screens against strict, deterministic server endpoints.
  * Usage: bun apps/desktop/scripts/test-onboarding.ts */
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "vite";
@@ -10,10 +10,9 @@ import type { WebProvidersInput, WebProvidersView } from "@openteam/contracts/we
 import { ServerSetupFixture } from "../../ios/scripts/server-setup-fixture";
 
 const repo = resolve(import.meta.dir, "../../..");
-const output = resolve(repo, "output/onboarding-regressions");
-await mkdir(output, { recursive: true });
-let setup = new ServerSetupFixture();
-let methods: string[] = [];
+const scratch = await mkdtemp(join(tmpdir(), "openteam-onboarding-"));
+const setup = new ServerSetupFixture();
+const methods: string[] = [];
 let failVoiceCheck = false;
 
 /** Search starts off, as on a fresh server. A key containing "bad" fails its check. */
@@ -21,7 +20,7 @@ const searchOff = (): WebProvidersView => ({
   search: { selected: null, providers: {} },
   fetch: { selected: "builtin", providers: {} },
 });
-let web = searchOff();
+const web = searchOff();
 const searchKeys = new Map<string, string>();
 function webProviders(path: string, method: string, input: unknown): Response | undefined {
   if (path === "/api/v0/server-settings/web-providers") {
@@ -82,7 +81,7 @@ const fixture = Bun.serve({
 });
 const vite = await createServer({
   root: join(repo, "apps/desktop"),
-  cacheDir: join(await mkdtemp(join(tmpdir(), "openteam-onboarding-")), "vite"),
+  cacheDir: join(scratch, "vite"),
   server: { host: "127.0.0.1", port: 0, proxy: { "/api": { target: fixture.url.origin } } },
 });
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -97,19 +96,12 @@ try {
     headless: true,
     timeout: 30_000,
   });
-  for (const mode of ["light", "dark", "reduced-motion"] as const) {
-    setup = new ServerSetupFixture();
-    web = searchOff();
-    searchKeys.clear();
-    methods = [];
-    const page = await browser.newPage({
-      viewport: { width: 1320, height: 860 },
-      reducedMotion: mode === "reduced-motion" ? "reduce" : "no-preference",
-    });
+  {
+    const page = await browser.newPage({ viewport: { width: 1320, height: 860 } });
     page.setDefaultTimeout(15_000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`${base}test/browser/model-onboarding.html?theme=${mode}&createFails=1`);
+    await page.goto(`${base}test/browser/model-onboarding.html?theme=dark&createFails=1`);
     const title = (value: string) =>
       page.getByRole("heading", { name: value, exact: true }).waitFor();
     const button = (name: string) => page.getByRole("button", { name, exact: true });
@@ -147,7 +139,6 @@ try {
     await button("Turn on web search").click();
     await title("Web search is on");
     assert.equal(web.search.selected, "exa");
-    await page.screenshot({ path: join(output, `${mode}-search.png`), animations: "disabled" });
     await title("Talk instead of type?");
     const key = page.getByRole("textbox", { name: "API key" });
     await key.fill("qa-openai-key");
@@ -164,7 +155,6 @@ try {
     assert.deepEqual(methods, ["PUT", "PUT", "PUT"]);
     await title("Create your first bot");
     await page.waitForFunction(() => !document.documentElement.dataset.setupDirection);
-    await page.screenshot({ path: join(output, `${mode}.png`), animations: "disabled" });
     await page.getByRole("textbox", { name: "Bot name" }).fill("My QA bot");
     await button("Create My QA bot").click();
     await page
@@ -178,21 +168,17 @@ try {
     });
     await title("Other QA bot is already here");
     assert.equal(await page.getByRole("alert").count(), 0);
-    await page.screenshot({ path: join(output, `${mode}-arrival.png`), animations: "disabled" });
     await button("Open it").click();
     await page.getByText("Opened bot: Other QA bot", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      `${mode}: saved AI Back/Esc, refused alternative, search key rollback, voice key reset, PUT save/rollback/retry, bot error recovery passed`
+      `saved AI Back/Esc, refused alternative, search key rollback, voice key reset, PUT save/rollback/retry, bot error recovery passed`
     );
     await page.close();
   }
-} catch (error) {
-  const page = browser?.contexts()[0]?.pages()[0];
-  await page?.screenshot({ path: join(output, "failure.png") }).catch(() => {});
-  throw error;
 } finally {
   await browser?.close();
   await vite.close();
   fixture.stop(true);
+  await rm(scratch, { recursive: true, force: true });
 }

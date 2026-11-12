@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { clearAuthToken, getAuthCredentialGeneration } from "../../src/renderer/client/auth";
 import { useAuthenticatedResource } from "../../src/renderer/hooks/use-authenticated-resource";
+import { MessageResponse } from "../../src/renderer/components/ai-elements/message";
 
 const errors: string[] = [];
 window.addEventListener("error", (event) => errors.push(event.message));
@@ -75,38 +76,26 @@ function Image({ source, index }: { source: string; index: number }) {
   );
 }
 const root = createRoot(document.getElementById("root")!);
-const render = (sources: string[], keys?: string[]) =>
+const render = (sources: string[], keys?: string[], markdown?: string) =>
   flushSync(() =>
     root.render(
       <StrictMode>
         {sources.map((source, index) => (
           <Image key={keys?.[index] ?? index} source={source} index={index} />
         ))}
+        {markdown ? <MessageResponse>{`![Markdown photo](${markdown})`}</MessageResponse> : null}
       </StrictMode>
     )
   );
 Object.assign(window, {
   renderAssetResources: render,
+  renderAssetMarkdown: (image: string, markdown: string) => render([image], undefined, markdown),
   invalidateAssetCredentials: () => flushSync(() => clearAuthToken()),
   holdAssetRequests: (hold: boolean) => {
     holdRequests = hold;
   },
   releaseAssetRequests: () => {
     for (const complete of held.splice(0)) complete();
-  },
-  transitionAssetFrames: async (sources: string[]) => {
-    render(sources);
-    const frames = [];
-    for (let i = 0; i < 4; i++) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      frames.push(
-        [...document.querySelectorAll<HTMLImageElement>("img")].map((image) => ({
-          source: image.getAttribute("src"),
-          width: image.naturalWidth,
-        }))
-      );
-    }
-    return frames;
   },
   failAssetRequests: (count: number) => {
     failuresRemaining = count;

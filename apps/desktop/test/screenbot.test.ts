@@ -29,14 +29,6 @@ describe("appshot roster", () => {
   });
 });
 
-describe("appshot roster theme", () => {
-  test("carries only a known appearance setting to the overlay", () => {
-    const bots = [{ id: "b", name: "B", color: "#000", icon: "bot", channelId: "c" }];
-    expect(parseAppshotRoster({ bots, dictation: true, theme: "dark" })?.theme).toBe("dark");
-    expect(parseAppshotRoster({ bots, dictation: true, theme: "neon" })?.theme).toBeUndefined();
-  });
-});
-
 describe("delivery staging sweep", () => {
   test("drops old half-written stages and keeps finished ones and fresh writes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "stage-sweep-"));

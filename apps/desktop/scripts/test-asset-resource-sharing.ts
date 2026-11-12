@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+// Shared authenticated image resources: aliases, Markdown images, revisions, credential
+// changes and aborted loads against the shipping server asset handler.
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -8,10 +10,6 @@ import { assetResponse } from "../../server/src/asset-http";
 
 const require = createRequire(import.meta.url);
 const temporary = await mkdtemp(join(tmpdir(), "openteam-asset-sharing-"));
-const output = resolve(
-  process.env.ASSET_SHARING_OUTPUT ??
-    resolve(import.meta.dir, "../../../output/asset-sharing")
-);
 const bytes = Buffer.from(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768"><rect width="1024" height="768" fill="teal"/><!--${"a".repeat(1024 * 1024)}--></svg>`
 );
@@ -30,7 +28,6 @@ const assets = {
 const agentData = { agentAttachmentPath: async () => null };
 let server: ReturnType<typeof Bun.serve> | undefined;
 try {
-  await mkdir(output, { recursive: true });
   const renderer = join(temporary, "renderer");
   await build({
     root: resolve(import.meta.dir, ".."),
@@ -72,7 +69,7 @@ try {
         return (await file.exists()) ? new Response(file) : new Response(null, { status: 404 });
       },
     });
-    const resultPath = join(output, "results.json");
+    const resultPath = join(temporary, "results.json");
     const child = Bun.spawn(
       [
         require("electron") as string,

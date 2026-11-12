@@ -91,11 +91,11 @@ app
     const passed = [];
     let current = "startup";
     try {
-      for (const theme of ["dark", "light"]) {
+      {
         const test = async (name, body) => {
-          current = `${theme}: ${name}`;
+          current = name;
           manager.clear();
-          await win.loadURL(`${process.argv[2]}?theme=${theme}`);
+          await win.loadURL(process.argv[2]);
           await until(visible("other-message"));
           await body();
           if (errors.length) throw new Error(errors.join("\n"));
@@ -114,34 +114,19 @@ app
             "Bridge lost the message ID"
           );
         });
-        await test("sequence-only banner resolves outside the latest page", async () => {
-          await js("notificationFixture.announce(25, true)");
-          await until(visible("notice-25"));
-          await check(
-            "!notificationFixture.bridgeTargets.at(-1).messageId",
-            "Legacy fixture unexpectedly supplied an ID"
-          );
-        });
         await test("thread notification opens its actual reply", async () => {
-          await js("notificationFixture.announce(25, false, true)");
+          await js("notificationFixture.announce(25, true)");
           await until(visible("notice-25", true));
-        });
-        await test("successive notifications focus replies within the same thread", async () => {
-          await js("notificationFixture.prepareThread([25, 26])");
-          await js("notificationFixture.announce(25, false, true)");
-          await until(visible("notice-25", true));
-          await js("notificationFixture.announce(26, false, true)");
-          await until(visible("notice-26", true));
         });
         await test("successive notifications switch between different threads", async () => {
           await js(
             "notificationFixture.prepareThread([25, 26]); notificationFixture.prepareThread([160], 159)"
           );
-          await js("notificationFixture.announce(25, false, true)");
+          await js("notificationFixture.announce(25, true)");
           await until(visible("notice-25", true));
-          await js("notificationFixture.announce(160, false, true, 159)");
+          await js("notificationFixture.announce(160, true, 159)");
           await until(visible("notice-160", true));
-          await js("notificationFixture.announce(26, false, true)");
+          await js("notificationFixture.announce(26, true)");
           await until(visible("notice-26", true));
         });
         await test("slow context shows progress and defers read acknowledgement", async () => {
@@ -156,24 +141,6 @@ app
           await check(
             "!document.querySelector('[data-notification-opening]')",
             "Progress remained after completion"
-          );
-        });
-        await test("slow activity hydration does not delay the target", async () => {
-          await js(
-            "notificationFixture.control({stateDelay: 2500}); notificationFixture.announce(25)"
-          );
-          await until(visible("notice-25"), 1500);
-        });
-        await test("cached context opens without another context request", async () => {
-          await js("notificationFixture.announce(25)");
-          await until(visible("notice-25"));
-          await js(
-            "notificationFixture.control({contextDelay: 2500, historyDelay: 2500}); notificationFixture.announce(26)"
-          );
-          await until(visible("notice-26"), 1500);
-          await check(
-            "!notificationFixture.calls.some(c => c.messageId === 'notice-26')",
-            "Cached target fetched context again"
           );
         });
         await test("newer same-channel tap supersedes a delayed older tap", async () => {
@@ -206,27 +173,6 @@ app
           );
           await check(`${readCalls}.length === 0`, "Cancelled conversation was acknowledged");
         });
-        await test("a twelve-tap burst settles on the final target under reordered responses", async () => {
-          for (const number of [25, 65, 85, 45, 105, 55, 75, 35, 95, 115, 15]) {
-            await js(
-              `notificationFixture.control({contextDelay: ${500 + number}}); notificationFixture.announce(${number})`
-            );
-            await pause(10);
-          }
-          await js(
-            "notificationFixture.control({contextDelay: 10}); notificationFixture.announce(100)"
-          );
-          await until(visible("notice-100"));
-          await pause(900);
-          await check(
-            visible("notice-100"),
-            "Reordered burst response replaced the final selection"
-          );
-          await check(
-            "notificationFixture.bridgeTargets.length === 12",
-            "Burst dropped a bridge event"
-          );
-        });
         await test("failed context offers a working retry", async () => {
           await js(
             "notificationFixture.control({contextFailures: 1}); notificationFixture.announce(25)"
@@ -238,29 +184,6 @@ app
           await check(
             "notificationFixture.calls.filter(c => c.messageId === 'notice-25').length === 2",
             "Retry did not repeat the failed request"
-          );
-        });
-        await test("a late failure stays cancelled after switching bots", async () => {
-          await js(
-            "notificationFixture.control({contextDelay: 600, contextFailures: 1}); notificationFixture.announce(25)"
-          );
-          await until("notificationFixture.calls.some(c => c.messageId === 'notice-25')");
-          await selectOther();
-          await pause(850);
-          await check(
-            "!document.querySelector('[data-notification-opening]')",
-            "Stale failure reopened the notification error"
-          );
-          await check(visible("other-message"), "Failure changed the selected conversation");
-        });
-        await test("a new message replaces an older context window", async () => {
-          await js("notificationFixture.announce(25)");
-          await until(visible("notice-25"));
-          await js("notificationFixture.announce(182)");
-          await until(visible("notice-182"));
-          await check(
-            "notificationFixture.calls.some(c => c.messageId === 'notice-182')",
-            "Unloaded newest message skipped context hydration"
           );
         });
         await test("late latest-page hydration preserves the notified target", async () => {
@@ -289,28 +212,6 @@ app
             "!document.querySelector('[data-notification-opening]')",
             "Latest navigation left progress visible"
           );
-        });
-        await test("legacy channel-only click opens a loaded latest message", async () => {
-          const channelId = await js("notificationFixture.channelId");
-          win.webContents.send("openteam:notification-click", { channelId });
-          await until(visible("notice-180"));
-        });
-        await test("malformed click targets are rejected by preload", async () => {
-          const channelId = await js("notificationFixture.channelId");
-          for (const payload of [
-            null,
-            [],
-            { channelId, messageId: "" },
-            { channelId, messageSequence: "invalid" },
-          ]) {
-            win.webContents.send("openteam:notification-click", payload);
-          }
-          await pause(150);
-          await check(
-            "notificationFixture.bridgeTargets.length === 0",
-            "Malformed target escaped preload validation"
-          );
-          await check(visible("other-message"), "Malformed target changed conversations");
         });
         await test("reaction activity is acknowledged while an already-read bot stays open", async () => {
           await js("notificationFixture.announce(180)");

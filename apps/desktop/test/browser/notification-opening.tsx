@@ -32,8 +32,7 @@ messages.push({
   metadata: {},
 });
 let cursor = 10;
-const parameters = new URLSearchParams(location.search);
-document.documentElement.dataset.theme = parameters.get("theme") ?? "dark";
+document.documentElement.dataset.theme = "dark";
 Object.defineProperty(document, "hidden", { configurable: true, value: true });
 Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
 localStorage.clear();
@@ -49,7 +48,6 @@ const calls: Array<{
 const bridgeTargets: unknown[] = [];
 let contextDelay = 0;
 let historyDelay = 0;
-let stateDelay = 0;
 let contextFailures = 0;
 let activityUnreadCount = 0;
 let unreadCount = 180;
@@ -112,10 +110,7 @@ Object.assign(api, {
   pluginComposer: async () => ({ items: [] }),
   routines: async () => [],
   plugins: async () => [],
-  channelState: async (id: string) => {
-    await pause(stateDelay);
-    return state(id);
-  },
+  channelState: async (id: string) => state(id),
   channelHistory: async (id: string, options: { beforeSequence?: string; limit?: number } = {}) => {
     calls.push({ kind: "history", channelId: id, at: performance.now() });
     const rows = structuredClone(
@@ -187,12 +182,10 @@ Object.assign(window, {
     control(value: {
       contextDelay?: number;
       historyDelay?: number;
-      stateDelay?: number;
       contextFailures?: number;
     }) {
       contextDelay = value.contextDelay ?? contextDelay;
       historyDelay = value.historyDelay ?? historyDelay;
-      stateDelay = value.stateDelay ?? stateDelay;
       contextFailures = value.contextFailures ?? contextFailures;
     },
     reaction() {
@@ -207,7 +200,7 @@ Object.assign(window, {
         payload: {},
       });
     },
-    announce(number: number, legacy = false, threaded = false, threadRoot = 24) {
+    announce(number: number, threaded = false, threadRoot = 24) {
       const id = `notice-${number}`;
       let target = messages.find((m) => m.id === id);
       if (!target) {
@@ -227,7 +220,7 @@ Object.assign(window, {
                   channelId: c.id,
                   botId: channel.members[0]!.botId,
                   messageSequence: target.sequence!,
-                  ...(legacy ? {} : { messageId: id }),
+                  messageId: id,
                   ...(threaded ? { threadMessageId: id } : {}),
                   notificationSequence: String(cursor),
                   title: channel.name,

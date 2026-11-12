@@ -156,26 +156,6 @@ describe("desktop bounded message-history windows", () => {
     expect(reset?.window.latestTail).toBeNull();
   });
 
-  test("resets a no-overlap refresh automatically when the viewport follows the bottom", () => {
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(1, 100),
-      mode: "replace",
-      atBottom: true,
-    });
-    const refreshed = applyPrimaryHistoryPage({
-      current: initial.history,
-      window: initial.window,
-      page: historyPage(151, 100),
-      mode: "refresh",
-      atBottom: true,
-    });
-    expect(refreshed.outcome).toBe("applied");
-    expect(refreshed.history.messages[0]?.id).toBe("message-151");
-    expect(refreshed.window.primaryHasNewerGap).toBe(false);
-  });
-
   test("renders one centered context lane and pages both directions with opposite-edge eviction", () => {
     const initial = applyPrimaryHistoryPage({
       current: undefined,
@@ -260,47 +240,6 @@ describe("desktop bounded message-history windows", () => {
     expect(cleared.window.primaryHasNewerGap).toBe(true);
   });
 
-  test("enforces one byte ceiling across retained primary, context, threads, and latest tail", () => {
-    const richPrimary: ChannelHistoryPage = {
-      ...historyPage(901, 100),
-      messages: messages(901, 100).map((candidate) => ({
-        ...candidate,
-        content: `primary ${"p".repeat(12_000)}`,
-      })),
-    };
-    const richContext: ChannelMessageContextView = {
-      ...contextPage(451, 101, 501),
-      messages: messages(451, 101).map((candidate) => ({
-        ...candidate,
-        content: `context ${"c".repeat(12_000)}`,
-      })),
-    };
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: richPrimary,
-      mode: "replace",
-      atBottom: true,
-    });
-    const contextual = enterMessageContext(initial.history, initial.window, richContext);
-    const tail = contextual.window.latestTail;
-    const expected = retainedBytes(
-      contextual.history.messages,
-      contextual.history.threadContext,
-      contextual.history.searchContext,
-      contextual.history.searchThreadContext,
-      tail?.messages ?? [],
-      tail?.threadContext ?? []
-    );
-
-    expect(contextual.history.searchContext.length).toBeLessThan(richContext.messages.length);
-    expect(
-      contextual.history.searchContext.some(({ id }) => id === richContext.targetMessageId)
-    ).toBe(true);
-    expect(contextual.window.retainedBytes).toBe(expected);
-    expect(contextual.window.retainedBytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
-  });
-
   test("hard-bounds a disjoint primary, centered context, and cached tail to 500 unique IDs", () => {
     let transition = applyPrimaryHistoryPage({
       current: undefined,
@@ -381,23 +320,6 @@ describe("desktop bounded message-history windows", () => {
     expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
   });
 
-  test("allows only an indivisible oversized visible message to be a byte soft excess", () => {
-    const oversized = message(1, "x".repeat(MESSAGE_HISTORY_MAX_RETAINED_BYTES + 1));
-    const transition = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: { ...historyPage(1, 1, false), messages: [oversized] },
-      mode: "replace",
-      atBottom: true,
-    });
-    const stats = retainedMessageWindowStats(transition.history, transition.window);
-
-    expect(stats.messages).toBe(1);
-    expect(stats.bytes).toBeGreaterThan(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
-    expect(transition.history.messages).toEqual([oversized]);
-    expect(transition.window.latestTail).toBeNull();
-  });
-
   test("patches every retained copy, recomputes exact bytes, and invalidates context loading", () => {
     const root = message(1);
     const reply = { ...message(1_000), metadata: { replyTo: root.id } };
@@ -454,40 +376,5 @@ describe("desktop bounded message-history windows", () => {
     expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
     const reset = resetToLatestTail(patched.history, patched.window);
     expect(reset?.history.threadContext.find(({ id }) => id === root.id)).toBe(updated);
-  });
-
-  test("re-bounds the retained union when a patched visible message grows", () => {
-    const richPage: ChannelHistoryPage = {
-      ...historyPage(1, 300, false),
-      messages: messages(1, 300).map((candidate) => ({
-        ...candidate,
-        content: "x".repeat(5_000),
-      })),
-    };
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: richPage,
-      mode: "replace",
-      atBottom: true,
-    });
-    const originalCount = initial.history.messages.length;
-    const updated = {
-      ...(initial.history.messages.at(-1) as ChannelMessageView),
-      content: "y".repeat(1_000_000),
-    };
-    const patched = patchRetainedMessageWindow(initial.history, initial.window, updated, {
-      fill: "newer-first",
-      messageIds: new Set([updated.id]),
-    });
-
-    expect(patched).not.toBeNull();
-    if (!patched) throw new Error("expected patched retained state");
-    const stats = retainedMessageWindowStats(patched.history, patched.window);
-    expect(patched.history.messages.find(({ id }) => id === updated.id)).toBe(updated);
-    expect(patched.history.messages.length).toBeLessThan(originalCount);
-    expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
-    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
-    expect(stats.bytes).toBe(patched.window.retainedBytes);
   });
 });

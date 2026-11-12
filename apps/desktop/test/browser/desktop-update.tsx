@@ -28,8 +28,6 @@ declare global {
       failInstall: boolean;
       ready?: boolean;
       emit: (next: Partial<OpenTeamUpdateStatus>) => void;
-      snapshot: () => OpenTeamUpdateStatus;
-      reopen?: () => void;
     };
   }
 }
@@ -42,9 +40,6 @@ const fixture = (window.fixture = {
   emit(next: Partial<OpenTeamUpdateStatus>) {
     state = { ...state, ...next };
     for (const listener of listeners) listener(state);
-  },
-  snapshot() {
-    return state;
   },
 });
 window.openteam = {
@@ -83,18 +78,15 @@ const [
   { AccountMenu },
   { DesktopUpdateDialog },
   { TooltipProvider },
-  { requestDesktopUpdateRestart },
   { default: UpdatesSettings },
   { Button },
 ] = await Promise.all([
   import("../../src/renderer/components/openteam/sidebar"),
   import("../../src/renderer/components/openteam/desktop-update-dialog"),
   import("../../src/renderer/components/ui/tooltip"),
-  import("../../src/renderer/lib/desktop-update"),
   import("../../src/renderer/components/openteam/settings/updates"),
   import("../../src/renderer/components/ui/button"),
 ]);
-window.fixture.reopen = () => requestDesktopUpdateRestart(state);
 const settings = parameters.has("settings");
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -113,13 +105,13 @@ createRoot(document.getElementById("root")!).render(
           <div className="sidebar-account-footer">
             <AccountMenu compact={compact} onOpenSettings={() => {}}>
               <Button
-                aria-label="Account: Raghav Pillai"
+                aria-label="Account"
                 id="account"
                 className="sidebar-account-button relative w-full rounded-[11px] hover:bg-subtle data-[state=open]:bg-subtle"
                 variant="ghost"
               >
-                <span className="sidebar-account-avatar">RP</span>
-                <span className="sidebar-account-name">Raghav Pillai</span>
+                <span className="sidebar-account-avatar">AB</span>
+                <span className="sidebar-account-name">Account</span>
               </Button>
             </AccountMenu>
           </div>

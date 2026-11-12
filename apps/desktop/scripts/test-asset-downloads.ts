@@ -9,7 +9,6 @@ import { build } from "vite";
 // and filesystem. Only the native picker/warning dialogs have scripted responses.
 const root = resolve(import.meta.dir, "..");
 const directory = await mkdtemp(join(tmpdir(), "openteam-asset-downloads-"));
-const baseline = process.argv[2] === "--baseline" ? process.argv[3] : undefined;
 const pdfPath = process.env.ASSET_DOWNLOAD_PDF ?? resolve(root, "../computer/test/fixtures/input-parity/three-pages.pdf");
 const pdf = await readFile(pdfPath);
 const asset = createHash("sha256").update(pdf).digest("hex");
@@ -50,12 +49,6 @@ let timeout: ReturnType<typeof setTimeout> | undefined;
 try {
   const nativeDirectory = join(directory, "dist-electron");
   await mkdir(nativeDirectory);
-  let baselineSource: string | undefined;
-  if (baseline) {
-    const result = Bun.spawnSync(["git", "show", `${baseline}:apps/desktop/src/main/index.ts`], { cwd: root });
-    if (result.exitCode) throw new Error(result.stderr.toString());
-    baselineSource = result.stdout.toString();
-  }
   const main = await Bun.build({
     entrypoints: [join(root, "src/main/index.ts")],
     outdir: nativeDirectory,
@@ -63,14 +56,6 @@ try {
     target: "node",
     format: "esm",
     external: ["electron"],
-    plugins: baselineSource ? [{
-      name: "baseline-main",
-      setup(builder) {
-        builder.onLoad({ filter: /src\/main\/index\.ts$/ }, () => ({
-          contents: baselineSource!, loader: "ts", resolveDir: join(root, "src/main"),
-        }));
-      },
-    }] : [],
   });
   const preload = await Bun.build({
     entrypoints: [join(root, "src/preload/index.ts")],
@@ -96,7 +81,7 @@ try {
     server: `http://127.0.0.1:${server.port}`,
     otherServer: `http://localhost:${server.port}`,
     renderer: join(directory, "dist/test/browser/asset-download.html"),
-    asset, bytes: pdf.length, token, baseline: Boolean(baseline),
+    asset, bytes: pdf.length, token,
   }));
   await copyFile(join(root, "test/browser/asset-download-driver.cjs"), join(directory, "driver.cjs"));
   child = Bun.spawn([createRequire(import.meta.url)("electron"), join(directory, "driver.cjs")], {
@@ -121,8 +106,8 @@ try {
   if (!requests.some(request => !request.download && request.authorized)) throw new Error("PDF preview never fetched authenticated bytes");
   if (requests.some(request => !request.authorized) || redirected) throw new Error("Authentication or redirect guard failed");
   const downloads = requests.filter(request => request.download).length;
-  if (downloads !== (baseline ? 0 : 4)) throw new Error(`Unexpected native asset fetch count: ${downloads}`);
-  console.log(JSON.stringify({ ...result, baseline: baseline ?? null, bytes: pdf.length, authenticatedNativeRequests: downloads }, null, 2));
+  if (downloads !== 4) throw new Error(`Unexpected native asset fetch count: ${downloads}`);
+  console.log(JSON.stringify({ ...result, bytes: pdf.length, authenticatedNativeRequests: downloads }, null, 2));
 } finally {
   if (timeout) clearTimeout(timeout);
   child?.kill();

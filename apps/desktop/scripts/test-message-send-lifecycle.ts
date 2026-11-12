@@ -1,5 +1,4 @@
-// Delivery states, retries and late echoes for sent messages. Pass
-// --reduced-motion to run the reduced-motion subset.
+// Delivery states, retries and late echoes for sent messages in the chat and thread UI.
 import { runAndPrint } from "../test/browser/run-electron-fixture";
 
 await runAndPrint({
@@ -9,7 +8,6 @@ await runAndPrint({
   env: (dir, url) => ({
     SEND_LIFECYCLE_DIR: dir,
     SEND_LIFECYCLE_URL: url,
-    SEND_LIFECYCLE_REDUCED_MOTION: process.argv.includes("--reduced-motion") ? "1" : "0",
   }),
   timeoutMs: 90_000,
 });

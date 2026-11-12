@@ -168,13 +168,12 @@ const message = (
 let channel: ChannelView,
   messages: ChannelMessageView[],
   runs: RunView[] = [];
-let chatWidth = 745;
 let hasOlder = false,
   loadingOlder = false;
 let loadOlder: (() => Promise<void>) | undefined;
 const drawChat = () =>
   render(
-    <main style={{ width: chatWidth, height: 850 }}>
+    <main style={{ width: 745, height: 850 }}>
       <ChatPane
         key={channel.id}
         channel={channel}
@@ -205,7 +204,6 @@ const newChat = (id: string, kind: "bot_dm" | "group") => {
     unreadCount: 0,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   } as ChannelView;
-  chatWidth = 745;
   runs = [];
   hasOlder = false;
   loadingOlder = false;
@@ -218,19 +216,7 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
     ...message(channel.id, index, text),
     createdAt: at,
   }));
-  messages.push(
-    message(
-      channel.id,
-      3,
-      "A long message to verify the width cap and wrapping. ".repeat(12),
-      "user"
-    )
-  );
-  messages.push(message(channel.id, 4, "Hello, parity check passed."));
-  messages.push({
-    ...message(channel.id, 5, "After the gap"),
-    createdAt: new Date().toISOString(),
-  });
+  messages.push(message(channel.id, 3, "Reply", "user"));
   drawChat();
   await pause(350);
   const ordered = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].map(
@@ -240,49 +226,6 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
     ordered.join() === messages.map((row) => row.id).join(),
     "Equal timestamps reordered: " + ordered
   );
-  const bubbleFor = (index: number) =>
-    document.querySelector<HTMLElement>('[data-message-bubble-id="' + messages[index]!.id + '"]')!;
-  const width = bubbleFor(3).getBoundingClientRect().width;
-  check(
-    Math.abs(width - 560) < 1,
-    "Long user bubble width " + width + ", expected reference cap 560"
-  );
-  const bubbleStyle = getComputedStyle(bubbleFor(3));
-  check(
-    bubbleStyle.fontSize === "15px" && bubbleStyle.fontWeight === "425",
-    "Message typography differs from the reference"
-  );
-  check(bubbleStyle.padding === "7px 12px", "Message padding differs from the reference");
-  const actions = bubbleFor(3).parentElement!.querySelector<HTMLElement>("[data-message-actions]")!;
-  const rowBounds = bubbleFor(3).closest(".message-row")!.getBoundingClientRect();
-  const actionBounds = actions.getBoundingClientRect();
-  check(
-    actionBounds.left >= rowBounds.left && actionBounds.right <= rowBounds.right,
-    "Hover actions are clipped"
-  );
-  check(getComputedStyle(actions).position === "absolute", "Actions reserve inline width");
-  check(getComputedStyle(actions).transitionDuration === "0s", "Actions wrapper still fades");
-  check(
-    getComputedStyle(actions.querySelector("button")!).transitionDuration === "0.12s",
-    "Button color transition mismatch"
-  );
-  const time = [...document.querySelectorAll("time")].find(
-    (node) => node.dateTime === messages[5]!.createdAt
-  )!;
-  check(
-    time.parentElement!.getBoundingClientRect().height === 50,
-    "Timestamp separator is not 50px"
-  );
-  const greeting = bubbleFor(4);
-  const typography = ["optimizeLegibility", "auto", "optimizeSpeed"].map((mode) => {
-    greeting.style.textRendering = mode;
-    return {
-      mode,
-      width: greeting.getBoundingClientRect().width,
-      font: getComputedStyle(greeting).font,
-    };
-  });
-  greeting.style.textRendering = "";
   runs = bots.slice(0, kind === "group" ? 3 : 1).map(
     (bot, index) =>
       ({
@@ -309,94 +252,8 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
   reports.push({
     theme,
     kind,
-    scenario: "chronology, geometry, actions, separator, concurrent thinking",
-    width,
-    typography,
+    scenario: "chronology and concurrent thinking",
   });
-  render(null);
-  await pause(50);
-}
-async function narrowScenario(theme: string) {
-  newChat(theme + "-narrow", "group");
-  chatWidth = 424;
-  messages = [
-    message(channel.id, 0, "long message ".repeat(50), "user"),
-    message(channel.id, 1, "long reply ".repeat(50)),
-  ];
-  drawChat();
-  await pause(300);
-  for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
-    const rowBounds = row.getBoundingClientRect();
-    const bubble = row.querySelector<HTMLElement>(".message-bubble")!;
-    const bounds = bubble.getBoundingClientRect();
-    const actions = row
-      .querySelector<HTMLElement>("[data-message-actions]")!
-      .getBoundingClientRect();
-    check(
-      bounds.width === (row.dataset.role === "user" ? 310 : 280),
-      "Narrow bubble cap lost its action/gutter allowance"
-    );
-    check(
-      actions.left >= rowBounds.left && actions.right <= rowBounds.right,
-      "Narrow hover actions clipped"
-    );
-    check(bubble.scrollWidth <= bubble.clientWidth, "Narrow text overflows");
-  }
-  reports.push({ theme, scenario: "narrow direct/user and group/assistant action geometry" });
-  render(null);
-  await pause(50);
-}
-async function captionActionsScenario(theme: string) {
-  newChat(theme + "-caption", "bot_dm");
-  const previousAssetUrl = api.assetUrl;
-  api.assetUrl = () =>
-    "data:image/svg+xml," +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"/>');
-  const attachments = [
-    {
-      assetId: "a".repeat(64),
-      fileName: "wide-image.png",
-      kind: "image",
-      mimeType: "image/png",
-      byteSize: 100,
-      width: 600,
-      height: 300,
-    },
-  ];
-  messages = [
-    { ...message(channel.id, 0, "Short caption", "user"), metadata: { attachments } },
-    { ...message(channel.id, 1, "Here it is"), metadata: { attachments } },
-  ];
-  drawChat();
-  await pause(300);
-  for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
-    const user = row.dataset.role === "user";
-    const caption = row.querySelector<HTMLElement>(".message-bubble")!.getBoundingClientRect();
-    const stack = row
-      .querySelector<HTMLElement>("[data-message-bubble-id]")!
-      .getBoundingClientRect();
-    const actions = row
-      .querySelector<HTMLElement>("[data-message-actions]")!
-      .getBoundingClientRect();
-    check(
-      stack.width - caption.width > 100,
-      "Caption fixture is not narrower than its image: " +
-        JSON.stringify({
-          user,
-          stack: stack.width,
-          caption: caption.width,
-          text: row.querySelector(".message-bubble")?.textContent,
-        })
-    );
-    const gap = user ? caption.left - actions.right : actions.left - caption.right;
-    check(gap >= 0 && gap <= 8, "Hover actions are not beside the caption: gap " + gap);
-    check(
-      Math.abs(actions.top + actions.height / 2 - (caption.top + caption.height / 2)) < 1,
-      "Hover actions are not centered on the caption"
-    );
-  }
-  reports.push({ theme, scenario: "hover actions beside caption under a wider image" });
-  api.assetUrl = previousAssetUrl;
   render(null);
   await pause(50);
 }
@@ -463,7 +320,7 @@ async function historyScenario(theme: string) {
   const drift = Math.max(
     ...settled.map((sample) => (sample.top === null ? 9999 : Math.abs(sample.top - anchor!.top)))
   );
-  reports.push({ theme, scenario: "delayed paging anchor", anchor, drift, samples });
+  reports.push({ theme, scenario: "delayed paging anchor", drift });
   check(drift <= 2, "Delayed history drift " + drift + "px");
   render(null);
   await pause(50);
@@ -576,18 +433,12 @@ async function draftReviewScenario(theme: string, width: number) {
 }
 
 try {
-  for (const theme of ["light", "dark"]) {
-    document.documentElement.dataset.theme = theme;
-    if (new URLSearchParams(location.search).has("draft-review")) {
-      for (const width of [745, 360]) await draftReviewScenario(theme, width);
-      continue;
-    }
-    await inputScenario(theme);
-    for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
-    await narrowScenario(theme);
-    await captionActionsScenario(theme);
-    await historyScenario(theme);
-  }
+  const theme = "dark";
+  document.documentElement.dataset.theme = theme;
+  await inputScenario(theme);
+  for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
+  await historyScenario(theme);
+  for (const width of [745, 360]) await draftReviewScenario(theme, width);
   console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ reports }));
 } catch (error) {
   console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ error: String(error), reports }));

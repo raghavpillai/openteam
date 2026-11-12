@@ -1,4 +1,6 @@
 import { ArrowUp, X } from "lucide-react";
+import { isMac, isShortcut, shortcutBinding, useShortcutBindings } from "../hooks/use-shortcut-bindings";
+import { FN_KEY, shortcutText } from "../lib/keyboard-shortcuts";
 import {
   lazy,
   Suspense,
@@ -212,6 +214,7 @@ export function AppshotApp() {
   const lastDisplay = useRef<string | null>(null);
 
   const bot = roster.bots.find((candidate) => candidate.id === botId) ?? roster.bots[0] ?? null;
+  const dictateText = shortcutText(useShortcutBindings().dictate, isMac());
 
   // ---- Dictation ------------------------------------------------------------------------
   // The overlay records; the signed-in main window transcribes (the same server pipeline as
@@ -1341,10 +1344,21 @@ export function AppshotApp() {
         } else void close();
         return;
       }
-      // Physical keys (event.code), so ⌘D and ⌘1–9 work on any keyboard layout.
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.code === "KeyD") {
+      // The app's shortcuts (Settings › Keyboard), matched on physical keys, so they work on any
+      // keyboard layout.
+      if (isShortcut(event, "dictate")) {
         event.preventDefault();
         if (!event.repeat) toggleDictation();
+        return;
+      }
+      const step = menuOpen ? 0 : isShortcut(event, "nextBot") ? 1 : isShortcut(event, "previousBot") ? -1 : 0;
+      if (step && roster.bots.length > 1) {
+        event.preventDefault();
+        setBotId((current) => {
+          const index = roster.bots.findIndex((candidate) => candidate.id === current);
+          return roster.bots[((index < 0 ? 0 : index) + step + roster.bots.length) % roster.bots.length]!.id;
+        });
+        mascot.current?.boing(0.8);
         return;
       }
       if ((event.metaKey || event.ctrlKey) && /^Digit[1-9]$/.test(event.code)) {
@@ -1359,7 +1373,14 @@ export function AppshotApp() {
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Dictation on Fn: only main sees that key (through the native helper) and forwards it.
+    const stopShortcut = bridge()?.onShortcut((action) => {
+      if (action === "dictate" && phaseRef.current === "compose" && shortcutBinding("dictate") === FN_KEY) toggleDictation();
+    });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      stopShortcut?.();
+    };
   }, [close, finishSent, menuOpen, roster.bots, toggleDictation]);
 
   // ---- Interaction ---------------------------------------------------------------------
@@ -1556,7 +1577,7 @@ export function AppshotApp() {
             )}
             <span className="appshot-hint" aria-hidden="true">
               <kbd>↩</kbd> send <span className="appshot-hint-dot">·</span> <kbd>⇧↩</kbd> new line
-              {voice.available && <><span className="appshot-hint-dot">·</span> <kbd>⌘D</kbd> dictate</>}
+              {voice.available && <><span className="appshot-hint-dot">·</span> <kbd>{dictateText}</kbd> dictate</>}
             </span>
             {voice.available && (
               <DictationButton
@@ -1564,6 +1585,7 @@ export function AppshotApp() {
                 disabled={phase !== "compose"}
                 onStart={toggleDictation}
                 onStop={toggleDictation}
+                shortcut={dictateText}
               />
             )}
             <button

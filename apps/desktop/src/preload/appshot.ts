@@ -29,4 +29,19 @@ contextBridge.exposeInMainWorld("appshot", {
   /** Tagged with its shot, so a close that lands after a retake can't hide the new one. */
   close: (shotId: string) => ipcRenderer.send("appshot:closed", typeof shotId === "string" ? shotId : ""),
   openChat: (botId: string) => ipcRenderer.send("appshot:open-chat", botId),
+  /** The app's rebindable shortcuts (dictate, next and previous Bot), and their changes. */
+  shortcuts: {
+    get: () => ipcRenderer.invoke("openteam:shortcuts:get"),
+    onChange: (callback: (view: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, view: unknown) => callback(view);
+      ipcRenderer.on("openteam:shortcuts-changed", listener);
+      return () => ipcRenderer.removeListener("openteam:shortcuts-changed", listener);
+    },
+  },
+  /** A shortcut only main can see (Fn for dictation). */
+  onShortcut: (callback: (action: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, action: unknown) => { if (typeof action === "string") callback(action); };
+    ipcRenderer.on("appshot:shortcut", listener);
+    return () => ipcRenderer.removeListener("appshot:shortcut", listener);
+  },
 });

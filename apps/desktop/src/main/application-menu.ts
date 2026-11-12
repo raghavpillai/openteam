@@ -8,7 +8,9 @@ export function applicationMenuTemplate(
   onAction: (action: ApplicationMenuAction) => void,
   onClipboard?: (action: ClipboardMenuAction, window: BaseWindow | undefined) => boolean,
   /** The appshot shortcut when it's an ordinary one; a two-key chord can't show in a menu. */
-  appshotAccelerator: string | null = null
+  appshotAccelerator: string | null = null,
+  /** Rebindable in Settings › Keyboard. */
+  settingsAccelerator = "CommandOrControl+,"
 ): MenuItemConstructorOptions[] {
   const appItems: MenuItemConstructorOptions[] = [
     { label: "About OpenTeam", click: () => onAction("about") },
@@ -16,7 +18,7 @@ export function applicationMenuTemplate(
     { type: "separator" },
     {
       label: "Settings…",
-      accelerator: "CommandOrControl+,",
+      accelerator: settingsAccelerator,
       click: () => onAction("settings"),
     },
   ];

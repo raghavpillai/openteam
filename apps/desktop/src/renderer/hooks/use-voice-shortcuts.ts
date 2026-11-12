@@ -1,4 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { FN_KEY, parseShortcut } from "../lib/keyboard-shortcuts";
+import { isMac, isShortcut, shortcutBinding } from "./use-shortcut-bindings";
 
 export function useVoiceShortcuts(options: {
   editor: RefObject<HTMLDivElement | null>;
@@ -13,7 +15,7 @@ export function useVoiceShortcuts(options: {
   const latest = useRef(options);
   latest.current = options;
   useEffect(() => {
-    const mac = /Mac/.test(navigator.platform);
+    const mac = isMac();
     let pressedAt: number | null = null;
     const release = () => {
       const started = pressedAt;
@@ -52,15 +54,7 @@ export function useVoiceShortcuts(options: {
         }
         return;
       }
-      const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      if (
-        event.key.toLowerCase() !== "d" ||
-        !modifier ||
-        event.shiftKey ||
-        event.altKey ||
-        !voice.available
-      )
-        return;
+      if (!isShortcut(event, "dictate") || !voice.available) return;
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat || voice.state === "processing") return;
@@ -70,9 +64,29 @@ export function useVoiceShortcuts(options: {
         voice.start();
       }
     };
+    // Held past half a second, letting go stops the recording (push to talk): on the binding's
+    // key, or any of its modifiers.
     const up = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "d" || event.key === (mac ? "Meta" : "Control")) release();
+      const binding = parseShortcut(shortcutBinding("dictate"), mac);
+      if (!binding) return;
+      const modifier = (binding.command && event.key === "Meta") || (binding.control && event.key === "Control")
+        || (binding.alt && event.key === "Alt") || (binding.shift && event.key === "Shift") || (binding.super && event.key === "Meta");
+      if (modifier || event.code.replace(/^Key|^Digit/, "") === binding.key || event.code === `Arrow${binding.key}`) release();
     };
+    // Fn on its own only reaches main (through the native helper), which forwards it here.
+    const stopFn = window.openteam?.shortcuts?.onShortcut((action) => {
+      const voice = latest.current;
+      if (action !== "dictate" || shortcutBinding("dictate") !== FN_KEY || !voice.available) return;
+      // Only the composer on screen, and only when focus is in it (or nowhere in particular):
+      // other conversations keep theirs mounted while hidden.
+      const editor = voice.editor.current;
+      if (!editor?.isConnected || editor.offsetParent === null || !document.hasFocus()) return;
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && !editor.closest("form")?.contains(focused)) return;
+      if (voice.state === "processing") return;
+      if (voice.active) voice.stop();
+      else voice.start();
+    });
     document.addEventListener("keydown", down, true);
     document.addEventListener("keyup", up);
     window.addEventListener("blur", release);
@@ -80,6 +94,7 @@ export function useVoiceShortcuts(options: {
       document.removeEventListener("keydown", down, true);
       document.removeEventListener("keyup", up);
       window.removeEventListener("blur", release);
+      stopFn?.();
     };
   }, []);
 }

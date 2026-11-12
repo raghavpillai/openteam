@@ -6,6 +6,13 @@ import type { ApplicationMenuAction } from "../main/application-menu";
 
 /** What the appshot overlay shows when the chat window couldn't do what it asked. Network
  * failures surface from fetch as a bare "Failed to fetch"; say what that means instead. */
+/** Subscribes to a channel's values; returns the unsubscribe. */
+const listen = (channel: string, callback: (value: unknown) => void) => {
+  const listener = (_event: Electron.IpcRendererEvent, value: unknown) => callback(value);
+  ipcRenderer.on(channel, listener);
+  return () => { ipcRenderer.removeListener(channel, listener); };
+};
+
 const appshotError = (error: unknown, fallback: string) => {
   if (error instanceof TypeError && /fetch|network/i.test(error.message)) return "Couldn’t reach OpenTeam. Check your connection and try again.";
   return error instanceof Error && error.message ? error.message : fallback;
@@ -197,9 +204,7 @@ contextBridge.exposeInMainWorld("openteam", {
     cancel: (connectionId: string, state: string) => ipcRenderer.invoke("openteam:plugin-oauth:cancel", connectionId, state),
     close: () => ipcRenderer.invoke("openteam:plugin-oauth:close"),
     onResult: (callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, result: Parameters<typeof callback>[0]) => callback(result);
-      ipcRenderer.on("openteam:plugin-oauth:result", listener);
-      return () => ipcRenderer.removeListener("openteam:plugin-oauth:result", listener);
+      return listen("openteam:plugin-oauth:result", (result) => callback(result as Parameters<typeof callback>[0]));
     },
   },
   localServer: {
@@ -286,6 +291,13 @@ contextBridge.exposeInMainWorld("openteam", {
     status: () => ipcRenderer.invoke("openteam:notifications:status"),
     openSettings: () => ipcRenderer.invoke("openteam:notifications:open-settings"),
   },
+  /** Rebindable app shortcuts (Settings › Keyboard), and the ones only main sees (Fn). */
+  shortcuts: {
+    get: () => ipcRenderer.invoke("openteam:shortcuts:get"),
+    set: (action: string, binding: string | null) => ipcRenderer.invoke("openteam:shortcuts:set", action, binding),
+    onChange: (callback: (view: unknown) => void) => listen("openteam:shortcuts-changed", callback),
+    onShortcut: (callback: (action: string) => void) => listen("openteam:shortcut", (action) => { if (typeof action === "string") callback(action); }),
+  },
   appshot: {
     /** Bots the floating appshot composer can send to, most recent first. */
     publishRoster: (roster: unknown) => ipcRenderer.send("openteam:appshot:roster", record(roster, "Appshot roster")),
@@ -326,16 +338,12 @@ contextBridge.exposeInMainWorld("openteam", {
       setRecording: (recording: boolean) => ipcRenderer.invoke("openteam:appshot:shortcut:recording", recording === true),
       requestAccess: () => ipcRenderer.invoke("openteam:appshot:shortcut:request-access"),
       onChange: (callback: (status: unknown) => void) => {
-        const listener = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
-        ipcRenderer.on("openteam:appshot:shortcut-changed", listener);
-        return () => ipcRenderer.removeListener("openteam:appshot:shortcut-changed", listener);
+        return listen("openteam:appshot:shortcut-changed", callback);
       },
     },
     /** Main asks for a fresh Bot list each time an appshot is taken. */
     onRosterRequest: (callback: () => void) => {
-      const listener = () => callback();
-      ipcRenderer.on("openteam:appshot:roster-request", listener);
-      return () => ipcRenderer.removeListener("openteam:appshot:roster-request", listener);
+      return listen("openteam:appshot:roster-request", () => callback());
     },
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),

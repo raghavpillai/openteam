@@ -17,11 +17,13 @@ export function DictationButton({
   disabled,
   onStart,
   onStop,
+  shortcut = "⌘D",
 }: {
   state: "idle" | "requesting" | "recording" | "processing" | "error";
   disabled: boolean;
   onStart: () => void;
   onStop: () => void;
+  shortcut?: string;
 }) {
   const recording = state === "recording" || state === "requesting";
   return (
@@ -30,9 +32,9 @@ export function DictationButton({
       className="appshot-mic"
       data-state={state}
       disabled={disabled || state === "processing"}
-      aria-label={recording ? "Stop dictation and insert text" : "Dictate (⌘D)"}
+      aria-label={recording ? "Stop dictation and insert text" : `Dictate (${shortcut})`}
       aria-pressed={recording}
-      title={recording ? "Stop (↩)" : "Dictate (⌘D)"}
+      title={recording ? "Stop (↩)" : `Dictate (${shortcut})`}
       onClick={recording ? onStop : onStart}
     >
       {recording ? <Square size={10} strokeWidth={0} fill="currentColor" /> : <Mic size={15} strokeWidth={2.2} />}

@@ -2,9 +2,10 @@
 // e.g. both Command keys, for the appshot shortcut. Electron's globalShortcut can't express
 // a chord of modifiers alone.
 //
-// Usage: appshot-keys --chord command|option|shift|control
-// stdout: "ready tap" | "ready poll", then "trigger" for each chord.
-// stdin:  "chord <name>" switches the chord, "pause" / "resume", EOF exits.
+// Usage: appshot-keys --chord command|option|shift|control|off [--fn]
+// stdout: "ready tap" | "ready poll", then "trigger" for each chord, and with --fn (or after
+//         "fn on") "fn" each time the Fn key is tapped on its own (dictation can use it).
+// stdin:  "chord <name|off>", "fn on|off", "pause" / "resume", EOF exits.
 //
 // With Input Monitoring granted it listens to modifier changes through a passive event tap,
 // so it costs nothing while idle. Without it, it reads the global modifier state on a slow
@@ -74,6 +75,39 @@ final class ChordDetector {
   func holding(_ flags: UInt64) -> Bool { flags & (chord.left | chord.right) != 0 }
 }
 
+let fnFlag = CGEventFlags.maskSecondaryFn.rawValue
+let plainModifiers = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
+  | CGEventFlags.maskShift.rawValue | CGEventFlags.maskControl.rawValue
+
+/// The Fn (🌐) key tapped on its own: down and up within a moment, with no other modifier and
+/// no key typed meanwhile. Fires on release, so Fn+arrow (Page Up) or Fn+F-key never counts.
+final class FnDetector {
+  var enabled = false
+  var paused = false
+  private var downAt: TimeInterval?
+  private var clean = false
+  static let longest: TimeInterval = 0.6
+
+  func update(flags: UInt64, now: TimeInterval, lastKeyDown: TimeInterval? = nil) -> Bool {
+    let fn = flags & fnFlag != 0
+    if fn {
+      if downAt == nil {
+        downAt = now
+        clean = flags & plainModifiers == 0
+      } else if flags & plainModifiers != 0 {
+        clean = false
+      }
+      return false
+    }
+    guard let started = downAt else { return false }
+    downAt = nil
+    let typed = lastKeyDown.map { $0 >= started } ?? false
+    return enabled && !paused && clean && !typed && now - started <= FnDetector.longest
+  }
+
+  func holding(_ flags: UInt64) -> Bool { enabled && flags & fnFlag != 0 }
+}
+
 if CommandLine.arguments.contains("--request-access") {
   print(CGRequestListenEventAccess() ? "granted" : "denied")
   exit(0)
@@ -115,6 +149,20 @@ if CommandLine.arguments.contains("--self-test") {
     }
   }
   run("both control keys", "control", [(ctrl | 0x01, 0), (ctrl | 0x2001, 0.05), (0, 0.3)], expect: 1)
+  // Fn on its own, for dictation.
+  func fn(_ name: String, _ steps: [(UInt64, TimeInterval, TimeInterval?)], enabled: Bool = true, expect: Int) {
+    let detector = FnDetector()
+    detector.enabled = enabled
+    let fired = steps.filter { detector.update(flags: $0.0, now: $0.1, lastKeyDown: $0.2) }.count
+    if fired != expect { failures.append("\(name): fired \(fired), expected \(expect)") }
+  }
+  let fnBit = CGEventFlags.maskSecondaryFn.rawValue
+  fn("fn tapped", [(fnBit, 0, nil), (0, 0.15, nil)], expect: 1)
+  fn("fn held a long time", [(fnBit, 0, nil), (0, 1.2, nil)], expect: 0)
+  fn("fn with an arrow (Page Up)", [(fnBit, 0, nil), (0, 0.3, 0.1)], expect: 0)
+  fn("fn with command", [(fnBit, 0, nil), (fnBit | cmd, 0.05, nil), (0, 0.2, nil)], expect: 0)
+  fn("fn while off", [(fnBit, 0, nil), (0, 0.15, nil)], enabled: false, expect: 0)
+  fn("key typed before fn", [(fnBit, 1, 0.5), (0, 1.15, 0.5)], expect: 1)
   print(failures.isEmpty ? "ok" : failures.joined(separator: "\n"))
   exit(failures.isEmpty ? 0 : 1)
 }
@@ -123,11 +171,15 @@ var chordName = "command"
 if let index = CommandLine.arguments.firstIndex(of: "--chord"), index + 1 < CommandLine.arguments.count {
   chordName = CommandLine.arguments[index + 1]
 }
-guard let initial = Chord.named(chordName) else {
+// "off": the appshot trigger is an ordinary shortcut and the helper only watches Fn.
+var chordOn = chordName != "off"
+guard let initial = Chord.named(chordOn ? chordName : "command") else {
   FileHandle.standardError.write("unknown chord \(chordName)\n".data(using: .utf8)!)
   exit(2)
 }
 let detector = ChordDetector(chord: initial)
+let fnDetector = FnDetector()
+fnDetector.enabled = CommandLine.arguments.contains("--fn")
 let parent = getppid()
 
 func emit(_ line: String) {
@@ -143,8 +195,12 @@ func handle(flags: UInt64) {
   // tap adds the presses it sees itself.
   let sinceKey = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
   let lastKeyDown = max(tapKeyDownAt, now - sinceKey)
-  if detector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) { emit("trigger") }
+  if detector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) && chordOn { emit("trigger") }
+  if fnDetector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) { emit("fn") }
 }
+
+/// Polling speeds up while a watched key is held, so a quick press is never missed.
+func holdingWatched(_ flags: UInt64) -> Bool { (chordOn && detector.holding(flags)) || fnDetector.holding(flags) }
 
 // Commands from the app on stdin; EOF means the app is gone.
 let input = FileHandle.standardInput
@@ -159,9 +215,12 @@ input.readabilityHandler = { handle in
     let parts = line.split(separator: " ").map(String.init)
     DispatchQueue.main.async {
       switch parts.first {
-      case "chord": if parts.count > 1, let next = Chord.named(parts[1]) { detector.chord = next }
-      case "pause": detector.paused = true
-      case "resume": detector.paused = false
+      case "chord":
+        if parts.count > 1, parts[1] == "off" { chordOn = false }
+        else if parts.count > 1, let next = Chord.named(parts[1]) { detector.chord = next; chordOn = true }
+      case "fn": fnDetector.enabled = parts.count > 1 && parts[1] == "on"
+      case "pause": detector.paused = true; fnDetector.paused = true
+      case "resume": detector.paused = false; fnDetector.paused = false
       default: break
       }
     }
@@ -185,7 +244,7 @@ if CGPreflightListenEventAccess() {
       handle(flags: event.flags.rawValue)
     case .keyDown:
       // Only matters while a chord key is held (it cancels the chord); otherwise ignore it.
-      if detector.holding(event.flags.rawValue) { tapKeyDownAt = ProcessInfo.processInfo.systemUptime }
+      if holdingWatched(event.flags.rawValue) { tapKeyDownAt = ProcessInfo.processInfo.systemUptime }
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
       // macOS can disable a tap; turn it back on right here instead of on a timer.
       if let port = tapPort { CGEvent.tapEnable(tap: port, enable: true) }
@@ -217,7 +276,7 @@ if !usingTap {
   timer.setEventHandler {
     let flags = CGEventSource.flagsState(.combinedSessionState).rawValue
     handle(flags: flags)
-    let holding = detector.holding(flags)
+    let holding = holdingWatched(flags)
     if holding != fast {
       fast = holding
       schedule(holding ? 120 : 20)

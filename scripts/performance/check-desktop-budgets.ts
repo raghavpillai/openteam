@@ -125,7 +125,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Main at 2090e228 measures 1,287,125 (over its own 1,280,000); with Appshots, 1,288,966.
 // Email review forwarding, revision highlights, validation and read-only history:
 // 1,293,288 B on this baseline. File previews reuse the lazy attachment viewer.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_294_500);
+// Rebindable shortcuts: windows match key presses against the saved bindings and show them in
+// hints (the rules and labels load with Settings): 1,292,846.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_293_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -180,7 +182,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
 // Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with Appshots, 16,669,264 B.
 // Email review parity on this baseline: 16,673,564 B.
-atMost("renderer bytes", result.renderer.bytes, 16_675_000);
+// Settings › Keyboard and rebindable shortcuts: 16,678,696 B.
+atMost("renderer bytes", result.renderer.bytes, 16_679_500);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -204,7 +207,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_675_000);
 // Rebased on main at 2090e228 (4,133,729 on its own): 4,157,884.
 // Main at 521b9f32: 4,135,795; with Appshots, 4,160,418.
 // Same email review feature build: 4,161,640 B gzip.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_162_500);
+// Settings › Keyboard and rebindable shortcuts: 4,163,937.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_164_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -264,8 +268,9 @@ const lazyBudgets: Record<string, number> = {
   avatarPicker: 20_000,
   // The main window's half of appshots: Bot list and durable delivery for the overlay.
   appshotBridge: 3_500,
-  // Settings › Appshots: the shortcut recorder with Change and Reset.
-  appshotShortcutSettings: 10_000,
+  // Settings › Keyboard: the appshot trigger and the app's rebindable shortcuts, each with a
+  // recorder, Change and Reset.
+  keyboardSettings: 16_000,
   // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
   // This closure stays dynamic; noVNC retains its separate lazy boundary.
   botScreen: 28_000,
@@ -328,7 +333,8 @@ const lazyBudgets: Record<string, number> = {
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
   // v0.0.13 shared control styles: 13,550, without the ~21 KB Select dependency.
   // Shared controls/client code with message-color settings: 13,966 bytes.
-  settingsShell: 14_200,
+  // The Keyboard entry and its icon: 14,714.
+  settingsShell: 14_900,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,

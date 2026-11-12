@@ -19,6 +19,8 @@ export interface AppshotShortcutStatus {
   /** How a chord is detected: a passive event tap (Input Monitoring) or the modifier state. */
   mode: "tap" | "poll" | "shortcut" | null;
   error: string | null;
+  /** The helper is running and watching the Fn key (dictation is bound to it). */
+  fn: boolean;
 }
 
 export const defaultAppshotShortcut = (platform: NodeJS.Platform): AppshotShortcut =>
@@ -114,6 +116,8 @@ export interface AppshotShortcutOptions {
   unregisterAccelerator: (accelerator: string) => void;
   onTrigger: () => void;
   onStatus: (status: AppshotShortcutStatus) => void;
+  /** The Fn key was tapped on its own (only while watching for it: dictation is bound to Fn). */
+  onFn?: () => void;
 }
 
 /** Keeps the appshot trigger listening: one helper process for chords, or a global shortcut. */
@@ -124,6 +128,8 @@ export class AppshotShortcutController {
   private helperMode: "tap" | "poll" | null = null;
   private registered: string | null = null;
   private recording = false;
+  /** Dictation is bound to Fn, which only the helper can see. */
+  private watchFn = false;
   private disposed = false;
   private error: string | null = null;
   private restarts: number[] = [];
@@ -154,6 +160,7 @@ export class AppshotShortcutController {
       active: chord ? this.helperMode !== null : this.registered !== null,
       mode: chord ? this.helperMode : this.registered ? "shortcut" : null,
       error: this.error,
+      fn: this.watchFn && this.helperMode !== null,
     };
   }
 
@@ -179,9 +186,25 @@ export class AppshotShortcutController {
     return run;
   }
 
+  /** The helper runs for a both-keys chord, or to watch the Fn key (macOS only). */
+  private needsHelper() {
+    return this.shortcut.kind === "chord" || this.watchFn;
+  }
+
+  /** Watch the Fn key on its own (dictation bound to Fn) or stop. */
+  setWatchFn(watch: boolean) {
+    if (this.watchFn === watch || this.options.platform !== "darwin") return;
+    this.watchFn = watch;
+    if (this.helper && !this.helper.killed) {
+      if (this.needsHelper()) this.helper.stdin.write(`fn ${watch ? "on" : "off"}\n`);
+      else this.stopHelper();
+    } else if (this.needsHelper()) this.startHelper();
+    this.options.onStatus(this.status());
+  }
+
   /** A fresh helper: after Input Monitoring is granted it can use an idle event tap. */
   restartHelper() {
-    if (this.shortcut.kind !== "chord") return;
+    if (!this.needsHelper()) return;
     this.stopHelper();
     this.error = null;
     this.restarts = [];
@@ -193,8 +216,9 @@ export class AppshotShortcutController {
   setRecording(recording: boolean) {
     if (this.recording === recording) return;
     this.recording = recording;
-    if (this.shortcut.kind === "chord") this.helper?.stdin.write(recording ? "pause\n" : "resume\n");
-    else this.apply();
+    // The helper's chord and Fn both pause; an ordinary shortcut is unregistered meanwhile.
+    this.helper?.stdin.write(recording ? "pause\n" : "resume\n");
+    if (this.shortcut.kind !== "chord") this.apply();
   }
 
   dispose() {
@@ -220,7 +244,10 @@ export class AppshotShortcutController {
       if (this.helper && !this.helper.killed) this.helper.stdin.write(`chord ${this.shortcut.modifier}\n`);
       else this.startHelper();
     } else {
-      this.stopHelper();
+      // Still needed for Fn: keep it, without a chord.
+      if (this.watchFn && this.helper && !this.helper.killed) this.helper.stdin.write("chord off\n");
+      else if (this.watchFn) this.startHelper();
+      else this.stopHelper();
       if (!this.recording) {
         const accelerator = this.shortcut.accelerator;
         if (this.options.registerAccelerator(accelerator, this.options.onTrigger)) this.registered = accelerator;
@@ -233,11 +260,12 @@ export class AppshotShortcutController {
   private startHelper() {
     this.clearRestart();
     if (this.disposed || this.helper) return;
-    if (!this.options.helperPath || this.shortcut.kind !== "chord") {
-      this.error = "Both-key shortcuts need macOS.";
+    if (!this.options.helperPath || !this.needsHelper()) {
+      if (this.shortcut.kind === "chord") this.error = "Both-key shortcuts need macOS.";
       return;
     }
-    const child = spawn(this.options.helperPath, ["--chord", this.shortcut.modifier], { stdio: ["pipe", "pipe", "pipe"] });
+    const args = ["--chord", this.shortcut.kind === "chord" ? this.shortcut.modifier : "off", ...(this.watchFn ? ["--fn"] : [])];
+    const child = spawn(this.options.helperPath, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.helper = child;
     this.helperMode = null;
     child.stderr.resume();
@@ -245,6 +273,7 @@ export class AppshotShortcutController {
     if (this.recording) child.stdin.write("pause\n");
     createInterface({ input: child.stdout }).on("line", (line) => {
       if (line === "trigger") this.options.onTrigger();
+      else if (line === "fn") this.options.onFn?.();
       else if (line === "ready tap" || line === "ready poll") {
         this.helperMode = line === "ready tap" ? "tap" : "poll";
         this.options.onStatus(this.status());
@@ -265,7 +294,7 @@ export class AppshotShortcutController {
         this.options.onStatus(this.status());
         return;
       }
-      if (this.disposed || this.shortcut.kind !== "chord") return;
+      if (this.disposed || !this.needsHelper()) return;
       // Restart a crashed listener, but stop if it keeps failing.
       const now = Date.now();
       this.restarts = [...this.restarts.filter((at) => now - at < 60_000), now];
@@ -276,7 +305,7 @@ export class AppshotShortcutController {
       }
       this.restartTimer = setTimeout(() => {
         this.restartTimer = null;
-        if (!this.disposed && this.shortcut.kind === "chord") this.startHelper();
+        if (!this.disposed && this.needsHelper()) this.startHelper();
       }, 500 * this.restarts.length);
     };
     child.on("error", () => onEnd(true));

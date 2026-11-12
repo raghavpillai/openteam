@@ -47,6 +47,8 @@ export interface AppshotBridge {
   transcribe(audio: Uint8Array, mimeType: string): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   close(shotId: string): void;
   openChat(botId: string): void;
+  shortcuts: { get(): Promise<KeyboardShortcutsView>; onChange(callback: (view: KeyboardShortcutsView) => void): () => void };
+  onShortcut(callback: (action: string) => void): () => void;
 }
 
 declare global {

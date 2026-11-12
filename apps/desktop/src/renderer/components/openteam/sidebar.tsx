@@ -1,4 +1,5 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
+import { isShortcut } from "../../hooks/use-shortcut-bindings";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
 import {
   DragDropProvider,
@@ -2369,6 +2370,13 @@ export const Sidebar = memo(function Sidebar({
       }))
       .filter((group) => group.rows.length > 0);
   }, [groups, preferences.sections]);
+  // For the next/previous Bot shortcuts, which read these from a long-lived key handler.
+  const channelOrderRef = useRef<string[]>([]);
+  channelOrderRef.current = compactGroups.flatMap((group) => group.rows.map((row) => row.channel.id));
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
   const storedCompact = sidebarWidth === COMPACT_SIDEBAR_WIDTH;
   const targetCompact = forcedCompact || storedCompact;
   const [compact, setCompact] = useState(targetCompact);
@@ -2642,10 +2650,22 @@ export const Sidebar = memo(function Sidebar({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "b") return;
+      if (isShortcut(event, "toggleSidebar")) {
+        event.preventDefault();
+        toggleCompactSidebar();
+        return;
+      }
+      // Next and previous Bot: the conversation below or above, in the sidebar's own order
+      // (pinned, then each section, then the rest), wrapping at the ends.
+      const step = isShortcut(event, "nextBot") ? 1 : isShortcut(event, "previousBot") ? -1 : 0;
+      // Not from inside a dialog (Search, Settings): those keys are theirs.
+      if (!step || event.defaultPrevented || (event.target as Element | null)?.closest?.("[role=dialog]")) return;
+      const order = channelOrderRef.current;
+      if (order.length === 0) return;
       event.preventDefault();
-      toggleCompactSidebar();
+      const index = order.indexOf(selectedIdRef.current ?? "");
+      const next = order[index < 0 ? (step > 0 ? 0 : order.length - 1) : (index + step + order.length) % order.length];
+      if (next) onSelectRef.current(next);
     };
     const handleResize = () => {
       const next = normalizeSidebarWidth(sidebarWidthRef.current);

@@ -8,7 +8,13 @@ interface AppshotShortcutStatusView {
   active: boolean;
   mode: "tap" | "poll" | "shortcut" | null;
   error: string | null;
+  fn: boolean;
   platform: string;
+}
+
+interface KeyboardShortcutsView {
+  bindings: Record<"search" | "toggleSidebar" | "settings" | "dictate" | "previousBot" | "nextBot", string>;
+  defaults: Record<"search" | "toggleSidebar" | "settings" | "dictate" | "previousBot" | "nextBot", string>;
 }
 
 interface Window {
@@ -26,6 +32,12 @@ interface Window {
       subscribeActivity?: (callback: (active: boolean) => void) => () => void;
     };
     /** Feeds the floating appshot composer (src/renderer/lib/appshot-bridge.ts).. */
+    shortcuts?: {
+      get(): Promise<KeyboardShortcutsView>;
+      set(action: string, binding: string | null): Promise<KeyboardShortcutsView>;
+      onChange(callback: (view: KeyboardShortcutsView) => void): () => void;
+      onShortcut(callback: (action: string) => void): () => void;
+    };
     appshot?: {
       publishRoster(roster: {
         bots: Array<{ id: string; name: string; title: string; color: string; icon: string; channelId: string; avatarDataUrl?: string }>;

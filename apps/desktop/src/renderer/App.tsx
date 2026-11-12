@@ -1,4 +1,5 @@
 import { startNotificationPresence } from "./lib/notification-presence";
+import { isShortcut } from "./hooks/use-shortcut-bindings";
 import { startTimeZoneReporting } from "./lib/time-zone";
 import { authHeaders } from "./client/auth";
 import { API_BASE } from "./client/http";
@@ -551,8 +552,7 @@ export default function App() {
   }, [sidebarPreferences.markUnreadMany, snapshot]);
   useEffect(() => {
     const openSearch = (event: KeyboardEvent) => {
-      if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "k") return;
+      if (!isShortcut(event, "search")) return;
       event.preventDefault();
       if (!event.repeat) setSearchOpen((current) => !current);
     };

@@ -51,7 +51,7 @@ export const describeShortcut = (shortcut: Shortcut): string =>
     ? `Both ${MODIFIER_NAME[shortcut.modifier]} keys`
     : shortcutKeycaps(shortcut).join(mac() ? "" : "+");
 
-function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
+export function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   return (
     <span className="inline-flex items-center gap-1" aria-hidden="true">
       {keys.map((key, index) => (
@@ -66,7 +66,7 @@ function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   );
 }
 
-/** Settings › General › Appshots: the shortcut, with Change and Reset. */
+/** Settings › Keyboard › Appshots: the shortcut, with Change and Reset. */
 export function AppshotShortcutSettings() {
   const bridge = window.openteam?.appshot?.shortcut;
   const [status, setStatus] = useState<Status | null>(null);

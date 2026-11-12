@@ -1,4 +1,6 @@
 import { TailscaleManager } from "./tailscale-manager";
+import { KeyboardShortcutStore } from "./keyboard-shortcuts";
+import { FN_KEY } from "../renderer/lib/keyboard-shortcuts";
 import type { DesktopBrowserNetwork } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
@@ -1063,7 +1065,7 @@ const appshot = new DesktopAppshot({
   discardDelivery: (stagingId) => discardDeliveryFiles(deliveryStageDirectory(), [stagingId]),
 });
 
-const installApplicationMenu = (appshotAccelerator: string | null) => {
+const installApplicationMenu = (appshotAccelerator: string | null, settingsAccelerator = keyboardShortcuts.get("settings")) => {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
       applicationMenuTemplate(process.platform, (action) => {
@@ -1085,9 +1087,45 @@ const installApplicationMenu = (appshotAccelerator: string | null) => {
         if (!computerClipboardActive || window !== mainWindow) return false;
         mainWindow?.webContents.send("openteam:computer-clipboard", action);
         return true;
-      }, appshotAccelerator)
+      }, appshotAccelerator, settingsAccelerator)
     )
   );
+};
+const currentAppshotAccelerator = () => {
+  const shortcut = appshotShortcut.status().shortcut;
+  return shortcut.kind === "accelerator" ? shortcut.accelerator : null;
+};
+
+// Rebindable app shortcuts (Settings › Keyboard). Every window follows them; the menu shows
+// Settings', and dictation on Fn needs the native helper, which only main runs.
+const keyboardShortcuts = new KeyboardShortcutStore({
+  path: join(app.getPath("userData"), "keyboard-shortcuts.json"),
+  platform: process.platform,
+  appshotAccelerator: () => currentAppshotAccelerator(),
+  onChange: (view) => {
+    appshotShortcut.setWatchFn(view.bindings.dictate === FN_KEY);
+    if (app.isReady()) installApplicationMenu(currentAppshotAccelerator(), view.bindings.settings);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send("openteam:shortcuts-changed", view);
+    }
+  },
+});
+const isOwnWindowSender = (event: Electron.IpcMainInvokeEvent) =>
+  BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents === event.sender);
+ipcMain.handle("openteam:shortcuts:get", (event) => {
+  if (!isOwnWindowSender(event)) throw new Error("Shortcuts are unavailable");
+  return keyboardShortcuts.view();
+});
+ipcMain.handle("openteam:shortcuts:set", (event, action: unknown, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Shortcuts are unavailable");
+  return keyboardShortcuts.set(action, value);
+});
+
+/** Fn tapped (dictation bound to Fn): to the composer in front, the appshot's or the chat's. */
+const dictateFromFn = () => {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (!focused || focused.isDestroyed()) return;
+  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "appshot:shortcut", "dictate");
 };
 
 // The macOS helper that detects both-key chords; packaged apps run it from app.asar.unpacked.
@@ -1102,6 +1140,7 @@ const appshotShortcut = new AppshotShortcutController({
   registerAccelerator: (accelerator, onPress) => globalShortcut.register(accelerator, onPress),
   unregisterAccelerator: (accelerator) => globalShortcut.unregister(accelerator),
   onTrigger: () => void appshot.take(),
+  onFn: () => dictateFromFn(),
   onStatus: (status) => {
     const menuAccelerator = status.shortcut.kind === "accelerator" ? status.shortcut.accelerator : null;
     if (app.isReady() && menuAccelerator !== lastShortcutMenu) {
@@ -1120,6 +1159,12 @@ ipcMain.handle("openteam:appshot:shortcut:get", (event) => {
 });
 ipcMain.handle("openteam:appshot:shortcut:set", async (event, value: unknown) => {
   requireShortcutSender(event);
+  // A global shortcut takes the key from the app too: not one of the app's own.
+  const accelerator = (value as { kind?: unknown; accelerator?: unknown } | null)?.accelerator;
+  if (typeof accelerator === "string") {
+    const taken = keyboardShortcuts.conflictWith(accelerator);
+    if (taken) throw new Error(taken);
+  }
   return { ...(await appshotShortcut.set(value)), platform: process.platform };
 });
 ipcMain.handle("openteam:appshot:shortcut:recording", (event, recording: unknown) => {
@@ -1260,6 +1305,7 @@ if (!hasSingleInstanceLock) {
       });
       await Promise.all([createWindow(), authStorageWarmup]);
       await appshotShortcut.start();
+      await keyboardShortcuts.start();
       // Screenshots and attachments half-written when the app last stopped can't be sent.
       void sweepIncompleteDeliveryStages(deliveryStageDirectory()).catch(() => undefined);
       scheduleDesktopUpdateChecks();

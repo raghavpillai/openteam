@@ -1,6 +1,8 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
+import { useShortcutBindings, isMac } from "../../hooks/use-shortcut-bindings";
+import { FN_KEY, shortcutText } from "../../lib/keyboard-shortcuts";
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
@@ -170,6 +172,7 @@ export function PromptInput({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const dictateBinding = useShortcutBindings().dictate;
   const sendAfterVoice = useRef(false);
   const [voiceReadyToSend, setVoiceReadyToSend] = useState(false);
   const trailingRef = useRef<HTMLDivElement>(null);
@@ -1064,7 +1067,7 @@ export function PromptInput({
                         }
                         title={
                           voice.available
-                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            ? `Click or ${dictateBinding === FN_KEY ? "press" : "hold"} ${shortcutText(dictateBinding, isMac())} to dictate`
                             : "Set up transcription in Voice notes settings"
                         }
                         className={cn("composer-dictation-action", VOICE_ACTION_CLASS)}
@@ -1091,7 +1094,7 @@ export function PromptInput({
                         !hasPayload && !voice.available
                           ? "Set up transcription in Voice notes settings"
                           : !hasPayload
-                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            ? `Click or ${dictateBinding === FN_KEY ? "press" : "hold"} ${shortcutText(dictateBinding, isMac())} to dictate`
                             : undefined
                       }
                       className={cn(

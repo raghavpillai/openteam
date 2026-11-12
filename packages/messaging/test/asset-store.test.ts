@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -528,5 +529,61 @@ describe("content-addressed attachment store", () => {
     expect(await store.prune(new Set([retained.assetId]), 1_000)).toBe(1);
     await expect(store.metadata(stale.assetId)).rejects.toMatchObject({ code: "asset_not_found" });
     expect(await store.metadata(retained.assetId)).toMatchObject({ assetId: retained.assetId });
+  });
+  test("empty bytes, streams and files are stored as one real empty asset", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    await writeFile(join(root, "empty.txt"), "");
+    const refs = [
+      await store.ingestBytes({ fileName: "bytes.txt", bytes: new Uint8Array() }),
+      await store.ingestStream({ fileName: "stream.txt", stream: (async function* () {})() }),
+      await store.ingestSource({ url: pathToFileURL(join(root, "empty.txt")).href }),
+    ];
+    for (const ref of refs) {
+      expect(ref.byteSize).toBe(0);
+      expect((await store.metadata(ref.assetId)).byteSize).toBe(0);
+      expect((await readFile(store.contentPath(ref.assetId))).length).toBe(0);
+    }
+    expect(new Set(refs.map((ref) => ref.assetId)).size).toBe(1);
+  });
+
+  test("file sources may read ordinary agent files but never private state, even through a symlink", async () => {
+    const root = await temporaryRoot();
+    const state = join(root, "state");
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root], agentDataRoot: state });
+    for (const relative of ["accessqa/public.txt", "agents/bot/accessqa/store.db", "agents/bot/store.db", "agents/bot/store.db-wal", "settings.json", "transcription.json", "connector-secrets/test.json", ".openteam/marker.json"]) {
+      const path = join(state, relative);
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(path, "harmless test fixture");
+      if (relative.includes("accessqa/")) expect((await store.ingestSource({ url: pathToFileURL(path).href })).byteSize).toBeGreaterThan(0);
+      else await expect(store.ingestSource({ url: pathToFileURL(path).href })).rejects.toMatchObject({ code: "asset_path_protected" });
+    }
+    await symlink(join(state, "settings.json"), join(root, "innocent.txt"));
+    await expect(store.ingestSource({ url: pathToFileURL(join(root, "innocent.txt")).href })).rejects.toMatchObject({ code: "asset_path_protected" });
+  });
+
+  // A subprocess is essential: a promise rejection alone misses fatal unhandled
+  // ReadStream errors, even when Bun also executes the surrounding catch.
+  test.skipIf(process.getuid?.() === 0)("an unreadable file source fails without killing the process; later deliveries succeed", async () => {
+    const root = await temporaryRoot();
+    await writeFile(join(root, "denied.txt"), "harmless");
+    await chmod(join(root, "denied.txt"), 0);
+    await writeFile(join(root, "ok.txt"), "readable");
+    await writeFile(join(root, "probe.ts"), `
+      import { AssetStore } from ${JSON.stringify(new URL("../src/asset-store.ts", import.meta.url).pathname)};
+      const store = new AssetStore({root:${JSON.stringify(join(root, "assets"))},allowedFileRoots:[${JSON.stringify(root)}]});
+      for(let attempt=0;attempt<3;attempt++) {
+        try { await store.ingestSource({url:${JSON.stringify(pathToFileURL(join(root, "denied.txt")).href)}}); throw new Error("unexpected success"); }
+        catch(e) { if(e.code!=="asset_file_unreadable") throw e; }
+        const result=await store.ingestSource({url:${JSON.stringify(pathToFileURL(join(root, "ok.txt")).href)}});
+        if(result.byteSize!==8) throw new Error("subsequent delivery failed");
+      }
+      console.log("RECOVERED_THREE_TIMES");
+    `);
+    const child = Bun.spawn([process.execPath, join(root, "probe.ts")], { stdout: "pipe", stderr: "pipe" });
+    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out).toContain("RECOVERED_THREE_TIMES");
+    expect((await readdir(join(root, "assets"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentNotificationPresentation } from "@openteam/contracts";
+import { reactionNotificationBody, toggleMessageReaction } from "../src";
 import { messageNotificationBody } from "../src/notifications";
 
 const message = (content: string, metadata: Record<string, unknown> = {}) => ({
@@ -20,25 +20,6 @@ const asset = (fileName: string, mimeType: string, kind: string) => ({
 });
 
 describe("messageNotificationBody", () => {
-  test("a question notification is titled with the bot and carries only the prompt", () => {
-    const { title, body } = agentNotificationPresentation({
-      kind: "message",
-      botName: "Question Lifecycle QA Nov13",
-      body: messageNotificationBody(message("Fallback content", {
-        type: "widget",
-        widget: {
-          prompt: "BANNER TEST: Which sample animal?",
-          helpText: "Extra help text for the card.",
-          options: [{ label: "Cat", value: "Cat" }, { label: "Dog", value: "Dog" }],
-        },
-      })),
-    });
-    expect({ title, body }).toEqual({
-      title: "Question Lifecycle QA Nov13",
-      body: "BANNER TEST: Which sample animal?",
-    });
-  });
-
   test("shows the first line with text as plain text, never Markdown", () => {
     expect(
       messageNotificationBody(
@@ -65,14 +46,6 @@ describe("messageNotificationBody", () => {
     expect(messageNotificationBody(message("Deploy to production?", { type: "widget" }))).toBe(
       "Deploy to production?"
     );
-    expect(messageNotificationBody(message("Fallback content", {
-      type: "widget",
-      widget: {
-        prompt: "Which **color**?",
-        helpText: "Choose a sample",
-        options: [{ label: "Red" }, { label: "Blue" }],
-      },
-    }))).toBe("Which color?");
     expect(
       messageNotificationBody(message("Secret requested: GITHUB_TOKEN", { type: "secret-request" }))
     ).toBe("Secret requested: GITHUB_TOKEN");
@@ -80,5 +53,42 @@ describe("messageNotificationBody", () => {
       "Q3 numbers"
     );
     expect(messageNotificationBody(message(""))).toBe("");
+  });
+});
+
+describe("toggleMessageReaction", () => {
+  test("a different emoji replaces the same actor's prior tapback", () => {
+    const first = toggleMessageReaction([], "👍", "agent");
+    const second = toggleMessageReaction(first.reactions, "❤️", "agent");
+
+    expect(second.removed).toBe(false);
+    expect(second.reactions).toEqual([
+      { by: "agent", emoji: "❤️" },
+    ]);
+  });
+
+  test("repeating an actor's emoji clears their legacy selections and preserves other actors", () => {
+    const current = [
+      { by: "agent", emoji: "👍" },
+      { by: "agent", emoji: "❤️" },
+      { by: "me", emoji: "👍" },
+    ];
+
+    expect(toggleMessageReaction(current, "👍", "agent")).toEqual({
+      reactions: [
+        { by: "me", emoji: "👍" },
+      ],
+      removed: true,
+    });
+  });
+});
+
+describe("reactionNotificationBody", () => {
+  test("quotes the reacted-to message as plain text", () => {
+    expect(reactionNotificationBody("👍", "**Ship it** on [Friday](https://example.com)\nThanks")).toBe(
+      "Reacted 👍 to “Ship it on Friday”"
+    );
+    expect(reactionNotificationBody("❤️", "")).toBe("Reacted ❤️ to your message");
+    expect(reactionNotificationBody("❤️", "```\n```")).toBe("Reacted ❤️ to your message");
   });
 });

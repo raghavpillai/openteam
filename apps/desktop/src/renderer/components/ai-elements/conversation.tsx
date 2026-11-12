@@ -269,43 +269,6 @@ export const ConversationContent = ({
   );
 };
 
-export const ConversationTopDivider = () => {
-  const { contentRef, scrollRef } = useStickToBottomContext();
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const viewport = scrollRef.current;
-    const content = contentRef.current;
-    if (!(viewport && content)) return;
-
-    const update = () => {
-      const hasOverflow = viewport.scrollHeight > viewport.clientHeight + 1;
-      setVisible(!hasOverflow || viewport.scrollTop > 1);
-    };
-    const resizeObserver = new ResizeObserver(update);
-
-    viewport.addEventListener("scroll", update, { passive: true });
-    resizeObserver.observe(viewport);
-    resizeObserver.observe(content);
-    update();
-
-    return () => {
-      viewport.removeEventListener("scroll", update);
-      resizeObserver.disconnect();
-    };
-  }, [contentRef, scrollRef]);
-
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none absolute inset-x-0 top-11 z-20 h-6 bg-gradient-to-b from-background/60 to-transparent transition-opacity duration-150 ease-out motion-reduce:transition-none",
-        visible ? "opacity-100" : "opacity-0"
-      )}
-    />
-  );
-};
-
 /**
  * Keeps the same part of the transcript visible while the composer grows.
  * The stick-to-bottom package observes transcript height, but the composer is

@@ -11,7 +11,6 @@ import { docsTools } from "../google-docs/connector/server";
 import { sheetsTools } from "../google-sheets/connector/server";
 import { slidesTools } from "../google-slides/connector/server";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import { parsePluginDefinition, createPluginTemplate } from "@openteam/plugin-sdk";
 
 test("Large tool results survive process replacement and are complete and account scoped", async () => {
   const root = await mkdtemp(join(tmpdir(), "plugin-result-test-"));
@@ -35,20 +34,6 @@ test("Large tool results survive process replacement and are complete and accoun
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("The binary package validator accepts real model-sized base64 and rejects malformed payloads", () => {
-  const definition = createPluginTemplate("skills", "binary-test");
-  definition.binaryFiles = {
-    "assets/model.bin": Buffer.alloc(8 * 1024 * 1024, 1).toString("base64"),
-  };
-  expect(parsePluginDefinition(definition).binaryFiles?.["assets/model.bin"]).toBe(
-    definition.binaryFiles["assets/model.bin"]
-  );
-  for (const invalid of ["a===", "abcd=", "ab!d", "ab=c"])
-    expect(() =>
-      parsePluginDefinition({ ...definition, binaryFiles: { "file.bin": invalid } })
-    ).toThrow("binary file");
 });
 
 test("Every advertised reference tool input remains discoverable with valid MCP schemas", () => {

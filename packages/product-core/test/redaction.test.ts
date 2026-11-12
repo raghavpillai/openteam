@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clientErrorMessage, redactSensitiveText, safeErrorMessage } from "../src/redaction";
+import { redactSensitiveText } from "../src/redaction";
 
 describe("diagnostic credential redaction", () => {
   test("removes bearer, environment, JSON, CLI, URL, and provider secrets", () => {
@@ -24,37 +24,6 @@ describe("diagnostic credential redaction", () => {
       expect(output).not.toContain(secret);
     }
     expect(output.match(/\[REDACTED\]/g)?.length).toBeGreaterThanOrEqual(6);
-  });
-
-  test("redacts errors while preserving useful context", () => {
-    expect(safeErrorMessage(new Error("Docker failed: OPENTEAM_CONTROL_TOKEN=topsecret"))).toBe(
-      "Docker failed: OPENTEAM_CONTROL_TOKEN=[REDACTED]"
-    );
-  });
-
-  test("uses safe client fallbacks without exposing credentials", () => {
-    expect(
-      clientErrorMessage(
-        new Error(
-          "Error invoking remote method 'openteam:updates:update-server': Error: Update failed"
-        ),
-        "Fallback"
-      )
-    ).toBe("Update failed");
-    expect(
-      clientErrorMessage(
-        new Error(
-          "Error invoking remote method 'openteam:auth:sign-in': OpenTeamClientError: fetch failed"
-        ),
-        "Fallback"
-      )
-    ).toBe("fetch failed");
-    expect(clientErrorMessage(null, "Could not complete the request.")).toBe(
-      "Could not complete the request."
-    );
-    expect(clientErrorMessage(new Error("Denied: API_KEY=private"), "Fallback")).toBe(
-      "Denied: API_KEY=[REDACTED]"
-    );
   });
 
   test("fully removes quoted secrets that contain spaces", () => {

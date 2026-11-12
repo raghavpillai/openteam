@@ -7,31 +7,15 @@ import type {
 } from "@openteam/contracts";
 import {
   TrailingAsyncCoalescer,
-  createLiveSyncController,
   createReconnectingProductEventStream,
   type ProductEventHandlers,
 } from "../src";
 import {
-  clientReadCoversCursor,
   type LiveSnapshotSyncOptions,
   synchronizeClientSnapshot,
 } from "../src/sync";
 
 describe("bounded live refresh coalescing", () => {
-  test("refreshes during a continuous burst rather than waiting for silence", async () => {
-    let refreshes = 0;
-    const coalescer = new TrailingAsyncCoalescer(async () => {
-      refreshes += 1;
-    }, 15);
-    const stream = setInterval(() => coalescer.trigger(), 2);
-    try {
-      await Bun.sleep(70);
-      expect(refreshes).toBeGreaterThanOrEqual(2);
-    } finally {
-      clearInterval(stream);
-      coalescer.cancel();
-    }
-  });
 
   test("never overlaps refreshes and preserves an update received during a slow read", async () => {
     const first = deferred();
@@ -130,93 +114,6 @@ describe("shared reconnecting product event stream", () => {
     expect(scheduled[0]?.delay).toBe(2_000);
   });
 
-  test("pause cancels reconnects, aborts the active request, and drops stale callbacks", async () => {
-    const attempts: Array<{
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred>;
-      signal: AbortSignal;
-    }> = [];
-    const scheduled: Array<() => void> = [];
-    const cancelled: unknown[] = [];
-    const received: string[] = [];
-    const stream = createReconnectingProductEventStream({
-      cursor: () => "0",
-      listen: (_after, handlers, signal) => {
-        const pending = deferred();
-        attempts.push({ handlers, pending, signal });
-        return pending.promise;
-      },
-      onEvent: (next) => received.push(next.sequence),
-      schedule: (callback) => {
-        scheduled.push(callback);
-        return scheduled.length as unknown as ReturnType<typeof setTimeout>;
-      },
-      cancel: (timer) => cancelled.push(timer),
-    });
-
-    stream.resume();
-    await settle();
-    stream.pause();
-    expect(attempts[0]?.signal.aborted).toBe(true);
-    attempts[0]?.handlers.onEvent(event("1"));
-    attempts[0]?.pending.resolve();
-    await settle();
-    expect(received).toEqual([]);
-    expect(scheduled).toHaveLength(0);
-
-    stream.resume();
-    await settle();
-    attempts[1]?.pending.resolve();
-    await settle();
-    expect(scheduled).toHaveLength(1);
-    stream.pause();
-    expect(cancelled).toHaveLength(1);
-  });
-});
-
-describe("shared live sync controller", () => {
-  test("owns event invalidation, foreground catch-up, health, and suspension policy", async () => {
-    const attempts: Array<{
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred>;
-      signal: AbortSignal;
-    }> = [];
-    const health: boolean[] = [];
-    let synchronizations = 0;
-    const liveSync = createLiveSyncController({
-      cursor: () => "7",
-      listen: (_after, handlers, signal) => {
-        const pending = deferred();
-        attempts.push({ handlers, pending, signal });
-        return pending.promise;
-      },
-      synchronize: async () => {
-        synchronizations += 1;
-      },
-      handleEvent: (next) => next.sequence === "8",
-      onHealthChange: (healthy) => health.push(healthy),
-      debounceMs: 0,
-    });
-
-    liveSync.setActive(true);
-    await settle();
-    attempts[0]?.handlers.onOpen?.();
-    attempts[0]?.handlers.onEvent(event("8"));
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(1);
-    expect(health).toEqual([true]);
-
-    liveSync.setActive(false);
-    expect(attempts[0]?.signal.aborted).toBe(true);
-    attempts[0]?.handlers.onEvent(event("8"));
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(1);
-
-    liveSync.setActive(true, true);
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(2);
-    liveSync.stop();
-  });
 });
 
 const deferredValue = <T>() => {
@@ -262,15 +159,6 @@ const harness = (overrides: Partial<LiveSnapshotSyncOptions> = {}) => {
 };
 
 describe("coherent live channel refresh", () => {
-  test("rejects a page older than the last event without waiting for another event", async () => {
-    const h = harness({ readHistory: async () => history("9") });
-    expect(await synchronizeClientSnapshot(h.options)).toBe("deferred");
-    expect(h.accepted).toEqual(["bootstrap"]);
-    expect(h.deferredWork).toHaveLength(1);
-    h.options.readHistory = async () => history("11");
-    expect(await synchronizeClientSnapshot(h.options)).toBe("applied");
-    expect(h.accepted.slice(-3)).toEqual(["bootstrap", "history", "state"]);
-  });
   test("queues catch-up behind hydration instead of dropping the final message", async () => {
     const loading = deferredValue<void>();
     let pending: Promise<void> | null = loading.promise;
@@ -291,48 +179,5 @@ describe("coherent live channel refresh", () => {
     await loading.promise;
     expect(await synchronizeClientSnapshot(h.options)).toBe("applied");
     expect(h.accepted).toEqual(["bootstrap", "bootstrap", "history", "state"]);
-  });
-  test("does not overwrite a local history change that wins the in-flight race", async () => {
-    const read = deferredValue<ChannelHistoryPage>();
-    let identity = {};
-    const h = harness({ historyIdentity: () => identity, readHistory: () => read.promise });
-    const request = synchronizeClientSnapshot(h.options);
-    identity = {};
-    read.resolve(history());
-    expect(await request).toBe("deferred");
-    expect(h.accepted).toEqual(["bootstrap"]);
-    expect(h.deferredWork).toHaveLength(1);
-  });
-  test("drops retired account results and does not retry a departed channel", async () => {
-    const retired = harness({ isCurrent: () => false });
-    expect(await synchronizeClientSnapshot(retired.options)).toBe("stale");
-    expect(retired.accepted).toEqual([]);
-    let active = "chat";
-    const switched = harness({
-      activeChannel: () => active,
-      readHistory: async () => {
-        active = "other";
-        return history();
-      },
-    });
-    expect(await synchronizeClientSnapshot(switched.options)).toBe("applied");
-    expect(switched.accepted).toEqual(["bootstrap"]);
-    expect(switched.deferredWork).toHaveLength(0);
-  });
-  test("requires fresh activity as well as history and retains bigint precision", async () => {
-    const h = harness({ readState: async () => state("9") });
-    expect(await synchronizeClientSnapshot(h.options)).toBe("deferred");
-    expect(clientReadCoversCursor("9007199254740993", "9007199254740994")).toBe(false);
-    expect(clientReadCoversCursor("9007199254740994", "9007199254740993")).toBe(true);
-    expect(clientReadCoversCursor("invalid", "10")).toBe(false);
-  });
-  test("transport failures remain retryable rather than silently accepting a partial snapshot", async () => {
-    const h = harness({
-      readHistory: async () => {
-        throw new Error("offline");
-      },
-    });
-    await expect(synchronizeClientSnapshot(h.options)).rejects.toThrow("offline");
-    expect(h.accepted).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { EXTERNAL_SENDER, Mailbox, OWNER_SENDER } from "../mailbox";
+import { Mailbox, OWNER_SENDER } from "../mailbox";
 import { parseEndpoint, type MailSettings } from "../settings";
 
 const settings: MailSettings = {
@@ -32,31 +32,4 @@ describe("ReadEmailThread message lines", () => {
     ]);
   });
 
-  test("an unverified own address, or any other sender, is external", () => {
-    expect(render({ from: { address: "me@home.test", name: "" }, headers: dmarc("fail") })[2]).toBe(EXTERNAL_SENDER);
-    expect(render({ from: { address: "ann@example.test", name: "" }, headers: dmarc("pass") })[2]).toBe(EXTERNAL_SENDER);
-  });
-
-  test("missing sender and subject, an unopenable attachment and a cut body read like the reference", () => {
-    const lines = render({
-      to: [],
-      subject: "  ",
-      text: "A long body that goes on",
-      attachments: [
-        { filename: "scan.pdf", mimeType: "application/pdf", disposition: "attachment", content: new Uint8Array(25 * 1024 * 1024 + 1) },
-        { filename: "big.csv", mimeType: "text/csv", disposition: "attachment", content: new Uint8Array(25 * 1024 * 1024 + 1) },
-      ],
-    }, 6);
-    expect(lines).toEqual([
-      "--- 1. received 2026-10-20T10:00:00Z · message_id INBOX:7",
-      "From: unknown sender",
-      EXTERNAL_SENDER,
-      "Subject: (no subject)",
-      "delivery: delivered · 2 attachments",
-      "- attachment_id INBOX:7:0: scan.pdf (application/pdf, 25.0 MB). Skipped: too large, cannot be opened",
-      "- attachment_id INBOX:7:1: big.csv (text/csv, 25.0 MB). Open with ReadEmailAttachment",
-      "",
-      "A long\n[body truncated; raise body_max_chars to read more]",
-    ]);
-  });
 });

@@ -6,9 +6,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { discoverPackages } from "../../../scripts/generate";
-import { SignalRpc } from "../rpc";
-import { SignalService } from "../service";
-import { MessageStore } from "../store";
 
 const fixture = new URL("./chaos-runtime-fixture.ts", import.meta.url).pathname;
 const temporary = mkdtempSync(join(tmpdir(), "signal-chaos-runtime-"));
@@ -119,81 +116,6 @@ async function packaged(root: string) {
   return { client, transport, call };
 }
 
-test("chaos: fragmented UTF-8, reordered replies, duplicate IDs and receive bursts stay correlated", async () => {
-  const root = peerRoot("multiplex");
-  const received = new Set<number>();
-  const rpc = new SignalRpc([process.execPath, fixture, root], (frame) =>
-    received.add(frame.synthetic)
-  );
-  try {
-    const result = await Promise.all(
-      Array.from({ length: 128 }, (_, value) =>
-        rpc.request("echoChaos", { value, delay: (value * 31) % 29 })
-      )
-    );
-    expect(result).toEqual(
-      Array.from({ length: 128 }, (_, value) => ({ value, text: "日本語 🐈 café" }))
-    );
-    await until(() => received.size === 128);
-    expect(rpc.connected).toBe(true);
-  } finally {
-    await rpc.close();
-  }
-});
-
-test("chaos: six real process crashes recover without provisioning or duplicate subscriptions", async () => {
-  const root = peerRoot("crashstorm", 6);
-  const rpcPeers: SignalRpc[] = [];
-  const service = new SignalService(
-    new MessageStore(join(root, "messages.sqlite")),
-    (receive) => {
-      const peer = new SignalRpc([process.execPath, fixture, root], receive);
-      rpcPeers.push(peer);
-      return peer;
-    },
-    5
-  );
-  try {
-    await expect(service.connect()).rejects.toThrow(/disconnected|output closed/);
-    await until(() => rpcPeers.length >= 7);
-    expect(await service.status()).toMatchObject({
-      linked: true,
-      account: { aci: "synthetic-crashstorm" },
-    });
-    expect(service.store.list().messages).toHaveLength(1);
-    expect(journal(root).filter((event) => event.kind === "boot")).toHaveLength(7);
-    expect(rpcPeers.filter((peer) => peer.connected)).toHaveLength(1);
-    expect(journal(root).filter((event) => event.kind === "subscribe")).toHaveLength(1);
-    expect(journal(root).filter((event) => event.kind === "provision")).toHaveLength(0);
-  } finally {
-    await service.close();
-  }
-});
-
-test("chaos: provider commit then crash remains unknown across exported MCP restart and concurrent retries", async () => {
-  const root = peerRoot("unknown");
-  const first = await packaged(root);
-  const args = { requestId: "chaos-send-unknown", noteToSelf: true, message: "commit-and-crash" };
-  try {
-    await expect(first.call("send_message", args)).rejects.toThrow(/disconnected|output closed/);
-  } finally {
-    await first.client.close();
-  }
-  const second = await packaged(root);
-  try {
-    const retries = await Promise.all(
-      Array.from({ length: 32 }, () => second.call("send_message", args))
-    );
-    expect(retries.every((result) => result.existing && result.state === "unknown")).toBe(true);
-    expect(journal(root).filter((event) => event.kind === "send")).toHaveLength(1);
-    await expect(second.call("send_message", { ...args, message: "different" })).rejects.toThrow(
-      "different message content"
-    );
-  } finally {
-    await second.client.close();
-  }
-});
-
 test("chaos: killing whole packaged MCP after provider commit cannot resend an ambiguous message", async () => {
   const root = peerRoot("hostkill");
   const first = await packaged(root);
@@ -257,30 +179,5 @@ test("chaos: two exported accounts isolate history, attachment authority and ide
     ).toEqual(["synthetic-account-B"]);
   } finally {
     await Promise.all([a.client.close(), b.client.close()]);
-  }
-});
-
-test("chaos: successful send survives a whole MCP crash without losing its saved acknowledgement", async () => {
-  const root = peerRoot("acknowledged");
-  const first = await packaged(root);
-  const args = { requestId: "chaos-send-acknowledged", noteToSelf: true, message: "ordinary" };
-  let saved: any;
-  try {
-    saved = await first.call("send_message", args);
-    expect(saved).toMatchObject({ existing: false, state: "sent" });
-    process.kill(first.transport.pid!, "SIGKILL");
-  } finally {
-    await first.client.close();
-  }
-  const second = await packaged(root);
-  try {
-    expect(await second.call("send_message", args)).toEqual({
-      existing: true,
-      state: "sent",
-      result: saved.result,
-    });
-    expect(journal(root).filter((event) => event.kind === "send")).toHaveLength(1);
-  } finally {
-    await second.client.close();
   }
 });

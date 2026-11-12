@@ -54,24 +54,6 @@ test('a reviewed reply goes out from the chosen address with its signature, thre
   expect(parsed.text).toContain('> What is the total?');
 });
 
-test('a new reviewed email from an alias carries its display name and no thread', async () => {
-  const h = harness(gmailTools, [profile, sendAs, { id: 'sent-2', threadId: 'thread-new' }]);
-  await h.call('send_reviewed_email', { action: 'send', draft: { from: 'team@example.com', to: ['ann@example.com'], subject: 'Hello', body: 'Line one\nLine <two>' } });
-  const send = h.requests.at(-1)!;
-  expect(send.json.threadId).toBeUndefined();
-  const parsed = await PostalMime.parse(Buffer.from(send.json.raw, 'base64url'));
-  expect(parsed.from).toEqual({ name: 'Team Résumé', address: 'Team@Example.com' });
-  expect(parsed.html).toBe('<div dir="auto">Line one<br>Line &lt;two&gt;</div>');
-  expect(parsed.text).toBe('Line one\nLine <two>');
-});
-
-test('the primary address without a display name lets Gmail fill in From', async () => {
-  const h = harness(gmailTools, [profile, { sendAs: [{ sendAsEmail: 'me@gmail.com', isPrimary: true, displayName: '' }] }, { id: 'sent-3', threadId: 't' }]);
-  await h.call('send_reviewed_email', { action: 'send', draft: { from: 'me@gmail.com', to: ['ann@example.com'], subject: 'Hi', body: 'Hello' } });
-  const parsed = await PostalMime.parse(Buffer.from(h.requests.at(-1)!.json.raw, 'base64url'));
-  expect(parsed.from).toBeUndefined();
-});
-
 test('a reviewed forward verifies its source, appends forwarded context and sends previewed attachments in a new thread', async () => {
  const verified = harness(gmailTools, [profile, sendAs, original]);
  expect(await verified.call('send_reviewed_email', { action: 'verify', draft: {

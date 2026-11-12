@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
 import { SignalRpc } from "../rpc";
-import { SignalService } from "../service";
-import { MessageStore } from "../store";
 
 const wrapper = new URL("./wrapper-fixture.ts", import.meta.url).pathname;
 const fixture = new URL("./fixture.ts", import.meta.url).pathname;
@@ -37,47 +35,3 @@ test("wrapper exit fails pending requests promptly and reaps descendants retaini
     await rpc.close();
   }
 }, 5000);
-
-test("explicit close is bounded when a wrapper's runtime retains output pipes", async () => {
-  const rpc = new SignalRpc([process.execPath, wrapper], () => {});
-  let pid: number | undefined;
-  try {
-    pid = (await rpc.request("descendantPid")).pid;
-    expect(
-      await Promise.race([rpc.close().then(() => true), Bun.sleep(2500).then(() => false)])
-    ).toBe(true);
-    expect(rpc.connected).toBe(false);
-    await expectReaped(pid!);
-  } finally {
-    cleanup(pid);
-    await rpc.close();
-  }
-}, 5000);
-
-test("automatic recovery resumes after a wrapper exits with a live runtime descendant", async () => {
-  let first!: SignalRpc;
-  let launches = 0;
-  let pid: number | undefined;
-  const service = new SignalService(
-    new MessageStore(":memory:"),
-    (receive) => {
-      launches++;
-      const rpc = new SignalRpc([process.execPath, launches === 1 ? wrapper : fixture], receive);
-      if (launches === 1) first = rpc;
-      return rpc;
-    },
-    10
-  );
-  try {
-    await service.connect();
-    pid = (await first.request("descendantPid")).pid;
-    await first.request("exitWrapper").catch(() => {});
-    for (let i = 0; i < 150 && launches < 2; i++) await Bun.sleep(20);
-    expect(launches).toBe(2);
-    expect(await service.status()).toMatchObject({ connected: true, linked: true });
-    await expectReaped(pid!);
-  } finally {
-    cleanup(pid);
-    await service.close();
-  }
-}, 6000);

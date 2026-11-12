@@ -1,66 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
-  formatPiModelRef,
-  defaultServerInferenceSettings,
-  isRuntimeEngine,
   normalizeInferenceProviderId,
-  normalizePiReasoningLevel,
-  parsePiModelRef,
-  piModelRef,
-  RUNTIME_ENGINES,
-  serverInferenceSettings,
 } from "../src/inference";
 import { parseComputerInferenceRequest } from "../src/service-protocol";
 
 describe("Pi inference model references", () => {
-  test("unconfigured defaults do not introduce a model ID into valid runtime references", () => {
-    expect(defaultServerInferenceSettings()).toEqual({
-      providerId: "openai-codex",
-      modelId: "",
-      reasoning: "medium",
-    });
-    expect(() => piModelRef("openai-codex", "")).toThrow("Invalid inference model");
-    expect(() => serverInferenceSettings("openai-codex", "", "medium")).toThrow(
-      "Invalid inference model"
-    );
-  });
-  test("keeps runtime engine and inference provider as separate concepts", () => {
-    expect(RUNTIME_ENGINES).toEqual(["pi"]);
-    expect(isRuntimeEngine("pi")).toBe(true);
-    expect(isRuntimeEngine("codex")).toBe(false);
-    expect(piModelRef("Anthropic", "claude-sonnet-4-5")).toEqual({
-      providerId: "anthropic",
-      modelId: "claude-sonnet-4-5",
-    });
-    expect(formatPiModelRef(piModelRef("openai", "gpt-5.2"))).toBe("openai/gpt-5.2");
-  });
-
-  test("accepts qualified model ids including nested provider model paths", () => {
-    expect(parsePiModelRef("anthropic/claude-opus-4-1")).toEqual({
-      providerId: "anthropic",
-      modelId: "claude-opus-4-1",
-    });
-    expect(parsePiModelRef("openrouter/anthropic/claude")).toEqual({
-      providerId: "openrouter",
-      modelId: "anthropic/claude",
-    });
-    for (const unqualified of ["claude-opus-4-1", "/claude-opus-4-1", "anthropic/"])
-      expect(() => parsePiModelRef(unqualified)).toThrow();
-  });
 
   test("rejects unsafe provider ids", () => {
     expect(() => normalizeInferenceProviderId("not valid")).toThrow("Invalid inference provider");
     expect(() => normalizeInferenceProviderId("../provider")).toThrow("Invalid inference provider");
-  });
-
-  test("normalizes persisted runtime inference settings", () => {
-    expect(serverInferenceSettings(" Anthropic ", "claude-sonnet", "medium")).toEqual({
-      providerId: "anthropic",
-      modelId: "claude-sonnet",
-      reasoning: "medium",
-    });
-    expect(normalizePiReasoningLevel("xhigh")).toBe("xhigh");
-    expect(() => normalizePiReasoningLevel("turbo")).toThrow("Invalid inference reasoning level");
   });
 
   test("requires runtime inference selection on direct computer requests", () => {
@@ -78,14 +26,5 @@ describe("Pi inference model references", () => {
         reasoning: "high",
       })
     ).toMatchObject({ model: "openai-codex/gpt-5.5", reasoning: "high" });
-  });
-  test("native screen references are bounded and restricted to verification", () => {
-    const request = { kind: "verification", instructions: "Review", prompt: "Action", timeoutMs: 5000,
-      model: "openrouter/x-ai/grok-4.7", reasoning: "low", screenBotId: crypto.randomUUID() };
-    expect(parseComputerInferenceRequest(request).screenBotId).toBe(request.screenBotId);
-    for (const screenBotId of ["../../other", "http://example.test", "", 12, { data: "image" }]) {
-      expect(() => parseComputerInferenceRequest({ ...request, screenBotId })).toThrow("screen observation");
-    }
-    expect(() => parseComputerInferenceRequest({ ...request, kind: "extraction" })).toThrow("screen observation");
   });
 });

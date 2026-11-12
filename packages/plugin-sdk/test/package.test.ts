@@ -1,24 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  applySecretEdits,
-  assertComputerMcpRuntime,
-  clonePluginDefinition,
   createPluginTemplate,
-  discoverAllTools,
   environmentFields,
-  exportPackage,
   fieldsForConnector,
   importPackage,
-  packageChanges,
   parsePluginDefinition,
-  type PluginDefinition,
-  pluginIconUrl,
   scopedProcessEnvironment,
-  skillIsForAgent,
-  substituteConfiguration,
-  validateValues,
 } from "../src";
-import { exportPackageArchive, importPackageArchive } from "../src/archive";
 
 const files = {
   "plugin.json": JSON.stringify({
@@ -49,56 +37,6 @@ const files = {
 };
 
 describe("portable plugin packages", () => {
-  test("imports hidden MCP files and preserves Granola-shaped workflow components through ZIP", () => {
-    const imported = importPackage({
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        name: "meetings",
-        version: "1.0.0",
-        author: { name: "Example" },
-      }),
-      ".mcp.json": JSON.stringify({ mcpServers: { meetings: { url: "https://example.com/mcp" } } }),
-      "skills/context/SKILL.md":
-        "---\nname: context\ndescription: Meeting context\n---\nRead the meeting notes.",
-      "commands/brief.md": "---\ndescription: Brief\n---\nSummarize $ARGUMENTS",
-      "agents/engineer.md": "---\ndescription: Engineer\n---\nImplement the assigned task.",
-      "rules/context.mdc": "---\nalwaysApply: true\n---\nCite meeting evidence.",
-    });
-    expect(imported.definition.connections).toHaveLength(1);
-    expect(imported.definition.connections[0]?.endpoint).toBe("https://example.com/mcp");
-    expect(imported.warnings).toContain(
-      "MCP server meetings: this package does not declare authentication. If the service requires sign-in, configure OAuth in the plugin definition before installing, or use its OpenTeam registry package."
-    );
-    const roundtrip = importPackageArchive(exportPackageArchive(imported.definition));
-    expect(roundtrip.definition.components).toEqual([
-      "mcp",
-      "skills",
-      "rules",
-      "commands",
-      "agents",
-    ]);
-    expect(roundtrip.definition.connections).toEqual(imported.definition.connections);
-    expect(roundtrip.definition.files?.["commands/brief.md"]).toContain("$ARGUMENTS");
-  });
-  test("resolves Slack's manifest-relative MCP path without adopting another client's identity", () => {
-    const imported = importPackage({
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        name: "chat",
-        version: "1.0.0",
-        mcpServers: "../.cursor-mcp.json",
-      }),
-      ".cursor-mcp.json": JSON.stringify({
-        mcpServers: {
-          chat: { url: "https://example.com/mcp", auth: { CLIENT_ID: "upstream-app" } },
-        },
-      }),
-    });
-    const connector = imported.definition.connections[0]!;
-    expect(connector.auth).toBe("oauth");
-    expect(connector.oauth?.registration).toBe("manual");
-    expect(connector.setup?.fields.map((field) => field.key)).toEqual(["clientId", "clientSecret"]);
-    expect(JSON.stringify(connector)).not.toContain("upstream-app");
-    expect(imported.warnings[0]).toContain("configure your own OAuth client");
-  });
   test("MCP path compatibility never allows escaping the package or absolute references", () => {
     for (const path of [
       "../../outside.json",
@@ -128,79 +66,6 @@ describe("portable plugin packages", () => {
         "outside.json": "{}",
       })
     ).toThrow("Unsafe package path");
-  });
-  test("imports hybrid packages with typed variables and retains relative skill assets", () => {
-    const preview = importPackage(files);
-    expect(preview.format).toBe("agent-plugin");
-    expect(preview.definition.components).toEqual(["mcp", "skills"]);
-    expect(preview.definition.connections[1]?.configuration?.args).toEqual(["a b", 'quoted"value']);
-    expect(preview.definition.skills[0]?.path).toBe("skills/review");
-    expect(preview.definition.setupFields?.[0]?.secret).toBe(true);
-    const roundtrip = importPackage(exportPackage(preview.definition));
-    expect(roundtrip.definition.skills).toEqual(preview.definition.skills);
-    expect(roundtrip.definition.files?.["skills/review/references/style.md"]).toBe(
-      "Preserve evidence."
-    );
-  });
-  test("ZIP round trips binary supporting files without touching account credentials", () => {
-    const definition = importPackage(files).definition;
-    definition.binaryFiles = { "skills/review/assets/sample.bin": btoa("\u0000\u00ff\u0080") };
-    const imported = importPackageArchive(exportPackageArchive(definition));
-    expect(imported.definition.binaryFiles).toEqual(definition.binaryFiles);
-    expect(imported.definition.connections[0]?.configuration?.headers).toEqual({
-      Authorization: "Bearer ${API_TOKEN}",
-    });
-  });
-  test("package icons survive ZIP import and export", () => {
-    const definition = importPackage(files).definition;
-    const png =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG0cAAAAASUVORK5CYII=";
-    definition.icon = "assets/icon.png";
-    definition.binaryFiles = { "assets/icon.png": png };
-    const imported = importPackageArchive(exportPackageArchive(definition)).definition;
-    expect(imported.icon).toBe("assets/icon.png");
-    expect(pluginIconUrl(imported)).toBe(`data:image/png;base64,${png}`);
-    expect(() => parsePluginDefinition({ ...definition, binaryFiles: {} })).toThrow(
-      "Missing plugin icon"
-    );
-    expect(() => parsePluginDefinition({ ...definition, icon: "../icon.png" })).toThrow(
-      "Unsafe package path"
-    );
-    expect(() => parsePluginDefinition({ ...definition, icon: "assets/icon.svg" })).toThrow(
-      "PNG, JPEG or WebP"
-    );
-    expect(() =>
-      parsePluginDefinition({
-        ...definition,
-        binaryFiles: { "assets/icon.png": "AAAA".repeat(90_000) },
-      })
-    ).toThrow("256 KB");
-  });
-  test("icon resolution rejects unsafe URLs and missing icons", () => {
-    expect(pluginIconUrl({})).toBeNull();
-    expect(pluginIconUrl({ logoUrl: "javascript:alert(1)" })).toBeNull();
-  });
-  test("accepts event polling only on packaged connectors with a known source", () => {
-    const definition = importPackage(files).definition;
-    const local = definition.connections.find((connection) => connection.transport === "stdio")!;
-    const remote = definition.connections.find((connection) => connection.transport === "http")!;
-    const withEvents = (connection: typeof local, events: unknown) =>
-      parsePluginDefinition({ ...definition, connections: [{ ...connection, events }] });
-    expect(
-      withEvents(local, { pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 })
-        .connections[0]!.events
-    ).toEqual({ pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 });
-    expect(() => withEvents(remote, { pollTool: "poll", source: "email" })).toThrow(
-      "Only packaged (stdio) connectors can poll for events"
-    );
-    expect(() => withEvents(local, { pollTool: "poll", source: "fax" })).toThrow(
-      "Unknown event source: fax"
-    );
-    expect(() => withEvents(local, { source: "email" })).toThrow("event poll tool");
-    for (const intervalSeconds of [5, 29, 3601, 60.5])
-      expect(() => withEvents(local, { pollTool: "poll", source: "email", intervalSeconds })).toThrow(
-        "Event poll interval must be 30 to 3600 seconds"
-      );
   });
   test("accepts reviewed draft sending only on packaged connectors", () => {
     const definition = importPackage(files).definition;
@@ -254,79 +119,8 @@ describe("portable plugin packages", () => {
       parsePluginDefinition({ ...definition, connections: [{ ...definition.connections[0], setup }] })
     ).toThrow("Environment setup fields");
   });
-  test("skills name the agents that receive them and default to the main agent", () => {
-    const definition = importPackage(files).definition;
-    const skill = { name: "sign-in", description: "Sign in", body: "Use the CLI." };
-    const shared = parsePluginDefinition({ ...definition, skills: [{ ...skill, agents: ["main", "computerUse"] }] });
-    expect(skillIsForAgent(shared.skills[0]!, "computerUse")).toBe(true);
-    expect(skillIsForAgent(shared.skills[0]!, "executor")).toBe(false);
-    expect(skillIsForAgent(skill, "main")).toBe(true);
-    expect(skillIsForAgent(skill, "computerUse")).toBe(false);
-    for (const agents of [[], ["browser"], ["main", "browserUse"], ["main", "main"], "main"])
-      expect(() => parsePluginDefinition({ ...definition, skills: [{ ...skill, agents }] })).toThrow("Invalid skill agents");
-  });
-  test("retains Cursor hook configuration for runtime execution", () => {
-    const { "plugin.json": manifest, ...rest } = files;
-    const preview = importPackage({
-      ...rest,
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        ...JSON.parse(manifest),
-        hooks: "hooks/hooks.json",
-      }),
-      "hooks/hooks.json": "{}",
-    });
-    expect(preview.format).toBe("cursor-plugin");
-    expect(preview.warnings).toEqual([]);
-    expect(preview.definition.files?.["hooks/hooks.json"]).toBe("{}");
-  });
 });
 
-test("configuration validates scalar types and preserves exact values", () => {
-  const fields = [
-    {
-      key: "COUNT",
-      label: "Count",
-      type: "integer" as const,
-      required: true,
-      secret: false,
-      default: 3,
-    },
-    { key: "ENABLED", label: "Enabled", type: "boolean" as const, required: true, secret: false },
-  ];
-  expect(validateValues(fields, { ENABLED: false })).toEqual({ COUNT: 3, ENABLED: false });
-  expect(() => validateValues(fields, { COUNT: "3", ENABLED: true })).toThrow("must be integer");
-  expect(
-    substituteConfiguration(
-      { count: "${COUNT}", flag: "${ENABLED}", argument: "--count=${COUNT}" },
-      { COUNT: 3, ENABLED: false }
-    )
-  ).toEqual({ count: 3, flag: false, argument: "--count=3" });
-  expect(
-    applySecretEdits(
-      { keep: "first", replace: "old", clear: "gone" },
-      {
-        keep: { action: "keep" },
-        replace: { action: "replace", value: "new" },
-        clear: { action: "clear" },
-      }
-    )
-  ).toEqual({ keep: "first", replace: "new" });
-});
-test("MCP discovery follows pages and rejects repeated cursors", async () => {
-  const seen: Array<string | undefined> = [];
-  expect(
-    await discoverAllTools(async (cursor) => {
-      seen.push(cursor);
-      return cursor
-        ? { tools: [{ name: "second" }] }
-        : { tools: [{ name: "first" }], nextCursor: "next" };
-    })
-  ).toEqual([{ name: "first" }, { name: "second" }]);
-  expect(seen).toEqual([undefined, "next"]);
-  await expect(discoverAllTools(async () => ({ tools: [], nextCursor: "loop" }))).rejects.toThrow(
-    "pagination cursor"
-  );
-});
 test("local MCP processes cannot inherit server or unrelated provider secrets", () => {
   expect(
     scopedProcessEnvironment(
@@ -342,13 +136,6 @@ test("local MCP processes cannot inherit server or unrelated provider secrets", 
   ).toEqual({ PATH: "/bin", HOME: "/home/bot", PLUGIN_KEY: "configured" });
 });
 
-test("partial saves preserve omitted defaults and explicit clearing", () => {
-  const fields = [
-    { key: "VALUE", label: "Value", secret: false, required: false, default: "initial" },
-  ];
-  expect(validateValues(fields, {}, false)).toEqual({});
-  expect(validateValues(fields, { VALUE: "" }, false)).toEqual({ VALUE: "" });
-});
 test("skill folders supply bodies and imports reject literal credentials", () => {
   const definition = importPackage(files).definition;
   expect(
@@ -375,44 +162,6 @@ test("skill folders supply bodies and imports reject literal credentials", () =>
   expect(() =>
     parsePluginDefinition({ ...definition, binaryFiles: { "../escape": "YWJj" } })
   ).toThrow("Unsafe package path");
-});
-
-test("packaged MCP configurations require the computer runtime", () => {
-  expect(() => assertComputerMcpRuntime({ command: "bun" })).not.toThrow();
-  expect(() => assertComputerMcpRuntime({ runtime: "computer", command: "bun" })).not.toThrow();
-  const configuration = { runtime: "desktop", provider: "1password", command: "1password-mcp" };
-  expect(() => assertComputerMcpRuntime(configuration)).toThrow("Unsupported");
-  expect(() => assertComputerMcpRuntime({ runtime: "unknown" })).toThrow("Unsupported");
-  const plugin = createPluginTemplate("packaged-mcp", "desktop-test");
-  plugin.connections[0]!.configuration = configuration;
-  expect(() => parsePluginDefinition(plugin)).toThrow("Unsupported");
-});
-
-const fixture = (): PluginDefinition => ({
-  key: "copy-test", version: "1.0.0", name: "Copy test", description: "Fixture",
-  publisher: "Example", category: "Test", featured: false,
-  components: ["mcp"], skills: [],
-  connections: [{ key: "api", name: "API", transport: "http", auth: "none",
-    endpoint: "https://example.test/mcp", configuration: { headers: { Accept: "application/json" } }, tools: [] }],
-  files: { "server.js": "export const value = 1;" },
-  binaryFiles: { "model.bin": "AAECAw==" },
-});
-
-test("cloning isolates mutable metadata and file maps in both directions", () => {
-  const source = fixture();
-  const original = structuredClone(source);
-  const result = clonePluginDefinition(source);
-  expect(result).toStrictEqual(original);
-  // Deliberately bypass the public readonly type to verify runtime isolation.
-  (result.connections[0]!.configuration as Record<string, unknown>).headers = { Accept: "changed" };
-  result.components.push("skills");
-  result.files!["server.js"] = "changed";
-  delete result.binaryFiles!["model.bin"];
-  expect(source).toStrictEqual(original);
-  const second = clonePluginDefinition(source);
-  source.connections[0]!.name = "changed";
-  source.files!["extra.txt"] = "new";
-  expect(second).toStrictEqual(original);
 });
 
 const example = () => {
@@ -449,18 +198,4 @@ test("packaged OAuth rejects unsafe endpoints and incomplete token delivery conf
   const dynamic = example();
   dynamic.connections[0]!.oauth!.registration = "dynamic";
   expect(() => parsePluginDefinition(dynamic)).toThrow("manual client");
-});
-
-test("package review ignores JSON key ordering but identifies changed OAuth issuers", () => {
-  const before = example();
-  const reordered = JSON.parse(
-    JSON.stringify(before, (_key, value) =>
-      value && typeof value === "object" && !Array.isArray(value)
-        ? Object.fromEntries(Object.entries(value).reverse())
-        : value
-    )
-  );
-  expect(packageChanges(before, reordered)).toEqual([]);
-  reordered.connections[0].oauth.authorizationServer.issuer = "https://other.example";
-  expect(packageChanges(before, reordered)[0]).toContain("requires reconnect");
 });

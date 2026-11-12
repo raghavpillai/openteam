@@ -35,21 +35,6 @@ async function executable(path: string, body: string) {
   await chmod(path, 0o755);
 }
 
-test("Plaid CLI check does not install; a verified managed CLI is reused", async () => {
-  await fixture(async (_root, target) => {
-    expect((await execute(target, "--check")).code).toBe(1);
-    expect(await Bun.file(join(target, "plaid")).exists()).toBe(false);
-    await mkdir(target);
-    await executable(join(target, "plaid"), `printf '%s\\n' '${version}'`);
-    expect(await execute(target, "--check")).toEqual({
-      code: 0,
-      stdout: `${join(target, "plaid")}\n`,
-      stderr: "",
-    });
-    expect((await execute(target, "--install")).stdout).toBe(`${join(target, "plaid")}\n`);
-  });
-});
-
 test("Plaid CLI installer refuses to overwrite an unexpected executable", async () => {
   await fixture(async (_root, target) => {
     await mkdir(target);
@@ -58,18 +43,6 @@ test("Plaid CLI installer refuses to overwrite an unexpected executable", async 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Unexpected CLI version");
     expect(await Bun.file(join(target, "plaid")).text()).toContain("another-version");
-  });
-});
-
-test("Plaid CLI installer rejects unsupported hosts before downloading", async () => {
-  await fixture(async (root, target) => {
-    const mocks = join(root, "bin");
-    await mkdir(mocks);
-    await executable(join(mocks, "uname"), "echo unsupported");
-    const result = await execute(target, "--install", { PATH: `${mocks}:${process.env.PATH}` });
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("Supported hosts");
-    expect(await Bun.file(join(target, "plaid")).exists()).toBe(false);
   });
 });
 

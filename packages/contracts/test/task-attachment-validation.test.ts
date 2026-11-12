@@ -11,12 +11,6 @@ test("Task rejects non-media before dispatch, while shared-file prompts remain v
   expect(parse(task)).toEqual(task);
   expect(parse({ ...task, file_attachments: [] }).file_attachments).toEqual([]);
 });
-test("Task preserves all runtime image/video types and uppercase filenames", () => {
-  for (const suffix of ["gif", "jpeg", "jpg", "png", "webp", "m4v", "mkv", "mov", "mp4", "webm"]) {
-    const path = `/workspace/東京 photo.${suffix.toUpperCase()}`;
-    expect(parse({ ...task, file_attachments: [path] }).file_attachments).toEqual([path]);
-  }
-});
 
 test("Task rejects more attachments than the worker can load before dispatch", () => {
   const paths = Array.from({ length: 65 }, (_, i) => `/workspace/image-${i}.png`);

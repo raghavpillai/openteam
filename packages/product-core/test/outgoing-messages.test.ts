@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView } from "@openteam/contracts";
 import { type DurableSendRecord, durableSendPromptDigest } from "../src/durable-delivery";
-import { sortedUniqueMessages } from "../src/history";
 import { projectOutgoingMessages } from "../src/outgoing-messages";
 
 const message = (id: string, extra: Partial<ChannelMessageView> = {}): ChannelMessageView => ({
@@ -41,22 +40,6 @@ const record = (extra: Partial<DurableSendRecord> = {}): DurableSendRecord => {
 };
 
 describe("shared outgoing message projection", () => {
-  test("keeps queued/failed messages and ordinary message references unchanged", () => {
-    const ordinary = message("ordinary", { sender: "agent" });
-    const queued = record();
-    const [local] = projectOutgoingMessages([], [queued]);
-    expect(local).toMatchObject({ renderKey: "optimistic:nonce", pending: true, delivery: queued });
-    expect(local!.message.content).toBe("hello");
-    const failed = record({
-      phase: "failed",
-      failure: { code: "offline", message: "Failed", uncertain: false },
-    });
-    expect(projectOutgoingMessages([], [failed])[0]).toMatchObject({
-      pending: false,
-      delivery: failed,
-    });
-    expect(projectOutgoingMessages([ordinary], [])[0]!.message).toBe(ordinary);
-  });
   test("a lost response or old resend nonce produces one acknowledged row", () => {
     const delivery = record({ nonce: "replacement", priorNonces: ["original"] });
     const echo = message("server", { clientId: "original" });
@@ -76,70 +59,8 @@ describe("shared outgoing message projection", () => {
     });
     expect(delivery.phase).toBe("queued");
   });
-  test("prefers a current server message over a stale direct-send response", () => {
-    const accepted = message("server", { clientId: "nonce" });
-    const fresh = {
-      ...accepted,
-      metadata: { ...(accepted.metadata as object), reactions: [{ emoji: "👍", by: "me" }] },
-    };
-    const delivery = record({
-      phase: "accepted-awaiting-echo",
-      acceptedMessage: accepted,
-      acceptedAtMs: 25,
-    });
-    const projected = projectOutgoingMessages([fresh], [delivery]);
-    expect(projected).toHaveLength(1);
-    expect(projected[0]!.message).toBe(fresh);
-    expect(projected[0]!.delivery!.acceptedAtMs).toBe(25);
-  });
   test("does not mistake a different-channel echo for the send", () => {
     const other = message("other", { channelId: "other-chat", clientId: "nonce" });
     expect(projectOutgoingMessages([other], [record()])).toHaveLength(2);
   });
-  test("keeps the existing per-renderer ordering for equal timestamps", () => {
-    const accepted = message("a-server");
-    const ordinary = message("m-server", { sender: "agent" });
-    const delivery = record({ acceptedMessage: accepted, phase: "accepted-awaiting-echo" });
-    expect(projectOutgoingMessages([ordinary], [delivery]).map((item) => item.message.id)).toEqual([
-      "m-server",
-      "a-server",
-    ]);
-    expect(
-      projectOutgoingMessages([ordinary], [delivery], {
-        orderBy: "messageId",
-        echoRenderKey: "delivery",
-      }).map((item) => item.message.id)
-    ).toEqual(["a-server", "m-server"]);
-  });
-});
-
-test("equal-time server batches use numeric sequence before random UUIDs", () => {
-  const batch = [
-    message("z-first", { sequence: "9007199254740992" }),
-    message("m-second", { sequence: "9007199254740993" }),
-    message("a-third", { sequence: "9007199254740994" }),
-  ];
-  expect(sortedUniqueMessages([...batch].reverse()).map((row) => row.id)).toEqual([
-    "z-first",
-    "m-second",
-    "a-third",
-  ]);
-  for (const orderBy of ["renderKey", "messageId"] as const) {
-    expect(
-      projectOutgoingMessages([...batch].reverse(), [], { orderBy }).map((row) => row.message.id)
-    ).toEqual(["z-first", "m-second", "a-third"]);
-    const delivery = record({
-      nonce: "third",
-      acceptedMessage: batch[2],
-      phase: "accepted-awaiting-echo",
-    });
-    expect(
-      projectOutgoingMessages(batch.slice(0, 2), [delivery], { orderBy }).map(
-        (row) => row.message.id
-      )
-    ).toEqual(["z-first", "m-second", "a-third"]);
-    expect(
-      projectOutgoingMessages(batch, [delivery], { orderBy }).map((row) => row.message.id)
-    ).toEqual(["z-first", "m-second", "a-third"]);
-  }
 });

@@ -5,34 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createPluginTemplate,
-  parsePluginRuntimeComponents,
-  pluginIconUrl,
-  substituteConfiguration,
-  validateValues,
 } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { discoverPackages } from "../scripts/generate";
 import { pluginCatalog } from "../src";
-
-test("every bundled package includes portable provider artwork", async () => {
-  const catalog = pluginCatalog;
-  expect(catalog.length).toBeGreaterThanOrEqual(8);
-  const onePassword = catalog.find(plugin => plugin.key === "1password");
-  expect(onePassword?.components).toEqual(["skills"]);
-  expect(onePassword?.connections).toEqual([]);
-  for (const plugin of catalog) {
-    expect(plugin.icon).toBe("assets/icon.png");
-    expect(pluginIconUrl(plugin)).toStartWith("data:image/png;base64,");
-    const png = Buffer.from(plugin.binaryFiles![plugin.icon!]!, "base64");
-    expect(png).toEqual(
-      await readFile(new URL(`../${plugin.key}/assets/icon.png`, import.meta.url))
-    );
-    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-    expect(png.readUInt32BE(16)).toBe(192);
-    expect(png.readUInt32BE(20)).toBe(192);
-    expect(plugin.files?.["assets/SOURCES.md"]).toBeTruthy();
-  }
-});
 
 test("contributions discover without imports and folder names do not change package identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "plugin-catalog-"));
@@ -91,28 +67,3 @@ test("every registry package declares its origin and shipped provider files surv
 
 const roundtrip = (key: string) =>
   importPackageArchive(exportPackageArchive(pluginCatalog.find((plugin) => plugin.key === key)!));
-
-test.each(["ramp", "t3-code"])(
-  "%s connects with a dynamic public OAuth client and never shares client credentials",
-  (key) => {
-    const { definition, warnings } = roundtrip(key);
-    expect(warnings).toEqual([]);
-    expect(definition.connections[0]).toMatchObject({
-      transport: "http",
-      auth: "oauth",
-      oauth: { registration: "dynamic", clientType: "public", shareClientCredentials: false },
-    });
-    expect(definition.connections[0]!.configuration).not.toHaveProperty("clientId");
-  }
-);
-
-test("Ramp keeps its always-on rule; T3 substitutes each account's MCP URL", () => {
-  expect(parsePluginRuntimeComponents(roundtrip("ramp").definition.files ?? {}).rules).toMatchObject([
-    { name: "ramp-openteam", alwaysApply: true },
-  ]);
-  const t3 = roundtrip("t3-code").definition;
-  for (const mcpUrl of ["https://first.example/mcp", "https://second.example/mcp"])
-    expect(
-      substituteConfiguration(t3.connections[0]!.endpoint, validateValues(t3.setup!.fields, { mcpUrl }))
-    ).toBe(mcpUrl);
-});

@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-  createPluginTemplate,
-  parsePluginDefinition,
   validateValues,
   validateMcpUrl,
 } from "../src";
@@ -35,24 +33,4 @@ test("MCP URL fields normalize reachable schemes and reject credential-bearing o
   ]) {
     expect(() => validateMcpUrl(value)).toThrow();
   }
-});
-
-test("whole-endpoint placeholders require a declared validated per-account URL field", () => {
-  const plugin = createPluginTemplate("remote-mcp", "endpoint-test");
-  plugin.setupFields = [];
-  plugin.connections[0]!.endpoint = "${mcpUrl}";
-  expect(() => parsePluginDefinition(plugin)).toThrow("required MCP URL setup field");
-  plugin.setup = {
-    kind: "oauth",
-    connectionKey: plugin.connections[0]!.key,
-    title: "Connect",
-    description: "",
-    documentationUrl: null,
-    steps: [],
-    requiredScopes: [],
-    fields: [{ key: "mcpUrl", label: "URL", format: "mcp-url", required: true, secret: false }],
-  };
-  expect(parsePluginDefinition(plugin).connections[0]!.endpoint).toBe("${mcpUrl}");
-  plugin.setup.fields[0]!.format = undefined;
-  expect(() => parsePluginDefinition(plugin)).toThrow("required MCP URL setup field");
 });

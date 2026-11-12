@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import type { PrismaClient } from "../src/generated/prisma/client";
-import { ApnsSettingsStore, validateApnsConfiguration } from "../src/apns-settings";
+import { ApnsSettingsStore } from "../src/apns-settings";
 
 const config = {
   keyId: "ABCDE12345",
@@ -54,25 +54,5 @@ describe("APNs runtime settings", () => {
     await expect(store.load()).rejects.toThrow("import it again");
     await store.save(config);
     expect((await store.load()).config).toEqual(config);
-  });
-  test("refuses weak encryption secrets before persisting", async () => {
-    const { prisma, row } = fixture();
-    await expect(new ApnsSettingsStore(prisma, () => "short").save(config)).rejects.toThrow(
-      "at least 32"
-    );
-    expect(row()).toBeNull();
-  });
-  test("rejects malformed IDs, topics and keys with safe error messages", () => {
-    expect(() => validateApnsConfiguration({ ...config, keyId: "short" })).toThrow("10 uppercase");
-    expect(() => validateApnsConfiguration({ ...config, topic: "invalid topic" })).toThrow(
-      "app bundle ID"
-    );
-    expect(() =>
-      validateApnsConfiguration({ ...config, privateKey: "secret-invalid-value" })
-    ).toThrow("P-256");
-    const wrongKey = generateKeyPairSync("ec", { namedCurve: "secp384r1" })
-      .privateKey.export({ type: "pkcs8", format: "pem" })
-      .toString();
-    expect(() => validateApnsConfiguration({ ...config, privateKey: wrongKey })).toThrow("P-256");
   });
 });

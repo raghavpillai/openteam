@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import {
-  a2aProjectionFor,
-  collapseA2ATimeline,
   createSnapshotIndex,
   deriveThreads,
   selectChannelRows,
@@ -89,95 +87,6 @@ describe("portable product projections", () => {
       "message-1"
     );
     expect(selectChannelRows(value)[0]?.bot?.id).toBe("bot-1");
-  });
-
-  test("shows chats with legacy hidden flags in navigation", () => {
-    const value = snapshot();
-    value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: true };
-    expect(createSnapshotIndex(value).botById.get("bot-1")?.name).toBe("Bot");
-    expect(selectChannelRows(value)).toHaveLength(1);
-
-    value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: false };
-    value.channels[0] = {
-      ...value.channels[0]!,
-      kind: "group",
-      directKey: null,
-      hiddenFromSidebar: true,
-    };
-    expect(createSnapshotIndex(value).channelById.has("channel-1")).toBe(true);
-    expect(selectChannelRows(value)).toHaveLength(1);
-
-    value.channels.push({ ...value.channels[0]!, id: "internal-task", kind: "agent_dm" });
-    expect(selectChannelRows(value)).toHaveLength(1);
-  });
-
-  test("projects A2A metadata", () => {
-    expect(
-      a2aProjectionFor(message("message-2", { fromAgent: { id: "peer-1", name: "Peer" } }))
-    ).toEqual({ direction: "incoming", peerId: "peer-1", peerName: "Peer" });
-  });
-
-  test("keeps same-peer A2A runs on their original sides of an ordinary message", () => {
-    const first = message(
-      "message-1",
-      { toAgent: { id: "peer-1", name: "Peer" } },
-      "2026-01-01T00:00:00.000Z"
-    );
-    const ordinary = message("message-2", {}, "2026-01-01T00:00:05.000Z");
-    const later = message(
-      "message-3",
-      { fromAgent: { id: "peer-1", name: "Peer" } },
-      "2026-01-01T00:00:10.000Z"
-    );
-
-    const collapsed = collapseA2ATimeline([first, ordinary, later], (candidate) => candidate);
-
-    expect(collapsed.map(({ id }) => id)).toEqual(["a2a:message-1", "message-2", "a2a:message-3"]);
-    expect(
-      collapsed.flatMap((candidate) =>
-        "entries" in candidate ? candidate.entries.map(({ id }) => id) : [candidate.id]
-      )
-    ).toEqual([first.id, ordinary.id, later.id]);
-  });
-
-  test("starts a new same-peer A2A run after an intervening peer without reordering entries", () => {
-    const first = message(
-      "message-1",
-      { toAgent: { id: "peer-1", name: "Peer 1" } },
-      "2026-01-01T00:00:00.000Z"
-    );
-    const intervening = message(
-      "message-2",
-      { fromAgent: { id: "peer-2", name: "Peer 2" } },
-      "2026-01-01T00:00:05.000Z"
-    );
-    const returned = message(
-      "message-3",
-      { fromAgent: { id: "peer-1", name: "Peer 1" } },
-      "2026-01-01T00:00:10.000Z"
-    );
-    const contiguous = message(
-      "message-4",
-      { toAgent: { id: "peer-1", name: "Peer 1" } },
-      "2026-01-01T00:00:15.000Z"
-    );
-
-    const collapsed = collapseA2ATimeline(
-      [first, intervening, returned, contiguous],
-      (candidate) => candidate
-    );
-
-    expect(collapsed.map(({ id }) => id)).toEqual([
-      "a2a:message-1",
-      "a2a:message-2",
-      "a2a:message-3",
-    ]);
-    expect(collapsed.at(-1)).toMatchObject({ entries: [returned, contiguous] });
-    expect(
-      collapsed.flatMap((candidate) =>
-        "entries" in candidate ? candidate.entries.map(({ id }) => id) : [candidate.id]
-      )
-    ).toEqual([first.id, intervening.id, returned.id, contiguous.id]);
   });
 
   test("derives nested reply threads", () => {

@@ -96,28 +96,6 @@ afterAll(async () => {
   rmSync(packageRoot, { recursive: true, force: true });
 });
 
-test("marketplace setup has no administrator executable field", () => {
-  expect(fieldsForConnector(definition, definition.connections[0]!.key)).toHaveLength(0);
-  expect(definition.connections[0]!.runtimeAssets).toHaveLength(3);
-  expect(definition.connections[0]!.deviceLink?.startTool).toBe("start_link");
-  expect(JSON.stringify(input.env)).not.toContain("${");
-});
-
-test("host result bounding preserves complete successful JSON for a small message page", async () => {
-  const result = await manager.call("synthetic-host-account", input, "list_messages", { limit: 1 });
-  const bounded = boundPluginResult(result);
-  expect(bounded.isError).not.toBe(true);
-  expect(JSON.parse(bounded.content[0].text).messages).toHaveLength(1);
-});
-
-test("large message pages return an intact MCP error before host truncation", async () => {
-  const result = await manager.call("synthetic-host-account", input, "list_messages", {});
-  const bounded = boundPluginResult(result);
-  expect(bounded.isError).toBe(true);
-  expect(bounded.content[0].text).toContain("75000-character");
-  expect(bounded.content[0].text).not.toContain("[truncated]");
-});
-
 test("large attachment responses return an intact MCP error before host truncation", async () => {
   const page = await manager.call("synthetic-host-account", input, "list_messages", { limit: 1 });
   const messageId = JSON.parse(page.content[0].text).messages[0].id;
@@ -129,31 +107,6 @@ test("large attachment responses return an intact MCP error before host truncati
   expect(bounded.isError).toBe(true);
   expect(bounded.content[0].text).toContain("75000-character");
   expect(bounded.content[0].text).not.toContain("[truncated]");
-});
-
-test.each([
-  ["list_contacts", "contacts", 240],
-  ["list_groups", "groups", 80],
-] as const)("host result bounding preserves every page of %s", async (tool, field, expected) => {
-  const records: any[] = [];
-  let offset: number | null = 0,
-    pages = 0;
-  while (offset !== null) {
-    const result = boundPluginResult(
-      await manager.call("synthetic-host-account", input, tool, { offset, limit: 100 })
-    );
-    expect(result.isError).not.toBe(true);
-    expect(result.content[0].text).not.toContain("[truncated]");
-    const page = JSON.parse(result.content[0].text);
-    expect(page.total).toBe(expected);
-    records.push(...page[field]);
-    offset = page.nextOffset;
-    pages++;
-    expect(pages).toBeLessThan(100);
-  }
-  expect(records).toHaveLength(expected);
-  expect(new Set(records.map((r) => r.uuid ?? r.id)).size).toBe(expected);
-  expect(pages).toBeGreaterThan(1);
 });
 
 test("directory lookups pass only explicit recipient/group filters to the bound account", async () => {

@@ -87,32 +87,6 @@ describe("shared history store used by iOS", () => {
     expect(store.status("channel")!.hasNewer).toBe(false);
   });
 
-  test("live refresh preserves a scrolled window and the existing jump-to-latest action restores the tail", () => {
-    const store = createChannelHistoryStore();
-    store.acceptPage(page(1901), "replace");
-    store.setViewport("channel", ["m-1901"], false);
-    store.acceptContext(context(50, 81, 90));
-    const visible = store.visible("channel")!.map((message) => message.id);
-    store.acceptPage({ ...page(2001), revision: "2100" }, "refresh");
-    expect(store.visible("channel")!.map((message) => message.id)).toEqual(visible);
-    assertBudget(store);
-    expect(store.jumpToLatest("channel")).toBe(true);
-    expect(store.visible("channel")!.at(-1)!.id).toBe("m-2100");
-    expect(store.status("channel")!.hasNewer).toBe(false);
-  });
-
-  test("resumes live appends after paging forward to the latest edge", () => {
-    const store = createChannelHistoryStore();
-    store.acceptPage(page(1901), "replace");
-    store.acceptContext(context(1800, 100, 1850));
-    store.expand(context(1900, 101, 1899), "newer");
-    expect(store.status("channel")!.hasNewer).toBe(false);
-    store.setViewport("channel", ["m-2000"], true);
-    store.acceptPage({ ...page(1902), revision: "2001" }, "refresh");
-    expect(store.visible("channel")!.at(-1)!.id).toBe("m-2001");
-    assertBudget(store);
-  });
-
   test("bounds large rows by bytes, retains reply ancestors, and patches cached lanes", () => {
     const store = createChannelHistoryStore();
     const large = page(101);

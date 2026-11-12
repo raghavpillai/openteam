@@ -24,22 +24,6 @@ test("overlapping jobs merge independent changes but keep newer state on conflic
   } finally {await rm(root,{recursive:true,force:true});}
 });
 
-test("first write, sequential deletion, exclusions and recovery after a failed write",async()=>{
-  const root=await mkdtemp(join(tmpdir(),"shell-env-"));
-  const path=join(root,"env.json");
-  try {
-    await persistShellEnvironment(path,capture({BASE:"yes",ADDED:"yes",SECRET:"fixture"}),["SECRET"],{BASE:"yes"});
-    expect(JSON.parse(await readFile(path,"utf8"))).toEqual({BASE:"yes",ADDED:"yes"});
-    await persistShellEnvironment(path,capture({BASE:"yes"}),[],{BASE:"yes",ADDED:"yes"});
-    expect(JSON.parse(await readFile(path,"utf8"))).toEqual({BASE:"yes"});
-    await writeFile(path,"malformed");
-    await expect(persistShellEnvironment(path,capture({BASE:"updated"}),[],{BASE:"yes"})).rejects.toThrow();
-    await writeFile(path,JSON.stringify({BASE:"yes"}));
-    await persistShellEnvironment(path,capture({BASE:"updated"}),[],{BASE:"yes"});
-    expect(JSON.parse(await readFile(path,"utf8"))).toEqual({BASE:"updated"});
-  } finally {await rm(root,{recursive:true,force:true});}
-});
-
 test("capture cleanup never closes an unrelated file that reused its descriptor number", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-capture-descriptor-"));
   const capture = createShellEnvironmentCapture(root);

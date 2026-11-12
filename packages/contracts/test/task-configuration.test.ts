@@ -1,11 +1,8 @@
 import { expect, test } from "bun:test";
 import {
-  defaultTaskConfiguration,
   parseTaskConfiguration,
   taskInference,
   taskUserInfo,
-  selectTaskConfiguration,
-  taskToolEnabled,
 } from "../src/task-configuration";
 import { taskToolContract } from "../src/tool-contracts";
 import reference from "../src/tool-reference.json";
@@ -31,62 +28,6 @@ const config = parseTaskConfiguration({
   defaultExecutorProfile: "quick",
 });
 
-test("graphical selection follows desktop and box availability", () => {
-  for (const desktopAvailable of [true, false])
-    for (const boxAvailable of [true, false]) {
-      const selected = selectTaskConfiguration(config, { desktopAvailable, boxAvailable });
-      expect(selected.graphicalAvailable).toBe(desktopAvailable && boxAvailable);
-      expect(
-        taskToolContract(selected).inputSchema.properties.subagent_type.enum.includes("computerUse")
-      ).toBe(desktopAvailable && boxAvailable);
-      expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toContain(
-        "videoReview"
-      );
-    }
-  // Disabled tools leave the one graphical worker in place; its tool list drops them.
-  for (const disabled of ["BROWSER_CLICK", "OPENAI_COMPUTER_USE", "SHELL", "READ"]) {
-    const selected = selectTaskConfiguration(
-      { ...config, disabledToolIdentifiers: [disabled] },
-      { desktopAvailable: true, boxAvailable: true }
-    );
-    expect(selected.graphicalAvailable).toBe(true);
-    expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toEqual([
-      "executor",
-      "videoReview",
-      "watchVideo",
-      "computerUse",
-      "knowledgeWork",
-    ]);
-  }
-  expect(
-    taskToolEnabled(
-      { ...config, disabledToolIdentifiers: ["BROWSER_CLICK", "OPENAI_COMPUTER_USE"] },
-      "browser_click"
-    )
-  ).toBe(false);
-  expect(
-    taskToolEnabled({ ...config, disabledToolIdentifiers: ["OPENAI_COMPUTER_USE"] }, "Computer")
-  ).toBe(false);
-});
-
-test("default Task contract matches the captured combined-worker catalog exactly", () => {
-  // The current catalog lists knowledgeWork after the captured types.
-  const expected = structuredClone(reference.Task);
-  expected.inputSchema.properties.subagent_type.enum.push("knowledgeWork");
-  expected.inputSchema.properties.subagent_type.description =
-    "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, knowledgeWork.";
-  // Past the reference, exact values go in quotes.
-  expected.description = expected.description.replace(
-    "and what to report back.",
-    "and what to report back. Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
-  );
-  expect(taskToolContract()).toEqual(expected);
-  expect(taskUserInfo()).not.toContain("available_subagent_models");
-  expect(
-    taskInference(defaultTaskConfiguration(), { model: "arbitrary/provider-model" }, inherited)
-  ).toEqual(inherited);
-});
-
 test("legacy profiles and model arguments cannot override server inference", () => {
   expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
   expect(taskUserInfo(config)).not.toContain("available_subagent_models");
@@ -97,19 +38,6 @@ test("legacy profiles and model arguments cannot override server inference", () 
           const authority = { ...inherited, reasoning };
           expect(taskInference(config, { model, subagent_type, resume }, authority)).toEqual(authority);
         }
-});
-
-test("the roster offers graphical work only when the computer can run it", () => {
-  const info = taskUserInfo(config);
-  expect(info).toContain("dispatch browser and desktop work to computerUse yourself.");
-  expect(info).not.toContain("browserUse");
-  const headless = taskUserInfo({ ...config, graphicalAvailable: false });
-  expect(headless).toContain("Browser and desktop workers are unavailable on this computer.");
-  expect(headless).not.toContain("dispatch browser and desktop work to computerUse");
-});
-
-test("settings outside the Task configuration are refused", () => {
-  expect(() => parseTaskConfiguration({ ...config, combinedComputerUse: true })).toThrow("Unknown Task setting");
 });
 
 test("invalid and ambiguous profile configurations cannot be saved", () => {

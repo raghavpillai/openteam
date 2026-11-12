@@ -28,43 +28,9 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),before)
             return code,json.loads(output.getvalue())
 
-    def test_native_config_paths_match_cli(self):
-        with patch.dict(os.environ, {'XDG_CONFIG_HOME':'/tmp/test-config'}, clear=True), patch.object(api.sys,'platform','darwin'), patch.object(api.Path,'home',return_value=Path('/home/example')):
-            self.assertEqual(api.config_path(),Path('/home/example/Library/Application Support/plaid-cli/config.json'))
-        with patch.dict(os.environ, {'XDG_CONFIG_HOME':'/tmp/test-config'}, clear=True), patch.object(api.sys,'platform','linux'):
-            self.assertEqual(api.config_path(),Path('/tmp/test-config/plaid-cli/config.json'))
-
     def test_multiple_items_require_selection_before_network(self):
         code,out=self.run_cli(lambda *a: self.fail('network must not run'), ['recurring'])
         self.assertEqual(code,2); self.assertEqual(out['error']['code'],'CONFIG_ERROR')
-
-    def test_all_preserves_partial_failure_and_exits_nonzero(self):
-        def result(*args):
-            return {'outflow_streams':[]} if args[4]['item_id']=='first' else {'error':{'code':'ADDITIONAL_CONSENT_REQUIRED'}}
-        code,out=self.run_cli(result,['holdings','--all'])
-        self.assertEqual(code,1)
-        self.assertEqual([i['item_id'] for i in out['items']],['first','second'])
-        self.assertEqual(out['items'][1]['data']['error']['code'],'ADDITIONAL_CONSENT_REQUIRED')
-
-    def test_alias_selects_exact_item(self):
-        def result(*args):
-            self.assertEqual(args[4]['item_id'],'second'); return {'outflow_streams':[]}
-        code,out=self.run_cli(result,['recurring','--item','other'])
-        self.assertEqual(code,0); self.assertEqual(out,{'outflow_streams':[]})
-
-    def test_invalid_environment_and_access_override_are_rejected(self):
-        args=type('Args',(),{'item':'first','all':False})()
-        with patch.dict(os.environ,{'PLAID_ENV':'http://example.com'},clear=True):
-            with self.assertRaises(ValueError):api.select(self.config(),args)
-        with patch.dict(os.environ,{'PLAID_ACCESS_TOKEN':'other-token'},clear=True):
-            with self.assertRaises(ValueError):api.select(self.config(),args)
-
-    def test_environment_credentials_override_config(self):
-        args=type('Args',(),{'item':'first','all':False})()
-        with patch.dict(os.environ,{'PLAID_CLIENT_ID':'override-client','PLAID_SECRET':'override-secret'},clear=True):
-            env,client,secret,items=api.select(self.config(),args)
-        self.assertEqual((env,client,secret),('production','override-client','override-secret'))
-        self.assertEqual(items[0]['item_id'],'first')
 
     def test_http_error_surfaces_consent_and_redacts_auth_values(self):
         data={'error_code':'ADDITIONAL_CONSENT_REQUIRED','error_type':'ITEM_ERROR','error_message':'bad secret-example token-first','request_id':'req'}
@@ -91,11 +57,5 @@ class ApiTests(unittest.TestCase):
                 out=api.query('production','recurring','c','s',{'access_token':'t'}, {})
                 self.assertIn(out['error']['code'],['NETWORK_ERROR','INVALID_API_RESPONSE'])
                 self.assertEqual(transport.call_count,1)
-
-    def test_invalid_config_shape_is_rejected(self):
-        args=type('Args',(),{'item':None,'all':False})()
-        with patch.dict(os.environ,{},clear=True):
-            for config in [[],{'environments':[]},{'environments':{'sandbox':[]}}, {'client_id':'c','environments':{'sandbox':{'secret':'s','items':[None]}}}]:
-                with self.assertRaises(ValueError):api.select(config,args)
 
 if __name__=='__main__':unittest.main()

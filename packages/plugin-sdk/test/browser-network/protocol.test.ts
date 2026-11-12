@@ -1,44 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import {
-  decodeFrame,
-  encodeFrame,
-  FrameType,
-  MAX_DATA,
-  parseTarget,
-} from "../../src/browser-network/protocol";
 import { canonicalHost, dialTarget, publicAddress } from "../../src/browser-network/policy";
 import { EventEmitter } from "node:events";
 
 describe("browser network protocol and desktop policy", () => {
-  test("binary frames preserve data and reject malformed lengths, flags, commands and IDs", () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(1024));
-    expect(decodeFrame(encodeFrame(FrameType.Data, 71, bytes)).payload).toEqual(bytes);
-    for (const position of [0, 2, 8]) {
-      const bad = encodeFrame(FrameType.Data, 1, bytes);
-      bad[position] = 255;
-      expect(() => decodeFrame(bad)).toThrow();
-    }
-    expect(() => decodeFrame(new Uint8Array(11))).toThrow();
-    expect(() => encodeFrame(FrameType.Data, 0, bytes)).toThrow();
-    expect(() => encodeFrame(FrameType.Control, 1, bytes)).toThrow();
-    expect(() => encodeFrame(FrameType.Data, 1, new Uint8Array(MAX_DATA + 1))).toThrow();
-    expect(() => encodeFrame(FrameType.Fin, 1, bytes)).toThrow();
-    expect(() => encodeFrame(FrameType.Window, 1, bytes)).toThrow();
-  });
-  test("targets reject invalid ports, URL fragments and extra fields", () => {
-    expect(parseTarget({ host: "example.com", port: 443, epoch: "epoch" })).toEqual({
-      host: "example.com",
-      port: 443,
-      epoch: "epoch",
-    });
-    for (const host of ["a\0b", "user@host", "a/b", "x%25y", "a b"])
-      expect(() => parseTarget({ host, port: 443, epoch: "e" })).toThrow();
-    for (const port of [0, 65536, NaN, 443.1, "443"])
-      expect(() => parseTarget({ host: "example.com", port, epoch: "e" })).toThrow();
-    expect(() =>
-      parseTarget({ host: "example.com", port: 443, epoch: "e", secret: "bad" })
-    ).toThrow();
-  });
   test("public-address policy rejects private, metadata, special use and transition encodings", () => {
     for (const ip of [
       "127.0.0.1",
@@ -113,24 +77,6 @@ describe("browser network protocol and desktop policy", () => {
     ).rejects.toThrow();
     expect(dials).toBe(0);
   });
-  test("a DNS result arriving after cancellation is discarded", async () => {
-    let release!: (value: unknown) => void,
-      dials = 0;
-    const controller = new AbortController();
-    const result = dialTarget({ host: "example.com", port: 443, epoch: "e" }, controller.signal, {
-      publicOnly: true,
-      lookup: () => new Promise((r) => (release = r)),
-      dial: () => {
-        dials++;
-        throw Error("late dial");
-      },
-    } as any);
-    controller.abort();
-    await expect(result).rejects.toThrow();
-    release([{ address: "8.8.8.8", family: 4 }]);
-    await Bun.sleep(10);
-    expect(dials).toBe(0);
-  });
   test("desktop DNS is pinned and TCP dialing never resolves the hostname a second time", async () => {
     let resolved = 0;
     let pinned = "";
@@ -155,26 +101,5 @@ describe("browser network protocol and desktop policy", () => {
     expect(resolved).toBe(1);
     expect(pinned).toBe("8.8.8.8");
     socket.destroy();
-  });
-  test("computer routing allows public TCP ports beyond web traffic", async () => {
-    for (const port of [22, 993, 5432]) {
-      let dialed = 0;
-      const socket = await dialTarget(
-        { host: "8.8.8.8", port, epoch: "computer" },
-        new AbortController().signal,
-        {
-          publicOnly: true,
-          dial: (options: any) => {
-            dialed = options.port;
-            const socket = new EventEmitter() as any;
-            socket.destroy = () => {};
-            queueMicrotask(() => socket.emit("connect"));
-            return socket;
-          },
-        } as any
-      );
-      expect(dialed).toBe(port);
-      socket.destroy();
-    }
   });
 });

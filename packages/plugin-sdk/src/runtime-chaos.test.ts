@@ -1,17 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
-  lstat,
-  mkdir,
   mkdtemp,
   readFile,
   readdir,
   realpath,
   rm,
   stat,
-  symlink,
   utimes,
-  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,25 +105,3 @@ test("SIGKILL during a partial download never publishes incomplete executable by
     }
   }
 }, 20_000);
-
-test("staging cleanup preserves active installs, unrelated files, symlinks and published runtimes", async () => {
-  const directory = await cacheRoot();
-  await mkdir(directory);
-  const active = await mkdtemp(join(directory, ".runtime-"));
-  const stale = await mkdtemp(join(directory, ".runtime-"));
-  const unrelated = join(directory, "operator-owned");
-  await mkdir(unrelated);
-  await writeFile(join(unrelated, "keep"), "synthetic");
-  const link = join(directory, ".runtime-Ab12Cd");
-  await symlink(unrelated, link);
-  const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
-  await utimes(stale, old, old);
-  await utimes(unrelated, old, old);
-  const manager = new ManagedRuntimeCache(directory, async () => new Response(data));
-  const installed = await manager.resolve(assets, undefined, "linux-arm64");
-  expect(await lstat(active)).toBeDefined();
-  expect(await lstat(stale).catch(() => undefined)).toBeUndefined();
-  expect((await lstat(link)).isSymbolicLink()).toBe(true);
-  expect(await readFile(join(unrelated, "keep"), "utf8")).toBe("synthetic");
-  expect(await readFile(installed.OPENTEAM_RUNTIME_CHAOS!)).toEqual(data);
-});

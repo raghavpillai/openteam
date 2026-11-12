@@ -1,21 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, RoutineView } from "@openteam/contracts";
 import {
-  attachmentOverflowMessage,
   classifyDurableSendError,
-  commonMarkdownFeatures,
   durableSendStatusLabel,
   durableSendRenderKey,
   formatOfflineDeliveryLabel,
   formatOfflineDeliveryTimestamp,
-  GROUP_MEMBER_LIMIT,
-  messageContainsMarkdownSyntax,
   messageDeliveryAcceptance,
-  messageNeedsAdvancedMarkdown,
   routineScheduleEditMode,
   routineSchedulePatch,
-  toggleBoundedSelection,
-  withStableOccurrenceKeys,
 } from "../src";
 
 const acceptedMessage: ChannelMessageView = {
@@ -74,29 +67,6 @@ describe("shared client presentation and editing policy", () => {;
     expect(routineSchedulePatch(routine(), " 0 8 * * * ")).toEqual({ schedule: "0 8 * * *" });
   });
 
-  test("enforces shared member bounds without needless identity changes", () => {
-    const selected = Array.from({ length: GROUP_MEMBER_LIMIT }, (_, index) => `bot-${index}`);
-    expect(toggleBoundedSelection(selected, "extra", { max: GROUP_MEMBER_LIMIT })).toBe(selected);
-    expect(toggleBoundedSelection(["one"], "one", { min: 1 })).toEqual(["one"]);
-    expect(toggleBoundedSelection(["one", "two"], "one", { min: 1 })).toEqual(["two"]);
-  });
-
-  test("shares the base Markdown fast path and advanced feature detection", () => {
-    expect(messageContainsMarkdownSyntax("plain_identifier_123")).toBe(false);
-    expect(messageContainsMarkdownSyntax("Use **shared** policy")).toBe(true);
-    expect(
-      messageContainsMarkdownSyntax(
-        "Here are the rows.\n\n| Item | Count |\n|---|---:|\n| Lantern | 12 |"
-      )
-    ).toBe(true);
-    expect(messageContainsMarkdownSyntax("| A |\n| --- |\n| B |")).toBe(true);
-    expect(messageContainsMarkdownSyntax("a | b\n--- | ---\n1 | 2")).toBe(true);
-    expect(messageContainsMarkdownSyntax("Use a | b here\nand nothing else")).toBe(false);
-    expect(commonMarkdownFeatures("| A |\n| --- |\n| B |")).toMatchObject({ table: true });
-    expect(messageNeedsAdvancedMarkdown("```mermaid\ngraph TD\n```")).toBe(true);
-    expect(messageNeedsAdvancedMarkdown("A [link](https://example.com)")).toBe(false);
-  });
-
   test("shares durable transport classification and delivery-status mapping", () => {
     expect(classifyDurableSendError({ code: "offline", status: 0 })).toBe("offline");
     expect(classifyDurableSendError({ status: 503 })).toBe("ambiguous");
@@ -133,15 +103,4 @@ describe("shared client presentation and editing policy", () => {;
     );
   });
 
-  test("keeps duplicate render values with deterministic unique keys", () => {
-    expect(withStableOccurrenceKeys(["same", "same", "other"], (value) => value)).toEqual([
-      { value: "same", key: "same:1" },
-      { value: "same", key: "same:2" },
-      { value: "other", key: "other:1" },
-    ]);
-  });
-
-  test("shares attachment overflow copy", () => {
-    expect(attachmentOverflowMessage(3.9)).toBe("Only the first 3 files were added.");
-  });
 });

@@ -130,6 +130,18 @@ Native Chrome checks of the actual desktop component held two sends in verificat
 
 Server typecheck/build and architecture checks pass. An initial full run timed out in two tests during heavy host load; the final full run passed without extending timeouts. The preceding 3,753-test broad matrix was not rerun. Its environment skips and iOS/desktop-budget failures remain recorded and were not revalidated here. No fresh live-model or native Grokbot comparison, real email/Slack send, APNs, deployment or production flag change occurred. [Evidence and explicit limits](assets/draft-timeout-recovery-2026-11-13.json).
 
+## Connector-result recovery and stable account routes — November 13
+
+Further probes found inconsistent recovery: unreadable completed connector results were labeled not delivered, while the same live result was unconfirmed. Empty objects and arrays could instead be counted as success. Recovery now preserves uncertainty for unreadable results, and the decoder rejects empty records and arrays. A completed result must also match the card’s bot, run, account and send tool before confirming a send. A synthetic mismatched record previously marked the card sent; it now remains unconfirmed without replay.
+
+Pending cards now store the verified connection UUID so renaming an account cannot break or reroute a reviewed draft. Legacy namespace cards recover their original account only from unique, exact verification call receipts owned by the same bot/run. Reusing a namespace for another account cannot take over those cards. If provenance is missing or ambiguous, sending is refused and the card remains discardable. Revision matching uses the proven legacy route too, preserving highlights after renames. No schema, public tool, approval behavior or dependency changes are involved.
+
+This focused pass passes **53 draft integration cases and 31 adjacent checks**. Six new tests contain forty scenario trials: invalid replies, current/legacy account routes, email/Slack namespace reuse, ownership mismatches, legacy revision highlighting and six valid success envelopes. Fresh automatic receipts and recovered cards agree on uncertainty. Successful recovery retains reviewed recipients, Cc, subject and body, with one outcome/wake and no replay. Three repeat cycles pass eighteen case executions separately from the unique count. Server typecheck/build and architecture checks pass.
+
+Native Chrome checks on the actual card component confirm unreadable/wrong-tool records stay unconfirmed after late responses. A third synthetic send uses the original UUID after a replacement takes over its old name. Backend assertions verify the replacement and routing, while reload preserves all outcomes and one acknowledgement correctly counts two unconfirmed cards. An initial harness variable-shadowing bug meant its replacement account was not created; that claim was withdrawn and a corrected fresh three-card run passed. These checks use no real mail transport.
+
+The [new evidence and limits](assets/draft-result-routing-2026-11-13.json) distinguish failing probes, final checks and the corrected harness. No fresh live-model/native Grokbot trial or real email/Slack/APNs delivery occurred. Earlier platform/budget failures and broad matrices remain historical and were not rerun in this server-focused pass.
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

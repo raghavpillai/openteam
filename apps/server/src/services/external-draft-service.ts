@@ -46,7 +46,8 @@ function connectorRecord(raw: unknown): Record<string, any> {
     }
     if (/^[A-Za-z0-9_-]{1,200}$/.test(raw)) return { id: raw };
   }
-  if (!raw || typeof raw !== "object") return fail("The connector returned an unreadable result");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Object.keys(raw).length)
+    return fail("The connector returned an unreadable result");
   const result = raw as Record<string, any>;
   if (result.isError || result.error || result.ok === false)
     return fail("The connector did not complete the operation");
@@ -126,6 +127,21 @@ export class ExternalDraftService {
       (connector) => connector.key === connection.connectorKey
     )?.drafts;
     return { id: connection.id, sendTool: drafts?.platform === draft.platform ? drafts.tool : undefined };
+  }
+  /** Old cards stored a renameable namespace. Recover its original account only
+   * from that card's durable verification calls, never from today's name mapping. */
+  private async boundDraft(draft: ExternalDraft, message: { clientId: string | null; senderBotId: string | null }, runId: string) {
+    if (UUID.test(draft.providerIdentifier)) return draft;
+    const prefix = message.clientId?.startsWith("tool:") ? `draft-verify:${message.clientId.slice(5)}:` : null;
+    const calls = prefix ? await this.prisma.pluginInvocation.findMany({
+      where: { botId: message.senderBotId!, runId, status: "completed",
+        callId: { startsWith: prefix } },
+      select: { connectionId: true, callId: true, toolName: true },
+    }) : [];
+    const connections = [...new Set(calls.filter(call => call.callId === `${prefix}${call.toolName}`).map(call => call.connectionId))];
+    if (connections.length !== 1)
+      return fail("The original account for this draft could not be verified. Nothing was sent; create a new draft for the intended account.");
+    return { ...draft, providerIdentifier: connections[0]! };
   }
   private async verify(
     botId: string,
@@ -240,6 +256,10 @@ export class ExternalDraftService {
       channelId: destination.id, clientId: `tool:${context.callId}`, senderBotId: context.botId,
     } });
     if (previous) return this.creationReceipt(previous, room);
+    // Account names can change while the card waits for review. Store the
+    // verified connection's stable identity, never a namespace to resolve again.
+    const connection = await this.connection(draft);
+    if (connection) draft.providerIdentifier = connection.id;
     const verification = await this.verify(context.botId, context.runId, draft, `draft-verify:${context.callId}`).catch((error: unknown) => {
       // A connector that fails or answers unreadably leaves the routing unverified too; the
       // draft's own refusals (wrong account, wrong from) keep their sentences.
@@ -271,7 +291,11 @@ export class ExternalDraftService {
       if (message.sender === "user") { if (++turn > 3) break; continue; }
       const metadata = metadataRecord(message.metadata);
       if (turn && message.senderBotId === context.botId && message.sourceRunId !== context.runId && metadata.type === "external-draft") {
-        try { candidates.push({ id: message.id, turn, draft: parseExternalDraft(metadata.draft) }); } catch { /* Ignore old or malformed cards. */ }
+        try {
+          const previous = parseExternalDraft(metadata.draft);
+          candidates.push({ id: message.id, turn,
+            draft: await this.boundDraft(previous, message, String(metadataRecord(metadata.draft).runId)) });
+        } catch { /* Ignore old, malformed or unverifiable routes. */ }
       }
     }
     verification.revision = draftRevision(draft, candidates);
@@ -408,10 +432,18 @@ export class ExternalDraftService {
           });
           if (call?.status === "completed") {
             try {
+              const stored = metadataRecord(metadata.draft);
+              const draft = await this.boundDraft(parseExternalDraft(stored), claim.message, String(stored.runId));
+              const connection = await this.connection(draft);
+              if (!connection || call.botId !== claim.message.senderBotId || call.runId !== stored.runId ||
+                  call.connectionId !== connection.id || call.toolName !== (draft.platform === "email" ? connection.sendTool : "slack_send_message"))
+                throw new Error("The saved connector result does not belong to this draft's bot, run, account and send tool");
               connectorRecord(call.result);
               return this.settle(messageId, "sent", "The user sent the reviewed message.", true, false, { sendingAttempt });
             } catch {
-              return this.settle(messageId, "failed", "The connector reported a send failure.", true, false, { sendingAttempt });
+              // Completion records persist connector replies, including unreadable
+              // ones. As in live delivery, that cannot establish that nothing sent.
+              return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false, { sendingAttempt });
             }
           }
           if (Date.now() - Date.parse(String(metadata.sendStartedAt)) > 180_000)
@@ -426,7 +458,7 @@ export class ExternalDraftService {
     const message = await this.prisma.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
     const metadata = metadataRecord(message.metadata);
     const stored = metadataRecord(metadata.draft);
-    const draft = parseExternalDraft(stored);
+    let draft = parseExternalDraft(stored);
     const verification = metadataRecord(stored.verification) as Partial<ExternalDraftVerification>;
     const botId = message.senderBotId!;
     const runId = String(stored.runId);
@@ -438,6 +470,7 @@ export class ExternalDraftService {
         : "The user sent the reviewed message.";
     let enteredSend = false;
     try {
+      draft = await this.boundDraft(draft, message, runId);
       const verified = await this.verify(
         botId,
         runId,

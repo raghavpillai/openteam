@@ -1635,3 +1635,178 @@ test('attachment preparation finishing after timeout cannot send or reopen the s
   } finally { release(); await sending?.catch(() => {}); f.messaging.assets.normalizeRefs = normalize; await f.cleanup(); }
  }
 });
+
+test('restart recovery keeps unreadable completed connector responses unconfirmed', async () => {
+ if (!databaseUrl) return;
+ const replies = [
+  { content: [{ type: 'text', text: 'The response was lost after the remote operation.' }] },
+  { isError: true, content: [{ type: 'text', text: 'Synthetic connector wrapper error' }] },
+  { structuredContent: { error: 'Synthetic result decoding failure' } },
+  [],
+  {},
+ ];
+ for (const variant of ['control', 'treatment'] as const) for (const result of replies) {
+  const f = await notificationExperiment(variant);
+  try {
+   const id = await f.create(0), stored = await f.card(id), runId = stored.draft.runId;
+   await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...stored, cardState: 'sending', sendStartedAt: new Date().toISOString(), sendAttemptId: crypto.randomUUID() } } });
+   await f.prisma.pluginInvocation.create({ data: { callId: `draft-send:${id}:send`, connectionId: f.connection.id, botId: f.botId, runId, toolName: 'send_reviewed_email', arguments: { action: 'send', draft: stored.draft }, status: 'completed', result } });
+   await Effect.runPromise(f.service.mutate(id, { action: 'refresh' }));
+   const recovered = await f.card(id);
+   expect(recovered.cardState).toBe('unknown');
+   expect(recovered.outcomeText).toContain('may or may not have gone out');
+   expect(recovered.outcomeText).not.toContain('reported a send failure');
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+   await Promise.all(['send', 'refresh', 'cancel'].map(action => Effect.runPromise(f.service.mutate(id, { action }))));
+   expect(f.mailSends()).toBe(0); expect((await f.card(id)).outcomeId).toBe(recovered.outcomeId);
+   // The same unreadable response must not be called sent in a fresh automatic result.
+   await f.prisma.bot.update({ where: { id: f.botId }, data: { draftingDisabled: true } });
+   const live = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => input.arguments.action === 'verify' ? { identity: 'me@example.com' } : result } as never);
+   const receipt = await live.create(f.context(runId, 'fresh-unreadable'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Unreadable live response', body: 'Synthetic only' }) as any;
+   expect(receipt.delivery).toBe('unknown');
+   expect(receipt.note).toContain('may or may not have gone out');
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('a reviewed draft remains bound to its original connection after the account is renamed', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ const calls: any[] = [];
+ const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+  calls.push(input); return input.arguments.action === 'verify' ? { identity: 'me@example.com' } : { id: 'synthetic-original-account' };
+ } } as never);
+ try {
+  const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+  const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+  const draft = { platform: 'email', providerIdentifier: namespace, from: 'me@example.com', to: ['ann@example.com'], subject: 'Renamed account', body: 'Keep the reviewed route' };
+  const card = await service.create(f.context(runId, 'rename-pending'), draft) as any;
+  await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { alias: 'renamed-account' } });
+  expect((await loadConnectionNamespaces(f.prisma)).get(f.connection.id)).not.toBe(namespace);
+  await Effect.runPromise(service.mutate(card.message_id, { action: 'send' }));
+  expect((await f.card(card.message_id)).cardState).toBe('sent');
+  expect(calls.filter(call => call.arguments.action === 'send')).toHaveLength(1);
+  expect(calls.at(-1).connectionId).toBe(f.connection.id);
+ } finally { await f.cleanup(); }
+});
+
+test('connector result recovery cannot borrow another bot run account or tool receipt', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant), other = await notificationExperiment(variant);
+  try {
+   const otherRun = (await other.prisma.run.findFirstOrThrow({ where: { botId: other.botId } })).id;
+   for (const [i, mismatch] of ['bot', 'run', 'account', 'tool'].entries()) {
+    const id = await f.create(i), stored = await f.card(id);
+    await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...stored, cardState: 'sending', sendStartedAt: new Date().toISOString(), sendAttemptId: crypto.randomUUID() } } });
+    await f.prisma.pluginInvocation.create({ data: { callId: `draft-send:${id}:send`, connectionId: mismatch === 'account' ? other.connection.id : f.connection.id, botId: mismatch === 'bot' ? other.botId : f.botId, runId: mismatch === 'run' ? otherRun : stored.draft.runId, toolName: mismatch === 'tool' ? 'unrelated_tool' : 'send_reviewed_email', arguments: {}, status: 'completed', result: { id: 'unrelated-success' } } });
+    await Effect.runPromise(f.service.mutate(id, { action: 'refresh' }));
+    expect((await f.card(id)).cardState).toBe('unknown');
+    expect((await f.card(id)).outcomeText).not.toContain('user sent');
+   }
+   expect(f.mailSends()).toBe(0);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+  } finally { await other.cleanup(); await f.cleanup(); }
+ }
+});
+
+test('namespace reuse cannot reroute current or legacy email and Slack cards', async () => {
+ if (!databaseUrl) return;
+ const { PluginInvocations } = await import('../src/services/plugin/invocations');
+ for (const platform of ['email', 'slack'] as const) for (const provenance of ['current', 'legacy-verified', 'legacy-unverified', 'legacy-prefix-collision'] as const) {
+  const f = await notificationExperiment('treatment');
+  const packets: any[] = [];
+  const tools = ['slack_read_channel', 'slack_read_user_profile', 'slack_send_message'].map(name => ({ name, description: 'Synthetic', inputSchema: { type: 'object' } }));
+  const plugins = new PluginInvocations(f.prisma, async (callId) => {
+   const call = await f.prisma.pluginInvocation.findUniqueOrThrow({ where: { callId } });
+   let result: any;
+   if ((call.arguments as any).action === 'verify') result = { identity: 'me@example.com' };
+   else if (call.toolName === 'slack_read_channel') result = { messages: 'Channel: general (C12345678)' };
+   else if (call.toolName === 'slack_read_user_profile') result = { result: 'Organization Name: Fixture\nEmail: me@example.com' };
+   else { packets.push(call); result = { id: 'synthetic-only' }; }
+   await f.prisma.pluginInvocation.update({ where: { callId }, data: { status: 'completed', result } }); return result;
+  });
+  const service = new ExternalDraftService(f.prisma, f.messaging, plugins as never, { treatmentPercent: '100' });
+  try {
+   const name = `Unique fixture ${crypto.randomUUID()}`;
+   await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { name, toolSnapshot: tools } });
+   const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const draft = { platform, providerIdentifier: namespace, body: 'Reviewed route remains immutable', ...(platform === 'email' ? { from: 'me@example.com', to: ['ann@example.com'], subject: 'Namespace reuse' } : { target: 'general', channelId: 'C12345678' }) };
+   const card = await service.create(f.context(runId, 'reuse-route'), draft) as any;
+   if (provenance !== 'current') {
+    const stored = await f.card(card.message_id);
+    await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...stored, draft: { ...stored.draft, providerIdentifier: namespace } } } });
+   }
+   if (provenance === 'legacy-unverified' || provenance === 'legacy-prefix-collision') await f.prisma.pluginInvocation.deleteMany({ where: { botId: f.botId, callId: { startsWith: 'draft-verify:reuse-route:' } } });
+   await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { alias: 'renamed-account' } });
+   const replacement = await f.prisma.pluginConnection.create({ data: { installationId: f.connection.installationId, connectorKey: 'email', name, transport: 'stdio', authType: 'none', status: 'ready', toolSnapshot: tools } });
+   expect((await loadConnectionNamespaces(f.prisma)).get(replacement.id)).toBe(namespace);
+   if (provenance === 'legacy-prefix-collision') await f.prisma.pluginInvocation.create({ data: { callId: 'draft-verify:reuse-route:lookalike:send_reviewed_email', connectionId: replacement.id, botId: f.botId, runId, toolName: 'send_reviewed_email', status: 'completed', result: { identity: 'me@example.com' } } });
+   await Effect.runPromise(service.mutate(card.message_id, { action: 'send' }));
+   if (provenance === 'current' || provenance === 'legacy-verified') {
+    expect((await f.card(card.message_id)).cardState).toBe('sent');
+    expect(packets).toHaveLength(1); expect(packets[0].connectionId).toBe(f.connection.id);
+   } else {
+    expect((await f.card(card.message_id)).cardState).toBe('pending');
+    expect((await f.card(card.message_id)).sendError).toContain('original account');
+    expect(packets).toHaveLength(0);
+    await Effect.runPromise(service.mutate(card.message_id, { action: 'cancel' }));
+    expect((await f.card(card.message_id)).cardState).toBe('dismissed');
+   }
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);
+
+test('revision highlighting survives a legacy namespace and an account rename', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async () => ({ identity: 'me@example.com' }) } as never);
+ try {
+  const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+  const run = await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } });
+  const draft = { platform: 'email', providerIdentifier: namespace, from: 'me@example.com', to: ['ann@example.com'], subject: 'Schedule', body: 'Hi Ann,\n\nThe meeting is on Monday at ten. Please bring the project notes.\n\nThanks!' };
+  const baseline = await service.create(f.context(run.id, 'baseline'), draft) as any;
+  const old = await f.card(baseline.message_id);
+  await f.prisma.channelMessage.update({ where: { id: baseline.message_id }, data: { metadata: { ...old, draft: { ...old.draft, providerIdentifier: namespace } } } });
+  await f.prisma.pluginInvocation.create({ data: { callId: 'draft-verify:baseline:send_reviewed_email', connectionId: f.connection.id, botId: f.botId, runId: run.id, toolName: 'send_reviewed_email', status: 'completed', result: { identity: 'me@example.com' } } });
+  await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { alias: 'renamed' } });
+  await f.prisma.channelMessage.create({ data: { channelId: f.context(run.id).channelId, sender: 'user', content: 'Change Monday to Tuesday', clientId: crypto.randomUUID() } });
+  const next = await f.prisma.run.create({ data: { botId: f.botId, conversationId: run.conversationId, channelId: run.channelId, userMessageId: crypto.randomUUID(), status: 'running' } });
+  const updatedBody = draft.body.replace('Monday', 'Tuesday');
+  const updated = await service.create(f.context(next.id, 'new-revision'), { ...draft, providerIdentifier: f.connection.id, body: updatedBody }) as any;
+  const revision = (await f.card(updated.message_id)).draft.verification.revision;
+  expect(revision?.baselineMessageId).toBe(baseline.message_id);
+  expect(revision.body.map((part: any) => part.text).join('')).toBe(updatedBody);
+  expect(revision.body.filter((part: any) => part.added).map((part: any) => part.text).join('')).toContain('Tuesday');
+ } finally { await f.cleanup(); }
+});
+
+test('valid completed connector envelopes recover the reviewed recipients and content exactly once', async () => {
+ if (!databaseUrl) return;
+ const replies = [
+  'synthetic-sent-id',
+  JSON.stringify({ id: 'synthetic-sent-id' }),
+  { id: 'synthetic-sent-id' },
+  { structuredContent: { id: 'synthetic-sent-id' }, content: [{ type: 'text', text: 'Summary only' }] },
+  { content: [{ type: 'text', text: JSON.stringify({ id: 'synthetic-sent-id' }) }] },
+  { accepted: ['reviewed@example.com'], rejected: [], messageId: 'synthetic-message-id' },
+ ];
+ for (const variant of ['control', 'treatment'] as const) for (const result of replies) {
+  const f = await notificationExperiment(variant);
+  try {
+   const id = await f.create(0);
+   await Effect.runPromise(f.service.mutate(id, { action: 'save', edits: { to: ['reviewed@example.com'], cc: ['copied@example.com'], subject: 'Reviewed subject', body: 'Reviewed body' } }));
+   const stored = await f.card(id);
+   await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...stored, cardState: 'sending', sendStartedAt: new Date().toISOString(), sendAttemptId: crypto.randomUUID() } } });
+   await f.prisma.pluginInvocation.create({ data: { callId: `draft-send:${id}:send`, connectionId: f.connection.id, botId: f.botId, runId: stored.draft.runId, toolName: 'send_reviewed_email', arguments: { action: 'send' }, status: 'completed', result } });
+   await Effect.runPromise(f.service.mutate(id, { action: 'refresh' }));
+   const recovered = await f.card(id);
+   expect(recovered.cardState).toBe('sent');
+   expect(recovered.outcomeText).toContain('To: reviewed@example.com\nCc: copied@example.com\nSubject: Reviewed subject\n\nReviewed body');
+   await Promise.all(['send', 'refresh', 'cancel'].map(action => Effect.runPromise(f.service.mutate(id, { action }))));
+   expect((await f.card(id)).outcomeId).toBe(recovered.outcomeId); expect(f.mailSends()).toBe(0);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);

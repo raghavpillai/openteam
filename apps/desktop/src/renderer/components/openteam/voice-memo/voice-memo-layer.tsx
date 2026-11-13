@@ -3,7 +3,7 @@ import { ButtonPrimitive } from "../../ui/button-primitive";
 // time, the voice as it's heard, discard and send, over a voice-reactive glow.
 // Loaded on demand so the glow stays out of startup.
 import { Trash2 } from "lucide-react";
-import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { getAudioContext } from "voice-glow";
 import { useWindowActive } from "../../../hooks/use-window-active";
 import { useResourceActive } from "../../../hooks/resource-activity";
@@ -23,6 +23,8 @@ export interface VoiceMemoLayerProps {
   radius: number;
   /** Centre of the mic that started recording, from the composer's bottom-right. */
   anchor: { right: number; bottom: number };
+  /** The composer button the Send droplet lands on when the bar leaves. */
+  exitTo?: "send" | "mic";
   onDiscard: () => void;
   onSend: () => void;
   onCancelProcessing: () => void;
@@ -223,13 +225,23 @@ function TimeChip({
   );
 }
 
+/** What the bar showed when it began to leave. A note that starts again before it's gone plays
+ *  the exit back from where it is ("out" → reversing), then settles before taking the new mode. */
+interface Leaving {
+  mode: VoiceMemoMode;
+  anchor: { right: number; bottom: number };
+  exitTo: "send" | "mic";
+  phase: "out" | "settle";
+}
+
 export default function VoiceMemoLayer({
-  mode,
+  mode: liveMode,
   exiting = false,
   stream,
   elapsedMs,
   radius,
-  anchor,
+  anchor: liveAnchor,
+  exitTo: liveExitTo = "mic",
   onDiscard,
   onSend,
   onCancelProcessing,
@@ -239,6 +251,48 @@ export default function VoiceMemoLayer({
   const dark = useDocumentDark();
   const reducedMotion = useReducedMotion();
   const gooId = `vm-goo-${useId().replace(/:/g, "")}`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const exitAnimations = useRef<Animation[]>([]);
+  const [leaving, setLeaving] = useState<Leaving | null>(null);
+  if (exiting && leaving?.phase !== "out") {
+    setLeaving({ mode: liveMode, anchor: liveAnchor, exitTo: liveExitTo, phase: "out" });
+  }
+  const { mode, anchor, exitTo } = leaving ?? {
+    mode: liveMode,
+    anchor: liveAnchor,
+    exitTo: liveExitTo,
+  };
+  const leavingOut = leaving?.phase === "out";
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || !leavingOut) return;
+    if (!exitAnimations.current.length) {
+      // Everything [data-exiting] just started; the rest of the bar keeps its own animations.
+      exitAnimations.current = root.getAnimations({ subtree: true }).filter((a) => a.pending);
+    }
+    const animations = exitAnimations.current;
+    for (const a of animations) if (a.playbackRate < 0 === exiting) a.reverse();
+    if (exiting) return;
+    let current = true;
+    void Promise.allSettled(animations.map((a) => a.finished)).then(() => {
+      if (!current) return;
+      exitAnimations.current = [];
+      setLeaving((held) => (held ? { ...held, phase: "settle" } : held));
+    });
+    return () => {
+      current = false;
+    };
+  }, [exiting, leavingOut]);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || leaving?.phase !== "settle") return;
+    // Back in one piece: leaving [data-exiting] restarts the entrance on the parts the exit
+    // animated. They already show its last frame, so skip straight to it, before any paint.
+    for (const a of root.getAnimations({ subtree: true })) {
+      if (a.pending && Number.isFinite(a.effect?.getComputedTiming().endTime)) a.finish();
+    }
+    setLeaving(null);
+  }, [leaving]);
   useEffect(() => void preloadLoadingOrb(), []);
   useEffect(() => {
     mountedLayers += 1;
@@ -250,8 +304,10 @@ export default function VoiceMemoLayer({
   return (
     <div
       className="vm-root"
-      data-exiting={exiting ? "" : undefined}
+      data-exit-to={exitTo}
+      data-exiting={leavingOut ? "" : undefined}
       data-voice-memo={mode}
+      ref={rootRef}
       style={
         {
           "--vm-radius": `${radius}px`,
@@ -297,30 +353,31 @@ export default function VoiceMemoLayer({
           >
             <g filter={`url(#${gooId})`}>
               <g className="vm-discard-drop">
-                <circle cx="14" cy="14" r="14" />
+                {/* An ellipse so the squash can stretch and settle each axis on its own. */}
+                <ellipse className="vm-discard-blob" cx="14" cy="14" rx="14" ry="14" />
               </g>
               <circle className="vm-send-drop" cx="50" cy="14" r="14" />
             </g>
           </svg>
           <ButtonPrimitive
-            aria-hidden={mode !== "recording" || exiting}
+            aria-hidden={mode !== "recording" || Boolean(leaving)}
             aria-label="Discard voice note"
             className="vm-icon-button vm-discard"
-            disabled={mode !== "recording" || exiting}
+            disabled={mode !== "recording" || Boolean(leaving)}
             onClick={onDiscard}
-            tabIndex={mode !== "recording" || exiting ? -1 : undefined}
+            tabIndex={mode !== "recording" || leaving ? -1 : undefined}
             title="Discard · Esc"
             type="button"
           >
             <Trash2 className="size-3.5" />
           </ButtonPrimitive>
           <ButtonPrimitive
-            aria-hidden={exiting}
+            aria-hidden={Boolean(leaving)}
             aria-label={mode === "recording" ? "Send voice note" : "Cancel voice note"}
             className="vm-send"
-            disabled={exiting}
+            disabled={Boolean(leaving)}
             onClick={mode === "recording" ? onSend : onCancelProcessing}
-            tabIndex={exiting ? -1 : undefined}
+            tabIndex={leaving ? -1 : undefined}
             title={mode === "recording" ? "Send" : "Cancel · Esc"}
             type="button"
           >

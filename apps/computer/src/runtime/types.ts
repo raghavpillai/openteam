@@ -48,6 +48,8 @@ export interface ActiveTurn {
   resetSelfSummaryCount: boolean;
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>;
   draftStatusAcknowledged?: boolean;
+  draftStateRevision?: string;
+  pendingDraftStateRevision?: string;
   turnId: string;
   session: AgentSession | null;
   sessionPath: string | null;

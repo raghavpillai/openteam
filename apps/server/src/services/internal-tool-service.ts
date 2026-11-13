@@ -84,6 +84,7 @@ export class InternalToolService {
         deliveryId: request.deliveryId,
         origin: run.origin,
         callId: request.callId,
+        draftStateRevision: request.draftStateRevision,
         timeZone: typeof inboxPayload?.timeZone === "string" ? inboxPayload.timeZone : undefined,
         replyToMessageId:
           typeof inboxPayload?.replyToMessageId === "string" ? inboxPayload.replyToMessageId : null,

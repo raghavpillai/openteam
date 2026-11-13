@@ -2,6 +2,7 @@ import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, r
 import {
   publishMessageNotification,
   isTreatmentDraftWake,
+  isManagedDraftWake,
   prepareDraftNotification,
   turnOwesReplyReminder,
   turnSystemReminder,
@@ -264,8 +265,16 @@ interface RevivalWake {
 /** Each card keeps its own receipt; ready draft outcomes share one model continuation. */
 export const draftResponseBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[]): { content: string; folded: T[] } | null => {
   if (claimed.type !== "draft.response" || claimed.status !== "pending" || claimed.run.origin !== "user" || isTreatmentDraftWake(claimed)) return null;
+  const managed = isManagedDraftWake(claimed);
   const folded = pending.filter((wake) => wake.id !== claimed.id && wake.type === "draft.response" &&
-    wake.status === "pending" && wake.run.origin === "user" && wake.run.channelId === claimed.run.channelId && !isTreatmentDraftWake(wake));
+    wake.status === "pending" && wake.run.origin === "user" && wake.run.channelId === claimed.run.channelId && !isTreatmentDraftWake(wake) &&
+    isManagedDraftWake(wake) === managed);
+  // Managed control keeps the prepared canonical prompt once. Its ready wakes
+  // still fold at claim; only treatment coalesces pending wakes before claim.
+  if (managed) {
+    const content = claimed.payload && typeof claimed.payload === "object" ? (claimed.payload as { content?: unknown }).content : undefined;
+    return typeof content === "string" ? { content, folded } : null;
+  }
   const notices = [claimed, ...folded].map((wake) => {
     const content = wake.payload && typeof wake.payload === "object" ? (wake.payload as { content?: unknown }).content : undefined;
     return typeof content === "string" ? content.replace(/^\[SAND_HIDDEN_PROMPT\]/, "") : `Draft outcome event ${wake.id}. Read its stored card outcome.`;
@@ -1302,7 +1311,7 @@ export class WakeWorker {
             await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
             continue;
           }
-          if (isTreatmentDraftWake(candidate)) {
+          if (isManagedDraftWake(candidate)) {
             const prepared = await prepareDraftNotification(tx, candidate);
             if (!prepared) {
               const completedAt = new Date();
@@ -1555,6 +1564,9 @@ export class WakeWorker {
       const taskConfiguration = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
+      // Capture before reading context: a change during that read must invalidate its later reply too.
+      const draftSnapshot = claimed.inboxType === "draft.response"
+        ? await this.messaging.draftReplySnapshot(claimed) : null;
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
         pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration, claimed.origin);
       // Replay failed user inputs whose durable-session delivery was never
@@ -1573,6 +1585,9 @@ export class WakeWorker {
         if (!payload.content || !payload.clientId) continue;
         missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
       }
+      let draftContent = claimed.content;
+      if (draftStatusText) draftContent += `\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Those counts are historical; use the current draft state below for any outstanding request.`;
+      if (draftSnapshot) draftContent += `\n\nCurrent draft state at dispatch: ${JSON.stringify(draftSnapshot.counts)}. Do not ask about revisions when pending is zero. If SendToUser reports draft_state_changed, nothing was delivered: reconsider with its fresh counts and retry any still-useful warning, question, or other requested information. Finish silently when only an obsolete draft question remains.`;
       const instructions = platformPrompt.instructions;
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.
@@ -1603,9 +1618,8 @@ export class WakeWorker {
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
-        }, draftStatusText
-          ? `${claimed.content}\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Use its remaining-review count when completing any outstanding user request.`
-          : claimed.content),
+        }, draftContent),
+        ...(draftSnapshot ? { draftStateRevision: draftSnapshot.revision } : {}),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,

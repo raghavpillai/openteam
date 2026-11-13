@@ -15,8 +15,10 @@ test("retired file providers cannot issue requests and are absent from tool guid
     expect(JSON.stringify(tool)).not.toMatch(/onedrive|sharepoint|outlook|send_draft|send_message|read_email/i);
     expect(tool.description).toContain("The service short name (google-drive or gmail)");
   }
-  // Gmail drafts only carry the file; the Gmail connection has no send tool.
-  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "UploadFile")!.description).toContain("cannot send a draft, so it waits unsent in the user's Gmail Drafts");
+  // File uploads preserve mailbox drafts; in-chat reviewed mail uses the card's attachment path.
+  const uploadDescription = CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "UploadFile")!.description;
+  expect(uploadDescription).toContain("Use this only when the user asks to keep the draft in Gmail");
+  expect(uploadDescription).toContain("For an email reviewed and sent in chat, use DraftExternalMessage with attachments instead");
   expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "DownloadFile")!.inputSchema.properties.source.required).toEqual(["fileId"]);
   expect(() => parseConnectorTransfer("DownloadFile", { connection: "drive", source: { path: "file.txt" } })).toThrow("source.fileId");
   expect(() => parseConnectorTransfer("UploadFile", { connection: "drive", sourcePath: "/workspace/file.txt", destination: { overwrite: true } })).toThrow("destination.overwrite");

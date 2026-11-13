@@ -307,6 +307,7 @@ export class ComputerRuntime {
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       requestSource: request.requestSource ?? "turn",
       draftStatusAcknowledged: request.draftStatusAcknowledged === true,
+      draftStateRevision: request.draftStateRevision,
       turnId: request.runId,
       session: null,
       sessionPath: null,

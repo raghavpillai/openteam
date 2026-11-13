@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-13",
+  "scope": "actual server startup recovery, draft continuation identity, notification receipts, archived chats and saved send results",
+  "method": "isolated local PostgreSQL; actual recover/worker/messaging paths; synthetic computer stream and connector results; no external transport",
+  "sourceParent": "0e05c87220612ea69c01e6bdef6f16a886419c89",
+  "findings": [
+    {
+      "issue": "Server restart converted draft.response into runtime.reconcile and lost treatment metadata.",
+      "before": "Permanent regression failed: expected draft.response, received runtime.reconcile.",
+      "fix": "Retain draft event identity and frozen notification receipt across bounded host recovery; allow the interrupted follow-up to resume even when all statuses were published."
+    },
+    {
+      "issue": "Restart reconciliation queued new draft work in an already archived chat.",
+      "before": "Permanent regression failed: expected zero pending wakes, received one.",
+      "fix": "Complete old draft work and release its lease without enqueueing a continuation for an archived channel."
+    }
+  ],
+  "permanentNewTests": 5,
+  "scenarios": [
+    "Restart before and after publication; actual resumed worker receives event requestSource and draftStatusAcknowledged, includes stored status, completes a useful follow-up.",
+    "Control and treatment survive three consecutive restarts, reject late interrupted replies, stop after the bounded third retry, and emit one exhaustion notice.",
+    "An unrelated later outcome keeps its own unconsumed receipt until its own continuation.",
+    "Archived chats receive no new recovery wake in either arm.",
+    "Running and completed drafting turns; saved confirmed and unresolved send invocations; refresh/send/discard races preserve one terminal outcome without connector replay after the existing timeout."
+  ],
+  "finalChecks": {
+    "server": {
+      "passed": 80,
+      "skipped": 0,
+      "failed": 0,
+      "assertions": 3588
+    },
+    "messaging": {
+      "passed": 406,
+      "skipped": 0,
+      "failed": 0,
+      "assertions": 3928
+    },
+    "worker": {
+      "passed": 9,
+      "skipped": 0,
+      "failed": 0,
+      "assertions": 59
+    }
+  },
+  "uniquePassed": 495,
+  "assertions": 7575,
+  "repetitions": {
+    "cycles": 5,
+    "testExecutions": 25,
+    "assertions": 695,
+    "failed": 0,
+    "countedAsAdditionalUniqueTests": false
+  },
+  "validationNotes": [
+    "One concurrent validation attempt timed out in an oversized restart-bound fixture; its still-running global recovery interfered with the next fixture. Reduced that fixture from 24 to two mixed outcomes, retained the separate original 24-send test, then all five sequential repeat cycles and the final combined suite passed without timeout changes.",
+    "Server, worker and messaging typechecks; server build; architecture checks pass."
+  ],
+  "limits": [
+    "No new live-model, native Grokbot, desktop UI or iOS runtime trial in this pass.",
+    "No real email/Slack/APNs, production state/config change or deployment.",
+    "Treatment remains opt-in with default zero percent.",
+    "Default-mode deliberately injected new-run/new-call replay and silent-model acknowledgement gaps remain; this does not semantically classify arbitrary model prose.",
+    "Previously measured desktop gzip budget excess of 2192 bytes remains unresolved; no renderer edit or size remeasurement in this server-focused pass.",
+    "Already dispatched sends may complete after timeout; unknown does not recall or cancel remote work.",
+    "Finite tests do not establish 100 percent production reliability."
+  ]
+}

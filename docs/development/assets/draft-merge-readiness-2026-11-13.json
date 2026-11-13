@@ -1,0 +1,230 @@
+{
+  "date": "2026-11-13",
+  "sourceHead": "2bfe02ab952c20b0192c12423595e1d98683c94f",
+  "integratedMain": "512e3a7d41775d2d675c286a54911e9736959977",
+  "purpose": "Merge-readiness verification for PR320, including original repeated-confirmation incident and durability under replay/restart.",
+  "changes": [
+    "Durable canonical status receipts now baseline for NEW managed control and treatment outcomes. The flag remains0 by default; only treatment pre-claim coalescing,300ms collection and progress-row reuse are opt-in.",
+    "Both arms retain receipt identities through full startup recovery and deliver actual acknowledged event requests; legacy untagged history is excluded from managed folding and publication.",
+    "A late send failure plus failed refresh cannot restore controls or a stale error after a confirmed remote discard.",
+    "Equivalent Unicode/Punycode SMTP domains confirm correctly; different recipients/local parts remain unconfirmed.",
+    "Build data removes only exactly redundant emoji search words. Corpus-wide word sets, glyphs, labels and order are preserved, including en/tr/az/lt normalization. No UI feature or performance threshold was removed/raised by this PR."
+  ],
+  "automated": {
+    "server": {
+      "pass": 82,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 3691
+    },
+    "messaging": {
+      "pass": 406,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 3928
+    },
+    "adjacent": {
+      "pass": 43,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 649
+    },
+    "piParity": {
+      "pass": 80,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 782
+    },
+    "desktopTsx": {
+      "pass": 8,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 23
+    },
+    "desktopTs": {
+      "pass": 664,
+      "skip": 1,
+      "fail": 0,
+      "assertions": 9432,
+      "files": 118
+    }
+  },
+  "uniquePassed": 1283,
+  "skipped": 1,
+  "repetition": {
+    "cycles": 3,
+    "testExecutions": 30,
+    "assertions": 1305,
+    "failed": 0,
+    "additionalUniqueTests": false
+  },
+  "failureInjection": [
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "control",
+      "outcomes": 24,
+      "queuedWakes": 24,
+      "visibleMessages": 1,
+      "duplicateMessages": 0,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "treatment",
+      "outcomes": 24,
+      "queuedWakes": 1,
+      "visibleMessages": 1,
+      "duplicateMessages": 0,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "control",
+      "outcomes": 2,
+      "visibleMessages": 1,
+      "missingNotification": 0
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "treatment",
+      "outcomes": 2,
+      "visibleMessages": 1,
+      "missingNotification": 0
+    },
+    {
+      "scenario": "late outcomes + deliberately incorrect model counts",
+      "variant": "control",
+      "outcomes": 4,
+      "visibleMessages": 4,
+      "incorrectSummaries": 2
+    },
+    {
+      "scenario": "late outcomes + deliberately incorrect model counts",
+      "variant": "treatment",
+      "outcomes": 4,
+      "visibleMessages": 4,
+      "incorrectSummaries": 2
+    }
+  ],
+  "liveModel": [
+    {
+      "variant": "control",
+      "realModel": "openrouter/x-ai/grok-4.7",
+      "syntheticCards": 24,
+      "syntheticSendRecords": 24,
+      "uniqueRecipients": 24,
+      "uniqueResultIds": 24,
+      "outcomeContinuations": 1,
+      "notificationMessages": 1,
+      "outcomeTexts": [
+        "24 email drafts settled: 24 sent. Drafts in this chat: none awaiting review."
+      ],
+      "externalMailSends": 0,
+      "credentialConfigsRemoved": true
+    },
+    {
+      "variant": "treatment",
+      "realModel": "openrouter/x-ai/grok-4.7",
+      "syntheticCards": 24,
+      "syntheticSendRecords": 24,
+      "uniqueRecipients": 24,
+      "uniqueResultIds": 24,
+      "outcomeContinuations": 1,
+      "notificationMessages": 1,
+      "outcomeTexts": [
+        "24 email drafts settled: 24 sent. Drafts in this chat: none awaiting review."
+      ],
+      "externalMailSends": 0,
+      "credentialConfigsRemoved": true
+    }
+  ],
+  "browser": {
+    "engine": "Electron/Chromium actual component fixture",
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      745,
+      360
+    ],
+    "result": "all four scenarios passed",
+    "coverage": [
+      "forwarding context",
+      "revision highlights",
+      "attachment preview",
+      "invalid-recipient Send disabling",
+      "read-only discard/reopen/remount",
+      "remote stored history",
+      "mutation receipt history",
+      "remote discard followed by late send failure and failed refresh"
+    ]
+  },
+  "validation": {
+    "serverTypecheck": "pass",
+    "workerTypecheck": "pass",
+    "messagingTypecheck": "pass",
+    "computerTypecheck": "pass",
+    "desktopTypecheck": "pass",
+    "serverBuild": "pass",
+    "workerBuild": "pass",
+    "computerBuild": "pass",
+    "desktopBuild": "pass",
+    "architecture": "pass",
+    "iosSimulatorBuild": "pass, Xcode27.1/SDK27.1, generic simulator arm64+x86_64, code signing disabled, bounded Xcode jobs"
+  },
+  "desktop": {
+    "workspaceStartupBytes": 1334325,
+    "rendererBytes": 17870691,
+    "rendererGzipBytes": 4474689,
+    "budgets": "pass against current integrated main thresholds; no threshold edits in PR diff"
+  },
+  "review": {
+    "independentAudits": "Decoder/account routes, lifecycle/managed receipts and review UI; material IDN and late-failure findings fixed; final managed-receipt re-review found no material defect.",
+    "githubFormalReview": "none at report creation; no self-approval claimed"
+  },
+  "validationFailuresAndResolution": [
+    "An initial heavily concurrent run encountered DB transaction/test timeouts and a1.5s Pi-loop fixture sentinel while full Xcode compilation and other host work were saturating memory/CPU. Stopped only owned competing jobs. Fresh isolated server82/messaging406/Pi80/other-adjacent43 suites pass with default test timeout settings and unchanged production timeouts.",
+    "The first integrated iOS build was deliberately interrupted for host pressure; the bounded rerun completed for both simulator architectures.",
+    "Adding a .ts Vite-config import extension triggered TS5097; restored the repository-compatible extensionless import and desktop typecheck passes.",
+    "A lazy draft-card experiment and a shared attachment-loader experiment did not improve the budget sufficiently and were reverted."
+  ],
+  "limits": [
+    "No real email, Slack or APNs delivery, and no fresh native Grokbot trial in this final pass.",
+    "No manual production deployment/configuration change. Matching server/worker versions should roll out together.",
+    "Legacy untagged queued turns keep their old path; no retroactive history sweep.",
+    "Canonical statuses are idempotent. Arbitrary independently authored model prose is delivered normally and is not a semantic classifier.",
+    "Already-dispatched sends may complete after timeout; unknown does not cancel/recall remote work.",
+    "No signed release package/device runtime validation; this is source/build/simulator readiness.",
+    "Finite tests are evidence, not a100percent production reliability guarantee."
+  ],
+  "ciRunnerFollowup": {
+    "affectedHead": "216a954297fccd210daa355e6ad040af0cb10f1f",
+    "jobs": [
+      132007622929,
+      132017159285
+    ],
+    "cause": "Both macos-latest attempts expired without a hosted runner assignment (runner_id0, no steps); GitHub annotations report macOS ARM capacity constraints.",
+    "change": "Pin the same macOS installer suite to macos-15-intel. Commands, assertions, permissions and timeout remain unchanged. Linux and Windows remain in the matrix.",
+    "runnerReference": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners",
+    "localAppleSilicon": {
+      "architecture": "arm64",
+      "bun": "1.4.2",
+      "installerRendering": {
+        "pass": 27,
+        "fail": 0,
+        "skip": 0
+      },
+      "fullCliAndBrowserCache": {
+        "pass": 757,
+        "fail": 0,
+        "skip": 0
+      },
+      "logPaths": [
+        "/tmp/draft-cli-macos-render.log",
+        "/tmp/draft-cli-macos-full.log"
+      ]
+    },
+    "scope": "CI runner configuration only; hosted Intel results remain pending until the new check completes."
+  }
+}

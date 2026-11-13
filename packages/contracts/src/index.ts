@@ -1318,6 +1318,8 @@ export const DynamicToolCallRequest = Schema.Struct({
   tool: Schema.String,
   arguments: Schema.Unknown,
   callId: Schema.String,
+  /** Private optimistic snapshot for draft-outcome replies. */
+  draftStateRevision: Schema.optional(Schema.String),
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
@@ -1347,6 +1349,7 @@ export const ComputerTurnRequest = Schema.Struct({
   requestSource: Schema.optional(RuntimeRequestSource),
   /** A durable platform status already acknowledges this draft-outcome event. */
   draftStatusAcknowledged: Schema.optional(Schema.Boolean),
+  draftStateRevision: Schema.optional(Schema.String),
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),

@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import ImageIO
 
 private func presentationURL(_ value: String?) -> URL? {
   guard let value, let url = URL(string: value), url.scheme == "https", url.user == nil, url.password == nil else { return nil }
@@ -95,30 +96,69 @@ private enum PlaceMotion {
 }
 /// Images shared by cards, pins and panels, kept in memory so a view that a
 /// morph re-inserts never flashes its placeholder while reloading.
-nonisolated(unsafe) private let placeImages = NSCache<NSURL, UIImage>()
+@MainActor enum PlaceImages {
+  static var generation: UUID?
+  static var requests: [UUID: Task<Data, Error>] = [:]
+  static let values: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.totalCostLimit = 24 * 1024 * 1024
+    cache.countLimit = 64
+    return cache
+  }()
+  static func select(_ next: UUID?) {
+    if generation != next {
+      for task in requests.values { task.cancel() }
+      requests.removeAll()
+      values.removeAllObjects(); generation = next
+    }
+  }
+  static func data(_ api: API, source: String) async throws -> Data {
+    let id = UUID()
+    let task = Task { try await api.presentationImage(source) }
+    requests[id] = task
+    defer { requests.removeValue(forKey: id) }
+    return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+  }
+}
 private struct CachedImage<Placeholder: View>: View {
+  @Environment(AppStore.self) private var store
   let url: URL?
   var onLoad: ((Bool) -> Void)? = nil
   @ViewBuilder var placeholder: () -> Placeholder
   @State private var image: UIImage?
-  init(url: URL?, onLoad: ((Bool) -> Void)? = nil, @ViewBuilder placeholder: @escaping () -> Placeholder) {
-    self.url = url; self.onLoad = onLoad; self.placeholder = placeholder
-    _image = State(initialValue: url.flatMap { placeImages.object(forKey: $0 as NSURL) })
+  @State private var loadedKey: String?
+  private var key: String? {
+    guard let url, let api = store.api else { return nil }
+    return api.resourceGeneration.uuidString + ":" + url.absoluteString
   }
   var body: some View {
     Group {
-      if let image { Image(uiImage: image).resizable().scaledToFill() } else { placeholder() }
+      if loadedKey == key, let image { Image(uiImage: image).resizable().scaledToFill() } else { placeholder() }
     }
-    .onChange(of: image != nil, initial: true) { _, loaded in onLoad?(loaded) }
-    .task(id: url) {
-      guard let url else { image = nil; return }
-      if let hit = placeImages.object(forKey: url as NSURL) { image = hit; return }
-      guard let (data, _) = try? await URLSession.shared.data(from: url), let loaded = UIImage(data: data) else { return }
-      placeImages.setObject(loaded, forKey: url as NSURL)
-      image = loaded
+    .onChange(of: loadedKey == key && image != nil, initial: true) { _, loaded in onLoad?(loaded) }
+    .task(id: key) {
+      image = nil; loadedKey = nil
+      PlaceImages.select(store.api?.resourceGeneration)
+      guard let key, let url, let api = store.api else { return }
+      if let hit = PlaceImages.values.object(forKey: key as NSString) { image = hit; loadedKey = key; return }
+      guard let data = try? await PlaceImages.data(api, source: url.absoluteString) else { return }
+      let decoded = await Task.detached(priority: .utility) { () -> CGImage? in
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: 960,
+          kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary)
+      }.value
+      guard !Task.isCancelled, store.api?.resourceGeneration == api.resourceGeneration, let decoded else { return }
+      let loaded = UIImage(cgImage: decoded)
+      PlaceImages.values.setObject(loaded, forKey: key as NSString, cost: decoded.bytesPerRow * decoded.height)
+      image = loaded; loadedKey = key
     }
   }
 }
+
 extension View {
   /// Matched geometry, except under Reduce Motion, where views cross-fade in place.
   @ViewBuilder fileprivate func placeMatch(_ id: String, in namespace: Namespace.ID, enabled: Bool) -> some View {

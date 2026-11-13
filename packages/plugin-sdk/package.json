@@ -19,7 +19,8 @@
     "./browser-network/mux": "./src/browser-network/mux.ts",
     "./browser-network/client": "./src/browser-network/client.ts",
     "./browser-network/socks": "./src/browser-network/socks.ts",
-    "./email-body": "./src/email-body.ts"
+    "./email-body": "./src/email-body.ts",
+    "./public-http": "./src/public-http.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

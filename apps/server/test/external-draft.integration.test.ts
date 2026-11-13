@@ -203,14 +203,14 @@ test('same-subject outcomes retain distinct card identities after ambient receip
   await f.messaging.acknowledgeCardOutcomes(f.botId, cards);
   for (const card of cards) expect((await f.card(card.messageId)).outcomeEchoed).toBe(true);
   const claimed = await worker.claim(f.botId);
-  expect(claimed.content).toContain('2 external message draft outcome(s)');
+  expect(claimed.content).toContain('The platform handles the status acknowledgement');
   for (const card of cards) {
    expect(claimed.content).toContain(`Draft card ID: ${card.messageId}`);
-   expect(claimed.content).toContain(`[Card outcome ${card.outcomeId}]`);
+   expect(claimed.content).toContain(card.outcomeId);
   }
-  expect(claimed.content.match(/State: dismissed/g)).toHaveLength(2);
-  expect(claimed.content.match(/"subject":"Same subject"/g)).toHaveLength(2);
-  expect(claimed.content).toContain('do not ask them to press Send');
+  expect(claimed.content.match(/state: dismissed/g)).toHaveLength(2);
+  expect(claimed.content).toContain('individual card outcomes');
+  expect(claimed.content).toContain('Do not post another status confirmation');
   const persisted = await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } });
   expect((persisted.payload as any).content).toBe(claimed.content);
   const hiddenMessage = await f.prisma.message.findUniqueOrThrow({ where: { id: (persisted.payload as any).messageId } });
@@ -302,23 +302,22 @@ test('draft discard executes through worker dispatch and projection without a fo
    const input = await request.json() as any;
    dispatched.push(input);
    // The treatment status must exist before the computer receives the turn.
-   expect(await f.visible()).toHaveLength(variant === 'treatment' ? 1 : 0);
-   expect(input.requestSource).toBe(variant === 'treatment' ? 'event' : 'turn');
-   if (variant === 'treatment') {
+   expect(await f.visible()).toHaveLength(1);
+   expect(input.requestSource).toBe('event');
+   {
     expect(input.draftStatusAcknowledged).toBe(true);
     expect(input.content).toContain((await f.visible())[0]!.content);
     expect(input.content).toContain('Current draft state at dispatch:');
     expect(input.content).toContain('\"pending\":0');
     expect(input.draftStateRevision).toMatch(/^[a-f0-9]{64}$/);
    }
-   else expect(input.draftStatusAcknowledged).toBeUndefined();
    // Match the real computer: accept the stream before any model tool runs.
    return new Response(new ReadableStream({ start(controller) {
     const write = (event: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'));
     write({ type: 'turn.started', turnId: input.runId });
     void (async () => {
      // An acknowledged event may finish silently; ordinary turns still owe a reply.
-     if (variant === 'control') await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
+     // The durable status already exists; a status-only continuation finishes silently.
      write({ type: 'prompt.delivered', turnId: input.runId });
      write({ type: 'turn.completed', turnId: input.runId, status: 'completed' }); controller.close();
     })().catch(error => controller.error(error));
@@ -378,27 +377,26 @@ test('A/B: 24 completions, lost response, new call IDs and a replayed run', asyn
    await f.messaging.flushDraftNotification(ctx);
    const restarted = new AgentMessaging(f.prisma, f.messaging.boss, f.messaging.agentData);
    await Promise.all([1, 2].map(i => restarted.sendVisible(f.context(claimed.runId, `retry-${i}`), { type: 'text', content: '24 email drafts settled: 24 sent. Drafts in this chat: none awaiting review.' })));
-   expect(await f.visible()).toHaveLength(variant === 'control' ? 2 : 1);
+   expect(await f.visible()).toHaveLength(1);
    const receipts = await Promise.all(f.ids.map(async id => ({ messageId: id, outcomeId: (await f.card(id)).outcomeId })));
    await f.release(claimed);
    // Simulate a new continuation for the same outcomes, not merely a repeated tool call.
    const replay = await f.prisma.$transaction(async tx => {
     const wake = await f.messaging.enqueueWake(tx, { botId: f.botId, channelId: ctx.channelId, origin: 'user', type: 'draft.response',
      content: '[SAND_HIDDEN_PROMPT]Replay of the completed outcomes.', clientId: `replay-${crypto.randomUUID()}`, priority: 400, wrapUserContent: false });
-    if (variant === 'treatment') await tx.inboxEvent.update({ where: { id: wake.inbox.id }, data: { payload: {
-     ...(wake.inbox.payload as any), draftNotification: { variant: 'treatment', outcomeIds: receipts.map(row => row.outcomeId) },
+    await tx.inboxEvent.update({ where: { id: wake.inbox.id }, data: { payload: {
+     ...(wake.inbox.payload as any), draftNotification: { variant, outcomeIds: receipts.map(row => row.outcomeId) },
     } } });
     return wake;
    });
    const replayed = await f.worker().claim(f.botId);
-   if (variant === 'control') await restarted.sendVisible(f.context(replayed.runId, 'new-run-new-call'), { type: 'text', content: 'Confirmed: all 24 emails were sent.' });
-   else {
+   {
     expect(replayed).toBeNull();
     expect((await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: replay.inbox.id } })).status).toBe('completed');
     for (const row of receipts) expect((await f.card(row.messageId)).draftNotification.messageId).toBe((await f.visible())[0]!.id);
    }
    const messages = await f.visible();
-   expect(messages).toHaveLength(variant === 'control' ? 3 : 1);
+   expect(messages).toHaveLength(1);
    expect(f.mailSends()).toBe(24);
    await recordAB({ scenario: '24 completions + lost response + retries + replay', variant, outcomes: 24,
     queuedWakes: queued.length, visibleMessages: messages.length, duplicateMessages: messages.length - 1, mockedMailSends: f.mailSends() });
@@ -415,7 +413,7 @@ test('A/B: interruption after context delivery, worker restart and a deliberatel
    await f.ready(); const claimed = await f.worker().claim(f.botId);
    const receipts = await Promise.all(f.ids.map(async id => ({ messageId: id, outcomeId: (await f.card(id)).outcomeId })));
    await f.messaging.acknowledgeCardOutcomes(f.botId, receipts);
-   if (variant === 'treatment') for (const row of receipts) {
+   for (const row of receipts) {
     const card = await f.card(row.messageId);
     expect(card.draftNotification.contextDeliveredAt).toBeString();
     expect(card.draftNotification.messageId).toBeUndefined();
@@ -427,10 +425,10 @@ test('A/B: interruption after context delivery, worker restart and a deliberatel
    expect(recovered.runId).toBe(claimed.runId);
    await new AgentMessaging(f.prisma, f.messaging.boss, f.messaging.agentData).flushDraftNotification(f.context(recovered.runId));
    // No SendToUser call is made: deliberately inject model silence in both arms.
-   expect(await f.visible()).toHaveLength(variant === 'control' ? 0 : 1);
-   if (variant === 'treatment') for (const row of receipts) expect((await f.card(row.messageId)).draftNotification.notifiedAt).toBeString();
+   expect(await f.visible()).toHaveLength(1);
+   for (const row of receipts) expect((await f.card(row.messageId)).draftNotification.notifiedAt).toBeString();
    await recordAB({ scenario: 'crash after context delivery + silent continuation', variant, outcomes: 2,
-    visibleMessages: (await f.visible()).length, missingNotification: variant === 'control' ? 1 : 0 });
+    visibleMessages: (await f.visible()).length, missingNotification: 0 });
   } finally { await f.cleanup(); }
  }
 });
@@ -447,7 +445,7 @@ test('A/B: canonical counts stay accurate while independent model text retains i
    // Arbitrary model prose is not a semantic status filter. Only the platform's
    // own notification is database-derived; never claim other text was delivered in its place.
    await f.messaging.sendVisible(f.context(first.runId), { type: 'text', content: 'All four emails were sent. No approvals remain.' });
-   if (variant === 'treatment') {
+   {
     const message = (await f.visible())[0]!;
     expect(message.content).toContain('1 sent, 1 discarded without sending');
     expect(message.content).toContain('2 awaiting review');
@@ -460,8 +458,8 @@ test('A/B: canonical counts stay accurate while independent model text retains i
    await f.messaging.flushDraftNotification(f.context(second.runId));
    await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: 'All four emails were sent. No approvals remain.' });
    const messages = await f.visible();
-   expect(messages).toHaveLength(variant === 'treatment' ? 4 : 2);
-   if (variant === 'treatment') {
+   expect(messages).toHaveLength(4);
+   {
     const notifications = messages.filter(message => (message.metadata as any).draftOutcomeNotification);
     expect(notifications).toHaveLength(2);
     expect(notifications[1]!.content).toContain('2 sent');
@@ -896,7 +894,7 @@ test('cancellation while waiting on the draft lock blocks both status and questi
    await waitForDraftLockWaiter(f.prisma, key);
    await f.prisma.run.update({ where: { id: turn.runId }, data: { status: 'cancelled' } });
    unlock(); await barrier;
-   expect((await reply).acknowledgement).toMatchObject(type === 'text' && variant === 'treatment'
+   expect((await reply).acknowledgement).toMatchObject(type === 'text'
     ? { sent: false, silent: true } : { sent: false, retryable: false, reason: 'turn_not_active' });
    expect(await f.visible()).toHaveLength(0);
    expect(await f.prisma.channelMessage.count({ where: { channelId: context.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(0);
@@ -1914,9 +1912,9 @@ test('original incident: 24 distinct reviewed sends queue behind a busy foregrou
    await f.prisma.botRunLease.deleteMany({ where: { botId: f.botId } });
    await f.prisma.run.update({ where: { id: foreground.id }, data: { status: 'completed', completedAt: new Date() } });
    await f.ready(); const claimed = await f.worker().claim(f.botId); expect(claimed).toBeTruthy();
-   if (variant === 'control') expect(claimed.content).toContain('24 external message draft outcome(s)');
+   expect(claimed.content).toContain('The platform handles the status acknowledgement');
    await f.messaging.flushDraftNotification(f.context(claimed.runId));
-   const content = variant === 'treatment' ? (await f.visible())[0]!.content : 'All 24 reviewed messages were sent.';
+   const content = (await f.visible())[0]!.content;
    await f.messaging.sendVisible(f.context(claimed.runId, 'one-outcome-reply'), { type: 'text', content, end_turn: true });
    expect(await f.visible()).toHaveLength(1);
    await f.release(claimed); expect(await f.worker().claim(f.botId)).toBeNull();
@@ -1932,11 +1930,11 @@ test('original incident: 24 distinct reviewed sends queue behind a busy foregrou
 }, 30_000);
 
 
-test('server restart preserves treatment draft receipts and pending follow-up work', async () => {
+test('server restart preserves managed draft receipts and pending follow-up work', async () => {
  if (!databaseUrl) return;
  const { recover } = await import('../src/services/startup-recovery');
- for (const published of [false, true]) {
-  const f = await notificationExperiment('treatment');
+ for (const variant of ['control', 'treatment'] as const) for (const published of [false, true]) {
+  const f = await notificationExperiment(variant);
   try {
    await f.prisma.run.updateMany({ where: { botId: f.botId }, data: { status: 'completed' } });
    const id = await f.create(0); await f.settle(id, 'cancel'); await f.ready();
@@ -2007,7 +2005,7 @@ test('server restart keeps draft recovery bounded and fences replies from interr
    await f.ready();
    let current = await f.worker().claim(f.botId);
    const rootRunId = current.runId;
-   if (variant === 'treatment') await f.messaging.flushDraftNotification(f.context(current.runId));
+   await f.messaging.flushDraftNotification(f.context(current.runId));
    for (let attempt = 0; attempt < 3; attempt++) {
     const interrupted = current;
     await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
@@ -2022,7 +2020,7 @@ test('server restart keeps draft recovery bounded and fences replies from interr
     current = await f.worker().claim(f.botId);
     expect(current).not.toBeNull();
     expect(current.content).toContain('Do not');
-    if (variant === 'treatment') {
+    {
      expect((await f.messaging.flushDraftNotification(f.context(current.runId)))?.acknowledgement.sent).toBe(true);
      expect(await f.visible()).toHaveLength(1);
     }
@@ -2113,4 +2111,33 @@ test('actual server recovery never replays reviewed sends from running or comple
    expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(confirmed ? 1 : 0);
   } finally { await f.cleanup(); }
  }
+});
+
+test('managed default acknowledgements leave legacy untagged history and wakes on their original path', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('control');
+ try {
+  const legacy = await f.create(0); await f.settle(legacy, 'cancel');
+  const oldCard = await f.card(legacy); delete oldCard.draftNotification;
+  await f.prisma.channelMessage.update({ where: { id: legacy }, data: { metadata: oldCard } });
+  const oldWake = await f.prisma.inboxEvent.findFirstOrThrow({ where: { botId: f.botId, type: 'draft.response' } });
+  const oldPayload = oldWake.payload as any; delete oldPayload.draftNotification;
+  await f.prisma.inboxEvent.update({ where: { id: oldWake.id }, data: { payload: oldPayload } });
+  const managed = await f.create(1); await f.settle(managed, 'cancel'); await f.ready();
+  const first = await f.worker().claim(f.botId);
+  expect(first.inboxId).toBe(oldWake.id);
+  expect(first.content).toContain('1 external message draft outcome(s)');
+  expect(await f.messaging.flushDraftNotification(f.context(first.runId))).toBeNull();
+  expect(await f.visible()).toHaveLength(0);
+  await f.release(first);
+  const next = await f.worker().claim(f.botId);
+  expect(next).not.toBeNull();
+  await f.messaging.flushDraftNotification(f.context(next.runId));
+  expect(await f.visible()).toHaveLength(1);
+  expect((await f.card(managed)).draftNotification.messageId).toBe((await f.visible())[0]!.id);
+  expect((await f.card(legacy)).draftNotification).toBeUndefined();
+  expect(((await f.visible())[0]!.metadata as any).draftOutcomeNotification.outcomeIds).toEqual([(await f.card(managed)).outcomeId]);
+  await f.release(next); expect(await f.worker().claim(f.botId)).toBeNull();
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
 });

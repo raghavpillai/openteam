@@ -35,14 +35,15 @@ export function signatureText(html: string): string {
 }
 
 type Tone = "ready" | "sent" | "warning" | "muted";
+const failedStatus = { label: "Message not delivered", tone: "warning" as const, dot: true };
 const STATUS: Record<string, { label: string; tone: Tone; dot: boolean }> = {
   pending: { label: "Ready to send", tone: "ready", dot: true },
   sending: { label: "Sending", tone: "ready", dot: true },
   sent: { label: "Sent", tone: "sent", dot: true },
   dismissed: { label: "Discarded", tone: "muted", dot: true },
   unknown: { label: "Unconfirmed", tone: "muted", dot: false },
-  failed: { label: "Message not delivered", tone: "warning", dot: true },
-  "draft-created": { label: "Message not delivered", tone: "warning", dot: true },
+  failed: failedStatus,
+  "draft-created": failedStatus,
 };
 const MODE_LABEL: Record<ExternalDraftApprovalMode, string> = {
   "always-allow": "Always allow",
@@ -175,7 +176,6 @@ export function ExternalDraftCard({
   const sendingAddresses = verification.sendingAddresses ?? [];
   const email = draft.platform === "email";
   const [state, setState] = useState(String(metadata.cardState ?? "pending"));
-  const [resolvedDraft, setResolvedDraft] = useState<ExternalDraft | null>(null);
   const serverFields = externalDraftReviewFields(draft);
   const previousServerFields = useRef(serverFields);
   const [fields, setFields] = useState(serverFields);
@@ -230,8 +230,7 @@ export function ExternalDraftCard({
     if (!terminalMessage.current && incomingState !== "pending" && incomingState !== "sending") terminalMessage.current = incoming;
     const message = terminalMessage.current ?? incoming;
     const next = record(message.metadata);
-    setResolvedDraft(parseExternalDraft(next.draft));
-    setState(current => externalDraftReviewState(current, String(next.cardState ?? "pending")));
+    setState(String(next.cardState ?? "pending"));
     return next;
   };
   const run = async (work: () => Promise<void>) => {
@@ -267,11 +266,13 @@ export function ExternalDraftCard({
           const next = acceptResult(checked.message);
           if (next.cardState === "sent" || next.cardState === "dismissed") setError("");
         } catch {
-          if (action === "send") {
-            setState("sending");
+          if (action === "send" && !terminalMessage.current) {
+            setState(current => externalDraftReviewState(current, "sending"));
             setLost(true);
           }
         }
+        const confirmed = record(terminalMessage.current?.metadata).cardState;
+        if (confirmed === "sent" || confirmed === "dismissed") setError("");
       }
     });
   const checkDelivery = () =>
@@ -360,7 +361,7 @@ export function ExternalDraftCard({
     // Live updates can include edits submitted from another device. History
     // always shows the stored receipt, including before its push reaches us.
     const settled = terminalMessage.current
-      ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : resolvedDraft ?? draft;
+      ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : draft;
     const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
     const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
     const summary =

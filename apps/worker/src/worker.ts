@@ -2,6 +2,7 @@ import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, r
 import {
   publishMessageNotification,
   isTreatmentDraftWake,
+  isManagedDraftWake,
   prepareDraftNotification,
   turnOwesReplyReminder,
   turnSystemReminder,
@@ -264,8 +265,16 @@ interface RevivalWake {
 /** Each card keeps its own receipt; ready draft outcomes share one model continuation. */
 export const draftResponseBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[]): { content: string; folded: T[] } | null => {
   if (claimed.type !== "draft.response" || claimed.status !== "pending" || claimed.run.origin !== "user" || isTreatmentDraftWake(claimed)) return null;
+  const managed = isManagedDraftWake(claimed);
   const folded = pending.filter((wake) => wake.id !== claimed.id && wake.type === "draft.response" &&
-    wake.status === "pending" && wake.run.origin === "user" && wake.run.channelId === claimed.run.channelId && !isTreatmentDraftWake(wake));
+    wake.status === "pending" && wake.run.origin === "user" && wake.run.channelId === claimed.run.channelId && !isTreatmentDraftWake(wake) &&
+    isManagedDraftWake(wake) === managed);
+  // Managed control keeps the prepared canonical prompt once. Its ready wakes
+  // still fold at claim; only treatment coalesces pending wakes before claim.
+  if (managed) {
+    const content = claimed.payload && typeof claimed.payload === "object" ? (claimed.payload as { content?: unknown }).content : undefined;
+    return typeof content === "string" ? { content, folded } : null;
+  }
   const notices = [claimed, ...folded].map((wake) => {
     const content = wake.payload && typeof wake.payload === "object" ? (wake.payload as { content?: unknown }).content : undefined;
     return typeof content === "string" ? content.replace(/^\[SAND_HIDDEN_PROMPT\]/, "") : `Draft outcome event ${wake.id}. Read its stored card outcome.`;
@@ -1302,7 +1311,7 @@ export class WakeWorker {
             await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
             continue;
           }
-          if (isTreatmentDraftWake(candidate)) {
+          if (isManagedDraftWake(candidate)) {
             const prepared = await prepareDraftNotification(tx, candidate);
             if (!prepared) {
               const completedAt = new Date();

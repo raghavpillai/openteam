@@ -1,4 +1,5 @@
 import { ApiError } from "@openteam/contracts";
+import { domainToASCII } from "node:url";
 
 const unreadable = (): never => {
   throw new ApiError(409, "draft_unavailable", "The connector returned an unreadable result");
@@ -8,6 +9,11 @@ const incomplete = (): never => {
 };
 const has = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 const plainId = /^[A-Za-z0-9_-]{1,200}$/;
+const smtpAddress = (address: string) => {
+  const value = address.trim().toLowerCase(), separator = value.lastIndexOf("@");
+  const domain = value.slice(separator + 1);
+  return separator < 0 ? value : `${value.slice(0, separator)}@${domainToASCII(domain) || domain}`;
+};
 
 /** Decode connector records without turning a rejected JSON value into an ID. */
 export function connectorRecord(raw: unknown): Record<string, any> {
@@ -70,8 +76,8 @@ export function reviewedSendResult(
         !result.accepted.every((address: unknown) => typeof address === "string" && !!address.trim()) ||
         !Array.isArray(result.rejected) || result.rejected.length)
       return incomplete();
-    const accepted = new Set<string>(result.accepted.map((address: string) => address.trim().toLowerCase()));
-    if (expectedRecipients?.some(address => !accepted.has(address.trim().toLowerCase())))
+    const accepted = new Set<string>(result.accepted.map(smtpAddress));
+    if (expectedRecipients?.some(address => !accepted.has(smtpAddress(address))))
       return incomplete();
     return result;
   }

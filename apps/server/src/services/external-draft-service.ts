@@ -646,7 +646,8 @@ export class ExternalDraftService {
       const outcomeId = createHash("sha256").update(`${messageId}:${state}`).digest("hex");
       const bot = await tx.bot.findUnique({ where: { id: message.senderBotId! }, select: { status: true } });
       const shouldWake = wake && bot?.status === "active" && !message.channel.archivedAt;
-      const treatment = shouldWake && draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent) === "treatment";
+      const variant = draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent);
+      const treatment = shouldWake && variant === "treatment";
       await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
       const stored = metadataRecord(metadata.draft);
       const draft = parseExternalDraft(stored);
@@ -663,7 +664,7 @@ export class ExternalDraftService {
             ...metadata,
             cardState: state,
             outcomeId,
-            ...(treatment ? { draftNotification: { variant: "treatment" } } : {}),
+            ...(shouldWake ? { draftNotification: { variant } } : {}),
             outcomeText: `${outcome}\n\n${describeDraft(
               draft,
               metadataRecord(stored.verification)

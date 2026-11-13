@@ -5,7 +5,7 @@ export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, rec
 import { requestProgressSnapshot } from "./request-progress";
 import { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications, isExactDraftNotificationEcho, draftReplySnapshot, guardDraftReply } from "./draft-notifications";
-export { draftNotificationVariant, isTreatmentDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
+export { draftNotificationVariant, isTreatmentDraftWake, isManagedDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
 export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { parsePresentation, presentationFallback } from "@openteam/contracts/presentation";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
@@ -1085,7 +1085,14 @@ export class AgentMessaging {
 
   /** Treatment has one bounded pending notification per conversation, in addition to an active turn. */
   async enqueueDraftOutcome(tx: Prisma.TransactionClient, input: WakeInput, treatment: boolean) {
-    if (!treatment || !input.channelId) return this.enqueueWake(tx, input);
+    if (!input.channelId) return this.enqueueWake(tx, input);
+    if (!treatment) {
+      const wake = await this.enqueueWake(tx, input);
+      await tx.inboxEvent.update({ where: { id: wake.inbox.id }, data: { payload: {
+        ...(wake.inbox.payload as Prisma.JsonObject), draftNotification: { variant: "control" },
+      } } });
+      return wake;
+    }
     await lockDraftNotifications(tx, input.botId, input.channelId);
     const pending = await tx.inboxEvent.findFirst({ where: { botId: input.botId, type: "draft.response", status: "pending",
       run: { channelId: input.channelId, status: "queued" }, payload: { path: ["draftNotification", "variant"], equals: "treatment" } } });
@@ -2304,7 +2311,7 @@ export class AgentMessaging {
     for (const receipt of receipts) {
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "ChannelMessage" SET "metadata" = "metadata" || '{"outcomeEchoed":true,"respondedValueEchoed":true}'::jsonb
-          || CASE WHEN "metadata"#>>'{draftNotification,variant}' = 'treatment'
+          || CASE WHEN "metadata"#>>'{draftNotification,variant}' IN ('control', 'treatment')
             THEN jsonb_build_object('draftNotification', coalesce("metadata"->'draftNotification', '{}'::jsonb)
               || jsonb_build_object('contextDeliveredAt', ${new Date().toISOString()}::text)) ELSE '{}'::jsonb END
         WHERE "senderBotId" = ${botId}::uuid AND "id" = ${receipt.messageId}::uuid AND "metadata"->>'outcomeId' = ${receipt.outcomeId}

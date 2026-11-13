@@ -270,7 +270,7 @@ export async function recover(
       const resumed = await messaging.enqueueWake(tx, { botId: run.botId, channelId: run.channelId!, origin: "handoff_resume", type: draft ? "draft.response" : "runtime.reconcile", clientId: `${prefix}${attempts + 1}`, priority: 300, taskContextRunId: context, interruptedRunId: run.id, attachments: payload.attachments,
         ...(draft ? { wrapUserContent: false } : {}),
         content: `OpenTeam restarted during this user's pending request (for example, for an update) and cut off your previous turn. If you mention the interruption, call it a restart. Continue from the current transcript and authoritative state. Check existing delegated tasks before launching work; do not duplicate sends, submissions or completed actions, and respect newer cancellations and scope.\nOriginal pending request:\n${payload.content}` });
-      if (draft && payload.draftNotification?.variant === "treatment") {
+      if (draft && (payload.draftNotification?.variant === "control" || payload.draftNotification?.variant === "treatment")) {
         await tx.inboxEvent.update({ where: { id: resumed.inbox.id }, data: { payload: {
           ...(resumed.inbox.payload as Prisma.JsonObject), draftNotification: payload.draftNotification,
         } } });

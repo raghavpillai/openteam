@@ -23,6 +23,13 @@ export function isTreatmentDraftWake(wake: { type: string; payload: unknown }) {
   return wake.type === "draft.response" && object(object(wake.payload).draftNotification).variant === "treatment";
 }
 
+/** Only explicitly managed wakes own a durable acknowledgement. Older untagged
+ * outcomes remain on their existing path; never sweep historical cards. */
+export function isManagedDraftWake(wake: { type: string; payload: unknown }) {
+  const variant = object(object(wake.payload).draftNotification).variant;
+  return wake.type === "draft.response" && (variant === "control" || variant === "treatment");
+}
+
 /** Reuse a receipt only for the identical text with no additional content or routing. */
 export function isExactDraftNotificationEcho(input: AgentSendToUserInput, content: string) {
   return input.type === "text" && input.content === content && Object.entries(input).every(
@@ -43,7 +50,7 @@ async function draftRunActive(tx: DB, context: DraftNotificationContext) {
 }
 
 type Outcome = { id: string; metadata: Prisma.JsonValue };
-export async function pendingDraftNotifications(tx: DB, botId: string, channelId: string): Promise<Outcome[]> {
+export async function pendingDraftNotifications(tx: DB, botId: string, channelId: string, variant: DraftNotificationVariant = "treatment"): Promise<Outcome[]> {
   return tx.$queryRaw<Outcome[]>`SELECT "id", jsonb_build_object(
       'outcomeId', "metadata"->'outcomeId', 'cardState', "metadata"->'cardState',
       'draftNotification', "metadata"->'draftNotification', 'draft', jsonb_build_object(
@@ -52,7 +59,7 @@ export async function pendingDraftNotifications(tx: DB, botId: string, channelId
     FROM "ChannelMessage"
     WHERE "senderBotId" = ${botId}::uuid AND "channelId" = ${channelId}::uuid
       AND "metadata"->>'type' = 'external-draft' AND "metadata" ? 'outcomeId'
-      AND "metadata"#>>'{draftNotification,variant}' = 'treatment'
+      AND "metadata"#>>'{draftNotification,variant}' = ${variant}
       AND "metadata"#>>'{draftNotification,messageId}' IS NULL
     ORDER BY "sequence"`;
 }
@@ -63,7 +70,9 @@ export async function prepareDraftNotification(tx: DB, wake: { id: string; botId
   await lockDraftNotifications(tx, wake.botId, wake.run.channelId);
   const payload = object(wake.payload);
   const previous = object(payload.draftNotification);
-  const rows = await pendingDraftNotifications(tx, wake.botId, wake.run.channelId);
+  const variant = previous.variant;
+  if (variant !== "control" && variant !== "treatment") return null;
+  const rows = await pendingDraftNotifications(tx, wake.botId, wake.run.channelId, variant);
   const recovering = typeof payload.interruptedRunId === "string" && Array.isArray(previous.outcomeIds) && previous.outcomeIds.length > 0;
   if (!rows.length && wake.status === "pending" && !recovering) return null;
   // Fresh queued work may absorb new outcomes. Interrupted work keeps its
@@ -71,7 +80,7 @@ export async function prepareDraftNotification(tx: DB, wake: { id: string; botId
   const outcomeIds = (wake.status === "processing" || recovering) && Array.isArray(previous.outcomeIds)
     ? previous.outcomeIds : rows.map(row => String(object(row.metadata).outcomeId));
   const content = `[SAND_HIDDEN_PROMPT]The platform handles the status acknowledgement for these draft outcomes. Do not post another status confirmation or infer other cards are pending. Complete the user's remaining requests using the individual card outcomes and the platform's stored-state counts, including any requested follow-up question. Questions, warnings, errors, and other useful new information must be delivered by actually calling SendToUser; plain assistant text is not shown to the user. If only acknowledging settled drafts remains, finish silently; you do not owe an additional acknowledgement.\n${rows.map(row => `Draft card ID: ${row.id}; outcome: ${object(row.metadata).outcomeId}; state: ${object(row.metadata).cardState}`).join("\n")}`;
-  const next = { ...payload, content, draftNotification: { variant: "treatment", outcomeIds } };
+  const next = { ...payload, content, draftNotification: { variant, outcomeIds } };
   await tx.inboxEvent.update({ where: { id: wake.id }, data: { payload: next as Prisma.InputJsonValue } });
   if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content } });
   return { ...wake, payload: next };
@@ -147,7 +156,8 @@ export interface DraftNotificationContext { botId: string; channelId: string; ru
 /** One visible row, its push outbox, and all per-outcome notification receipts commit together. */
 export async function publishDraftNotification(tx: DB, context: DraftNotificationContext) {
   const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response" }, include: { run: true } });
-  if (!event || !isTreatmentDraftWake(event) || event.run.channelId !== context.channelId) return null;
+  if (!event || !isManagedDraftWake(event) || event.run.channelId !== context.channelId) return null;
+  const variant = object(object(event.payload).draftNotification).variant as DraftNotificationVariant;
   const quiet = { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
   if (!["queued", "running"].includes(event.run.status)) return { result: quiet, created: false, updated: false };
   const channel = await tx.channel.findFirst({ where: { id: context.channelId, kind: "bot_dm", archivedAt: null,
@@ -175,7 +185,7 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
       return { result: previous ? acknowledgement(previous, true) : quiet, created: false, updated: false };
     }
   }
-  const rows = await pendingDraftNotifications(tx, context.botId, context.channelId);
+  const rows = await pendingDraftNotifications(tx, context.botId, context.channelId, variant);
   if (!rows.length) return { result: quiet, created: false, updated: false };
   const totals = await tx.$queryRaw<Array<{ state: string; count: bigint }>>`SELECT
     coalesce("metadata"->>'cardState', 'pending') AS "state", count(*) AS "count" FROM "ChannelMessage"
@@ -187,7 +197,7 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
   const last = await tx.channelMessage.findFirst({ where: { channelId: context.channelId }, orderBy: { sequence: "desc" } });
   const prior = object(object(last?.metadata).draftOutcomeNotification);
   const progressAt = Date.parse(String(prior.updatedAt ?? last?.createdAt.toISOString() ?? ""));
-  const reuse = last?.senderBotId === context.botId && prior.variant === "treatment" &&
+  const reuse = variant === "treatment" && last?.senderBotId === context.botId && prior.variant === "treatment" &&
     (object(prior.counts).pending > 0 || object(prior.counts).sending > 0) &&
     Date.now() >= progressAt && Date.now() - progressAt <= DRAFT_NOTIFICATION_PROGRESS_IDLE_MS &&
     Array.isArray(prior.outcomeIds) && prior.outcomeIds.length > 0;
@@ -202,7 +212,7 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
     combined = [...previousRows, ...rows];
   }
   const now = new Date().toISOString();
-  const notification = { variant: "treatment", outcomeIds: combined.map(row => String(object(row.metadata).outcomeId)),
+  const notification = { variant, outcomeIds: combined.map(row => String(object(row.metadata).outcomeId)),
     counts: batchCounts, changed: counts(combined), updatedAt: now };
   const message = reuse ? await tx.channelMessage.update({ where: { id: last.id }, data: {
     content: summary(combined, batchCounts), metadata: { ...object(last.metadata), draftOutcomeNotification: notification },
@@ -222,7 +232,7 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
   } else await publishMessageNotification(tx, message);
   await tx.channel.update({ where: { id: context.channelId }, data: { updatedAt: new Date() } });
   await tx.event.create({ data: { topic: "draft.notification.published", entityId: message.id,
-    payload: { variant: "treatment", botId: context.botId, channelId: context.channelId, outcomeCount: rows.length,
+    payload: { variant, botId: context.botId, channelId: context.channelId, outcomeCount: rows.length,
       runId: context.runId, updated: Boolean(reuse) } } });
   return { result: acknowledgement(message, false), created: !reuse, updated: Boolean(reuse) };
 }

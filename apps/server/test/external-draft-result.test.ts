@@ -51,6 +51,15 @@ test("partial SMTP acceptance and unrelated records cannot confirm a reviewed em
   expect(() => reviewedSendResult({ accepted: ["ann@example.com"], rejected: [] }, "email", ["ann@example.com", "copied@example.com"])).toThrow();
 });
 
+test("SMTP confirmation compares Unicode and ASCII IDN domains without changing local parts", () => {
+  const result = { accepted: ["ann@xn--bcher-kva.example", "δοκιμή@xn--hxajbheg2az3al.example"], rejected: [] };
+  expect(reviewedSendResult(result, "email", ["ann@bücher.example", "δοκιμή@παράδειγμα.example"])).toBe(result);
+  expect(() => reviewedSendResult(result, "email", ["other@bücher.example"])).toThrow();
+  expect(() => reviewedSendResult(result, "email", ["ann@other.example"])).toThrow();
+  expect(() => reviewedSendResult(result, "email", ["dokimi@παράδειγμα.example"])).toThrow();
+  expect(() => reviewedSendResult({ accepted: ["ann@%.example"], rejected: [] }, "email", ["ann@?.example"])).toThrow();
+});
+
 test("managed Slack opaque successful records remain compatible while malformed wrappers are refused", () => {
   // These are compatibility probes, not claims about the remote server's schema.
   for (const result of [{ result: "opaque managed reply" }, { message: "opaque managed reply" }, { ok: true }, { id: "fixture" }])

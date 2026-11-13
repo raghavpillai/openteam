@@ -132,7 +132,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // The "microphone still starting" message for a hold released too early: 1,298,850.
 // Main at f17447de (#315 file previews) measures 1,322,729, over its own limit; with this
 // branch, 1,328,296.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_329_000);
+// Main at 02abba39 with the rich map presentations (the lazy presentation hook in rich
+// messages; the map renderer itself stays on demand): 1,329,632.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_330_300);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -196,8 +198,9 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
 // Main at f17447de: 16,720,649 B; with this branch, 16,733,081 B; 16,734,520 B with ScreenBot's
 // "Sent" check matching the file preview's and dictation inside a preview.
-// With the native presentation widgets and MapLibre (lazy): remeasured after rebase.
-atMost("renderer bytes", result.renderer.bytes, 17_830_000);
+// Main at 02abba39 with the native presentation widgets and MapLibre (lazy), the OpenStreetMap
+// plugin move and the presentation polish: 17,867,243 B.
+atMost("renderer bytes", result.renderer.bytes, 17_868_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -226,8 +229,8 @@ atMost("renderer bytes", result.renderer.bytes, 17_830_000);
 // Both together on main at 3f91add4: 4,165,193.
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
-// With the presentation/MapLibre payload: remeasured after rebase.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_460_000);
+// Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_468_300);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -337,8 +340,9 @@ const lazyBudgets: Record<string, number> = {
   // sign-in-or-key step for ChatGPT and Claude, checked keys, and the model select (a
   // select-style trigger with a filtered list, also on "You're already connected");
   // 152,506 with the web search step (a recommended provider, its key and a real check);
-  // 153,026 with the Settings cleanup.
-  onboarding: 153_400,
+  // 153,026 with the Settings cleanup; 153,503 on main at 02abba39 with the presentation
+  // contracts export.
+  onboarding: 153_600,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'

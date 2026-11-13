@@ -11,6 +11,8 @@ The OpenStreetMap tools return real places and routes. Use them instead of coord
 - **SearchNearbyPlaces** finds places of a kind around a point, nearest first, with distance, cuisine, website, phone and opening hours.
 - **RoutePlaces** returns a real walking, cycling or driving route through stops in visit order.
 
+OpenStreetMap has no ratings, reviews or photos. If Google Maps tools are also available, use them when ratings, reviews or photos matter.
+
 ## Places near somewhere
 
 1. Get the center. For a named area or landmark, call SearchPlaces. If the user says "near me" and you don't know where they are, ask for a neighborhood or landmark. Don't guess.
@@ -27,4 +29,6 @@ Pass the chosen places to RoutePlaces in visit order. Put its `route` in the pla
 
 ## Showing results
 
-Copy each result's `place` object into the presentation's `places`, and reference the ids from a `place_map` (`placeIds`) and, for ranked answers, a `ranked_media_list`. Keep each place's `provider`, `sourceUrl` and `attribution`. Put the reasoning in Markdown blocks, for example why each place made the list.
+- Copy each result's `place` object into the presentation's `places` unchanged, keeping its `provider`, `sourceUrl` and `attribution`. Its `hours` is today's hours; the result's `openingHours` has the whole week.
+- Put the picks on a `place_map`. Add the place they are near, such as the station or landmark, so the map shows the distance, and add the route when the walk or drive matters.
+- For a ranked answer ("top 3"), add a `ranked_media_list` in your order. Put the reasoning in Markdown blocks: why each place made the list.

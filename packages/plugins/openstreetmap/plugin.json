@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "key": "openstreetmap",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "OpenStreetMap",
-  "description": "Free place search, nearby places with hours, and walking, cycling and driving routes from OpenStreetMap. Bots show them on maps in chat. No account or key needed.",
+  "description": "Find places and nearby spots with opening hours, and plan walking, cycling and driving routes, from free OpenStreetMap services with no account.",
   "publisher": "OpenTeam",
   "category": "Productivity",
   "featured": true,

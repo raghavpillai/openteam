@@ -1,0 +1,1 @@
+Google Maps icon from https://commons.wikimedia.org/wiki/File:Google_Maps_icon_(2020).svg, downloaded 2026-11-13, rendered at 140 px high and centred on a 192 × 192 white tile. Google Maps is a trademark of Google LLC. This connector is authored by OpenTeam and is not affiliated with Google.

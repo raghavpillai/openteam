@@ -34,7 +34,7 @@ The picker shows recommendations, and you can search it by name or model ID (on 
 
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
-Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. A newly chosen model starts at medium. Some models don't support reasoning effort, and some don't offer Off.
+Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. The initial effort follows the model's supported default, with medium used when supported and no other default is supplied. Some models don't support reasoning effort, and some don't offer Off. When reasoning is managed by the provider without an effort selector, the app shows **Provider default** and disables the selector.
 
 If the test message fails, the app says why. Choose a different model, or a different reasoning effort in **Settings → Model**, and the app tests it again.
 
@@ -48,6 +48,14 @@ openteam model use <provider> <model> --thinking medium
 ## Use OpenRouter
 
 Choose **OpenRouter** and paste your API key. The model list shows the models your OpenRouter account allows that support tool use. OpenRouter model IDs include the model's author, such as `author/model-name`. Until you save a model, the picker starts on the Auto Router (`openrouter/auto`), which chooses a model for each request. If your account doesn't list it, the picker starts on a current general model instead.
+
+OpenRouter model metadata supplies the supported reasoning levels and default rather than one fixed set for every model. Its advertised long-context token-price tiers are included in OpenTeam's cost metadata; your provider's bill remains the source for actual charges.
+
+## Model capabilities and prompt caching
+
+Model metadata can include image input, context and output limits, reasoning support, and pricing. OpenTeam refreshes supported capabilities, including Magpie multimodal models, without requiring you to select a different model. A capability listing is not a guarantee that every file format or request will work; test the model with the task and attachments you need.
+
+OpenTeam keeps a conversation's opening context stable across teammate and date changes, appending current context as updates. Compaction progress also preserves the earlier prompt prefix. Existing conversations may need one cache warmup after upgrading. Cache hits and any billing savings depend on the provider; these changes do not guarantee a particular cost reduction.
 
 ## Use your own model server
 

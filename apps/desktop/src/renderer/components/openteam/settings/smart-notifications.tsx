@@ -1,7 +1,7 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import {
-  InteractiveSwitch,
   SectionLabel,
   SettingsGroup,
   SettingsReveal,

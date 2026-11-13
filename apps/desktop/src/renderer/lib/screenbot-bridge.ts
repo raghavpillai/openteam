@@ -2,7 +2,7 @@ import type { BotView, ClientBootstrapView } from "@openteam/contracts";
 import { readThemePreference, THEME_CHANGE_EVENT } from "./theme";
 import { api } from "../client/openteam-api";
 import { API_BASE } from "../client/http";
-import { authHeaders } from "../client/auth";
+import { authHeaders, AUTH_CREDENTIALS_CHANGED_EVENT, getScreenBotAccountScope, subscribeAuthSnapshot } from "../client/auth";
 import { desktopDurableSendController, discardDesktopDeliveryStages } from "./durable-sends";
 
 type Bridge = NonNullable<NonNullable<Window["openteam"]>["screenbot"]>;
@@ -77,66 +77,82 @@ const rosterFor = (bots: BotView[], dictation: boolean, avatars: Array<string | 
 export function startScreenBotBridge(): () => void {
   const bridge: Bridge | undefined = window.openteam?.screenbot;
   if (!bridge) return () => {};
-  let bots: BotView[] = [];
-  let refreshing: Promise<void> | null = null;
+  type Session = { scope: string; bots: BotView[]; refreshedAt: number; refreshing: Promise<void> | null; published: ReturnType<typeof rosterFor> | null };
+  let session: Session | null = null;
   let stopped = false;
-
-  let published: ReturnType<typeof rosterFor> | null = null;
-  const publish = (roster: ReturnType<typeof rosterFor>) => {
-    published = roster;
-    bridge.publishRoster(roster);
+  const current = (owner: Session) => !stopped && session === owner && getScreenBotAccountScope() === owner.scope;
+  const requireCurrent = (owner: Session | null, scope: string): Session => {
+    if (!owner || owner.scope !== scope || !current(owner)) throw new Error("ScreenBot account changed. Take the screenshot again.");
+    return owner;
   };
-  // A new appearance setting reaches the overlay with the same list.
+  const publish = (owner: Session, roster: ReturnType<typeof rosterFor>) => {
+    if (!current(owner)) return;
+    owner.published = roster;
+    bridge.publishRoster({ ...roster, accountScope: owner.scope });
+  };
   const onTheme = () => {
-    if (published) publish({ ...published, theme: readThemePreference() });
+    if (session?.published) publish(session, { ...session.published, theme: readThemePreference() });
   };
-  window.addEventListener(THEME_CHANGE_EVENT, onTheme);
-
-  let refreshedAt = 0;
-  /** A full refresh at most every 30 s: each screenbot asks, and spamming it must stay cheap. */
-  const refreshIfStale = () => {
-    if (Date.now() - refreshedAt > 30_000) void refresh();
+  const reset = () => {
+    session = null;
+    avatarCache.clear();
+    bridge.publishRoster({ accountScope: null, bots: [], dictation: false });
   };
-  const refresh = () => {
-    refreshing ??= (async () => {
+  const refresh = (owner = session): Promise<void> => {
+    if (!owner || !current(owner)) return Promise.resolve();
+    owner.refreshing ??= (async () => {
       try {
         const snapshot = await api.bootstrap();
-        refreshedAt = Date.now();
+        if (!current(owner)) return;
+        owner.refreshedAt = Date.now();
         const next = sendableBots(snapshot);
         const dictation = snapshot.runtime.transcription === "configured";
-        if (stopped) return;
-        bots = next;
-        publish(rosterFor(next, dictation));
+        owner.bots = next;
+        publish(owner, rosterFor(next, dictation));
         if (next.some((bot) => bot.hasAvatar)) {
           const avatars = await Promise.all(next.map(avatarDataUrl));
-          if (!stopped && bots === next) publish(rosterFor(next, dictation, avatars));
+          if (current(owner) && owner.bots === next) publish(owner, rosterFor(next, dictation, avatars));
         }
       } catch {
-        // Signed out or offline: the overlay keeps the last list it was given.
+        // Offline within this account: retain its last list. Auth invalidation resets it.
       } finally {
-        refreshing = null;
+        owner.refreshing = null;
       }
     })();
-    return refreshing;
+    return owner.refreshing;
   };
-
-  // Main forgets the list when this page goes away (reload, crash), so an ask is answered
-  // with the cached list at once; a fresh fetch follows only when it's stale.
+  const reconcileAuth = () => {
+    const scope = getScreenBotAccountScope();
+    if (scope === session?.scope) return;
+    reset();
+    if (scope && !stopped) {
+      session = { scope, bots: [], refreshedAt: 0, refreshing: null, published: null };
+      void refresh(session);
+    }
+  };
+  window.addEventListener(THEME_CHANGE_EVENT, onTheme);
+  window.addEventListener(AUTH_CREDENTIALS_CHANGED_EVENT, reset);
+  const stopAuth = subscribeAuthSnapshot(reconcileAuth);
   const stopRequests = bridge.onRosterRequest(() => {
-    if (published) bridge.publishRoster(published);
-    refreshIfStale();
+    const owner = session;
+    if (!owner || !current(owner)) return;
+    if (owner.published) publish(owner, owner.published);
+    if (Date.now() - owner.refreshedAt > 30_000) void refresh(owner);
   });
   const stopDelivery = bridge.onDeliver(async (request) => {
-    let bot = bots.find((candidate) => candidate.id === request.botId);
+    const owner = requireCurrent(session, request.accountScope);
+    let bot = owner.bots.find((candidate) => candidate.id === request.botId);
     if (!bot) {
-      await refresh();
-      bot = bots.find((candidate) => candidate.id === request.botId);
+      await refresh(owner);
+      requireCurrent(owner, request.accountScope);
+      bot = owner.bots.find((candidate) => candidate.id === request.botId);
     }
     if (!bot) throw new Error("That Bot is no longer available.");
     const { staged } = request;
+    // Capture the current account's controller before its first asynchronous operation.
+    const controller = desktopDurableSendController();
     try {
-      await desktopDurableSendController().enqueue({
-        // One nonce per shot: a retry after a timeout finds it already queued.
+      await controller.enqueue({
         nonce: request.nonce,
         target: { channelId: bot.dmChannelId, conversationId: bot.conversationId },
         payload: {
@@ -150,24 +166,29 @@ export function startScreenBotBridge(): () => void {
           }],
         },
       });
+      requireCurrent(owner, request.accountScope);
     } catch (error) {
-      // Already queued by an earlier attempt: this attempt's staged copy is unused.
-      if (error instanceof Error && /already in use/.test(error.message)) {
+      if (current(owner) && error instanceof Error && /already in use/.test(error.message)) {
         await discardDesktopDeliveryStages([{ ...staged, kind: "image" }]).catch(() => undefined);
+        requireCurrent(owner, request.accountScope);
         return;
       }
       throw error;
     }
   });
-  const stopTranscribe = bridge.onTranscribe(async ({ audio, mimeType }) =>
-    (await api.transcribeAudio(new Blob([audio as Uint8Array<ArrayBuffer>], { type: mimeType }))).text
-  );
-  void refresh();
+  const stopTranscribe = bridge.onTranscribe(async ({ accountScope, audio, mimeType }) => {
+    const owner = requireCurrent(session, accountScope);
+    const result = await api.transcribeAudio(new Blob([audio as Uint8Array<ArrayBuffer>], { type: mimeType }));
+    requireCurrent(owner, accountScope);
+    return result.text;
+  });
+  reconcileAuth();
   return () => {
     stopped = true;
-    // Signed out (or the workspace unmounted): the overlay must not offer this account's Bots.
+    reset();
     window.removeEventListener(THEME_CHANGE_EVENT, onTheme);
-    bridge.publishRoster({ bots: [], dictation: false });
+    window.removeEventListener(AUTH_CREDENTIALS_CHANGED_EVENT, reset);
+    stopAuth();
     stopRequests();
     stopDelivery();
     stopTranscribe();

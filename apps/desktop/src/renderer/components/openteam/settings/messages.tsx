@@ -1,3 +1,4 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { ButtonPrimitive } from "../../ui/button-primitive";
 import { Button } from "../../ui/button";
 import { ChevronDown, Trash2 } from "lucide-react";
@@ -6,7 +7,6 @@ import type { MachineMessagesSettings } from "@openteam/client-core";
 import { api } from "../../../client/openteam-api";
 import { MessagesPermissionsDialog, missingGrants } from "./messages-permissions-dialog";
 import {
-  InteractiveSwitch,
   SectionLabel,
   SettingsGroup,
   SettingsReveal,

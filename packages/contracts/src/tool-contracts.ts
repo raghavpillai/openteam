@@ -142,7 +142,7 @@ contracts.UploadFile!.description = editReference("UploadFile", contracts.Upload
   ...otherProviders,
   [
     /- Gmail: destination\.draftId[^\n]*/,
-    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). Use this only when the user asks to keep the draft in Gmail. For an email reviewed and sent in chat, use DraftExternalMessage with attachments instead. The Gmail draft with its attachments must stay under 25 MB.",
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). Use this only when the user asks to keep the draft in Gmail. This connection cannot send a draft, so it waits unsent in the user's Gmail Drafts. For an email reviewed and sent in chat, use DraftExternalMessage with attachments instead. The Gmail draft with its attachments must stay under 25 MB.",
   ],
 ]);
 contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [

@@ -94,6 +94,10 @@
         {
           "title": "Email",
           "file": "integrations/email.md"
+        },
+        {
+          "title": "Maps and places",
+          "file": "integrations/maps.md"
         }
       ]
     },

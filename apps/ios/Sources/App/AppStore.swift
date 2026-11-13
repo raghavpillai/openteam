@@ -89,7 +89,9 @@ final class AppStore {
       persist()
     }
   }
-  private(set) var api: API?
+  private(set) var api: API? {
+    didSet { PlaceImages.select(api?.resourceGeneration) }
+  }
   private var disk: DiskStore?
   private var record: SessionRecord?
   private var lifecycle: Task<Void, Never>?

@@ -37,6 +37,8 @@ On iPhone and iPad, the same controls are **Run now**, **Enabled**, and **Recent
 
 On desktop, a routine can have up to eight schedules. Choose **Add trigger** (or **Add another**) **→ On a schedule**, then pick a preset such as **Every hour**, **Weekdays**, or **Every week**, or set an **Interval**. To enter a cron expression, change the schedule's frequency to **Custom**. On iPhone and iPad, a routine you create has one schedule, chosen from the same presets or an **Interval**. Routines can run at most once every five minutes.
 
+With several schedules, the next run is the earliest occurrence across them; occurrences at the same instant are combined. Running a routine manually does not reset its interval cadence. When editing the instructions, existing schedules are preserved. An invalid definition stays visible but disabled until corrected; check its error before running it again.
+
 Routines use your time zone, whether you set the schedule in the app or a bot creates the routine. It follows your device unless you choose one in **Settings → General → Timezone** on desktop or **Settings → More preferences → Timezone** on iPhone and iPad.
 
 Routines run on the server, so the server must be on at the scheduled time. They don't need the app to be open, unless the routine works on your own computer.

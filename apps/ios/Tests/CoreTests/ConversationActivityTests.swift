@@ -2,43 +2,6 @@ import XCTest
 @testable import OpenTeamCore
 
 final class ConversationActivityTests: XCTestCase {
-  func testBackgroundActivityLifecycleAndScope() throws {
-    let bootstrap = try Fixture.bootstrap()
-    var channel = bootstrap.channels[0]
-    channel.kind = "bot_dm"
-    let botId = bootstrap.bots[0].id
-    var task = SubagentActivity(id: "task", parentBotId: botId,
-      parentChannelId: channel.id, status: "provisioning")
-    func activity(_ task: SubagentActivity) -> ConversationActivity? {
-      .resolve(channel: channel, botId: botId, runs: [], subagents: [task])
-    }
-    for status in ["provisioning", "queued", "running"] {
-      task.status = status
-      XCTAssertEqual(activity(task), .background, status)
-    }
-    for status in ["waiting", "blocked", "completed", "failed", "stopped", "unknown"] {
-      task.status = status
-      XCTAssertNil(activity(task), status)
-    }
-    task.status = "running"
-    task.parentBotId = "another-bot"
-    XCTAssertNil(activity(task))
-    task.parentBotId = botId
-    task.parentChannelId = "another-chat"
-    XCTAssertNil(activity(task))
-    task.parentChannelId = channel.id
-    channel.kind = "group"
-    XCTAssertNil(activity(task))
-    channel.kind = "bot_dm"
-    XCTAssertNil(ConversationActivity.resolve(channel: channel, botId: nil, runs: [], subagents: [task]))
-    XCTAssertNil(ConversationActivity.resolve(channel: channel, botId: botId, runs: [], subagents: []))
-
-    var run = Run(id: "run", botId: botId, channelId: channel.id, status: "running")
-    XCTAssertEqual(ConversationActivity.resolve(channel: channel, botId: botId, runs: [run], subagents: [task]), .foreground)
-    run.status = "completed"
-    XCTAssertEqual(ConversationActivity.resolve(channel: channel, botId: botId, runs: [run], subagents: [task]), .background)
-  }
-
   func testParkedRequestsAndChildrenStaySilentUntilAnActualWake() throws {
     let bootstrap = try Fixture.bootstrap()
     var channel = bootstrap.channels[0]

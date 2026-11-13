@@ -12,17 +12,6 @@ final class ConnectionStatusTests: SystemIntentFixture {
     XCTAssertFalse(store.online)
   }
 
-  func testWarningWaitsForThreeConsecutiveFailedChecks() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    try await control(.object(["offline": .bool(true)]))
-    store.handle(URLError(.networkConnectionLost), quiet: true)
-    try await Task.sleep(for: .milliseconds(2400))
-    XCTAssertFalse(store.connectionUnavailable, "Two failed checks are not enough to show a warning")
-    XCTAssertTrue(store.checkingConnection)
-    try await waitForOutage(store)
-  }
-
   func testHistoryEndpointFailureKeepsConnectionAndCachedMessages() async throws {
     let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)

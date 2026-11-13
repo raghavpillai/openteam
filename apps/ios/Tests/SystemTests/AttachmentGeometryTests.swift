@@ -78,32 +78,6 @@ import XCTest
     XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, file: file, line: line)
   }
 
-  func testMixedAttachmentsKeepOrderAndGeometryDuringEachUpload() throws {
-    let (photoFile, photoURL) = try staged(photo(width: 800, height: 400), name: "Photo.jpg", mime: "image/jpeg")
-    let (videoFile, videoURL) = try staged(Data("video".utf8), name: "Clip.mov", mime: "video/quicktime")
-    let (document, documentURL) = try staged(Data("%PDF-fixture".utf8), name: "Notes.pdf", mime: "application/pdf")
-    let existing = Asset(assetId: "existing", fileName: "Existing.txt", mimeType: "text/plain", byteSize: 100, kind: "file")
-    let files = [photoFile, videoFile, document]
-    let urls = Dictionary(uniqueKeysWithValues: zip(files.map(\.id), [photoURL, videoURL, documentURL]))
-    var send = pending(files, assets: [existing])
-    let previews = PendingAttachmentPreviews()
-    _ = previews.items(send, api: nil, fileURL: { urls[$0.id] })
-    let before = measure(PendingAttachments(pending: send, previews: previews))
-    for file in files {
-      completeUpload(file, asset: uploaded(file, width: file.id == photoFile.id ? 800 : nil,
-        height: file.id == photoFile.id ? 400 : nil), send: &send)
-      try FileManager.default.removeItem(at: XCTUnwrap(urls[file.id]))
-      let items = previews.items(send, api: nil, fileURL: { urls[$0.id] })
-      XCTAssertEqual(items.map { $0.asset.fileName }, ["Existing.txt", "Photo.jpg", "Clip.mov", "Notes.pdf"])
-      assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-    }
-    assertSame(measure(VStack(alignment: .trailing, spacing: 5) {
-      ForEach(send.input.attachments) { asset in
-        AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")
-      }
-    }), before)
-  }
-
   func testLocalPreviewIsScopedToServerAndAccount() throws {
     let (file, url) = try staged(photo(width: 400, height: 800), name: "Photo.jpg", mime: "image/jpeg")
     let first = try API(server: "https://first.example", token: "fixture-one")

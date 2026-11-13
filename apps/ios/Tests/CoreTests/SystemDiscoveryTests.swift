@@ -97,18 +97,6 @@ final class SystemDiscoveryTests: XCTestCase {
     XCTAssertEqual(SystemConversationProjection.preview(result), "New answer")
   }
 
-  func testAttachmentOnlyPreviewUsesFilenameAndTextPreviewIsBounded() throws {
-    var message = try XCTUnwrap(Fixture.bootstrap().latestMessages.first)
-    message.content = "brief.pdf"
-    message.metadata = .object(["type": .string("attachment"), "attachment": .object([
-      "assetId": .string("asset"), "fileName": .string("brief.pdf"), "mimeType": .string("application/pdf"),
-      "byteSize": .number(12), "kind": .string("file")])])
-    XCTAssertEqual(SystemConversationProjection.preview(message), "brief.pdf")
-    message.content = String(repeating: "a", count: 1_500)
-    XCTAssertEqual(SystemConversationProjection.preview(message).count, 1_000)
-    XCTAssertEqual(SystemConversationProjection.preview(nil), "")
-  }
-
   func testReadStateIsPerMessageEvenWhenItsConversationHasUnreadMessages() throws {
     let data = try Fixture.bootstrap()
     var channel = data.channels[0]

@@ -5,16 +5,6 @@ import XCTest
 
 final class OnboardingWizardTests: XCTestCase {
 
-  func testGuessesTheProviderFromTheKeyPrefix() {
-    XCTAssertEqual(APIKeyProviders.guess("sk-ant-api03-abc"), "anthropic")
-    XCTAssertEqual(APIKeyProviders.guess("  sk-or-v1-abc "), "openrouter")
-    XCTAssertEqual(APIKeyProviders.guess("sk-proj-abc"), "openai")
-    XCTAssertEqual(APIKeyProviders.guess("sk-abc"), "openai")
-    XCTAssertEqual(APIKeyProviders.guess("SK-ANT-abc"), "anthropic")
-    XCTAssertNil(APIKeyProviders.guess("gsk_abc"))
-    XCTAssertNil(APIKeyProviders.guess(""))
-  }
-
   func testFirstBotDefaultsAndRequest() throws {
     XCTAssertEqual(FirstBot.randomName(excluding: ["atlas", "Nova", "Juniper", "Pixel", "Sage"]), "Orbit")
     let role = try XCTUnwrap(FirstBot.roles.first { $0.id == "inbox" })

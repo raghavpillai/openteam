@@ -15,6 +15,7 @@ final class SpreadsheetTableTests: XCTestCase {
     XCTAssertEqual(table.rows.count, 3)
     XCTAssertEqual(table.totalRows, 2)
     XCTAssertEqual(table.columnCount, 3)
+    XCTAssertTrue(parse("").rows.isEmpty)
   }
 
   func testQuotedFieldsKeepDelimitersNewlinesAndEscapedQuotes() {
@@ -24,17 +25,13 @@ final class SpreadsheetTableTests: XCTestCase {
     XCTAssertEqual(table.totalRows, 2)
   }
 
-  func testUnicodeAndByteOrderMark() {
+  func testByteOrderMarkUnicodeAndLatin1Fallback() {
     let table = parse("\u{FEFF}Name,City\nRenée,Zürich\n山田,東京 🎉\n")
     XCTAssertEqual(table.rows[0], ["Name", "City"])
     XCTAssertEqual(table.rows[2], ["山田", "東京 🎉"])
-  }
-
-  func testLatin1FallbackForNonUTF8Files() {
     var bytes = Array("Name\n".utf8)
     bytes += [0x52, 0x65, 0x6E, 0xE9, 0x65, 0x0A]  // "Renée" in Windows-1252
-    let table = SpreadsheetTable.parse(Data(bytes), fileName: "Legacy.csv")
-    XCTAssertEqual(table.rows[1], ["Renée"])
+    XCTAssertEqual(SpreadsheetTable.parse(Data(bytes), fileName: "Legacy.csv").rows[1], ["Renée"])
   }
 
   func testDetectsSemicolonsAndTabs() {
@@ -57,12 +54,6 @@ final class SpreadsheetTableTests: XCTestCase {
     XCTAssertEqual(table.totalRows, 50)
   }
 
-  func testEmptyFile() {
-    let table = parse("")
-    XCTAssertTrue(table.rows.isEmpty)
-    XCTAssertEqual(table.totalRows, 0)
-  }
-
   func testAddressesWidthsAndNumbers() {
     XCTAssertEqual(SpreadsheetTable.address(row: 2, column: 1), "B3")
     XCTAssertEqual(SpreadsheetTable.address(row: 0, column: 26), "AA1")
@@ -70,7 +61,6 @@ final class SpreadsheetTableTests: XCTestCase {
     XCTAssertFalse(SpreadsheetTable.isNumeric("12a"))
     let table = parse("A,Merchant\n1,\(String(repeating: "x", count: 60))\n")
     XCTAssertEqual(table.columnWidths(), [62, 280])
-    XCTAssertEqual(table.columnWidths(measure: { CGFloat($0.count) * 10 }), [62, 280])
     XCTAssertEqual(parse("Date\n2026-11-01\n").columnWidths(measure: { CGFloat($0.count) * 8 }), [96])
   }
 

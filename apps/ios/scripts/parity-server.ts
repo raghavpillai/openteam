@@ -42,8 +42,7 @@ function reset() {
 }
 reset();
 /** "history-pages": one read Bot chat (`visual-chat`) with 180 alternating messages, served 60 at a time.
- * "attachment": the Research chat holds one private image message.
- * "spreadsheet": the Research chat holds a user question and a CSV attachment. */
+ * "attachment": the Research chat holds one private image message. */
 function scene(name: string) {
   if (name === "history-pages") {
     const bot = { ...mobileFixture.bots[0]!, id: "bot-visual-chat", name: "New Bot", title: "New Bot", color: "#FF6600", icon: "chip", description: "", conversationId: "conversation-visual-chat", dmChannelId: "visual-chat" };
@@ -63,13 +62,6 @@ function scene(name: string) {
     snapshot.channelMessages.push({ id: "content-fixture", sequence: "400", channelId: "channel-research", sender: "bot", senderBotId: "bot-research", sourceRunId: null, content: "", createdAt: "2026-09-16T12:00:00.000Z",
       metadata: { attachments: [{ assetId: "private-fixture-image", fileName: "Fixture image.png", mimeType: "image/png", byteSize: 6000, kind: "image" }] } } as any);
     sequence = 400;
-  } else if (name === "spreadsheet") {
-    const user = { channelId: "channel-research", sender: "user", senderBotId: null, sourceRunId: null, content: "", createdAt: "2026-09-16T12:00:00.000Z", metadata: {} };
-    snapshot.channelMessages = snapshot.channelMessages.filter(m => m.channelId !== "channel-research");
-    snapshot.channelMessages.push(
-      { ...user, id: "sheet-question", sequence: "401", content: "What changed in these transactions?" } as any,
-      { ...user, id: "sheet-file", sequence: "402", metadata: { attachments: [{ assetId: "sheet-transactions", fileName: "Transactions.csv", mimeType: "text/csv", byteSize: 1450, kind: "file" }] } } as any);
-    sequence = 402;
   } else throw new Error(`Unknown scene: ${name}`);
 }
 function emit(topic = "channel.message.created", entityId: string | null = null) {
@@ -157,7 +149,6 @@ const server = Bun.serve({
     if (path.startsWith("/api/v0/assets/")) {
       contentReceipts.push({ path, authenticated: request.headers.has("authorization") });
       const uploaded = uploadedAssets.get(path.split("/").at(-1)!);
-      if (path.endsWith("/sheet-transactions")) return new Response(Bun.file(new URL("./fixtures/transactions.csv", import.meta.url)), { headers: { "Content-Type": "text/csv" } });
       return uploaded ? new Response(uploaded.data, { headers: { "Content-Type": uploaded.mimeType } }) : fixturePNG();
     }
     if (path === "/api/v0/system/version") return response(serverRelease);

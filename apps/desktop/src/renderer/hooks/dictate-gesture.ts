@@ -72,8 +72,10 @@ export function createDictateGesture(target: DictateTarget) {
     release() {
       if (mode !== "holding") return;
       if (Date.now() - pressedAt >= DICTATE_TAP_MS) {
+        // A deliberate hold always ends as a recording: if it came out too short (say, the
+        // microphone was slow to start), the recorder says so rather than it vanishing.
         mode = "idle";
-        finish();
+        target.stop();
         return;
       }
       mode = "waiting";

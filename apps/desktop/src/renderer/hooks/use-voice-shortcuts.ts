@@ -3,6 +3,17 @@ import { FN_KEY } from "../lib/keyboard-shortcuts";
 import { createDictateGesture, releasesDictate } from "./dictate-gesture";
 import { isShortcut, shortcutBinding } from "./use-shortcut-bindings";
 
+/**
+ * Whether the Dictate shortcut belongs to this composer: the one on screen (hidden
+ * conversations keep theirs mounted), with no dialog open and no other text field focused.
+ */
+const dictateHere = (editor: HTMLElement | null, focused: EventTarget | Element | null) => {
+  if (!editor?.isConnected || editor.offsetParent === null) return false;
+  if (document.querySelector("[role=dialog]")) return false;
+  if (!(focused instanceof Element) || focused === document.body || editor.closest("form")?.contains(focused)) return true;
+  return !focused.closest("input, textarea, select, [contenteditable=true]");
+};
+
 export function useVoiceShortcuts(options: {
   editor: RefObject<HTMLDivElement | null>;
   available: boolean;
@@ -31,6 +42,16 @@ export function useVoiceShortcuts(options: {
       const voice = latest.current;
       const editor = voice.editor.current;
       const inComposer = editor?.closest("form")?.contains(event.target as Node);
+      // Dictate works anywhere in the conversation, not only with the composer focused.
+      if (!inComposer && isShortcut(event, "dictate") && voice.available && dictateHere(editor, event.target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) {
+          editor?.focus();
+          gesture.press();
+        }
+        return;
+      }
       if (!inComposer || event.isComposing) return;
       if (event.key === "Escape" && voice.active) {
         event.preventDefault();
@@ -68,13 +89,12 @@ export function useVoiceShortcuts(options: {
     const stopFn = window.openteam?.shortcuts?.onShortcut((action) => {
       const voice = latest.current;
       if (!action.startsWith("fn-") || shortcutBinding("dictate") !== FN_KEY || !voice.available) return;
-      // Only the composer on screen, and only when focus is in it (or nowhere in particular):
-      // other conversations keep theirs mounted while hidden.
       const editor = voice.editor.current;
-      if (!editor?.isConnected || editor.offsetParent === null || !document.hasFocus()) return;
-      const focused = document.activeElement;
-      if (focused && focused !== document.body && !editor.closest("form")?.contains(focused)) return;
-      if (action === "fn-down") gesture.press();
+      if (!document.hasFocus() || !dictateHere(editor, document.activeElement)) return;
+      if (action === "fn-down") {
+        editor?.focus();
+        gesture.press();
+      }
       else if (action === "fn-up") gesture.release();
       else if (action === "fn-cancel") gesture.abort();
     });

@@ -47,8 +47,8 @@ const VoiceMemoLayer = lazy(loadVoiceLayer);
 const VOICE_RADIUS = 18;
 /** The mic's centre from the capsule's bottom-right corner: the bar grows out of it. */
 const VOICE_ANCHOR = { right: 58, bottom: 18 };
-/** How long the layer animates away before it unmounts (matches its CSS). */
-const VOICE_EXIT_MS = 680;
+/** How long the bar fades away before it unmounts (screenbot.css, screenbot-voice-out). */
+const VOICE_EXIT_MS = 220;
 
 const CARD_WIDTH = 452;
 const MASCOT = 58;
@@ -1647,13 +1647,13 @@ export function ScreenBotApp() {
           </div>
         </div>
         {voiceLayerMode && (
-          <div className="screenbot-voice">
+          <div className="screenbot-voice" data-leaving={voiceExiting || undefined}>
             <div className="screenbot-voice-bar">
             <Suspense fallback={null}>
               <VoiceMemoLayer
                 anchor={VOICE_ANCHOR}
                 elapsedMs={voice.elapsedMs}
-                exiting={voiceExiting}
+                exiting={false}
                 mode={voiceLayerMode}
                 onCancelProcessing={cancelDictation}
                 onDiscard={cancelDictation}

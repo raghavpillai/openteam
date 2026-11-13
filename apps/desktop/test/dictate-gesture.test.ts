@@ -59,13 +59,13 @@ describe("dictate shortcut gesture", () => {
     expect(calls).toEqual(["start", "stop"]);
   });
 
-  test("a short hold (past a tap, under the minimum) drops quietly", async () => {
+  test("a deliberate hold always ends as a recording (the recorder reports one too short)", async () => {
     const { calls, target } = recorder();
     const gesture = createDictateGesture(target);
     gesture.press();
     await wait(DICTATE_TAP_MS + 50);
     gesture.release();
-    expect(calls).toEqual(["start", "cancel"]);
+    expect(calls).toEqual(["start", "stop"]);
   });
 
   test("Fn+key aborts the hold it began; the mic button's recording ends on a press", async () => {

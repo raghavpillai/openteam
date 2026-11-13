@@ -816,8 +816,21 @@ body {
   height: 18px;
 }
 
+/* Back in as the bar fades out, overlapping it slightly, so the row is never empty. */
 .screenbot-footer > * {
-  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1) 340ms;
+  transition: opacity 200ms cubic-bezier(0.22, 1, 0.36, 1) 60ms;
+}
+
+/* Leaving, the bar fades as one piece, holding its last look ("Transcribing…"). The chat's
+   exit (the surface retreating into the mic as liquid) suits a white composer; over the card's
+   glass it read as a white blob sliding off, on top of the footer coming back. */
+.screenbot-voice[data-leaving] .screenbot-voice-bar {
+  animation: screenbot-voice-out 200ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes screenbot-voice-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(3px) scale(0.985); }
 }
 
 .screenbot-card[data-voice-mode] .screenbot-footer > * {

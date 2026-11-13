@@ -1023,6 +1023,8 @@ function VirtualizedChannelRows({
       data-virtual-sidebar-count={rows.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const channelElement = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-channel-id]"
         );
@@ -1304,6 +1306,7 @@ function VirtualizedPinnedTiles({
         ) {
           return;
         }
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-pinned-channel-id]");
         const currentId = tile?.dataset.pinnedChannelId;
         const index = currentId ? rows.findIndex((row) => row.channel.id === currentId) : -1;
@@ -1753,6 +1756,8 @@ function VirtualizedSections({
       data-virtual-sidebar-sections={sections.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const sectionHeader = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-section-id]"
         );
@@ -1965,6 +1970,8 @@ function VirtualizedCompactChannels({
       data-virtual-compact-sidebar-count={entries.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const tile = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-compact-channel-id]"
         );
@@ -2819,6 +2826,8 @@ export const Sidebar = memo(function Sidebar({
         // Virtualized lists handle their own offscreen navigation in capture.
         if (event.defaultPrevented || dragSourceChannelId || dragSourceSectionId) return;
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (!(event.target instanceof HTMLElement) || event.target.closest("input, textarea, [contenteditable=true]")) return;
         const selector = "[data-channel-id] button, [data-pinned-channel-id] button, button[data-compact-channel-id]";
         const current = event.target.closest("button");

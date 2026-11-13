@@ -186,8 +186,9 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // Email review parity on this baseline: 16,673,564 B.
 // Settings › Keyboard and rebindable shortcuts: 16,678,696 B.
 // Both together on main at 3f91add4: 16,683,510 B.
-// With the Dictate hold/double-press gestures: 16,685,425 B.
-atMost("renderer bytes", result.renderer.bytes, 16_686_000);
+// With the Dictate hold/double-press gestures: 16,685,425 B; dictation from anywhere in the
+// conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
+atMost("renderer bytes", result.renderer.bytes, 16_686_800);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the

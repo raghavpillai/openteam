@@ -14,7 +14,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, { title: string; descriptio
   search: { title: "Search", description: "Find a Bot, message or setting." },
   toggleSidebar: { title: "Show or hide the sidebar", description: "Switch between the full and compact sidebar." },
   settings: { title: "Settings", description: "Open these settings." },
-  dictate: { title: "Dictate", description: "Hold to dictate. Press twice quickly to keep dictating until you press it again. Works in the chat and in ScreenBot." },
+  dictate: { title: "Dictate", description: "Hold to dictate. Press twice quickly to keep dictating until you press it again." },
   previousBot: { title: "Previous Bot", description: "Go to the conversation above in the sidebar, or the previous Bot in ScreenBot." },
   nextBot: { title: "Next Bot", description: "Go to the conversation below in the sidebar, or the next Bot in ScreenBot." },
 };

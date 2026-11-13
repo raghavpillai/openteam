@@ -20,6 +20,12 @@ When a bot asks a question or needs information, it waits for your answer in the
 
 To delete a bot and its chat history, choose **Delete bot** in the bot's settings on desktop, or long-press its conversation on iPhone or iPad and choose **Delete bot**. This can't be undone.
 
+## Maps and ranked places
+
+Bots can show places as an interactive map or a ranked list, alongside their explanation, in a private bot conversation. Select a pin or place card for the supplied details, open the map fullscreen, or follow the source, website, or directions link. A measured route can show stops, distance, and travel time. Rich place cards are not currently delivered to group chats or external services.
+
+The desktop app uses MapLibre with OpenFreeMap tiles; iPhone and iPad use Apple MapKit. Place search is separate: add [OpenStreetMap or Google Maps](../integrations/maps.md) for place lookup and routes. Ratings, reviews, photos, and opening status appear only when a source supplies them. Check the source before relying on opening hours or directions.
+
 ## If a message doesn't send
 
 A message that fails to send shows **Not delivered** with **Retry**. **Delivery unconfirmed** means the app couldn't tell whether the server accepted the message; **Retry** checks and sends it again if needed. On desktop, the message's **…** menu shows what went wrong and offers **Delete message**. On iPhone and iPad, long-press an unsent message and choose **Discard** to remove it.

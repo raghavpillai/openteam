@@ -30,6 +30,22 @@ device behavior, or TestFlight availability. Candidate preparation does not publ
 a tag, GitHub release, installer, container, or TestFlight build. Keep public update
 feeds at verified releases until new artifacts are available and verified.
 
+## Website, documentation, and blog
+
+Deploy the complete `apps/landing` site from the exact final release source revision,
+including its documentation and all existing merged blog content. Use the pinned
+Bun version and frozen lockfile, run `bun --filter @openteam/landing typecheck`,
+`bun --filter @openteam/landing test`, and `bun --filter @openteam/landing build`,
+and record the deployed source SHA. The site's content generator builds both docs
+and blog; do not deploy an older site bundle or treat docs generation alone as a
+site deployment. Preserve development documentation and existing blog posts when
+preparing release documentation; a release does not require a new blog post.
+
+After deployment, verify the landing page, download page, docs navigation and search,
+Markdown/LLM indexes, existing blog routes and images, and the public iOS update feed.
+Only advertise the exact native build whose public TestFlight availability was
+verified; preparing the next candidate's metadata is not evidence of publication.
+
 ## macOS desktop
 
 Build the requested source revision in an isolated checkout so unrelated working-tree

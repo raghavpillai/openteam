@@ -30,7 +30,9 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 
 Several plugins also include skills; see [the included skills](skills.md#skills-from-plugins).
 
-For T3 Code, paste the full MCP URL copied from your T3 environment, then choose **Validate URL and connect**. Authorize on T3's page; enter its current one-time code there if asked. **Auto** is T3's provider review mode and can still ask for approval. The plugin includes its coding, thread-management and setup skills. See the [T3 Code guide](../../packages/plugins/t3-code/README.md).
+For T3 Code, paste the full MCP URL copied from your T3 environment, then choose **Validate URL and connect**. Authorize on T3's page; enter its current one-time code there if asked. **Auto** is T3's provider review mode and can still ask for approval. The plugin includes its coding, thread-management and setup skills. If authorization expires, sign in again and reconnect to the existing work instead of starting a duplicate task. T3 must stay online, and execution approvals remain in T3 through the returned thread link. See the [T3 Code guide](../../packages/plugins/t3-code/README.md).
+
+For place search and routes, see [Maps and places](../integrations/maps.md) for setup, billing, service limits, and privacy. The map display and the place-data service are separate.
 
 Plaid adds skills only. After adding it, ask a bot to set up Plaid on the computer that should hold your credentials; it asks for your Plaid keys and sends a link for connecting your bank from any device. Those bank connections are kept on that computer, not in the plugin's accounts. See the [Plaid guide](../../packages/plugins/plaid/README.md).
 

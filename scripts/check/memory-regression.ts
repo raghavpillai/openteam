@@ -29,6 +29,9 @@ const suites = [
   ["apps/server/test/memory-tools.integration.test.ts", "apps/server/test/memory-management.integration.test.ts", "apps/server/test/memory-archive-chaos.integration.test.ts"],
   ["apps/desktop/test/memory-view.test.ts"],
   ["apps/worker/test/memory-routing.integration.test.ts"],
+  ["apps/worker/test/memory-journey.integration.test.ts"],
+  ["apps/worker/test/memory-inference-outage.integration.test.ts"],
+  ["apps/computer/test/memory-runtime.integration.test.ts"],
   ["apps/worker/test/memory-restart.integration.test.ts"],
   [
     "apps/computer/test/bot-compaction.test.ts",

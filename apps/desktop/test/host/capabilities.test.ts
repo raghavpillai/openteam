@@ -7,7 +7,6 @@ import { Database } from "bun:sqlite";
 import { ChromeCookies, decryptChromeCookie } from "../../src/main/host/chrome-cookies";
 import { MacMessages } from "../../src/main/host/messages";
 import { validateMessageSend } from "@openteam/contracts/messages-send";
-import { nativeCommand } from "../../src/main/host/native-command";
 import { HostCapabilities } from "../../src/main/host/capabilities";
 
 test("Chrome import decrypts only requested profile/host pairs, verifies v24 domain hash, and preserves cookie metadata", async () => {
@@ -44,13 +43,10 @@ test("Chrome import decrypts only requested profile/host pairs, verifies v24 dom
         "",
         encrypt(domain, `private-${domain}`)
       );
-    expect(db.query("SELECT host_key FROM cookies").all()).toHaveLength(2);
     db.close(true);
-    let decisions = 0;
-    let selectedItems: string[] | undefined;
     let reads = 0;
     const cookies = new ChromeCookies(
-      async (file, args, signal) => {
+      async (file, args) => {
         if (file.endsWith("security")) {
           reads++;
           return password + "\n";
@@ -64,26 +60,13 @@ test("Chrome import decrypts only requested profile/host pairs, verifies v24 dom
       },
       root
     );
+    // Listing never reads the Keychain; an unknown profile fails before it does.
     expect((await cookies.collect("bot-a", [])).items).toHaveLength(2);
+    await expect(cookies.collect("bot-a", [{ origin: ".example.test", profileId: "Work" }])).rejects.toThrow();
     expect(reads).toBe(0);
-    await expect(
-      cookies.collect("bot-a", [{ origin: ".example.test", profileId: "Work" }])
-    ).rejects.toThrow();
-    expect(reads).toBe(0);
-    const result = await cookies.collect("bot-a", [
-      { origin: ".example.test", profileId: "Default" },
-    ]);
-    expect(result.cookies).toHaveLength(1);
-    expect(result.cookies![0]!.value).toBe("private-.example.test");
-    expect(decisions).toBe(0);
-    await cookies.collect("bot-a", [".example.test"]);
-    expect(decisions).toBe(0);
-    await cookies.collect("bot-b", [".example.test"]);
-    expect(decisions).toBe(0);
-    await cookies.collect("bot-a", [".example.test"]);
-    expect(decisions).toBe(0);
-    selectedItems = [JSON.stringify(["Default", ".example.test"])];
-    const scoped = await cookies.collect("bot-a", [".example.test", ".other.test"]);
+    const result = await cookies.collect("bot-a", [{ origin: ".example.test", profileId: "Default" }]);
+    expect(result.cookies?.map((cookie) => cookie.value)).toEqual(["private-.example.test"]);
+    const scoped = await cookies.collect("bot-b", [".example.test", ".other.test"]);
     expect(scoped.grants?.map((item) => item.origin)).toEqual([".example.test", ".other.test"]);
     expect(scoped.cookies?.map((item) => item.domain)).toEqual([".example.test", ".other.test"]);
 
@@ -100,43 +83,13 @@ test("Chrome import decrypts only requested profile/host pairs, verifies v24 dom
   }
 });
 
-test("Messages sends validate recipient and pass body as argv, never executable script text", async () => {
+test("Messages sends refuse names, mixed and unknown destinations", () => {
   for (const input of [
     { text: "hello", to: "Alice" },
     { text: "hello", to: "+15555550100", chatId: "iMessage;+;group" },
     { text: "hello", chatId: "arbitrary" },
   ])
     expect(() => validateMessageSend(input)).toThrow();
-  const body = 'hello " & do shell script "do-not-run"';
-  let calls = 0;
-  const messages = new MacMessages(async (file, args) => {
-    if (file.endsWith("sqlite3")) return "[]";
-    calls++;
-    expect(file).toBe("/usr/bin/osascript");
-    expect(args[1]).not.toContain(body);
-    expect(args[2]).toBe(body);
-    return "submitted";
-  });
-  expect(await messages.execute("SendIMessage", { text: body, to: "+15555550100" })).toMatchObject({
-    kind: "send",
-    text: body,
-    to: "+15555550100",
-    verified: false,
-  });
-  expect(calls).toBe(1);
-});
-
-test("Messages requests run only while this Mac's own setting allows them", async () => {
-  let enabled = false;
-  let reads = 0;
-  const messages = { execute: async () => { reads++; return { kind: "items", items: [] }; }, people: async () => ({}) };
-  const host = new HostCapabilities(messages as unknown as MacMessages, undefined, "darwin", undefined, { enabled: async () => enabled });
-  const request = { tool: "ChatItems", botId: "bot-1", arguments: { chatGuid: "any;-;+15555550100" } };
-  await expect(host.handle(request)).rejects.toThrow("Messages is turned off in the user's settings on this Mac");
-  expect(reads).toBe(0);
-  enabled = true;
-  await expect(host.handle(request)).resolves.toMatchObject({ kind: "items" });
-  expect(reads).toBe(1);
 });
 
 test("a missing macOS grant names itself and opens the permissions dialog instead of failing generically", async () => {

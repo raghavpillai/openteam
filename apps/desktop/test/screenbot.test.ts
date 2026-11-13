@@ -1,36 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
+import type { MenuItemConstructorOptions } from "electron";
 import { applicationMenuTemplate } from "../src/main/application-menu";
 import { parseScreenBotRoster } from "../src/main/screenbot-roster";
 
 const bot = { id: "b1", name: "Atlas", title: "Research", color: "#27baae", icon: "classic", channelId: "c1" };
 
-describe("screenbot roster", () => {
-  test("keeps only the fields the overlay renders", () => {
-    const roster = parseScreenBotRoster({
-      bots: [{ ...bot, instructions: "secret", avatarDataUrl: "data:image/png;base64,AA" }],
-    });
-    expect(roster).toEqual({ bots: [{ ...bot, avatarDataUrl: "data:image/png;base64,AA" }], dictation: false });
+test("the ScreenBot roster keeps only the fields the overlay renders and rejects malformed input", () => {
+  const roster = parseScreenBotRoster({
+    bots: [{ ...bot, instructions: "secret", avatarDataUrl: "data:image/png;base64,AA" }],
+    theme: "dark",
   });
-
-  test("drops avatars that aren't image data URLs", () => {
-    const roster = parseScreenBotRoster({ bots: [{ ...bot, avatarDataUrl: "https://example.com/a.png" }], dictation: true });
-    expect(roster).toEqual({ bots: [bot], dictation: true });
-  });
-
-  test("rejects malformed rosters", () => {
-    expect(parseScreenBotRoster(null)).toBeNull();
-    expect(parseScreenBotRoster({ bots: [{ id: "b1" }] })).toBeNull();
-    expect(parseScreenBotRoster({ bots: [{ ...bot, channelId: "" }] })).toBeNull();
-    expect(parseScreenBotRoster({ bots: "nope" })).toBeNull();
-  });
-});
-
-describe("screenbot roster theme", () => {
-  test("carries only a known appearance setting to the overlay", () => {
-    const bots = [{ id: "b", name: "B", color: "#000", icon: "bot", channelId: "c" }];
-    expect(parseScreenBotRoster({ bots, dictation: true, theme: "dark" })?.theme).toBe("dark");
-    expect(parseScreenBotRoster({ bots, dictation: true, theme: "neon" })?.theme).toBeUndefined();
-  });
+  expect(roster).toEqual({ bots: [{ ...bot, avatarDataUrl: "data:image/png;base64,AA" }], dictation: false, theme: "dark" });
+  // Remote avatars and unknown themes are dropped rather than handed to the overlay.
+  expect(parseScreenBotRoster({ bots: [{ ...bot, avatarDataUrl: "https://example.com/a.png" }], dictation: true, theme: "neon" }))
+    .toEqual({ bots: [bot], dictation: true });
+  for (const malformed of [null, { bots: [{ id: "b1" }] }, { bots: [{ ...bot, channelId: "" }] }, { bots: "nope" }])
+    expect(parseScreenBotRoster(malformed)).toBeNull();
 });
 
 test("the File menu offers Open ScreenBot and shows an ordinary shortcut without claiming it", () => {
@@ -50,49 +35,47 @@ test("the File menu offers Open ScreenBot and shows an ordinary shortcut without
   expect(chordItems.find((item) => item.label === "Open ScreenBot")?.accelerator).toBeUndefined();
 });
 
-describe("screenbot PNG encoder", () => {
-  test("round-trips BGRA screen pixels as an RGB PNG", async () => {
-    const { encodeScreenPng } = await import("../src/main/screenbot-png");
-    const { inflateSync, crc32 } = await import("node:zlib");
-    const width = 37, height = 29;
-    const bgra = new Uint8Array(width * height * 4);
-    for (let i = 0; i < width * height; i += 1) {
-      bgra[i * 4] = (i * 7) & 0xff;      // blue
-      bgra[i * 4 + 1] = (i * 13) & 0xff; // green
-      bgra[i * 4 + 2] = (i * 29) & 0xff; // red
-      bgra[i * 4 + 3] = 255;
+test("the PNG encoder round-trips BGRA screen pixels as an RGB PNG", async () => {
+  const { encodeScreenPng } = await import("../src/main/screenbot-png");
+  const { inflateSync, crc32 } = await import("node:zlib");
+  const width = 37, height = 29;
+  const bgra = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    bgra[i * 4] = (i * 7) & 0xff;      // blue
+    bgra[i * 4 + 1] = (i * 13) & 0xff; // green
+    bgra[i * 4 + 2] = (i * 29) & 0xff; // red
+    bgra[i * 4 + 3] = 255;
+  }
+  const png = await encodeScreenPng(bgra, width, height);
+  expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  // Walk the chunks, checking each CRC, and collect the image data.
+  let offset = 8;
+  const idat: Buffer[] = [];
+  let header: Buffer | null = null;
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.subarray(offset + 4, offset + 8).toString("ascii");
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    expect(png.readUInt32BE(offset + 8 + length)).toBe(crc32(png.subarray(offset + 4, offset + 8 + length)) >>> 0);
+    if (type === "IHDR") header = data;
+    if (type === "IDAT") idat.push(data);
+    offset += 12 + length;
+  }
+  expect(header?.readUInt32BE(0)).toBe(width);
+  expect(header?.readUInt32BE(4)).toBe(height);
+  expect(header?.[9]).toBe(2);
+  const raw = inflateSync(Buffer.concat(idat));
+  const rowBytes = width * 3 + 1;
+  for (let y = 0; y < height; y += 1) {
+    expect(raw[y * rowBytes]).toBe(1);
+    let previous = [0, 0, 0];
+    for (let x = 0; x < width; x += 1) {
+      const pixel = [0, 1, 2].map((channel) => (raw[y * rowBytes + 1 + x * 3 + channel]! + previous[channel]!) & 0xff);
+      const i = (y * width + x) * 4;
+      expect(pixel).toEqual([bgra[i + 2], bgra[i + 1], bgra[i]]);
+      previous = pixel;
     }
-    const png = await encodeScreenPng(bgra, width, height);
-    expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    // Walk the chunks, checking each CRC, and collect the image data.
-    let offset = 8;
-    const idat: Buffer[] = [];
-    let header: Buffer | null = null;
-    while (offset < png.length) {
-      const length = png.readUInt32BE(offset);
-      const type = png.subarray(offset + 4, offset + 8).toString("ascii");
-      const data = png.subarray(offset + 8, offset + 8 + length);
-      expect(png.readUInt32BE(offset + 8 + length)).toBe(crc32(png.subarray(offset + 4, offset + 8 + length)) >>> 0);
-      if (type === "IHDR") header = data;
-      if (type === "IDAT") idat.push(data);
-      offset += 12 + length;
-    }
-    expect(header?.readUInt32BE(0)).toBe(width);
-    expect(header?.readUInt32BE(4)).toBe(height);
-    expect(header?.[9]).toBe(2);
-    const raw = inflateSync(Buffer.concat(idat));
-    const rowBytes = width * 3 + 1;
-    for (let y = 0; y < height; y += 1) {
-      expect(raw[y * rowBytes]).toBe(1);
-      let previous = [0, 0, 0];
-      for (let x = 0; x < width; x += 1) {
-        const pixel = [0, 1, 2].map((channel) => (raw[y * rowBytes + 1 + x * 3 + channel]! + previous[channel]!) & 0xff);
-        const i = (y * width + x) * 4;
-        expect(pixel).toEqual([bgra[i + 2], bgra[i + 1], bgra[i]]);
-        previous = pixel;
-      }
-    }
-  });
+  }
 });
 
 test("a dropped shot stops its PNG encode at the next slice", async () => {

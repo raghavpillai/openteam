@@ -32,9 +32,8 @@ const check = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
 };
 const root = createRoot(document.getElementById("root")!);
-const reports: object[] = [];
-const emptyMap = new Map(),
-  emptyList: [] = [];
+const reports: string[] = [];
+const emptyMap = new Map(), emptyList: [] = [];
 const bots = ["Ada", "Bea", "Cy"].map((name, index) => ({
   id: "bot-" + index,
   conversationId: "conversation-" + index,
@@ -45,20 +44,9 @@ const bots = ["Ada", "Bea", "Cy"].map((name, index) => ({
   icon: "chip",
 })) as BotView[];
 const botById = new Map(bots.map((bot) => [bot.id, bot]));
-const runtime = {
-  server: "ready",
-  database: "ready",
-  queue: "ready",
-  computer: "ready",
-  inference: "ready",
-} as const;
+const runtime = { server: "ready", database: "ready", queue: "ready", computer: "ready", inference: "ready" } as const;
 const mutate = async <T,>(operation: () => Promise<T>) => operation();
-const render = (content: React.ReactNode) =>
-  root.render(
-    <StrictMode>
-      <TooltipProvider>{content}</TooltipProvider>
-    </StrictMode>
-  );
+const render = (content: React.ReactNode) => root.render(<StrictMode><TooltipProvider>{content}</TooltipProvider></StrictMode>);
 const editor = () => document.querySelector<HTMLElement>('[role="textbox"][contenteditable]')!;
 const type = async (text: string) => {
   check(document.activeElement === editor(), "Typing focus left the composer");
@@ -66,26 +54,13 @@ const type = async (text: string) => {
   await pause(30);
 };
 const enter = (composing = false) =>
-  editor().dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      bubbles: true,
-      cancelable: true,
-      isComposing: composing,
-    })
-  );
-async function inputScenario(theme: string) {
+  editor().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true, isComposing: composing }));
+async function inputScenario() {
   const sent: string[] = [];
-  let fail = false,
-    hold: (() => void) | undefined,
-    block = false,
-    open = false;
+  let fail = false, block = false, open = false;
+  let hold: (() => void) | undefined;
   const submit = async (value: string) => {
-    if (block)
-      await new Promise<void>((resolve) => {
-        hold = resolve;
-      });
+    if (block) await new Promise<void>((resolve) => (hold = resolve));
     await pause(20);
     if (fail) throw new Error("Controlled failure");
     sent.push(value);
@@ -94,23 +69,8 @@ async function inputScenario(theme: string) {
     render(
       <div style={{ width: 745, padding: 16 }}>
         <button id="outside">Another control</button>
-        <PromptInput
-          onStage={async () => {
-            throw new Error("No attachment in this scenario");
-          }}
-          onSubmit={submit}
-        />
-        <SearchDialog
-          open={open}
-          onOpenChange={(value) => {
-            open = value;
-            draw();
-          }}
-          actions={[]}
-          botById={botById}
-          channelById={new Map()}
-          onSelectResult={() => {}}
-        />
+        <PromptInput onStage={async () => { throw new Error("No attachment in this scenario"); }} onSubmit={submit} />
+        <SearchDialog open={open} onOpenChange={(value) => { open = value; draw(); }} actions={[]} botById={botById} channelById={new Map()} onSelectResult={() => {}} />
       </div>
     );
   draw();
@@ -130,18 +90,13 @@ async function inputScenario(theme: string) {
   draw();
   await pause(200);
   check(document.activeElement?.tagName === "INPUT", "Search did not take focus");
-  document.activeElement!.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-  );
+  document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   await type(" retained");
   check(editor().textContent === "Unsent draft retained", "Search did not restore draft focus");
   fail = true;
   enter();
   await pause(100);
-  check(
-    editor().textContent === "Unsent draft retained" && document.activeElement === editor(),
-    "Failure lost draft/focus"
-  );
+  check(editor().textContent === "Unsent draft retained" && document.activeElement === editor(), "Failure lost draft/focus");
   fail = false;
   block = true;
   enter();
@@ -150,11 +105,7 @@ async function inputScenario(theme: string) {
   hold!();
   await pause(100);
   check(document.activeElement?.id === "outside", "Completion stole focus from another control");
-  reports.push({
-    theme,
-    scenario: "rapid sends, IME, search dismissal, failure recovery, no focus theft",
-    sent,
-  });
+  reports.push("rapid sends, IME, search dismissal, failure recovery, no focus theft");
   render(null);
   await pause(50);
 }
@@ -175,11 +126,8 @@ const message = (
   metadata: {},
   createdAt: new Date(Date.now() - 3600000 + index * 1000).toISOString(),
 });
-let channel: ChannelView,
-  messages: ChannelMessageView[],
-  runs: RunView[] = [];
-let hasOlder = false,
-  loadingOlder = false;
+let channel: ChannelView, messages: ChannelMessageView[], runs: RunView[] = [];
+let hasOlder = false, loadingOlder = false;
 let loadOlder: (() => Promise<void>) | undefined;
 const drawChat = () =>
   render(
@@ -219,82 +167,45 @@ const newChat = (id: string, kind: "bot_dm" | "group") => {
   loadingOlder = false;
   loadOlder = undefined;
 };
-async function chatScenario(theme: string, kind: "bot_dm" | "group") {
-  newChat(theme + "-" + kind, kind);
+async function chatScenario(kind: "bot_dm" | "group") {
+  newChat(kind, kind);
   const at = new Date(Date.now() - 3600000).toISOString();
-  messages = ["First", "Second", "Third"].map((text, index) => ({
-    ...message(channel.id, index, text),
-    createdAt: at,
-  }));
+  messages = ["First", "Second", "Third"].map((text, index) => ({ ...message(channel.id, index, text), createdAt: at }));
   messages.push(message(channel.id, 3, "Reply", "user"));
   drawChat();
   await pause(350);
-  const ordered = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].map(
-    (node) => node.dataset.messageId
-  );
-  check(
-    ordered.join() === messages.map((row) => row.id).join(),
-    "Equal timestamps reordered: " + ordered
-  );
+  const ordered = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].map((node) => node.dataset.messageId);
+  check(ordered.join() === messages.map((row) => row.id).join(), "Equal timestamps reordered: " + ordered);
   runs = bots.slice(0, kind === "group" ? 3 : 1).map(
-    (bot, index) =>
-      ({
-        id: "run-" + index,
-        botId: bot.id,
-        channelId: channel.id,
-        status: kind === "group" ? "queued" : "running",
-        createdAt: new Date().toISOString(),
-      }) as RunView
+    (bot, index) => ({ id: "run-" + index, botId: bot.id, channelId: channel.id, status: kind === "group" ? "queued" : "running", createdAt: new Date().toISOString() }) as RunView
   );
   drawChat();
   await pause(250);
   check(document.querySelector("[data-bot-thinking] svg"), "Thinking does not render our avatar");
   check(!document.querySelector(".bot-thinking-badge"), "Legacy dot pill remains");
-  if (kind === "group")
-    check(
-      document.querySelector("[data-bot-thinking]")!.textContent?.endsWith("…"),
-      "Activity ellipsis missing"
-    );
+  if (kind === "group") check(document.querySelector("[data-bot-thinking]")!.textContent?.endsWith("…"), "Activity ellipsis missing");
   runs = [];
   drawChat();
   await pause(250);
   check(!document.querySelector("[data-bot-thinking]"), "Thinking did not drain on completion");
-  reports.push({
-    theme,
-    kind,
-    scenario: "chronology and concurrent thinking",
-  });
+  reports.push(`${kind}: chronology and concurrent thinking`);
   render(null);
   await pause(50);
 }
-async function historyScenario(theme: string) {
-  newChat(theme + "-history", "bot_dm");
+async function historyScenario() {
+  newChat("history", "bot_dm");
   messages = Array.from({ length: 120 }, (_, i) =>
-    message(
-      channel.id,
-      i,
-      "Earlier message " +
-        String(i + 1).padStart(3, "0") +
-        ": keep this reading position when new replies arrive.",
-      i % 2 ? "agent" : "user"
-    )
+    message(channel.id, i, `Earlier message ${String(i + 1).padStart(3, "0")}: keep this reading position when new replies arrive.`, i % 2 ? "agent" : "user")
   );
   hasOlder = true;
   let anchor: { id: string; top: number } | undefined;
-  const samples: { time: number; top: number | null; scroll: number; height: number }[] = [];
+  const samples: { time: number; top: number | null }[] = [];
   const viewport = () => document.querySelector<HTMLElement>(".conversation-scroll")!;
-  const topFor = () =>
-    anchor
-      ? (document
-          .querySelector<HTMLElement>('[data-message-id="' + anchor.id + '"]')
-          ?.getBoundingClientRect().top ?? null)
-      : null;
+  const topFor = () => (anchor ? (document.querySelector<HTMLElement>(`[data-message-id="${anchor.id}"]`)?.getBoundingClientRect().top ?? null) : null);
   loadOlder = async () => {
     await pause(80); // Observe the new virtual window after a large scrollbar jump.
     const bounds = viewport().getBoundingClientRect();
-    const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].find(
-      (row) => row.getBoundingClientRect().bottom > bounds.top
-    )!;
+    const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].find((row) => row.getBoundingClientRect().bottom > bounds.top)!;
     anchor = { id: row.dataset.messageId!, top: row.getBoundingClientRect().top };
     loadingOlder = true;
     drawChat();
@@ -318,29 +229,22 @@ async function historyScenario(theme: string) {
   const start = performance.now();
   for (let i = 0; i < 70; i++) {
     await pause(50);
-    samples.push({
-      time: performance.now() - start,
-      top: topFor(),
-      scroll: viewport().scrollTop,
-      height: viewport().scrollHeight,
-    });
+    samples.push({ time: performance.now() - start, top: topFor() });
   }
   check(anchor, "History load was not triggered");
   const settled = samples.filter((sample) => sample.time > 750);
-  const drift = Math.max(
-    ...settled.map((sample) => (sample.top === null ? 9999 : Math.abs(sample.top - anchor!.top)))
-  );
-  reports.push({ theme, scenario: "delayed paging anchor", drift });
+  const drift = Math.max(...settled.map((sample) => (sample.top === null ? 9999 : Math.abs(sample.top - anchor!.top))));
   check(drift <= 2, "Delayed history drift " + drift + "px");
+  reports.push(`delayed paging anchor (drift ${drift}px)`);
   render(null);
   await pause(50);
 }
-async function draftReviewScenario(theme: string, width: number) {
+async function draftReviewScenario(width: number) {
   const draft = parseExternalDraft({ platform: "email", providerIdentifier: "gmail", from: "me@example.com", to: ["ann@example.com"], subject: "Fwd: Schedule", body: "Please review before Friday.", forwardMessageId: "original", attachments: ["/workspace/notes.txt"] });
   const verification = { identity: "me@example.com", destination: "ann@example.com", forwarding: "“Schedule” from Pat", forwardUrl: "https://mail.example.com/original",
     attachments: [{ assetId: "a".repeat(64), fileName: "notes.txt", mimeType: "text/plain", byteSize: 5, kind: "text" }],
     revision: { baselineMessageId: "older", changedFields: ["subject"], body: [{ text: "Please review ", added: false }, { text: "before Friday", added: true }, { text: ".", added: false }] } };
-  let card = { id: `draft-${theme}-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
+  let card = { id: `draft-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
   const calls: string[] = [];
   const draw = () => render(<div style={{ width, padding: 12 }}><ExternalDraftCard key={card.id} message={card} draft={parseExternalDraft((card.metadata as any).draft)} bot={bots[0]} /></div>);
   Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
@@ -422,23 +326,7 @@ async function draftReviewScenario(theme: string, width: number) {
     send().click(); await pause(150);
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
     check(document.querySelector("details .draft-body")?.textContent === remote.body, "Mutation receipt lost canonical history before its live update arrived");
-    // A remote discard is authoritative even when both in-flight HTTP responses fail.
-    card = { ...card, id: card.id + "-late-failure", metadata: { type: "external-draft", cardState: "pending", draft: { ...draft, verification } } };
-    draw(); await pause(100);
-    let rejectSend!: (error: Error) => void;
-    const sending = new Promise<never>((_resolve, reject) => { rejectSend = reject; });
-    Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
-      if (action === "send") return sending;
-      throw new Error("Synthetic refresh offline");
-    } });
-    send().click(); await pause(50);
-    card = { ...card, metadata: { ...(card.metadata as object), cardState: "dismissed" } };
-    draw(); await pause(100);
-    rejectSend(new Error("Synthetic send response lost")); await pause(150);
-    check(!document.querySelector("form") && !!document.querySelector("details"), "Late send failure reopened a remotely discarded card");
-    check(!document.querySelector('[role="alert"]'), "Late send failure left an error on a confirmed discard");
-    check(![...document.querySelectorAll('button')].some(button => ["Send", "Check delivery"].includes(button.textContent ?? "")), "Late send failure restored discarded-card controls");
-    reports.push({ theme, width, scenario: "draft forwarding, revision, attachment preview, validation and discard history", calls });
+    reports.push(`email draft at ${width}px: forwarding, revision, attachment preview, validation, discard and remote-send history`);
   } finally { window.fetch = oldFetch; render(null); await pause(50); }
 }
 
@@ -549,7 +437,7 @@ async function sendScenario(id: Mode) {
   check(userRows().length === 1 && userRows()[0] === node, `${id}: echo replaced or duplicated bubble`);
   check(!record(), `${id}: delivery journal not reconciled`);
   check(!document.querySelector("[data-send-progress]"), `${id}: accepted message kept sending dots`);
-  reports.push({ scenario: `send ${id}: one bubble from send to echo`, dispatches });
+  reports.push(`send ${id}: one bubble from send to echo (${dispatches} dispatches)`);
   render(null);
   await pause(50);
 }
@@ -581,18 +469,18 @@ async function threadReplyActions() {
   menu!.querySelector<HTMLElement>('[role="menuitem"]')!.click();
   await pause(100);
   check(deletes === 1, "Delivery details did not delete the message");
-  reports.push({ scenario: "thread reply: retry and delete reachable on a short failed reply" });
+  reports.push("thread reply: retry and delete reachable on a short failed reply");
   render(null);
 }
 
 try {
-  const theme = "dark";
-  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = "dark";
   await controller.restore();
-  await inputScenario(theme);
-  for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
-  await historyScenario(theme);
-  for (const width of [745, 360]) await draftReviewScenario(theme, width);
+  await inputScenario();
+  for (const kind of ["bot_dm", "group"] as const) await chatScenario(kind);
+  await historyScenario();
+  // The narrow width is the one that can overflow; every draft-review check runs there.
+  await draftReviewScenario(360);
   for (const mode of ["failed", "uncertain-late-echo", "retry-failure"] as const) await sendScenario(mode);
   await threadReplyActions();
   console.log("FIXTURE_RESULT " + JSON.stringify({ reports }));

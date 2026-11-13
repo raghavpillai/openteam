@@ -4,90 +4,27 @@ import { createDictateGesture, DICTATE_DOUBLE_MS, DICTATE_TAP_MS } from "../src/
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A stand-in recorder: records what the gesture asked for, with a clock for elapsed time. */
-const recorder = () => {
+const recorder = (startState = "recording") => {
   const calls: string[] = [];
   let state = "idle";
   let startedAt = 0;
-  return {
-    calls,
-    target: {
-      state: () => state,
-      active: () => state === "recording",
-      start: () => { calls.push("start"); state = "recording"; startedAt = Date.now(); },
-      stop: () => { calls.push("stop"); state = "processing"; },
-      cancel: () => { calls.push("cancel"); state = "idle"; },
-      elapsedMs: () => (state === "recording" ? Date.now() - startedAt : 0),
-    },
-    endTranscription: () => { state = "idle"; },
+  const target = {
+    state: () => state,
+    active: () => state === startState,
+    start: () => { calls.push("start"); state = startState; startedAt = Date.now(); },
+    stop: () => { calls.push("stop"); state = "processing"; },
+    cancel: () => { calls.push("cancel"); state = "idle"; },
+    elapsedMs: () => (state === "recording" ? Date.now() - startedAt : 0),
+    tooEarly: () => calls.push("tooEarly"),
   };
+  return { calls, target, gesture: createDictateGesture(target), endTranscription: () => { state = "idle"; } };
 };
 
 describe("dictate shortcut gesture", () => {
-  test("hold: records while held, transcribes on release", async () => {
-    const { calls, target } = recorder();
-    const gesture = createDictateGesture(target);
+  test("hold transcribes on release, ignores presses while transcribing, then starts over", async () => {
+    const { calls, gesture, endTranscription } = recorder();
     gesture.press();
-    await wait(700);
-    gesture.release();
-    expect(calls).toEqual(["start", "stop"]);
-  });
-
-  test("a single quick tap records nothing", async () => {
-    const { calls, target } = recorder();
-    const gesture = createDictateGesture(target);
-    gesture.press();
-    await wait(60);
-    gesture.release();
-    await wait(DICTATE_DOUBLE_MS + 80);
-    expect(calls).toEqual(["start", "cancel"]);
-  });
-
-  test("double press: keeps recording hands-free until pressed again", async () => {
-    const { calls, target } = recorder();
-    const gesture = createDictateGesture(target);
-    gesture.press();
-    await wait(60);
-    gesture.release();
-    await wait(120);
-    gesture.press();
-    await wait(60);
-    gesture.release();
-    await wait(DICTATE_DOUBLE_MS + 400);
-    expect(calls).toEqual(["start"]);
-    gesture.press();
-    gesture.release();
-    expect(calls).toEqual(["start", "stop"]);
-  });
-
-  test("a deliberate hold always ends as a recording (the recorder reports one too short)", async () => {
-    const { calls, target } = recorder();
-    const gesture = createDictateGesture(target);
-    gesture.press();
-    await wait(DICTATE_TAP_MS + 50);
-    gesture.release();
-    expect(calls).toEqual(["start", "stop"]);
-  });
-
-  test("Fn+key aborts the hold it began; the mic button's recording ends on a press", async () => {
-    const first = recorder();
-    const gesture = createDictateGesture(first.target);
-    gesture.press();
-    gesture.abort();
-    expect(first.calls).toEqual(["start", "cancel"]);
-
-    const second = recorder();
-    const other = createDictateGesture(second.target);
-    second.target.start();
-    await wait(600);
-    other.press();
-    expect(second.calls).toEqual(["start", "stop"]);
-  });
-
-  test("ignores presses while transcribing, and starts over once it's done", async () => {
-    const { calls, target, endTranscription } = recorder();
-    const gesture = createDictateGesture(target);
-    gesture.press();
-    await wait(600);
+    await wait(DICTATE_TAP_MS + 300);
     gesture.release();
     gesture.press();
     expect(calls).toEqual(["start", "stop"]);
@@ -96,21 +33,44 @@ describe("dictate shortcut gesture", () => {
     expect(calls).toEqual(["start", "stop", "start"]);
   });
 
-  test("let go before the microphone is live: says so instead of vanishing", async () => {
-    const calls: string[] = [];
-    let state = "idle";
-    const gesture = createDictateGesture({
-      state: () => state,
-      active: () => state === "requesting",
-      start: () => { calls.push("start"); state = "requesting"; },
-      stop: () => calls.push("stop"),
-      cancel: () => calls.push("cancel"),
-      elapsedMs: () => 0,
-      tooEarly: () => calls.push("tooEarly"),
-    });
+  test("a single quick tap records nothing; a double press stays hands-free until pressed again", async () => {
+    const tap = recorder();
+    tap.gesture.press();
+    await wait(60);
+    tap.gesture.release();
+    await wait(DICTATE_DOUBLE_MS + 80);
+    expect(tap.calls).toEqual(["start", "cancel"]);
+
+    const { calls, gesture } = recorder();
+    gesture.press();
+    gesture.release();
+    await wait(120);
+    gesture.press();
+    gesture.release();
+    await wait(DICTATE_DOUBLE_MS + 400);
+    expect(calls).toEqual(["start"]);
+    gesture.press();
+    expect(calls).toEqual(["start", "stop"]);
+  });
+
+  test("letting go of a hold before the microphone is live says so instead of vanishing", async () => {
+    const { calls, gesture } = recorder("requesting");
     gesture.press();
     await wait(DICTATE_TAP_MS + 50);
     gesture.release();
     expect(calls).toEqual(["start", "tooEarly"]);
+  });
+
+  test("Fn+key aborts the hold it began; a mic-button recording ends on a press", async () => {
+    const held = recorder();
+    held.gesture.press();
+    held.gesture.abort();
+    expect(held.calls).toEqual(["start", "cancel"]);
+
+    const { calls, target, gesture } = recorder();
+    target.start();
+    await wait(600);
+    gesture.press();
+    expect(calls).toEqual(["start", "stop"]);
   });
 });

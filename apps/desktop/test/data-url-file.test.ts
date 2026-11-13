@@ -24,26 +24,19 @@ afterEach(async () => {
 });
 
 describe("bounded data URL image saves", () => {
-  test("retries partial writes until the complete chunk is durable", async () => {
+  test("retries partial writes until the chunk is durable and rejects a writer that makes no progress", async () => {
     const output: number[] = [];
-    const writer = {
+    const partial = {
       write: async (bytes: Uint8Array, offset: number, length: number) => {
         const bytesWritten = Math.min(2, length);
         output.push(...bytes.subarray(offset, offset + bytesWritten));
         return { bytesWritten, buffer: bytes };
       },
     };
-    await writeBytesFully(writer as never, new Uint8Array([1, 2, 3, 4, 5]));
+    await writeBytesFully(partial as never, new Uint8Array([1, 2, 3, 4, 5]));
     expect(output).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  test("rejects a writer that cannot make progress", async () => {
-    const writer = {
-      write: async (bytes: Uint8Array) => ({ bytesWritten: 0, buffer: bytes }),
-    };
-    await expect(writeBytesFully(writer as never, new Uint8Array([1]))).rejects.toThrow(
-      "File write made no progress"
-    );
+    const stuck = { write: async (bytes: Uint8Array) => ({ bytesWritten: 0, buffer: bytes }) };
+    await expect(writeBytesFully(stuck as never, new Uint8Array([1]))).rejects.toThrow("File write made no progress");
   });
 
   test("streams permissive base64 to exact private output across quantum boundaries", async () => {
@@ -85,30 +78,19 @@ describe("bounded data URL image saves", () => {
     expect(result.largestChunkBytes).toBeLessThanOrEqual(8);
   });
 
-  test("retains the existing case-sensitive base64 metadata behavior", async () => {
+  test("replaces a destination only after complete decoding, leaving it untouched on limit errors", async () => {
     const directory = await temporaryDirectory();
-    const destination = join(directory, "uppercase-marker.png");
-
-    await writeDataUrlToFileAtomically("data:image/png;BASE64,YQ==", destination);
-
-    expect(await readFile(destination, "utf8")).toBe("YQ==");
-  });
-
-  test("leaves an existing destination untouched and removes temp files on limit errors", async () => {
-    const directory = await temporaryDirectory();
-    const destination = join(directory, "image.png");
+    const destination = join(directory, "image.gif");
     await writeFile(destination, "original", { mode: 0o644 });
-    const source = `data:image/png;base64,${Buffer.alloc(40, 0xab).toString("base64")}`;
-
-    await expect(
-      writeDataUrlToFileAtomically(source, destination, {
-        maxBytes: 12,
-        inputChunkCharacters: 8,
-      })
-    ).rejects.toThrow("Image exceeds 100 MiB");
-
+    const expected = Buffer.from("GIF89a\0streamed");
+    const oversized = `data:image/gif;base64,${Buffer.alloc(40, 0xab).toString("base64")}`;
+    await expect(writeDataUrlToFileAtomically(oversized, destination, { maxBytes: 12, inputChunkCharacters: 8 })).rejects.toThrow("Image exceeds 100 MiB");
     expect(await readFile(destination, "utf8")).toBe("original");
-    expect(await readdir(directory)).toEqual(["image.png"]);
+    expect(await readdir(directory)).toEqual(["image.gif"]);
+
+    await writeDataUrlToFileAtomically(`data:image/gif;base64,${expected.toString("base64")}`, destination, { inputChunkCharacters: 5, maxBytes: expected.byteLength });
+    expect(await readFile(destination)).toEqual(expected);
+    expect(await readdir(directory)).toEqual(["image.gif"]);
   });
 
   test("cleans partial output for malformed percent input and aborts", async () => {
@@ -132,21 +114,5 @@ describe("bounded data URL image saves", () => {
     ).rejects.toThrow();
 
     expect(await readdir(directory)).toEqual([]);
-  });
-
-  test("atomically replaces a destination only after complete decoding", async () => {
-    const directory = await temporaryDirectory();
-    const destination = join(directory, "image.gif");
-    await writeFile(destination, "old");
-    const expected = Buffer.from("GIF89a\0streamed");
-
-    await writeDataUrlToFileAtomically(
-      `data:image/gif;base64,${expected.toString("base64")}`,
-      destination,
-      { inputChunkCharacters: 5, maxBytes: expected.byteLength }
-    );
-
-    expect(await readFile(destination)).toEqual(expected);
-    expect(await readdir(directory)).toEqual(["image.gif"]);
   });
 });

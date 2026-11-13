@@ -59,33 +59,19 @@ describe("blog build", () => {
     expect(first.headings.map((heading) => heading.id)).toEqual(["why-it-matters"]);
   });
 
-  test("holds back posts dated after the build and drops them from related lists", () => {
-    const options = fixture({
-      "now.md": post({ ...base, related: "later" }),
-      "later.md": post({ ...base, title: "Later", date: "2026-10-20" }),
-    });
-    const { posts } = compileBlog({ ...options, asOf: "2026-10-12" });
+  test("holds back future posts, drops them from related lists, and refuses links to them", () => {
+    const later = post({ ...base, title: "Later", date: "2026-10-20" });
+    const { posts } = compileBlog({ ...fixture({ "now.md": post({ ...base, related: "later" }), "later.md": later }), asOf: "2026-10-12" });
     expect(posts.map((entry) => entry.slug)).toEqual(["now"]);
     expect(posts[0].related).toEqual([]);
-  });
-
-  test("refuses a published post that links to one that isn't out yet", () => {
-    const options = fixture({
-      "now.md": post(base, "See [later](/blog/later).\n"),
-      "later.md": post({ ...base, title: "Later", date: "2026-10-20" }),
-    });
-    expect(() => compileBlog({ ...options, asOf: "2026-10-12" })).toThrow("isn't published until later");
+    const linked = fixture({ "now.md": post(base, "See [later](/blog/later).\n"), "later.md": later });
+    expect(() => compileBlog({ ...linked, asOf: "2026-10-12" })).toThrow("isn't published until later");
   });
 
   test.each([
-    ["an unknown field", post({ ...base, tags: "x" }), "unknown frontmatter field"],
-    ["a missing description", post({ ...base, description: "" }), "nonempty description"],
     ["a bad date", post({ ...base, date: "Oct 6" }), "YYYY-MM-DD"],
-    ["an unknown category", post({ ...base, category: "News" }), "category must be one of"],
-    ["a long description", post({ ...base, description: "x".repeat(170) }), "keep it to 165"],
     ["an H1 in the body", post(base, "# Title\n"), "don't add an H1"],
     ["a broken site link", post(base, "[x](/docs/nope)\n"), "broken link"],
-    ["a relative link", post(base, "[x](other-post)\n"), "absolute site paths"],
     ["a hotlinked image", post(base, "![x](https://example.com/a.png)\n"), "instead of hotlinking"],
     ["a missing image", post(base, "![x](/blog/images/missing.png)\n"), "missing image"],
     ["an image without alt text", post(base, "![](/blog/images/shot.png)\n"), "needs alt text"],

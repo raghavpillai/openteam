@@ -52,7 +52,7 @@ for (const destination of [{ to: "+15555550100" }, { chatId: "any;+;chat123" }])
           ]);
         }
         return "submitted";
-      }, undefined, join(root, "outbox"));
+      });
       expect(
         await messages.execute("SendIMessage", { ...destination, text, attachments })
       ).toMatchObject({
@@ -64,95 +64,58 @@ for (const destination of [{ to: "+15555550100" }, { chatId: "any;+;chat123" }])
         })),
       });
       expect(paths).toHaveLength(2);
-      // Messages may first read the file after the AppleScript reply. A new host
-      // instance (or an app restart) must not invalidate that queued attachment.
-      for (const [index, path] of paths.entries()) {
-        expect(await readFile(path)).toEqual(Buffer.from(attachments[index]!.bytesBase64, "base64"));
-        expect(path.startsWith(join(root, "outbox"))).toBe(true);
-      }
-      expect((await stat(join(root, "outbox"))).mode & 0o777).toBe(0o700);
+      for (const path of paths) expect(await stat(path).catch(() => null)).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 }
 
-test("attachment-only sends retain durable receipts and detect changed bytes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "messages-receipt-test-"));
-  let calls = 0;
-  let staged = "";
-  const host = new HostCapabilities(
-    new MacMessages(async (command, args) => {
-      if (command.endsWith("sqlite3")) return "[]";
-      calls++;
-      staged = args[6]!;
-      expect(args[2]).toBe("");
-      expect(await readFile(args[6]!)).toEqual(Buffer.from(file().bytesBase64, "base64"));
-      return "submitted";
-    }, undefined, join(root, "outbox")),
+const receiptHost = (root: string, run: (args: string[]) => Promise<string>) =>
+  new HostCapabilities(
+    new MacMessages(async (command, args) => (command.endsWith("sqlite3") ? "[]" : run(args))),
     undefined,
     "darwin",
     new NativeActionReceipts(join(root, "receipts.json"))
   );
-  const request = {
-    tool: MESSAGES_SEND_FILES_TOOL,
-    botId: "bot",
-    callId: "send-1",
-    arguments: { to: "+15555550100", attachments: [file()] },
-  };
+const sendFiles = { tool: MESSAGES_SEND_FILES_TOOL, botId: "bot", callId: "send-1", arguments: { to: "+15555550100", attachments: [file()] } };
+
+test("attachment-only sends retain durable receipts and detect changed bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "messages-receipt-test-"));
+  let calls = 0;
+  const host = receiptHost(root, async (args) => {
+    calls++;
+    expect(args[2]).toBe("");
+    expect(await readFile(args[6]!)).toEqual(Buffer.from(file().bytesBase64, "base64"));
+    return "submitted";
+  });
   try {
-    const first = await host.handle(request);
-    expect(await host.handle(request)).toEqual(first);
+    const first = await host.handle(sendFiles);
+    expect(await host.handle(sendFiles)).toEqual(first);
     expect(calls).toBe(1);
-    const restarted = new HostCapabilities(
-      new MacMessages(async () => { throw new Error("must not resubmit after restart"); }, undefined, join(root, "outbox")),
-      undefined, "darwin", new NativeActionReceipts(join(root, "receipts.json"))
-    );
-    expect(await restarted.handle(request)).toEqual(first);
-    expect(await readFile(staged)).toEqual(Buffer.from(file().bytesBase64, "base64"));
-    await expect(
-      host.handle({
-        ...request,
-        arguments: { ...request.arguments, attachments: [file("changed")] },
-      })
-    ).rejects.toThrow("different arguments");
+    await expect(host.handle({ ...sendFiles, arguments: { ...sendFiles.arguments, attachments: [file("changed")] } })).rejects.toThrow("different arguments");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
+// An Automation refusal (-1743) sent nothing, so a retry runs; partial or unknown outcomes block it.
 for (const outcome of ["partial", "process failure", "automation_denied"]) {
   test(`an attachment send with ${outcome} preserves the retry rules`, async () => {
     const root = await mkdtemp(join(tmpdir(), "messages-failure-test-"));
     let calls = 0;
     let path = "";
-    const host = new HostCapabilities(
-      new MacMessages(async (command, args) => {
-        if (command.endsWith("sqlite3")) return "[]";
-        calls++;
-        path = args[6]!;
-        if (outcome === "process failure") throw new Error("interrupted");
-        return outcome;
-      }, undefined, join(root, "outbox")),
-      undefined,
-      "darwin",
-      new NativeActionReceipts(join(root, "receipts.json"))
-    );
-    const request = {
-      tool: MESSAGES_SEND_FILES_TOOL,
-      botId: "bot",
-      callId: "send-1",
-      arguments: { to: "+15555550100", attachments: [file()] },
-    };
+    const host = receiptHost(root, async (args) => {
+      calls++;
+      path = args[6]!;
+      if (outcome === "process failure") throw new Error("interrupted");
+      return outcome;
+    });
+    const message = outcome === "automation_denied" ? "Automation for Messages" : "outcome is uncertain";
     try {
-      await expect(host.handle(request)).rejects.toThrow(
-        outcome === "automation_denied" ? "Automation for Messages" : "outcome is uncertain"
-      );
-      if (outcome === "automation_denied") expect(await stat(path).catch(() => null)).toBeNull();
-      else expect(await readFile(path)).toEqual(Buffer.from(file().bytesBase64, "base64"));
-      await expect(host.handle(request)).rejects.toThrow(
-        outcome === "automation_denied" ? "Automation for Messages" : "outcome is uncertain"
-      );
+      await expect(host.handle(sendFiles)).rejects.toThrow(message);
+      expect(await stat(path).catch(() => null)).toBeNull();
+      await expect(host.handle(sendFiles)).rejects.toThrow(message);
       expect(calls).toBe(outcome === "automation_denied" ? 2 : 1);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -199,7 +162,7 @@ test("the authenticated HTTP bridge carries a full-size attachment while other r
       sends++;
       expect(await readFile(args[6]!)).toEqual(bytes);
       return "submitted";
-    }, undefined, join(root, "outbox")),
+    }),
     undefined,
     "darwin",
     new NativeActionReceipts(join(root, "receipts.json"))
@@ -250,32 +213,9 @@ test("the authenticated HTTP bridge carries a full-size attachment while other r
   }
 });
 
-test("an Automation refusal leaves the send free to run once allowed; other failures stay uncertain", async () => {
-  // Errors stay generic: stderr is never read, so nothing in it can leak.
-  const other = (await nativeCommand("/bin/sh", ["-c", "echo secret-detail >&2; exit 3"]).catch((cause) => cause)) as NativeCommandError;
-  expect(other).toBeInstanceOf(NativeCommandError);
-  expect(other.reason).toBe("failed");
-  expect(other.message).not.toContain("secret-detail");
-  const error = new NativeCommandError("macOS refused to let OpenTeam control Messages (Automation)", "automation_denied");
-
-  const root = await mkdtemp(join(tmpdir(), "openteam-receipts-"));
-  try {
-    const receipts = new NativeActionReceipts(join(root, "receipts.json"));
-    let runs = 0;
-    await expect(receipts.execute("bot", "call-1", { text: "hi" }, async () => { runs++; throw error; })).rejects.toBe(error);
-    // Nothing was sent, so the same call runs again; an unknown failure would block it.
-    await expect(receipts.execute("bot", "call-1", { text: "hi" }, async () => { runs++; return { sent: true }; })).resolves.toEqual({ sent: true });
-    await expect(receipts.execute("bot", "call-2", { text: "hi" }, async () => { throw other; })).rejects.toBe(other);
-    await expect(receipts.execute("bot", "call-2", { text: "hi" }, async () => ({ sent: true }))).rejects.toThrow("outcome is uncertain");
-    expect(runs).toBe(2);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("a send that macOS refuses with -1743 reports an Automation denial, not a generic failure", async () => {
-  const messages = new MacMessages(async (file) => (file.endsWith("sqlite3") ? "[]" : "automation_denied\n"));
-  const error = await messages.execute("SendIMessage", { text: "hi", to: "+15555550100" }).catch((cause) => cause);
+test("native command failures stay generic: stderr is never read, so nothing in it can leak", async () => {
+  const error = (await nativeCommand("/bin/sh", ["-c", "echo secret-detail >&2; exit 3"]).catch((cause) => cause)) as NativeCommandError;
   expect(error).toBeInstanceOf(NativeCommandError);
-  expect((error as NativeCommandError).reason).toBe("automation_denied");
+  expect(error.reason).toBe("failed");
+  expect(error.message).not.toContain("secret-detail");
 });

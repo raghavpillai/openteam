@@ -75,76 +75,53 @@ const contextPage = (
   revision: String(start + count),
 });
 
-describe("desktop bounded message-history windows", () => {
-  test("keeps normal history unchanged through five pages, then reserves the cached latest tail", () => {
-    let history = emptyLoadedChannelHistory();
-    let window = emptyChannelMessageWindow();
-    let transition = applyPrimaryHistoryPage({
-      current: history,
-      window,
-      page: historyPage(501, 100),
-      mode: "replace",
-      atBottom: true,
-      loadedAt: 1,
-    });
-    history = transition.history;
-    window = transition.window;
-    for (const start of [401, 301, 201, 101]) {
-      transition = applyPrimaryHistoryPage({
-        current: history,
-        window,
-        page: historyPage(start, 100),
-        mode: "older",
-        atBottom: false,
-        loadedAt: start,
-      });
-      history = transition.history;
-      window = transition.window;
-    }
-    expect(history.messages).toHaveLength(MESSAGE_HISTORY_MAX_MESSAGES);
-    expect(history.messages[0]?.id).toBe("message-101");
-    expect(history.messages.at(-1)?.id).toBe("message-600");
-    expect(window.primaryHasNewerGap).toBe(false);
+type Transition = ReturnType<typeof applyPrimaryHistoryPage>;
+const load = (
+  previous: Pick<Transition, "history" | "window"> | undefined,
+  page: ChannelHistoryPage,
+  mode: "replace" | "older" | "refresh",
+  extra: Partial<Parameters<typeof applyPrimaryHistoryPage>[0]> = {}
+) =>
+  applyPrimaryHistoryPage({
+    current: previous?.history,
+    window: previous?.window,
+    page,
+    mode,
+    atBottom: mode === "replace",
+    ...extra,
+  });
 
-    transition = applyPrimaryHistoryPage({
-      current: history,
-      window,
-      page: historyPage(1, 100, false),
-      mode: "older",
-      atBottom: false,
-      loadedAt: 2,
-    });
-    expect(transition.history.messages).toHaveLength(
-      MESSAGE_HISTORY_MAX_MESSAGES - MESSAGE_HISTORY_PAGE_SIZE
-    );
+describe("desktop bounded message-history windows", () => {
+  test("keeps five pages unchanged, then reserves the cached latest tail and bounds every lane to 500", () => {
+    let transition = load(undefined, historyPage(501, 100), "replace");
+    for (const start of [401, 301, 201, 101]) transition = load(transition, historyPage(start, 100), "older");
+    expect(transition.history.messages).toHaveLength(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(transition.history.messages[0]?.id).toBe("message-101");
+    expect(transition.history.messages.at(-1)?.id).toBe("message-600");
+    expect(transition.window.primaryHasNewerGap).toBe(false);
+
+    transition = load(transition, historyPage(1, 100, false), "older");
+    expect(transition.history.messages).toHaveLength(MESSAGE_HISTORY_MAX_MESSAGES - MESSAGE_HISTORY_PAGE_SIZE);
     expect(transition.history.messages[0]?.id).toBe("message-1");
     expect(transition.history.messages.at(-1)?.id).toBe("message-400");
     expect(transition.evictedNewer).toBe(200);
     expect(transition.window.primaryHasNewerGap).toBe(true);
     expect(transition.window.latestTail?.messages[0]?.id).toBe("message-501");
     expect(transition.window.latestTail?.messages.at(-1)?.id).toBe("message-600");
-    expect(retainedMessageWindowStats(transition.history, transition.window).messages).toBe(
-      MESSAGE_HISTORY_MAX_MESSAGES
-    );
+    expect(retainedMessageWindowStats(transition.history, transition.window).messages).toBe(MESSAGE_HISTORY_MAX_MESSAGES);
+
+    // A disjoint centered context displaces the primary lane but keeps the cached tail.
+    const contextual = enterMessageContext(transition.history, transition.window, contextPage(1_001, 500, 1_250));
+    const stats = retainedMessageWindowStats(contextual.history, contextual.window);
+    expect(contextual.history.searchContext).toHaveLength(400);
+    expect(contextual.window.latestTail?.messages).toHaveLength(100);
+    expect(contextual.history.messages).toHaveLength(0);
+    expect(stats.messages).toBe(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBe(contextual.window.retainedBytes);
   });
 
   test("preserves an off-bottom window on a no-overlap reconnect and resets instantly from its tail", () => {
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(1, 100),
-      mode: "replace",
-      atBottom: true,
-      loadedAt: 1,
-    });
-    const refreshed = applyPrimaryHistoryPage({
-      current: initial.history,
-      window: initial.window,
-      page: historyPage(151, 100),
-      mode: "refresh",
-      atBottom: false,
-      loadedAt: 2,
-    });
+    const refreshed = load(load(undefined, historyPage(1, 100), "replace"), historyPage(151, 100), "refresh");
     expect(refreshed.outcome).toBe("preserved-gap");
     expect(refreshed.history.messages.at(-1)?.id).toBe("message-100");
     expect(refreshed.window.primaryHasNewerGap).toBe(true);
@@ -157,81 +134,30 @@ describe("desktop bounded message-history windows", () => {
   });
 
   test("renders one centered context lane and pages both directions with opposite-edge eviction", () => {
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(901, 100),
-      mode: "replace",
-      atBottom: true,
-    });
-    let transition = enterMessageContext(
-      initial.history,
-      initial.window,
-      contextPage(451, 101, 501),
-      2
-    );
+    const initial = load(undefined, historyPage(901, 100), "replace");
+    let transition = enterMessageContext(initial.history, initial.window, contextPage(451, 101, 501), 2);
     expect(visibleChannelHistoryMessages(transition.history, transition.window)).toHaveLength(101);
-    expect(transition.window.context).toMatchObject({
-      hasMoreBefore: true,
-      hasMoreAfter: true,
-    });
+    expect(transition.window.context).toMatchObject({ hasMoreBefore: true, hasMoreAfter: true });
 
     for (const start of [351, 251, 151, 51]) {
-      transition = expandMessageContext({
-        current: transition.history,
-        window: transition.window,
-        page: contextPage(start, 101, start + 100),
-        direction: "older",
-      });
+      transition = expandMessageContext({ current: transition.history, window: transition.window, page: contextPage(start, 101, start + 100), direction: "older" });
     }
-    expect(transition.history.searchContext.length).toBeLessThanOrEqual(
-      MESSAGE_HISTORY_MAX_MESSAGES
-    );
+    expect(transition.history.searchContext.length).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
     expect(transition.window.context?.hasMoreAfter).toBe(true);
 
-    const newer = expandMessageContext({
-      current: transition.history,
-      window: transition.window,
-      page: contextPage(500, 101, 500, true, true),
-      direction: "newer",
-    });
+    const newer = expandMessageContext({ current: transition.history, window: transition.window, page: contextPage(500, 101, 500), direction: "newer" });
     expect(newer.evictedOlder).toBeGreaterThan(0);
-    expect(newer.window.context?.hasMoreBefore).toBe(true);
-    expect(newer.window.context?.hasMoreAfter).toBe(true);
-    expect(new Set(newer.history.searchContext.map(({ id }) => id)).size).toBe(
-      newer.history.searchContext.length
-    );
+    expect(newer.window.context).toMatchObject({ hasMoreBefore: true, hasMoreAfter: true });
+    expect(new Set(newer.history.searchContext.map(({ id }) => id)).size).toBe(newer.history.searchContext.length);
   });
 
   test("keeps an explicit newer gap when latest messages arrive while context is open", () => {
-    const initial = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(901, 100),
-      mode: "replace",
-      atBottom: true,
-    });
-    const contextual = enterMessageContext(
-      initial.history,
-      initial.window,
-      contextPage(451, 101, 501)
-    );
-    const unchanged = applyPrimaryHistoryPage({
-      current: contextual.history,
-      window: contextual.window,
-      page: historyPage(901, 100),
-      mode: "refresh",
-      atBottom: false,
-    });
+    const initial = load(undefined, historyPage(901, 100), "replace");
+    const contextual = enterMessageContext(initial.history, initial.window, contextPage(451, 101, 501));
+    const unchanged = load(contextual, historyPage(901, 100), "refresh");
     expect(unchanged.window.primaryHasNewerGap).toBe(false);
 
-    const refreshed = applyPrimaryHistoryPage({
-      current: unchanged.history,
-      window: unchanged.window,
-      page: historyPage(902, 100),
-      mode: "refresh",
-      atBottom: false,
-    });
+    const refreshed = load(unchanged, historyPage(902, 100), "refresh");
     expect(refreshed.window.primaryHasNewerGap).toBe(true);
     expect(refreshed.window.latestTail?.messages.at(-1)?.id).toBe("message-1001");
 
@@ -240,75 +166,20 @@ describe("desktop bounded message-history windows", () => {
     expect(cleared.window.primaryHasNewerGap).toBe(true);
   });
 
-  test("hard-bounds a disjoint primary, centered context, and cached tail to 500 unique IDs", () => {
-    let transition = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(501, 100),
-      mode: "replace",
-      atBottom: true,
-    });
-    for (const start of [401, 301, 201, 101, 1]) {
-      transition = applyPrimaryHistoryPage({
-        current: transition.history,
-        window: transition.window,
-        page: historyPage(start, 100, start !== 1),
-        mode: "older",
-        atBottom: false,
-      });
-    }
-    const contextual = enterMessageContext(
-      transition.history,
-      transition.window,
-      contextPage(1_001, 500, 1_250)
-    );
-    const stats = retainedMessageWindowStats(contextual.history, contextual.window);
-
-    expect(contextual.history.searchContext).toHaveLength(400);
-    expect(contextual.window.latestTail?.messages).toHaveLength(100);
-    expect(contextual.history.messages).toHaveLength(0);
-    expect(stats.messages).toBe(MESSAGE_HISTORY_MAX_MESSAGES);
-    expect(stats.bytes).toBe(contextual.window.retainedBytes);
-  });
-
   test("advances older pagination when a stale viewport would discard the requested page", () => {
-    let transition = applyPrimaryHistoryPage({
-      current: undefined,
-      window: undefined,
-      page: historyPage(1_001, 100),
-      mode: "replace",
-      atBottom: true,
+    const viewport = (ids: ChannelMessageView[]) => ({
+      viewport: { fill: "older-first" as const, messageIds: new Set(ids.map(({ id }) => id)) },
     });
+    let transition = load(undefined, historyPage(1_001, 100), "replace");
     for (const start of [901, 801, 701, 601, 501]) {
-      transition = applyPrimaryHistoryPage({
-        current: transition.history,
-        window: transition.window,
-        page: historyPage(start, 100),
-        mode: "older",
-        atBottom: false,
-        viewport: {
-          fill: "older-first",
-          messageIds: new Set(transition.history.messages.slice(0, 10).map(({ id }) => id)),
-        },
-      });
+      transition = load(transition, historyPage(start, 100), "older", viewport(transition.history.messages.slice(0, 10)));
     }
     expect(transition.history.beforeSequence).toBe("501");
-    expect(transition.history.messages).toHaveLength(
-      MESSAGE_HISTORY_MAX_MESSAGES - MESSAGE_HISTORY_PAGE_SIZE
-    );
+    expect(transition.history.messages).toHaveLength(MESSAGE_HISTORY_MAX_MESSAGES - MESSAGE_HISTORY_PAGE_SIZE);
     expect(transition.window.latestTail?.messages).toHaveLength(MESSAGE_HISTORY_PAGE_SIZE);
 
-    const staleViewportIds = new Set(transition.history.messages.slice(-10).map(({ id }) => id));
-    const older = applyPrimaryHistoryPage({
-      current: transition.history,
-      window: transition.window,
-      page: historyPage(401, 100),
-      mode: "older",
-      atBottom: false,
-      viewport: { fill: "older-first", messageIds: staleViewportIds },
-    });
+    const older = load(transition, historyPage(401, 100), "older", viewport(transition.history.messages.slice(-10)));
     const stats = retainedMessageWindowStats(older.history, older.window);
-
     expect(older.history.beforeSequence).toBe("401");
     expect(older.history.messages[0]?.id).toBe("message-401");
     expect(older.history.messages.at(-1)?.id).toBe("message-800");
@@ -323,57 +194,35 @@ describe("desktop bounded message-history windows", () => {
   test("patches every retained copy, recomputes exact bytes, and invalidates context loading", () => {
     const root = message(1);
     const reply = { ...message(1_000), metadata: { replyTo: root.id } };
-    const initialHistory = {
-      ...emptyLoadedChannelHistory(),
-      messages: [root],
-      loadedAt: 1,
-    };
-    const entered = enterMessageContext(initialHistory, emptyChannelMessageWindow(), {
-      ...contextPage(1, 1, 1, false, false),
-      messages: [root],
-      threadContext: [],
-    });
-    const withTail = {
-      ...entered.window,
-      latestTail: {
-        messages: [reply],
-        threadContext: [root],
-        threadContextTruncated: false,
-        beforeSequence: reply.sequence,
-        hasMore: true,
-        revision: "1",
-        retainedBytes: retainedBytes([reply], [root]),
-      },
-    };
-    withTail.retainedBytes = retainedBytes(
-      entered.history.messages,
-      entered.history.threadContext,
-      entered.history.searchContext,
-      entered.history.searchThreadContext,
-      withTail.latestTail.messages,
-      withTail.latestTail.threadContext
+    const entered = enterMessageContext(
+      { ...emptyLoadedChannelHistory(), messages: [root], loadedAt: 1 },
+      emptyChannelMessageWindow(),
+      { ...contextPage(1, 1, 1, false, false), messages: [root] }
     );
-    const loadingWindow = setContextLoading(withTail, "newer");
-    const updated = {
-      ...root,
-      content: "updated root with reaction metadata",
-      metadata: { reactions: [] },
+    const latestTail = {
+      messages: [reply],
+      threadContext: [root],
+      threadContextTruncated: false,
+      beforeSequence: reply.sequence,
+      hasMore: true,
+      revision: "1",
+      retainedBytes: retainedBytes([reply], [root]),
     };
-    const patched = patchRetainedMessageWindow(entered.history, loadingWindow, updated);
-
-    expect(patched).not.toBeNull();
-    expect(patched?.window.generation).toBe(loadingWindow.generation + 1);
-    expect(patched?.window.context?.loadingDirection).toBeNull();
-    expect(patched?.history.messages.find(({ id }) => id === root.id)).toBe(updated);
-    expect(patched?.history.searchContext.find(({ id }) => id === root.id)).toBe(updated);
-    expect(patched?.window.latestTail?.threadContext.find(({ id }) => id === root.id)).toBe(
-      updated
+    const { history } = entered;
+    const loadingWindow = setContextLoading(
+      { ...entered.window, latestTail, retainedBytes: retainedBytes(history.messages, history.threadContext, history.searchContext, history.searchThreadContext, [reply], [root]) },
+      "newer"
     );
+    const updated = { ...root, content: "updated root with reaction metadata", metadata: { reactions: [] } };
+    const patched = patchRetainedMessageWindow(history, loadingWindow, updated);
     if (!patched) throw new Error("expected patched retained state");
-    const stats = retainedMessageWindowStats(patched.history, patched.window);
-    expect(stats.bytes).toBe(patched.window.retainedBytes);
-    expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
-    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+
+    expect(patched.window.generation).toBe(loadingWindow.generation + 1);
+    expect(patched.window.context?.loadingDirection).toBeNull();
+    expect(patched.history.messages.find(({ id }) => id === root.id)).toBe(updated);
+    expect(patched.history.searchContext.find(({ id }) => id === root.id)).toBe(updated);
+    expect(patched.window.latestTail?.threadContext.find(({ id }) => id === root.id)).toBe(updated);
+    expect(retainedMessageWindowStats(patched.history, patched.window).bytes).toBe(patched.window.retainedBytes);
     const reset = resetToLatestTail(patched.history, patched.window);
     expect(reset?.history.threadContext.find(({ id }) => id === root.id)).toBe(updated);
   });

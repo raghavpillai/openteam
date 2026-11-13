@@ -1,241 +1,81 @@
 import { describe, expect, test } from "bun:test";
 import type { ClientSnapshot } from "@openteam/contracts";
 import { createSnapshotIndex } from "../src/renderer/lib/snapshot-index";
-import {
-  createSnapshotCaches,
-  reconcileClientSnapshot,
-} from "../src/renderer/lib/snapshot-reconcile";
+import { createSnapshotCaches, reconcileClientSnapshot } from "../src/renderer/lib/snapshot-reconcile";
 
 const stamp = "2026-08-24T20:00:00.000Z";
+const COLLECTIONS = ["bots", "channels", "channelMessages", "channelRounds", "runs", "runItems", "subagents"] as const;
 
-function fixture(): ClientSnapshot {
-  return {
+const message = (id: string, sequence: string, sender: "user" | "agent", content: string) => ({
+  id, sequence, channelId: "channel-1", sender, senderBotId: sender === "agent" ? "bot-1" : null,
+  sourceRunId: "run-1", content, metadata: null as unknown, createdAt: stamp,
+});
+
+const fixture = () =>
+  ({
     cursor: "12",
-    workspace: {
-      root: "/workspace",
-      sharedDirectory: "/workspace",
-      botsDirectory: "/workspace/bots",
-    },
-    bots: [
-      {
-        id: "bot-1",
-        name: "Bot",
-        icon: "●",
-        color: "#2f8cff",
-        defaultDirectory: "/workspace/bots/bot",
-        status: "active",
-        createdAt: stamp,
-        updatedAt: stamp,
-        conversationId: "conversation-1",
-        dmChannelId: "channel-1",
-      },
-    ],
-    channels: [
-      {
-        id: "channel-1",
-        kind: "bot_dm",
-        name: "Bot",
-        description: "",
-        directKey: null,
-        workingDirectory: null,
-        members: [{ botId: "bot-1", ordinal: 0 }],
-        createdAt: stamp,
-        updatedAt: stamp,
-      },
-    ],
-    channelMessages: [
-      {
-        id: "message-1",
-        sequence: "10",
-        channelId: "channel-1",
-        sender: "user",
-        senderBotId: null,
-        sourceRunId: "run-1",
-        content: "Hello",
-        metadata: null,
-        createdAt: stamp,
-      },
-      {
-        id: "message-2",
-        sequence: "11",
-        channelId: "channel-1",
-        sender: "agent",
-        senderBotId: "bot-1",
-        sourceRunId: "run-1",
-        content: "Hi",
-        metadata: null,
-        createdAt: stamp,
-      },
-    ],
+    workspace: { root: "/workspace", sharedDirectory: "/workspace", botsDirectory: "/workspace/bots" },
+    bots: [{ id: "bot-1", name: "Bot", status: "active", dmChannelId: "channel-1", createdAt: stamp, updatedAt: stamp }],
+    channels: [{ id: "channel-1", kind: "bot_dm", name: "Bot", members: [{ botId: "bot-1", ordinal: 0 }], createdAt: stamp, updatedAt: stamp }],
+    channelMessages: [message("message-1", "10", "user", "Hello"), message("message-2", "11", "agent", "Hi")],
     channelRounds: [],
-    runs: [
-      {
-        id: "run-1",
-        botId: "bot-1",
-        conversationId: "conversation-1",
-        status: "running",
-        runtimeTurnId: "turn-1",
-        origin: "user",
-        channelId: "channel-1",
-        deliveryId: null,
-        error: null,
-        createdAt: stamp,
-        updatedAt: stamp,
-      },
-    ],
-    runItems: [
-      {
-        id: "item-1",
-        runId: "run-1",
-        kind: "tool",
-        status: "running",
-        title: "WebSearch",
-        content: null,
-        createdAt: stamp,
-        updatedAt: stamp,
-      },
-    ],
-    subagents: [
-      {
-        id: "subagent-1",
-        subagentId: "session-1",
-        parentBotId: "bot-1",
-        parentRunId: "run-1",
-        parentChannelId: "channel-1",
-        parentToolCallId: "tool-call-1",
-        currentRunId: "child-run-1",
-        description: "Inspect release state",
-        subagentType: "executor",
-        status: "running",
-        summary: null,
-        errorMessage: null,
-        startedAt: stamp,
-        completedAt: null,
-        stoppedAt: null,
-        createdAt: stamp,
-        updatedAt: stamp,
-      },
-    ],
-    runtime: {
-      server: "ready",
-      database: "ready",
-      queue: "ready",
-      computer: "ready",
-      inference: "ready",
-    },
-  };
-}
+    runs: [{ id: "run-1", botId: "bot-1", status: "running", runtimeTurnId: "turn-1", channelId: "channel-1", createdAt: stamp, updatedAt: stamp }],
+    runItems: [{ id: "item-1", runId: "run-1", kind: "tool", status: "running", title: "WebSearch", content: null as unknown, createdAt: stamp, updatedAt: stamp }],
+    subagents: [{ id: "subagent-1", parentRunId: "run-1", status: "running", createdAt: stamp, updatedAt: stamp }],
+    runtime: { server: "ready", database: "ready", queue: "ready", computer: "ready", inference: "ready" },
+  }) as unknown as ClientSnapshot;
 
 describe("desktop snapshot index", () => {
   test("keeps the running turn stoppable when a newer turn is queued", () => {
     const snapshot = fixture();
-    const running = snapshot.runs[0];
-    if (!running) throw new Error("fixture is missing its running turn");
-    snapshot.runs.push({
-      ...running,
-      id: "run-2",
-      status: "queued",
-      runtimeTurnId: null,
-    });
-
+    snapshot.runs.push({ ...snapshot.runs[0]!, id: "run-2", status: "queued", runtimeTurnId: null });
     expect(createSnapshotIndex(snapshot).activeRunByChannel.get("channel-1")?.id).toBe("run-1");
   });
 
-  test("preserves entity, collection, and snapshot identity across unchanged refreshes", () => {
+  test("keeps identity across unchanged refreshes and changes only the affected collection", () => {
     const caches = createSnapshotCaches();
     const first = reconcileClientSnapshot(fixture(), null, caches);
-    const second = reconcileClientSnapshot(fixture(), first, caches);
+    const same = reconcileClientSnapshot(fixture(), first, caches);
+    expect(same).toBe(first);
+    expect(same.channelMessages[0]).toBe(first.channelMessages[0]);
+    expect(same.runtime).toBe(first.runtime);
 
-    expect(second).toBe(first);
-    expect(second.channelMessages).toBe(first.channelMessages);
-    expect(second.channelMessages[0]).toBe(first.channelMessages[0]);
-    expect(second.runtime).toBe(first.runtime);
-  });
-
-  test("normalizes omitted collections at the unvalidated HTTP boundary", () => {
-    const legacySnapshot = fixture() as ClientSnapshot & Record<string, unknown>;
-    for (const key of [
-      "bots",
-      "channels",
-      "channelMessages",
-      "channelRounds",
-      "runs",
-      "runItems",
-      "subagents",
-    ]) {
-      delete legacySnapshot[key];
-    }
-
-    const reconciled = reconcileClientSnapshot(
-      legacySnapshot as ClientSnapshot,
-      null,
-      createSnapshotCaches()
-    );
-
-    expect(reconciled.bots).toEqual([]);
-    expect(reconciled.channels).toEqual([]);
-    expect(reconciled.channelMessages).toEqual([]);
-    expect(reconciled.channelRounds).toEqual([]);
-    expect(reconciled.runs).toEqual([]);
-    expect(reconciled.runItems).toEqual([]);
-    expect(reconciled.subagents).toEqual([]);
-  });
-
-  test("changes only the affected entity collection", () => {
-    const caches = createSnapshotCaches();
-    const first = reconcileClientSnapshot(fixture(), null, caches);
     const changed = fixture();
-    const changedRun = changed.runs[0];
-    if (!changedRun) throw new Error("fixture is missing its running turn");
-    changed.runs[0] = { ...changedRun, status: "completed" };
+    changed.runs[0] = { ...changed.runs[0]!, status: "completed" };
     const second = reconcileClientSnapshot(changed, first, caches);
-
     expect(second).not.toBe(first);
-    expect(second.runs).not.toBe(first.runs);
     expect(second.runs[0]).not.toBe(first.runs[0]);
     expect(second.channelMessages).toBe(first.channelMessages);
     expect(second.bots).toBe(first.bots);
   });
 
-  test("compares nested message metadata and array order while reusing unchanged bodies", () => {
-    const caches = createSnapshotCaches();
-    const input = fixture();
-    input.channelMessages[0]!.metadata = { nested: { values: [1, null, { ready: true }] } };
-    const first = reconcileClientSnapshot(input, null, caches);
-    const equal = reconcileClientSnapshot(structuredClone(input), first, caches);
-    expect(equal).toBe(first);
-    const changed = structuredClone(input);
-    changed.channelMessages[0]!.metadata = { nested: { values: [null, 1, { ready: true }] } };
-    const next = reconcileClientSnapshot(changed, first, caches);
-    expect(next.channelMessages[0]).not.toBe(first.channelMessages[0]);
-    expect(next.channelMessages[1]).toBe(first.channelMessages[1]);
+  test("normalizes omitted collections at the unvalidated HTTP boundary", () => {
+    const legacy = fixture() as ClientSnapshot & Record<string, unknown>;
+    for (const key of COLLECTIONS) delete legacy[key];
+    const reconciled = reconcileClientSnapshot(legacy, null, createSnapshotCaches());
+    for (const key of COLLECTIONS) expect(reconciled[key]).toEqual([]);
   });
 
-  test("preserves long bodies and detects same-length edits without refreshing unrelated entities", () => {
+  test("detects nested-metadata order changes and same-length long-body edits, reusing unchanged entities", () => {
     const caches = createSnapshotCaches();
     const input = fixture();
     const body = "original body ".repeat(1024);
     input.channelMessages[0]!.content = body;
+    input.channelMessages[0]!.metadata = { nested: { values: [1, null, { ready: true }] } };
     input.runItems[0]!.content = body;
     const first = reconcileClientSnapshot(input, null, caches);
-    const equal = reconcileClientSnapshot(JSON.parse(JSON.stringify(input)), first, caches);
-    expect(equal).toBe(first);
-    expect(equal.channelMessages[0]!.content).toBe(body);
-    expect(equal.runItems[0]!.content).toBe(body);
+    expect(reconcileClientSnapshot(JSON.parse(JSON.stringify(input)), first, caches)).toBe(first);
 
-    const changed = structuredClone(input);
-    changed.channelMessages[0]!.content = body.slice(0, -1) + "!";
-    const next = reconcileClientSnapshot(changed, first, caches);
-    expect(next.channelMessages[0]).not.toBe(first.channelMessages[0]);
-    expect(next.channelMessages[0]!.content).toBe(changed.channelMessages[0]!.content);
+    const reordered = structuredClone(input);
+    reordered.channelMessages[0]!.metadata = { nested: { values: [null, 1, { ready: true }] } };
+    expect(reconcileClientSnapshot(reordered, first, caches).channelMessages[0]).not.toBe(first.channelMessages[0]);
+
+    const edited = structuredClone(input);
+    edited.channelMessages[0]!.content = body.slice(0, -1) + "!";
+    const next = reconcileClientSnapshot(edited, first, caches);
+    expect(next.channelMessages[0]!.content).toBe(edited.channelMessages[0]!.content);
     expect(next.channelMessages[1]).toBe(first.channelMessages[1]);
     expect(next.runItems).toBe(first.runItems);
-
-    const metadataChanged = structuredClone(changed);
-    metadataChanged.channelMessages[0]!.metadata = { toolResult: { rows: [1, 2, 3] } };
-    const final = reconcileClientSnapshot(metadataChanged, next, caches);
-    expect(final.channelMessages[0]).not.toBe(next.channelMessages[0]);
-    expect(final.channelMessages[0]!.content).toBe(changed.channelMessages[0]!.content);
   });
 
   test("handles deeply nested JSON metadata without overflowing the comparator stack", () => {
@@ -245,14 +85,13 @@ describe("desktop snapshot index", () => {
       return value;
     };
     const caches = createSnapshotCaches();
-    const input = fixture();
-    input.channelMessages[0]!.metadata = nested("unchanged");
-    const first = reconcileClientSnapshot(input, null, caches);
-    const equal = fixture();
-    equal.channelMessages[0]!.metadata = nested("unchanged");
-    expect(reconcileClientSnapshot(equal, first, caches)).toBe(first);
-    const changed = fixture();
-    changed.channelMessages[0]!.metadata = nested("changed");
-    expect(reconcileClientSnapshot(changed, first, caches).channelMessages[0]).not.toBe(first.channelMessages[0]);
+    const withMetadata = (leaf: string) => {
+      const snapshot = fixture();
+      snapshot.channelMessages[0]!.metadata = nested(leaf) as never;
+      return snapshot;
+    };
+    const first = reconcileClientSnapshot(withMetadata("unchanged"), null, caches);
+    expect(reconcileClientSnapshot(withMetadata("unchanged"), first, caches)).toBe(first);
+    expect(reconcileClientSnapshot(withMetadata("changed"), first, caches).channelMessages[0]).not.toBe(first.channelMessages[0]);
   });
 });

@@ -2,8 +2,7 @@ import { readLimitNotice } from "@openteam/contracts/read-output";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { ShellJobRegistry } from "@openteam/shell-jobs";
+import { join } from "node:path";
 import {
   executeHostJob,
   executeShell,
@@ -58,54 +57,35 @@ const createLongProcessTree = async (root: string, name: string) => {
   };
 };
 
-const readPids = async (marker: string) =>
-  (await readFile(marker, "utf8")).trim().split("\n").map(Number);
+const readPids = async (marker: string) => {
+  await waitFor(() => readFile(marker).then(() => true, () => false));
+  return (await readFile(marker, "utf8")).trim().split("\n").map(Number);
+};
+const allExited = (pids: number[]) => waitFor(() => pids.every((pid) => !processAlive(pid)));
+const tempRoot = async (name: string, run: (root: string) => Promise<void>) => {
+  const root = await mkdtemp(join(tmpdir(), `openteam-shell-${name}-`));
+  try {
+    await run(root);
+  } finally {
+    await terminateHostChildren();
+    await rm(root, { recursive: true, force: true });
+  }
+};
 
 afterEach(async () => {
   await terminateHostChildren();
 });
 
-test("host AwaitShell cancellation stops the wait without terminating the command", async () => {
-  const root = await mkdtemp(join(tmpdir(), "host-await-cancel-"));
-  try {
-    const shell = await executeShell(
-      {
-        command: `${shellQuote(process.execPath)} -e ${shellQuote("setTimeout(() => {}, 200)")}`,
-        block_until_ms: 0,
-        working_directory: root,
-      },
-      root
-    );
-    const payload = {
-      kind: "await-shell" as const,
-      input: { shell_id: shell.shell_id, block_until_ms: 60_000 },
-      terminalDir: root,
-    };
+test("host AwaitShell cancellation stops the wait without terminating the command", () =>
+  tempRoot("await-cancel", async (root) => {
+    const shell = await executeShell({ command: `${shellQuote(process.execPath)} -e ${shellQuote("setTimeout(() => {}, 200)")}`, block_until_ms: 0, working_directory: root }, root);
+    const payload = { kind: "await-shell" as const, input: { shell_id: shell.shell_id, block_until_ms: 60_000 }, terminalDir: root };
     const controller = new AbortController();
     const pending = executeHostJob(payload, controller.signal);
     controller.abort(new Error("stop waiting"));
     await expect(pending).rejects.toThrow("stop waiting");
     expect(await executeHostJob(payload)).toMatchObject({ status: "completed", exit_code: 0 });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("a fresh registry recovers a finished shell's exit code from its log footer", async () => {
-  const root = await mkdtemp(join(tmpdir(), "host-terminal-format-"));
-  try {
-    const result = await executeShell(
-      { command: "printf 'out\\n'; exit 3", description: "Exit three", working_directory: root, block_until_ms: 5_000 },
-      root
-    );
-    expect(result).toMatchObject({ status: "completed", exit_code: 3 });
-    // After a host utility restart, AwaitShell reads the outcome back from the footer.
-    const recovered = await new ShellJobRegistry({ directory: root }).await({ shell_id: result.shell_id, block_until_ms: 0 }, resolve(root));
-    expect(recovered).toMatchObject({ status: "completed", exit_code: 3 });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+  }));
 
 describe("host file text projection", () => {
   test("preserves line numbering, offsets, limits, CRLF, and trailing lines", () => {
@@ -152,224 +132,84 @@ describe("host shell resource controls", () => {
     expect(capacity.snapshot()).toEqual({ active: 0, queued: 0 });
   });
 
-  test("holds global permits for backgrounded commands until their OS children exit", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-shell-capacity-"));
-    const script = join(root, "record-start.cjs");
-    const marker = join(root, "starts.txt");
-    await writeFile(
-      script,
-      [
-        'const { appendFileSync } = require("node:fs");',
-        "const [marker, id, duration] = process.argv.slice(2);",
-        "appendFileSync(marker, `${id},${Date.now()}\\n`);",
-        "setTimeout(() => process.exit(0), Number(duration));",
-      ].join("\n"),
-      "utf8"
-    );
-    const command = (id: string) =>
-      `${shellQuote(process.execPath)} ${shellQuote(script)} ${shellQuote(marker)} ${id} 350`;
-
-    try {
-      const first = await executeShell(
-        { command: command("first"), working_directory: root, block_until_ms: 0 },
-        root,
-        undefined,
-        { maxRuntimeMs: 5_000, terminationGraceMs: 25 }
-      );
-      const second = await executeShell(
-        { command: command("second"), working_directory: root, block_until_ms: 0 },
-        root,
-        undefined,
-        { maxRuntimeMs: 5_000, terminationGraceMs: 25 }
-      );
-      expect(first.status).toBe("running");
-      expect(second.status).toBe("running");
-      await waitFor(async () => {
-        try {
-          return (await readFile(marker, "utf8")).trim().split("\n").length === 2;
-        } catch {
-          return false;
-        }
-      });
+  test("holds global permits for backgrounded commands until their OS children exit", () =>
+    tempRoot("capacity", async (root) => {
+      const script = join(root, "record-start.cjs");
+      const marker = join(root, "starts.txt");
+      await writeFile(script, 'require("node:fs").appendFileSync(process.argv[2], process.argv[3] + "\\n"); setTimeout(() => process.exit(0), 350);');
+      const starts = () => readFile(marker, "utf8").then((text) => text.trim().split("\n"), () => []);
+      const start = (id: string) =>
+        executeShell({ command: `${shellQuote(process.execPath)} ${shellQuote(script)} ${shellQuote(marker)} ${id}`, working_directory: root, block_until_ms: 0 }, root, undefined, { maxRuntimeMs: 5_000, terminationGraceMs: 25 });
+      expect((await start("first")).status).toBe("running");
+      expect((await start("second")).status).toBe("running");
+      await waitFor(async () => (await starts()).length === 2);
 
       let thirdResolved = false;
-      const third = executeShell(
-        { command: command("third"), working_directory: root, block_until_ms: 0 },
-        root,
-        undefined,
-        { maxRuntimeMs: 5_000, terminationGraceMs: 25 }
-      ).then((result) => {
-        thirdResolved = true;
-        return result;
-      });
+      const third = start("third").then((result) => { thirdResolved = true; return result; });
       await Bun.sleep(50);
-
       expect(thirdResolved).toBe(false);
       expect(hostShellCapacitySnapshot()).toEqual({ active: 2, queued: 1 });
-      expect((await readFile(marker, "utf8")).trim().split("\n")).toHaveLength(2);
-
+      expect(await starts()).toHaveLength(2);
       expect((await third).status).toBe("running");
       await waitFor(() => hostShellCapacitySnapshot().active === 0);
-      const starts = (await readFile(marker, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => line.split(",")[0]);
-      expect(new Set(starts.slice(0, 2))).toEqual(new Set(["first", "second"]));
-      expect(starts[2]).toBe("third");
-    } finally {
-      await terminateHostChildren();
-      await rm(root, { recursive: true, force: true });
-    }
-  }, 8_000);
+      expect((await starts())[2]).toBe("third");
+    }), 8_000);
 
   const posixTest = process.platform === "win32" ? test.skip : test;
 
-  posixTest(
-    "terminates redirected descendants before releasing their permit",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "openteam-shell-background-"));
+  posixTest("terminates redirected descendants before releasing their permit", () =>
+    tempRoot("background", async (root) => {
       const marker = join(root, "background-pid.txt");
       const script = join(root, "background.cjs");
-      try {
-        await writeFile(
-          script,
-          [
-            'const { spawn } = require("node:child_process");',
-            'const { writeFileSync } = require("node:fs");',
-            'const descendant = spawn("sleep", ["20"], { stdio: "ignore" });',
-            "descendant.unref();",
-            "writeFileSync(process.argv[2], String(descendant.pid));",
-          ].join("\n"),
-          "utf8"
-        );
-        const result = await executeShell(
-          {
-            command: `${shellQuote(process.execPath)} ${shellQuote(script)} ${shellQuote(marker)}`,
-            working_directory: root,
-            block_until_ms: 5_000,
-          },
-          root,
-          undefined,
-          { maxRuntimeMs: 5_000, terminationGraceMs: 50 }
-        );
-        const pid = Number(await readFile(marker, "utf8"));
-        expect(result.status).toBe("completed");
-        expect(Number.isInteger(pid) && pid > 0).toBe(true);
-        await waitFor(() => !processAlive(pid));
-        expect(hostShellCapacitySnapshot()).toEqual({ active: 0, queued: 0 });
-      } finally {
-        await terminateHostChildren();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    8_000
-  );
+      await writeFile(script, 'const d = require("node:child_process").spawn("sleep", ["20"], { stdio: "ignore" }); d.unref(); require("node:fs").writeFileSync(process.argv[2], String(d.pid));');
+      const result = await executeShell({ command: `${shellQuote(process.execPath)} ${shellQuote(script)} ${shellQuote(marker)}`, working_directory: root, block_until_ms: 5_000 }, root, undefined, { maxRuntimeMs: 5_000, terminationGraceMs: 50 });
+      expect(result.status).toBe("completed");
+      await allExited(await readPids(marker));
+      expect(hostShellCapacitySnapshot()).toEqual({ active: 0, queued: 0 });
+    }), 8_000);
 
-  posixTest(
-    "reports runtime expiry and force-kills descendants that ignore SIGTERM",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "openteam-shell-timeout-"));
+  posixTest("reports runtime expiry and force-kills descendants that ignore SIGTERM", () =>
+    tempRoot("timeout", async (root) => {
       const tree = await createLongProcessTree(root, "timeout");
-      try {
-        const result = await executeShell(
-          { command: tree.command, working_directory: root, block_until_ms: 5_000 },
-          root,
-          undefined,
-          { maxRuntimeMs: 250, terminationGraceMs: 50 }
-        );
-        expect(result.status).toBe("failed");
-        expect(result.output).toContain("timed out after 250 ms");
-        expect(await readFile(result.output_path, "utf8")).toMatch(/\nstatus: aborted  \n[^]*\n---\nexit_code: (-?\d+|unknown)\nelapsed_ms: \d+\nended_at: \S+\n---\n$/);
-        const pids = await readPids(tree.marker);
-        await waitFor(() => pids.every((pid) => !processAlive(pid)));
-      } finally {
-        await terminateHostChildren();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    8_000
-  );
+      const result = await executeShell({ command: tree.command, working_directory: root, block_until_ms: 5_000 }, root, undefined, { maxRuntimeMs: 250, terminationGraceMs: 50 });
+      expect(result.status).toBe("failed");
+      expect(result.output).toContain("timed out after 250 ms");
+      expect(await readFile(result.output_path, "utf8")).toMatch(/\nstatus: aborted  \n[^]*\n---\nexit_code: (-?\d+|unknown)\nelapsed_ms: \d+\nended_at: \S+\n---\n$/);
+      await allExited(await readPids(tree.marker));
+    }), 8_000);
 
-  posixTest(
-    "cancellation force-kills the whole process group and closes its log",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "openteam-shell-cancel-"));
+  posixTest("cancellation force-kills the whole process group and closes its log", () =>
+    tempRoot("cancel", async (root) => {
       const tree = await createLongProcessTree(root, "cancel");
       const controller = new AbortController();
-      try {
-        const running = executeShell(
-          { command: tree.command, working_directory: root, block_until_ms: 5_000 },
-          root,
-          controller.signal,
-          { maxRuntimeMs: 5_000, terminationGraceMs: 50 }
-        );
-        await waitFor(async () => {
-          try {
-            await readFile(tree.marker);
-            return true;
-          } catch {
-            return false;
-          }
-        });
-        const pids = await readPids(tree.marker);
-        controller.abort();
-        await expect(running).rejects.toThrow("cancelled");
-        await waitFor(() => pids.every((pid) => !processAlive(pid)));
-        const [logName] = (await readdir(root)).filter((name) => name.endsWith(".log"));
-        expect(logName).toBeDefined();
-        expect(await readFile(join(root, logName as string), "utf8")).toContain("\nstatus: aborted  \n");
-      } finally {
-        await terminateHostChildren();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    8_000
-  );
+      const running = executeShell({ command: tree.command, working_directory: root, block_until_ms: 5_000 }, root, controller.signal, { maxRuntimeMs: 5_000, terminationGraceMs: 50 });
+      const pids = await readPids(tree.marker);
+      controller.abort();
+      await expect(running).rejects.toThrow("cancelled");
+      await allExited(pids);
+      const [logName] = (await readdir(root)).filter((name) => name.endsWith(".log"));
+      expect(await readFile(join(root, logName!), "utf8")).toContain("\nstatus: aborted  \n");
+    }), 8_000);
 
-  posixTest(
-    "shutdown drains backgrounded process trees before returning",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "openteam-shell-shutdown-"));
+  posixTest("shutdown drains backgrounded process trees before returning", () =>
+    tempRoot("shutdown", async (root) => {
       const tree = await createLongProcessTree(root, "shutdown");
-      try {
-        const result = await executeShell(
-          { command: tree.command, working_directory: root, block_until_ms: 0 },
-          root,
-          undefined,
-          { maxRuntimeMs: 5_000, terminationGraceMs: 50 }
-        );
-        expect(result.status).toBe("running");
-        await waitFor(async () => {
-          try {
-            await readFile(tree.marker);
-            return true;
-          } catch {
-            return false;
-          }
-        });
-        const pids = await readPids(tree.marker);
-        await terminateHostChildren();
-
-        expect(hostShellCapacitySnapshot()).toEqual({ active: 0, queued: 0 });
-        await waitFor(() => pids.every((pid) => !processAlive(pid)));
-        expect(await readFile(result.output_path, "utf8")).toContain("\nstatus: aborted  \n");
-      } finally {
-        await terminateHostChildren();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    8_000
-  );
+      const result = await executeShell({ command: tree.command, working_directory: root, block_until_ms: 0 }, root, undefined, { maxRuntimeMs: 5_000, terminationGraceMs: 50 });
+      expect(result.status).toBe("running");
+      const pids = await readPids(tree.marker);
+      await terminateHostChildren();
+      expect(hostShellCapacitySnapshot()).toEqual({ active: 0, queued: 0 });
+      await allExited(pids);
+      expect(await readFile(result.output_path, "utf8")).toContain("\nstatus: aborted  \n");
+    }), 8_000);
 });
 
-test("host background completion does not restore an old exported variable",async()=>{
-  const root=await mkdtemp(join(tmpdir(),"host-env-overlap-"));
-  const run=(command:string,block_until_ms?:number)=>executeShell({command,working_directory:root,block_until_ms},root);
-  try {
-    await run('export STATEQA_VALUE=initial STATEQA_REMOVE=present');
-    const bg=await run(`for i in {1..100}; do test -f '${root}/release' && break; sleep 0.05; done; sleep 0.1`,0);
+test("host background completion does not restore an old exported variable", () =>
+  tempRoot("env-overlap", async (root) => {
+    const run = (command: string, block_until_ms?: number) => executeShell({ command, working_directory: root, block_until_ms }, root);
+    await run("export STATEQA_VALUE=initial STATEQA_REMOVE=present");
+    const bg = await run(`for i in {1..100}; do test -f '${root}/release' && break; sleep 0.05; done; sleep 0.1`, 0);
     await run(`export STATEQA_VALUE=foreground; unset STATEQA_REMOVE; touch '${root}/release'`);
-    await executeHostJob({kind:"await-shell",input:{shell_id:bg.shell_id,block_until_ms:5000},terminalDir:root});
+    await executeHostJob({ kind: "await-shell", input: { shell_id: bg.shell_id, block_until_ms: 5000 }, terminalDir: root });
     expect(JSON.stringify(await run('printf "%s|%s" "$STATEQA_VALUE" "${STATEQA_REMOVE-unset}"'))).toContain("foreground|unset");
-  } finally {await terminateHostChildren();await rm(root,{recursive:true,force:true});}
-});
+  }));

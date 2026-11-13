@@ -3,86 +3,42 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "../../src/renderer/styles.css";
 import { Onboarding } from "../../src/renderer/components/openteam/onboarding";
-import { SettingsPanel } from "../../src/renderer/components/openteam/settings/panel";
-import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
-import ServerSettings from "../../src/renderer/components/openteam/settings/server";
 
-// Renders the first-run wizard or Settings → Server against a server (or fixture)
-// behind the Vite /api proxy. ?view=settings, ?computer=down, ?offline=1, ?bots=1, ?voice=on,
-// ?theme=dark, ?createFails=1. window.openteamQA.addBot(name) makes a bot "on another
-// device" while the wizard is open.
+// The first-run wizard against a server (or fixture) behind the Vite /api proxy. ?theme=dark,
+// ?createFails=N fails the first N bot creations; window.openteamQA.addBot(name) makes a bot
+// "on another device" while the wizard is open.
 const params = new URL(window.location.href).searchParams;
 document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark" : "light";
-const computerDown = params.get("computer") === "down";
-// Like the real server, the overall status degrades when any part is down.
-const runtime = {
-  server: computerDown ? "degraded" : "ready",
-  database: "ready",
-  queue: "ready",
-  computer: computerDown ? "unavailable" : "ready",
-  inference: (params.get("inference") ?? "missing") as "ready" | "missing",
-  transcription: params.get("voice") === "on" ? "configured" : "missing",
-} as const;
+const runtime = { server: "ready", database: "ready", queue: "ready", computer: "ready", inference: "missing", transcription: "missing" } as const;
 
-// The server check reads the runtime itself; answer it here (or fail, with ?offline=1).
+// The server check reads the runtime itself; answer it here.
 const realFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
-  if (url.pathname.endsWith("/api/v0/client-runtime")) {
-    if (params.get("offline") === "1") throw new TypeError("Failed to fetch");
-    return Response.json({ runtime });
-  }
+  if (url.pathname.endsWith("/api/v0/client-runtime")) return Response.json({ runtime });
   return realFetch(input, init);
 };
 
-const fakeBot = (name: string, index: number): BotView =>
-  ({
-    id: `qa-bot-${index}`,
-    name,
-    icon: "chip",
-    color: "#7c5cff",
-    description: "Finds, compares, and summarizes information from the web, with sources.",
-    dmChannelId: `qa-channel-${index}`,
-  }) as BotView;
-
-// ?createFails=N makes the first N bot creations fail, to check the retry.
+const fakeBot = (name: string, index: number) =>
+  ({ id: `qa-bot-${index}`, name, icon: "chip", color: "#7c5cff", description: "Finds and summarizes information.", dmChannelId: `qa-channel-${index}` }) as BotView;
 let createFailures = Number(params.get("createFails") ?? 0);
 
 function QA() {
   const [result, setResult] = React.useState<string | null>(null);
-  const [bots, setBots] = React.useState<BotView[]>(() =>
-    params.get("bots") === "1" ? [fakeBot("Atlas", 0)] : []
-  );
+  const [bots, setBots] = React.useState<BotView[]>([]);
   React.useEffect(() => {
     (window as unknown as { openteamQA: unknown }).openteamQA = {
-      addBot: (name: string) =>
-        setBots((current) => [...current, fakeBot(name, current.length + 1)]),
+      addBot: (name: string) => setBots((current) => [...current, fakeBot(name, current.length + 1)]),
     };
   }, []);
-  const [settingsOpen, setSettingsOpen] = React.useState(true);
-  if (params.get("view") === "model-settings") return (
-    <TooltipProvider>
-      <button onClick={() => setSettingsOpen(true)}>Open settings</button>
-      <SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} target={params.has("anchor") ? {anchor: "inference-model", nonce: 1} : undefined} />
-    </TooltipProvider>
-  );
   if (result) return <main style={{ padding: 60, font: "14px -apple-system" }}>{result}</main>;
-  return params.get("view") === "settings" ? (
-    <main className="bg-[#fcfcfc] p-8 text-foreground dark:bg-[#070707]" style={{ width: 702 }}>
-      <ServerSettings />
-    </main>
-  ) : (
+  return (
     <Onboarding
       bots={bots}
       onCreateBot={async (profile) => {
         await new Promise((resolve) => setTimeout(resolve, 300));
-        if (createFailures > 0) {
-          createFailures -= 1;
-          throw new Error("The server couldn't create the bot. Try again.");
-        }
-        setResult(
-          `Created bot: ${profile.name} · ${profile.icon} · ${profile.color} · ${profile.description}`
-        );
+        if (createFailures-- > 0) throw new Error("The server couldn't create the bot. Try again.");
+        setResult(`Created bot: ${profile.name}`);
       }}
       onFinish={() => setResult("Onboarding finished")}
       onOpenBot={async (bot) => setResult(`Opened bot: ${bot.name}`)}
@@ -91,6 +47,4 @@ function QA() {
   );
 }
 
-const root = createRoot(document.getElementById("root")!);
-import.meta.hot?.dispose(() => root.unmount());
-root.render(<QA />);
+createRoot(document.getElementById("root")!).render(<QA />);

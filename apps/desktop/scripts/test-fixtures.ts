@@ -201,10 +201,7 @@ async function onboarding() {
       if (path.endsWith("/transcription") && method !== "GET") methods.push(method);
       if (path.endsWith("/transcription/check") && failVoiceCheck) {
         failVoiceCheck = false;
-        return Response.json(
-          { error: { message: "Voice service refused the key." } },
-          { status: 400 }
-        );
+        return Response.json({ error: { message: "Voice service refused the key." } }, { status: 400 });
       }
       return (
         webProviders(path, method, input) ??
@@ -224,92 +221,77 @@ async function onboarding() {
     const base = vite.resolvedUrls?.local[0];
     assert.ok(base, "Vite must expose a local URL");
     browser = await chromium.launch({
-      executablePath:
-        process.env.ONBOARDING_CHROMIUM ??
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      executablePath: process.env.ONBOARDING_CHROMIUM ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       headless: true,
       timeout: 30_000,
     });
-    {
-      const page = await browser.newPage({ viewport: { width: 1320, height: 860 } });
-      page.setDefaultTimeout(15_000);
-      const errors: string[] = [];
-      page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto(`${base}test/browser/fixture.html?page=model-onboarding&theme=dark&createFails=1`);
-      const title = (value: string) =>
-        page.getByRole("heading", { name: value, exact: true }).waitFor();
-      const button = (name: string) => page.getByRole("button", { name, exact: true });
-      await title("You're already connected");
-      for (const back of ["button", "escape"]) {
-        await button("Use a different AI").click();
-        await title("Choose your bots' AI");
-        assert.equal(await page.getByText("Skip for now", { exact: false }).count(), 0);
-        if (back === "button") await button("Back").click();
-        else await page.keyboard.press("Escape");
-        await title("You're already connected");
-      }
-
+    const page = await browser.newPage({ viewport: { width: 1320, height: 860 } });
+    page.setDefaultTimeout(15_000);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${base}test/browser/fixture.html?page=model-onboarding&theme=dark&createFails=1`);
+    const title = (value: string) => page.getByRole("heading", { name: value, exact: true }).waitFor();
+    const button = (name: string) => page.getByRole("button", { name, exact: true });
+    await title("You're already connected");
+    for (const back of ["button", "escape"]) {
       await button("Use a different AI").click();
-      await page.getByRole("button", { name: /^ChatGPT Your/ }).click();
-      await page.getByRole("button", { name: /^Use an OpenAI API key/ }).click();
-      await page.getByRole("textbox", { name: "API key" }).fill("qa-invalid-key");
-      await button("Connect").click();
-      await page.getByText("OpenAI didn't accept that key. Check it and try again.").waitFor();
-      await page.keyboard.press("Escape");
-      await title("Connect ChatGPT");
-      await page.keyboard.press("Escape");
+      await title("Choose your bots' AI");
+      assert.equal(await page.getByText("Skip for now", { exact: false }).count(), 0);
+      if (back === "button") await button("Back").click();
+      else await page.keyboard.press("Escape");
       await title("You're already connected");
-      await page.getByText("OpenRouter · Saved QA model is connected and replying.").waitFor();
-      await button("Keep it").click();
-      await title("Let your bots search the web");
-      await page.getByRole("button", { name: /^Search provider: Exa/ }).getByText("Recommended").waitFor();
-      const searchKey = page.getByRole("textbox", { name: "Exa API key" });
-      await searchKey.fill("qa-bad-search-key");
-      await button("Turn on web search").click();
-      await page.getByText("The search service refused the key.").waitFor();
-      assert.equal(web.search.selected, null);
-      assert.equal(web.search.providers.exa?.secretSaved, false);
-      await searchKey.fill("qa-search-key");
-      await button("Turn on web search").click();
-      await title("Web search is on");
-      assert.equal(web.search.selected, "exa");
-      await title("Talk instead of type?");
-      const key = page.getByRole("textbox", { name: "API key" });
-      await key.fill("qa-openai-key");
-      await page.getByRole("radio", { name: "Deepgram" }).click();
-      assert.equal(await key.inputValue(), "");
-      await key.fill("qa-voice-key");
-      failVoiceCheck = true;
-      await button("Turn on voice notes").click();
-      await page.getByText("Voice service refused the key.").waitFor();
-      assert.equal(setup.voice.enabled, false);
-      await button("Turn on voice notes").click();
-      await title("Voice notes are on");
-      assert.equal(setup.voice.configured, true);
-      assert.deepEqual(methods, ["PUT", "PUT", "PUT"]);
-      await title("Create your first bot");
-      await page.waitForFunction(() => !document.documentElement.dataset.setupDirection);
-      await page.getByRole("textbox", { name: "Bot name" }).fill("My QA bot");
-      await button("Create My QA bot").click();
-      await page
-        .getByRole("alert")
-        .filter({ hasText: "The server couldn't create the bot." })
-        .waitFor();
-      await page.evaluate(() => {
-        (window as unknown as { openteamQA: { addBot: (name: string) => void } }).openteamQA.addBot(
-          "Other QA bot"
-        );
-      });
-      await title("Other QA bot is already here");
-      assert.equal(await page.getByRole("alert").count(), 0);
-      await button("Open it").click();
-      await page.getByText("Opened bot: Other QA bot", { exact: true }).waitFor();
-      assert.deepEqual(errors, []);
-      console.log(
-        `saved AI Back/Esc, refused alternative, search key rollback, voice key reset, PUT save/rollback/retry, bot error recovery passed`
-      );
-      await page.close();
     }
+
+    await button("Use a different AI").click();
+    await page.getByRole("button", { name: /^ChatGPT Your/ }).click();
+    await page.getByRole("button", { name: /^Use an OpenAI API key/ }).click();
+    await page.getByRole("textbox", { name: "API key" }).fill("qa-invalid-key");
+    await button("Connect").click();
+    await page.getByText("OpenAI didn't accept that key. Check it and try again.").waitFor();
+    await page.keyboard.press("Escape");
+    await title("Connect ChatGPT");
+    await page.keyboard.press("Escape");
+    await title("You're already connected");
+    await page.getByText("OpenRouter · Saved QA model is connected and replying.").waitFor();
+    await button("Keep it").click();
+    await title("Let your bots search the web");
+    await page.getByRole("button", { name: /^Search provider: Exa/ }).getByText("Recommended").waitFor();
+    const searchKey = page.getByRole("textbox", { name: "Exa API key" });
+    await searchKey.fill("qa-bad-search-key");
+    await button("Turn on web search").click();
+    await page.getByText("The search service refused the key.").waitFor();
+    assert.equal(web.search.selected, null);
+    assert.equal(web.search.providers.exa?.secretSaved, false);
+    await searchKey.fill("qa-search-key");
+    await button("Turn on web search").click();
+    await title("Web search is on");
+    assert.equal(web.search.selected, "exa");
+    await title("Talk instead of type?");
+    const key = page.getByRole("textbox", { name: "API key" });
+    await key.fill("qa-openai-key");
+    await page.getByRole("radio", { name: "Deepgram" }).click();
+    assert.equal(await key.inputValue(), "");
+    await key.fill("qa-voice-key");
+    failVoiceCheck = true;
+    await button("Turn on voice notes").click();
+    await page.getByText("Voice service refused the key.").waitFor();
+    assert.equal(setup.voice.enabled, false);
+    await button("Turn on voice notes").click();
+    await title("Voice notes are on");
+    assert.equal(setup.voice.configured, true);
+    assert.deepEqual(methods, ["PUT", "PUT", "PUT"]);
+    await title("Create your first bot");
+    await page.waitForFunction(() => !document.documentElement.dataset.setupDirection);
+    await page.getByRole("textbox", { name: "Bot name" }).fill("My QA bot");
+    await button("Create My QA bot").click();
+    await page.getByRole("alert").filter({ hasText: "The server couldn't create the bot." }).waitFor();
+    await page.evaluate(() => (window as unknown as { openteamQA: { addBot: (name: string) => void } }).openteamQA.addBot("Other QA bot"));
+    await title("Other QA bot is already here");
+    assert.equal(await page.getByRole("alert").count(), 0);
+    await button("Open it").click();
+    await page.getByText("Opened bot: Other QA bot", { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+    console.log("PASS onboarding: saved AI Back/Esc, refused alternative, search key rollback, voice key reset, PUT save/rollback/retry, bot error recovery");
   } finally {
     await browser?.close();
     await vite.close();

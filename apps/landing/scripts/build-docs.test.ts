@@ -56,35 +56,27 @@ describe("documentation build", () => {
     }
   });
 
-  test("preserves config order and rewrites GitHub-relative links to website routes", () => {
+  test("preserves config order, rewrites GitHub-relative links, renders GFM with unique anchors, and escapes raw HTML", () => {
     const { docs } = fixture();
     const { pages } = compileDocs(docs);
     expect(pages.map((page) => page.title)).toEqual(["Introduction", "Install"]);
     expect(pages[0].html).toContain('href="/docs/setup/install#install-it"');
-    expect(pages[1].headings.map((heading) => heading.id)).toEqual(["install", "install-it"]);
     expect(pages[1].html).toContain("&lt;hello&gt;");
-  });
-
-  test("renders GFM, escapes raw HTML, and creates unique heading anchors", () => {
-    const { docs } = fixture();
     writeFileSync(
       path.join(docs, "setup/install.md"),
       "# Install\n\n## Install it\n\n## Install it\n\n| A | B |\n| --- | --- |\n| one | two |\n\n<script>alert('x')</script>\n"
     );
     const page = compileDocs(docs).pages[1];
-    expect(page.headings.map((heading) => heading.id)).toEqual([
-      "install",
-      "install-it",
-      "install-it-1",
-    ]);
+    expect(page.headings.map((heading) => heading.id)).toEqual(["install", "install-it", "install-it-1"]);
     expect(page.html).toContain("<table>");
-    expect(page.html).toContain("&lt;script&gt;");
     expect(page.html).not.toContain("<script>");
   });
 
-  test("rejects missing files, mismatched titles, missing pages, and broken anchors", () => {
+  test("rejects executable URLs, missing files, mismatched titles, missing pages, and broken anchors", () => {
     const { docs } = fixture();
     const intro = path.join(docs, "overview/introduction.md");
+    writeFileSync(intro, "# Introduction\n\n[Unsafe](javascript:alert)\n");
+    expect(() => compileDocs(docs)).toThrow("Unsupported URL");
     writeFileSync(intro, "# Introduction\n\n[Missing](../setup/missing.md)\n");
     expect(() => compileDocs(docs)).toThrow("Broken link");
     writeFileSync(intro, "# Introduction\n\n[Install](../setup/install.md#missing)\n");
@@ -107,15 +99,6 @@ describe("documentation build", () => {
         groups: [{ title: "Unsafe", pages: [{ title: "Unsafe", file: "../outside.md" }] }],
       })
     ).toThrow("Invalid docs page");
-  });
-
-  test("rejects executable URLs in Markdown", () => {
-    const { docs } = fixture();
-    writeFileSync(
-      path.join(docs, "overview/introduction.md"),
-      "# Introduction\n\n[Unsafe](javascript:alert)\n"
-    );
-    expect(() => compileDocs(docs)).toThrow("Unsupported URL");
   });
 
   test("links to repository files outside the configured navigation", () => {

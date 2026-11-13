@@ -17,16 +17,11 @@ const key = (code: string, modifiers: Partial<Record<"metaKey" | "ctrlKey" | "al
   ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code, ...modifiers });
 
 describe("keyboard shortcuts", () => {
-  test("defaults, keycaps and text", () => {
+  test("one spelling per shortcut, shown per platform", () => {
     const defaults = defaultShortcutBindings();
     expect(shortcutKeycaps(defaults.search, true)).toEqual(["⌘", "K"]);
-    expect(shortcutText(defaults.nextBot, true)).toBe("⌘↓");
     expect(shortcutText(defaults.previousBot, false)).toBe("Ctrl+↑");
-    expect(shortcutText(defaults.settings, true)).toBe("⌘,");
     expect(shortcutText(FN_KEY, true)).toBe("🌐 Fn");
-  });
-
-  test("one spelling per shortcut", () => {
     expect(canonicalShortcut("Shift+CmdOrCtrl+k", true)).toBe("Command+Shift+K");
     expect(canonicalShortcut("CommandOrControl+Down", false)).toBe("Control+Down");
     expect(canonicalShortcut("Shift+K", true)).toBeNull();

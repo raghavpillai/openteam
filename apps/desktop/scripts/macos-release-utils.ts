@@ -1,8 +1,8 @@
 export const MACOS_RELEASE_ENTITLEMENTS = "build/entitlements.mac.plist";
 
-export type MacosNotarizationMode = "api-key" | "apple-id" | "keychain-profile";
+type MacosNotarizationMode = "api-key" | "apple-id" | "keychain-profile";
 
-export interface MacosReleaseEnvironment {
+interface MacosReleaseEnvironment {
   identity: string;
   notarizationMode: MacosNotarizationMode;
 }

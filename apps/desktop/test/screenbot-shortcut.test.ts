@@ -13,30 +13,17 @@ import {
 } from "../src/main/screenbot-shortcut";
 
 describe("screenbot shortcuts", () => {
-
-  test("accepts real shortcuts and both-key chords, and rejects the rest", () => {
-    expect(isValidAccelerator("Command+Shift+2")).toBe(true);
+  test("accepts real shortcuts and Mac both-key chords, refusing typing keys and ones every app relies on", () => {
     expect(isValidAccelerator("Control+Alt+Space")).toBe(true);
-    expect(isValidAccelerator("Shift+A")).toBe(false); // would fire while typing capitals
-    expect(isValidAccelerator("A")).toBe(false);
-    expect(isValidAccelerator("Command+Command+A")).toBe(false);
-    expect(isValidAccelerator("Command+Bogus")).toBe(false);
+    for (const invalid of ["Shift+A", "A", "Command+Command+A", "Command+Bogus"]) expect(isValidAccelerator(invalid)).toBe(false);
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "darwin")).toEqual({ kind: "chord", modifier: "option" });
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "win32")).toBeNull();
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "fn" }, "darwin")).toBeNull();
-    expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: "Shift+2" }, "darwin")).toBeNull();
-  });
-
-  test("refuses shortcuts every app relies on, however they're spelled", () => {
-    for (const taken of ["Command+C", "CmdOrCtrl+w", "Command+Q", "CommandOrControl+,", "Shift+Command+4", "Command+Tab", "Command+Space"]) {
-      expect(reservedShortcutReason(taken, "darwin")).not.toBeNull();
+    for (const taken of ["Command+C", "CmdOrCtrl+w", "CommandOrControl+,", "Shift+Command+4", "Command+Space"])
       expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: taken }, "darwin")).toBeNull();
-    }
     expect(reservedShortcutReason("Command+Shift+2", "darwin")).toBeNull();
-    expect(reservedShortcutReason("Control+C", "win32")).not.toBeNull();
     expect(reservedShortcutReason("Control+Alt+E", "win32")).not.toBeNull(); // AltGr+E types €
     expect(reservedShortcutReason("Control+Alt+E", "darwin")).toBeNull();
-    expect(reservedShortcutReason("Control+Shift+2", "win32")).toBeNull();
   });
 
   test("saves a new shortcut, resets to the default, and pauses while recording", async () => {

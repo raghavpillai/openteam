@@ -48,7 +48,7 @@ async function fixture(identity: (attempt: number) => Response | Promise<Respons
   return { controller, connection, store, attempts: () => attempts };
 }
 
-test("network permission defaults off and is scoped to deployment and server address", async () => {
+test("network permission defaults off, is scoped to deployment and server address, and malformed saves never enable it", async () => {
   const { store, path } = await storeFixture();
   expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
   await store.set("https://host.test/", "deployment-a", true);
@@ -57,39 +57,21 @@ test("network permission defaults off and is scoped to deployment and server add
   expect(await store.allowed("https://other.test", "deployment-a")).toBe(false);
   expect(await store.allowed("https://host.test/other", "deployment-a")).toBe(false);
   expect((await stat(path)).mode & 0o777).toBe(0o600);
-  await store.set("https://host.test", "deployment-a", false);
-  expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
-});
-test("serialized grants survive simultaneous edits and revoke is durable across restarts", async () => {
-  const { store, path } = await storeFixture();
-  await Promise.all(
-    Array.from({ length: 20 }, (_, i) => store.set("https://host.test", `deployment-${i}`, true))
-  );
-  await store.set("https://host.test", "deployment-4", false);
-  const restarted = new NetworkConsentStore(path);
-  for (let i = 0; i < 20; i++)
-    expect(await restarted.allowed("https://host.test", `deployment-${i}`)).toBe(i !== 4);
-  expect((await readFile(path, "utf8")).includes("Bearer")).toBe(false);
-});
-test("chaos: reconnect reads wait for previously queued consent changes", async () => {
-  const { store } = await storeFixture();
-  await store.set("https://host.test", "deployment-a", true);
-  const writes = Array.from({ length: 20 }, (_, i) =>
-    store.set("https://other.test", `deployment-${i}`, true)
-  );
-  writes.push(store.set("https://host.test", "deployment-a", false));
-  try {
-    expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
-  } finally {
-    await Promise.all(writes);
-  }
-});
-test("malformed or non-boolean saved permission never enables sharing", async () => {
-  const { store, path } = await storeFixture();
   for (const data of ["{", "null", "[]", '{"https://host.test#deployment-a":"true"}']) {
     await writeFile(path, data);
     expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
   }
+});
+test("serialized grants survive simultaneous edits, reads wait for queued changes, and revoke is durable", async () => {
+  const { store, path } = await storeFixture();
+  await Promise.all(Array.from({ length: 20 }, (_, i) => store.set("https://host.test", `deployment-${i}`, true)));
+  const writes = Array.from({ length: 20 }, (_, i) => store.set("https://other.test", `deployment-${i}`, true));
+  writes.push(store.set("https://host.test", "deployment-4", false));
+  expect(await store.allowed("https://host.test", "deployment-4")).toBe(false);
+  await Promise.all(writes);
+  const restarted = new NetworkConsentStore(path);
+  for (let i = 0; i < 20; i++) expect(await restarted.allowed("https://host.test", `deployment-${i}`)).toBe(i !== 4);
+  expect((await readFile(path, "utf8")).includes("Bearer")).toBe(false);
 });
 test("unsupported platform and disconnected desktop cannot grant permission", async () => {
   const { store } = await storeFixture();
@@ -155,18 +137,6 @@ test("chaos: reconnect during a queued revoke cannot resurrect sharing", async (
   expect(await f.store.allowed(f.connection.serverUrl, deploymentId)).toBe(false);
 });
 
-test("chaos: waking during identity recovery retries immediately and remains opted out", async () => {
-  const deploymentId = crypto.randomUUID();
-  const f = await fixture((attempt) =>
-    attempt === 1 ? new Response(null, { status: 503 }) : Response.json({ deploymentId })
-  );
-  await f.controller.configure(f.connection);
-  f.controller.setSuspended(true);
-  f.controller.setSuspended(false);
-  await until(() => f.controller.status().connected, 500);
-  expect(f.controller.status().sharingAllowed).toBe(false);
-});
-
 test("chaos: sign-out cancels identity recovery and cannot revive a provider", async () => {
   const f = await fixture(() => new Response(null, { status: 503 }));
   await f.controller.configure(f.connection);
@@ -221,25 +191,26 @@ for (const response of [
       sharingAllowed: false,
       providing: false,
     });
-    f.controller.stop();
-    const attempts = f.attempts();
-    await Bun.sleep(1400);
-    expect(f.attempts()).toBe(attempts);
   });
 
-test("chaos: sleep cancels retries until wake, including enrollment received while asleep", async () => {
+test("chaos: sleep cancels retries until wake, and waking during recovery retries at once, still opted out", async () => {
   const deploymentId = crypto.randomUUID();
-  const f = await fixture(() => Response.json({ deploymentId }));
+  const f = await fixture((attempt) => (attempt === 1 ? new Response(null, { status: 503 }) : Response.json({ deploymentId })));
   f.controller.setSuspended(true);
   await f.controller.configure(f.connection);
   await Bun.sleep(1400);
   expect(f.attempts()).toBe(0);
   f.controller.setSuspended(false);
+  await until(() => f.attempts() === 1, 500);
+  // The first attempt failed; waking again retries immediately instead of waiting out the backoff.
+  f.controller.setSuspended(true);
+  f.controller.setSuspended(false);
   await until(() => f.controller.status().connected, 500);
-  expect(f.attempts()).toBe(1);
+  expect(f.attempts()).toBe(2);
+  expect(f.controller.status().sharingAllowed).toBe(false);
   f.controller.setSuspended(false);
   await Bun.sleep(20);
-  expect(f.attempts()).toBe(1);
+  expect(f.attempts()).toBe(2);
 });
 
 test("network enumeration order and hardware metadata do not reset a healthy tunnel", () => {

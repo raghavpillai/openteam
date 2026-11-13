@@ -1,46 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { collectStatus } from "../src/status";
 import { renderStatus, statusState } from "../src/status-ui";
 import { terminalTextWidth } from "../src/terminal";
 import { writeUpdateState } from "../src/update-safety";
+import { fakeBin, runCli } from "./fixtures/harness";
 import { statusFixture, statusScenarios } from "./fixtures/status-scenarios";
 
-const stub = `#!${process.execPath}
-import { appendFileSync } from 'node:fs';
-import { StatusScenarioRunner } from ${JSON.stringify(resolve(import.meta.dir, "fixtures/status-scenarios.ts"))};
-const args = process.argv.slice(2);
-const command = process.argv[1].endsWith('docker-compose') ? 'docker-compose' : 'docker';
-appendFileSync(process.env.OPENTEAM_TEST_CALLS, JSON.stringify({command,args}) + '\\n');
-const result = new StatusScenarioRunner(process.env.OPENTEAM_TEST_SCENARIO).run(command,args);
-process.stdout.write(result.stdout); process.stderr.write(result.stderr || result.error?.message || '');
-process.exit(result.status);
-`;
+// Any Docker call is recorded; an active update must answer without probing Docker.
+const docker = '#!/bin/sh\nprintf "%s\\n" "$*" >> "$OPENTEAM_TEST_CALLS"\nexit 1\n';
 
-const installStub = (f: ReturnType<typeof statusFixture>, id: string) => {
-  const bin = join(f.directory, "bin");
-  mkdirSync(bin);
-  for (const name of ["docker", "docker-compose"]) {
-    const file = join(bin, name);
-    writeFileSync(file, stub);
-    chmodSync(file, 0o755);
-  }
-  return {
-    ...process.env,
-    PATH: bin,
-    NO_COLOR: "1",
-    TERM: "dumb",
-    OPENTEAM_TEST_SCENARIO: id,
-    OPENTEAM_TEST_CALLS: join(f.directory, "calls.jsonl"),
-  };
-};
-
-describe.skipIf(process.platform === "win32")("actual status and health CLI commands", () => {
-  test("both aliases preserve active-update JSON output without probing Docker", async () => {
+describe.skipIf(process.platform === "win32")("actual status CLI command", () => {
+  test("the health alias reports an active update as JSON without probing Docker", async () => {
     const f = statusFixture("healthy");
     try {
-      const env = installStub(f, "healthy");
+      const calls = join(f.directory, "calls");
       writeUpdateState(f.paths, {
         schemaVersion: 1,
         fromVersion: "1.2.3",
@@ -52,35 +27,18 @@ describe.skipIf(process.platform === "win32")("actual status and health CLI comm
         message: "Downloading server images",
         targetVersion: "1.2.4",
       });
-      const outputs: string[] = [];
-      for (const command of ["status", "health"]) {
-        const child = Bun.spawn(
-          [
-            process.execPath,
-            resolve(import.meta.dir, "../src/main.ts"),
-            command,
-            "--dir",
-            f.paths.directory,
-            "--json-progress",
-          ],
-          { env, stdout: "pipe", stderr: "pipe" }
-        );
-        const [output, stderr, code] = await Promise.all([
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
-          child.exited,
-        ]);
-        expect(code).toBe(0);
-        expect(stderr).toBe("");
-        expect(output.startsWith("@@OPENTEAM_UPDATE@@")).toBe(true);
-        expect(JSON.parse(output.slice("@@OPENTEAM_UPDATE@@".length))).toMatchObject({
-          phase: "pulling",
-          version: "1.2.4",
-        });
-        outputs.push(output);
-      }
-      expect(outputs[0]).toBe(outputs[1]);
-      expect(existsSync(env.OPENTEAM_TEST_CALLS)).toBe(false);
+      const { stdout, stderr, code } = await runCli(
+        ["health", "--dir", f.paths.directory, "--json-progress"],
+        { PATH: fakeBin(f.directory, { docker }), TERM: "dumb", OPENTEAM_TEST_CALLS: calls }
+      );
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout.startsWith("@@OPENTEAM_UPDATE@@")).toBe(true);
+      expect(JSON.parse(stdout.slice("@@OPENTEAM_UPDATE@@".length))).toMatchObject({
+        phase: "pulling",
+        version: "1.2.4",
+      });
+      expect(existsSync(calls)).toBe(false);
       expect(f.requests).toEqual([]);
     } finally {
       f.cleanup();

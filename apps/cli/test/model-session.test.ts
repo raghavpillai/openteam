@@ -1,6 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { activate, edit, modelFixture, press, screen } from "./fixtures/model-session";
+import { afterEach, describe, expect, test } from "bun:test";
+import { createModelSettingsAPI } from "../src/model-settings";
+import { modelServer } from "./fixtures/model-server";
+import {
+  activate,
+  edit,
+  modelFixture,
+  press,
+  providerAccessFixture,
+  screen,
+} from "./fixtures/model-session";
 
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 describe("interactive model editor", () => {
   test("blank secret edit keeps saved key; explicit removal is sent as null", async () => {
     const { session: s, calls } = modelFixture();
@@ -63,5 +76,42 @@ describe("interactive model editor", () => {
     await activate(s, "save");
     expect(calls.transcription[1]?.apiKey).toBeNull();
     expect(s.savedTranscription?.hasApiKey).toBe(false);
+  });
+});
+
+const settingsFixture = () => {
+  const f = modelServer();
+  cleanups.push(f.cleanup);
+  return { ...f, client: createModelSettingsAPI(f.paths) };
+};
+describe("interactive model HTTP settings", () => {
+  test("retains only a validated four-character suffix from settings responses", async () => {
+    const { client, api } = settingsFixture();
+    const transcription = api.transcription;
+    api.transcription = async (...args) => ({
+      ...(await transcription(...args)),
+      apiKeySuffix: "A7z9",
+      apiKey: "synthetic-private-key",
+    });
+    expect(await client.transcription()).toMatchObject({ apiKeySuffix: "A7z9" });
+    expect(await client.transcription()).not.toHaveProperty("apiKey");
+    for (const suffix of ["full-secret", "a\u001b[", 1234]) {
+      api.transcription = async (...args) => ({
+        ...(await transcription(...args)),
+        apiKeySuffix: suffix as string,
+      });
+      await expect(client.transcription()).rejects.toThrow("invalid model settings");
+    }
+  });
+  test("preserves subscription/API metadata without retaining extra credential fields", async () => {
+    const { client, api } = settingsFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => ({
+      ...(await catalog(...args)),
+      providers: providerAccessFixture().map((p) => ({ ...p, apiKey: "synthetic-private-key" })),
+    });
+    const result = await client.catalog();
+    expect(result.providers).toMatchObject(providerAccessFixture());
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-key");
   });
 });

@@ -1,14 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createEnvironment,
-  installationPaths,
-  replaceEnvironmentValue,
-  writeManifest,
-} from "../../src/config";
+import { installationPaths } from "../../src/config";
 import type { CommandRunner, RunOptions, RunResult } from "../../src/process";
 import type { ServiceState } from "../../src/startup";
+import { installStack } from "./harness";
 
 // One scenario per distinct state the report must not mislabel.
 export const statusScenarios = [
@@ -83,26 +79,16 @@ export const statusFixture = (id: StatusScenarioId) => {
     },
   });
   const port = server.port;
-  if (id !== "not-installed") {
-    mkdirSync(paths.directory);
-    const env = replaceEnvironmentValue(
-      createEnvironment({ version: "1.2.3" }),
-      "OPENTEAM_API_PORT",
-      String(port)
-    );
-    writeFileSync(paths.environment, env, { mode: 0o600 });
-    writeFileSync(paths.compose, "services:\n  server:\n    image: example/server\n");
-    writeManifest(paths, {
-      schemaVersion: 1,
-      repository: "example/team",
-      version: "1.2.3",
-      composeUrl: "https://example.test/compose.yaml",
-      installedAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      projectName: "friend-team",
-      ownerUsername: id === "setup-incomplete" ? undefined : "owner",
+  if (id !== "not-installed")
+    installStack(paths.directory, {
+      apiPort: port,
+      compose: "services:\n  server:\n    image: example/server\n",
+      manifest: {
+        repository: "example/team",
+        projectName: "friend-team",
+        ownerUsername: id === "setup-incomplete" ? undefined : "owner",
+      },
     });
-  }
   const before = [paths.manifest, paths.environment, paths.compose].flatMap((file) => {
     try {
       return [[file, readFileSync(file, "utf8")] as const];

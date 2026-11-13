@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  createEnvironment,
-  installationPaths,
-  replaceEnvironmentValue,
-  writeManifest,
-} from "../src/config";
+import { installationPaths } from "../src/config";
+import { fakeBin, installStack, runCli, scratch } from "./fixtures/harness";
+
+const s = scratch();
 
 // One case per failure layer: Docker CLI, engine, configuration, model, and a passing run.
 const cases: Array<[string, string, boolean?]> = [
@@ -77,134 +74,83 @@ describe.skipIf(process.platform === "win32")("doctor command failure matrix", (
   test.each(cases)(
     "%s produces an understandable report without changing the installation",
     async (id, recommendation, installed = false) => {
-      const directory = mkdtempSync(join(tmpdir(), "openteam-doctor-matrix-"));
-      const server = Bun.serve({
-        hostname: "127.0.0.1",
-        port: 0,
-        fetch(request) {
-          if (new URL(request.url).pathname === "/api/v0/health") {
-            return Response.json({
-              status: "ready",
-              runtime: { inference: "ready" },
-              release: { releaseVersion: id === "health-version" ? "1.1.0" : "1.2.3" },
-            });
-          }
-          if (request.url.endsWith("/transcription/check"))
-            return Response.json({ level: "pass", detail: "Provider configured" });
+      const directory = s.dir("openteam-doctor-matrix-");
+      const server = s.serve((request) => {
+        if (new URL(request.url).pathname === "/api/v0/health")
           return Response.json({
-            inference: { providerId: "example", modelId: "model", reasoning: "medium" },
+            status: "ready",
+            runtime: { inference: "ready" },
+            release: { releaseVersion: "1.2.3" },
           });
-        },
+        if (request.url.endsWith("/transcription/check"))
+          return Response.json({ level: "pass", detail: "Provider configured" });
+        return Response.json({
+          inference: { providerId: "example", modelId: "model", reasoning: "medium" },
+        });
       });
-      try {
-        const bin = join(directory, "bin");
-        mkdirSync(bin);
-        const calls = join(directory, "calls.jsonl");
-        // This matrix tests Docker/configuration failures, not whichever ports
-        // the developer's live stack currently uses. Port probes have their own
-        // real-socket tests in stack.test.ts.
-        const preload = join(directory, "ports-preload.ts");
-        const portsModule = resolve(import.meta.dir, "../src/ports.ts");
-        writeFileSync(
-          preload,
-          `import { mock } from "bun:test";\nconst ports = await import(${JSON.stringify(portsModule)});\nmock.module(${JSON.stringify(portsModule)}, () => ({ ...ports, firstUnavailablePort: async () => null }));\n`
-        );
-        const paths = installationPaths(join(directory, "installation"));
-        const before = new Map<string, string>();
-        if (installed) {
-          mkdirSync(paths.directory);
-          const environment = replaceEnvironmentValue(
-            createEnvironment({ version: "1.2.3" }),
-            "OPENTEAM_API_PORT",
-            String(server.port)
-          );
-          writeFileSync(paths.environment, environment, {
-            mode: id === "env-permissions" ? 0o644 : 0o600,
-          });
-          writeFileSync(paths.compose, "services:\n  server:\n    image: example/server\n");
-          writeManifest(paths, {
-            schemaVersion: 1,
-            repository: "example/team",
-            version: "1.2.3",
-            composeUrl: "https://example.test/compose.yaml",
-            installedAt: "2026-01-01T00:00:00Z",
-            updatedAt: "2026-01-01T00:00:00Z",
-            ownerUsername: "example",
-          });
-          for (const file of [paths.environment, paths.compose, paths.manifest])
-            before.set(file, readFileSync(file, "utf8"));
-        }
-        if (id !== "missing-cli") {
-          writeFileSync(join(bin, "docker"), stub, { mode: 0o755 });
-          writeFileSync(join(bin, "docker-compose"), stub, { mode: 0o755 });
-        }
-        const child = Bun.spawn(
-          [
-            process.execPath,
-            "--preload",
-            preload,
-            resolve(import.meta.dir, "../src/main.ts"),
-            "doctor",
-            "--dir",
-            paths.directory,
-          ],
-          {
-            env: {
-              ...process.env,
-              PATH: bin,
-              NO_COLOR: "1",
-              OPENTEAM_TEST_SCENARIO: id,
-              OPENTEAM_TEST_CALLS: calls,
-            },
-            stdout: "pipe",
-            stderr: "pipe",
-          }
-        );
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
-          child.exited,
-        ]);
-        const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
-        const success = id === "healthy";
-        expect(exitCode).toBe(success ? 0 : 2);
-        expect(output.replace(/ --dir '[^']*'/g, "")).toContain(
-          id === "missing-cli" && process.platform === "linux"
-            ? "Install Docker Engine"
-            : recommendation
-        );
-        if (!success) {
-          expect(output).toContain("NEEDS ATTENTION");
-          expect(output).toContain("NEXT STEPS");
-        }
-        expect(stderr).toBe("");
-        expect(output).not.toContain("Unexpected Docker command");
-        expect(output).not.toContain("Unhandled");
-        if (id === "missing-cli") {
-          expect(output).toContain("1 failed");
-          expect(output).toContain("1 not checked");
-          expect(output).not.toContain("2 failed");
-        }
-        for (const [file, contents] of before) expect(readFileSync(file, "utf8")).toBe(contents);
-        if (!installed) expect(existsSync(paths.directory)).toBe(false);
-        const commands = existsSync(calls)
-          ? readFileSync(calls, "utf8")
-              .trim()
-              .split("\n")
-              .map((line) => JSON.parse(line).args as string[])
-          : [];
-        expect(
-          commands.every(
-            (args) =>
-              !args.some((arg) =>
-                ["up", "down", "pull", "start", "stop", "restart", "rm", "prune"].includes(arg)
-              )
-          )
-        ).toBe(true);
-      } finally {
-        server.stop(true);
-        rmSync(directory, { recursive: true, force: true });
+      const calls = join(directory, "calls.jsonl");
+      // This matrix tests Docker/configuration failures, not whichever ports the
+      // developer's live stack currently uses; port probes have real-socket tests.
+      const preload = join(directory, "ports-preload.ts");
+      const portsModule = resolve(import.meta.dir, "../src/ports.ts");
+      writeFileSync(
+        preload,
+        `import { mock } from "bun:test";\nconst ports = await import(${JSON.stringify(portsModule)});\nmock.module(${JSON.stringify(portsModule)}, () => ({ ...ports, firstUnavailablePort: async () => null }));\n`
+      );
+      const target = join(directory, "installation");
+      const paths = installed
+        ? installStack(target, {
+            apiPort: server.port,
+            compose: "services:\n  server:\n    image: example/server\n",
+          }).paths
+        : installationPaths(target);
+      if (id === "env-permissions") chmodSync(paths.environment, 0o644);
+      const before = new Map<string, string>();
+      if (installed)
+        for (const file of [paths.environment, paths.compose, paths.manifest])
+          before.set(file, readFileSync(file, "utf8"));
+      const bin = fakeBin(
+        directory,
+        id === "missing-cli" ? {} : { docker: stub, "docker-compose": stub }
+      );
+      const {
+        stderr,
+        code: exitCode,
+        output,
+      } = await runCli(
+        ["doctor", "--dir", paths.directory],
+        { PATH: bin, OPENTEAM_TEST_SCENARIO: id, OPENTEAM_TEST_CALLS: calls },
+        ["--preload", preload]
+      );
+      const success = id === "healthy";
+      expect(exitCode).toBe(success ? 0 : 2);
+      expect(output.replace(/ --dir '[^']*'/g, "")).toContain(
+        id === "missing-cli" && process.platform === "linux"
+          ? "Install Docker Engine"
+          : recommendation
+      );
+      if (!success) {
+        expect(output).toContain("NEEDS ATTENTION");
+        expect(output).toContain("NEXT STEPS");
       }
+      expect(stderr).toBe("");
+      expect(output).not.toContain("Unexpected Docker command");
+      expect(output).not.toContain("Unhandled");
+      if (id === "missing-cli") {
+        expect(output).toContain("1 failed");
+        expect(output).toContain("1 not checked");
+        expect(output).not.toContain("2 failed");
+      }
+      for (const [file, contents] of before) expect(readFileSync(file, "utf8")).toBe(contents);
+      if (!installed) expect(existsSync(paths.directory)).toBe(false);
+      const commands = existsSync(calls)
+        ? readFileSync(calls, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line).args as string[])
+        : [];
+      const mutating = ["up", "down", "pull", "start", "stop", "restart", "rm", "prune"];
+      expect(commands.some((args) => args.some((arg) => mutating.includes(arg)))).toBe(false);
     },
     20_000
   );

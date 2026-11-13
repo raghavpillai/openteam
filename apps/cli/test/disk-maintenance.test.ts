@@ -1,15 +1,6 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import { ComposeProject } from "../src/docker";
@@ -21,11 +12,9 @@ import {
 } from "../src/disk-maintenance";
 import type { CommandRunner, RunResult } from "../src/process";
 import { createDatabaseBackup } from "../src/update-safety";
+import { composeProject, scratch } from "./fixtures/harness";
 
-const directories: string[] = [];
-afterEach(() => {
-  for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
-});
+const s = scratch();
 const id = (n: number) => `sha256:${n.toString(16).padStart(64, "0")}`;
 class Docker implements CommandRunner {
   calls: string[][] = [];
@@ -90,25 +79,13 @@ class Docker implements CommandRunner {
   }
 }
 const fixture = () => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "openteam-maintenance-")));
-  directories.push(directory);
-  const paths = installationPaths(directory);
+  const paths = installationPaths(s.dir("openteam-maintenance-"));
   writeFileSync(paths.compose, "services: {}\n");
   writeFileSync(paths.environment, "");
   mkdirSync(paths.backups);
   const runner = new Docker();
   for (let i = 1; i <= 12; i++) runner.images.set(id(i), new Set());
-  const project = new ComposeProject(
-    paths,
-    {
-      executable: "docker",
-      prefix: ["compose"],
-      version: "2.30.0",
-      supported: true,
-    },
-    runner,
-    "custom-install"
-  );
+  const project = composeProject(paths, runner, "custom-install");
   return { paths, runner, project };
 };
 
@@ -234,4 +211,30 @@ test("backup creation refuses symlink directories and path traversal before invo
   symlinkSync(paths.directory, paths.backups);
   expect(() => createDatabaseBackup(paths, project, "1.0.0", "1.2.3")).toThrow("ambiguous path");
   expect(runner.calls).toHaveLength(0);
+});
+
+test("keeps the newest update backups and the current one, and nothing else is touched", () => {
+  const { paths } = fixture();
+  const backup = (from: string, to: string, at: string) =>
+    `postgres-${from}-before-${to}-${at}-${randomUUID()}.sql`;
+  const names = [
+    backup("0.0.7", "0.0.8", "2026-10-24T10-00-00-000Z"),
+    backup("0.0.8", "0.0.9", "2026-10-26T10-00-00-000Z"),
+    backup("0.0.9", "0.0.10", "2026-10-26T18-00-00-000Z"),
+    backup("0.0.10", "0.0.11", "2026-11-02T09-00-00-000Z"),
+    backup("0.0.11", "0.0.12", "2026-11-09T09-00-00-000Z"),
+    "my-own-dump.sql",
+    "postgres-notes.txt",
+  ];
+  for (const name of names) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+  for (const name of names.slice(0, 5)) registerDatabaseBackup(paths, join(paths.backups, name));
+  // A clock set back makes this update's own backup sort as the oldest; rollback still needs it.
+  const current = join(paths.backups, names[0]!);
+  retainDatabaseBackups(paths, current);
+  expect(readdirSync(paths.backups).sort()).toEqual([names[0]!, ...names.slice(2)].sort());
+  writeFileSync(paths.environment, "OPENTEAM_BACKUP_RETENTION_COUNT=1\n");
+  retainDatabaseBackups(paths, null);
+  expect(readdirSync(paths.backups).sort()).toEqual(
+    [names[4]!, "my-own-dump.sql", "postgres-notes.txt"].sort()
+  );
 });

@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
@@ -12,47 +11,27 @@ import {
   removeCurrentCli,
   stageCliUpdate,
 } from "../src/cli-update";
+import { scratch } from "./fixtures/harness";
 
-const temporaryDirectories: string[] = [];
-const servers: Array<{ stop(force?: boolean): void }> = [];
+const s = scratch();
+const digest = (contents: Uint8Array) => createHash("sha256").update(contents).digest("hex");
 
-afterEach(() => {
-  for (const server of servers.splice(0)) server.stop(true);
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-const digest = (contents: Uint8Array): string =>
-  createHash("sha256").update(contents).digest("hex");
-
-const artifactServer = (options: {
-  raw: Uint8Array;
-  filename?: string;
-  signature?: string;
-  corruptRawChecksum?: boolean;
-}) => {
-  const filename = options.filename ?? "openteam-darwin-arm64";
-  const compressed = gzipSync(options.raw);
-  const checksums = [
-    `${options.corruptRawChecksum ? "0".repeat(64) : digest(options.raw)}  apps/cli/release/${filename}`,
-    `${digest(compressed)}  apps/cli/release/${filename}.gz`,
-  ].join("\n");
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const pathname = new URL(request.url).pathname;
-      if (pathname === `/${filename}.gz`) return new Response(compressed);
-      if (pathname === `/${filename}`) return new Response(Buffer.from(options.raw));
-      if (pathname === "/SHA256SUMS") return new Response(`${checksums}\n`);
-      if (pathname === `/${filename}.sigstore.json` && options.signature) {
-        return new Response(options.signature);
-      }
-      return new Response("not found", { status: 404 });
+/** Release assets for one CLI build, listed in SHA256SUMS by their release-tree path. */
+const artifactServer = (
+  raw: Uint8Array,
+  options: { signature?: string; corrupt?: boolean } = {}
+) => {
+  const filename = "openteam-darwin-arm64";
+  const compressed = gzipSync(raw);
+  const origin = s.release(
+    {
+      [filename]: raw,
+      [`${filename}.gz`]: compressed,
+      ...(options.signature ? { [`${filename}.sigstore.json`]: options.signature } : {}),
     },
-  });
-  servers.push(server);
-  const origin = `http://127.0.0.1:${server.port}`;
+    `${options.corrupt ? "0".repeat(64) : digest(raw)}  apps/cli/release/${filename}\n` +
+      `${digest(compressed)}  apps/cli/release/${filename}.gz\n`
+  );
   return {
     assetUrl: `${origin}/${filename}`,
     checksumUrl: `${origin}/SHA256SUMS`,
@@ -62,8 +41,7 @@ const artifactServer = (options: {
 
 describe("CLI self-update", () => {
   test("removes a standalone Unix CLI without deleting a shared runtime", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-remove-"));
-    temporaryDirectories.push(directory);
+    const directory = s.dir("openteam-cli-remove-");
     const executable = join(directory, "openteam");
     writeFileSync(executable, "standalone executable", { mode: 0o755 });
     writeFileSync(`${executable}.previous`, "previous standalone executable", {
@@ -102,7 +80,7 @@ describe("CLI self-update", () => {
       fixture("release-v0.1.0/openteam-compose.yaml.sigstore.json"),
       "utf8"
     );
-    const release = artifactServer({ raw, signature });
+    const release = artifactServer(raw, { signature });
     const downloaded = await downloadCliArtifact({
       repository: "raghavpillai/openteam",
       version: "0.1.0",
@@ -114,10 +92,7 @@ describe("CLI self-update", () => {
   });
 
   test("rejects a CLI whose decompressed checksum does not match", async () => {
-    const release = artifactServer({
-      raw: new TextEncoder().encode("not trusted"),
-      corruptRawChecksum: true,
-    });
+    const release = artifactServer(new TextEncoder().encode("not trusted"), { corrupt: true });
     await expect(
       downloadCliArtifact({
         repository: "owner/repo",
@@ -131,13 +106,11 @@ describe("CLI self-update", () => {
   });
 
   test("stages a runnable CLI beside the installed binary and promotes it with rollback copy", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-update-"));
-    temporaryDirectories.push(directory);
+    const directory = s.dir("openteam-cli-update-");
     const target = join(directory, "openteam");
     writeFileSync(target, "#!/bin/sh\necho 1.1.0\n", { mode: 0o755 });
-    chmodSync(target, 0o755);
     const nextContents = new TextEncoder().encode("#!/bin/sh\necho 1.2.3\n");
-    const release = artifactServer({ raw: nextContents });
+    const release = artifactServer(nextContents);
     const staged = await stageCliUpdate({
       repository: "owner/repo",
       version: "1.2.3",
@@ -161,8 +134,7 @@ describe("CLI self-update", () => {
   });
 
   test("uses a non-running copy for the Windows swap and retains the prior executable", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-update-windows-"));
-    temporaryDirectories.push(directory);
+    const directory = s.dir("openteam-cli-update-windows-");
     const target = join(directory, "openteam.exe");
     const source = join(directory, ".openteam.exe.update-1.2.3-test");
     writeFileSync(target, "old executable");

@@ -1,19 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createEnvironment,
-  installationPaths,
-  parseEnvironment,
-  replaceEnvironmentValue,
-  writeFileAtomic,
-  writeManifest,
-} from "../../src/config";
+import { createEnvironment, parseEnvironment } from "../../src/config";
+import { installStack } from "./harness";
 import { modelFixture } from "./model-session";
 
 export const modelServer = () => {
   const directory = mkdtempSync(join(tmpdir(), "openteam-model-ui-"));
-  const paths = installationPaths(directory);
   const environment = createEnvironment({ version: "1.2.3" });
   const token = parseEnvironment(environment).get("OPENTEAM_CONTROL_TOKEN");
   const fixture = modelFixture();
@@ -57,19 +50,10 @@ export const modelServer = () => {
       return new Response(null, { status: 404 });
     },
   });
-  writeFileAtomic(
-    paths.environment,
-    replaceEnvironmentValue(environment, "OPENTEAM_API_PORT", String(server.port))
-  );
-  writeFileAtomic(paths.compose, "name: model-test\nservices: {}\n");
-  const now = new Date().toISOString();
-  writeManifest(paths, {
-    schemaVersion: 1,
-    repository: "example/test",
-    version: "1.2.3",
-    composeUrl: "https://example.test/compose.yaml",
-    installedAt: now,
-    updatedAt: now,
+  const { paths } = installStack(directory, {
+    environment,
+    apiPort: server.port,
+    compose: "name: model-test\nservices: {}\n",
   });
   return {
     ...fixture,

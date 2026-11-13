@@ -273,13 +273,15 @@ Run these from `apps/cli`:
 bun run test                 # all CLI tests
 bun run test:doctor          # doctor checks, recovery steps, and terminal output
 bun run test:status          # status/health, start, and their terminal output
-bun run test:model           # model editor keyboard, HTTP, and terminal tests
+bun run test:model           # model and provider commands, editor, HTTP, and terminal tests
 bun run test:install         # installer preflight and setup countdown
 bun run test:install:fresh   # real installer in a clean Debian container (needs privileged Docker)
 ```
 
-Process tests run the real CLI against fake Docker executables and local HTTP fixtures. The
-pseudo-terminal test needs macOS or Linux with Python 3 and is skipped on Windows.
+Process tests run the real CLI against fake Docker executables and local HTTP fixtures; shared
+fakes (temporary installs, the fake Docker runner, release servers) live in
+`test/fixtures/harness.ts`. The pseudo-terminal test needs macOS or Linux with Python 3 and is
+skipped on Windows.
 
 Other harnesses:
 

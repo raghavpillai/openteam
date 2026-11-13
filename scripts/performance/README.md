@@ -194,16 +194,6 @@ apps/desktop/node_modules/.bin/electron \
 
 `?profile=1` exposes the existing `window.openteamPerformance` diagnostics. Read `window.openteamPerformance.snapshot()` directly during long sessions; the DOM-published summary becomes stale after the 200-entry ring is full.
 
-## Direct snapshot timing
-
-```sh
-for run in {1..10}; do
-  curl -sS -o /dev/null \
-    -w '%{time_total} %{time_starttransfer} %{size_download}\n' \
-    http://127.0.0.1:8877/api/v0/client-snapshot
-done
-```
-
 ## Search timing
 
 After seeding the isolated database, exercise all search categories plus a
@@ -217,39 +207,6 @@ OPENTEAM_AUDIT_OUTPUT=audit/search-current.json \
 
 Override `OPENTEAM_PERF_BASE_URL`, `OPENTEAM_SEARCH_WARMUPS`, or
 `OPENTEAM_SEARCH_SAMPLES` when measuring a different isolated arm.
-
-## API scale timing
-
-Measure the bounded bootstrap/runtime/history paths and the compatibility
-snapshot against the same heavy fixture:
-
-```sh
-OPENTEAM_AUDIT_OUTPUT=audit/api-current.json \
-  bun scripts/performance/benchmark/api.ts
-```
-
-Override `OPENTEAM_API_WARMUPS` or `OPENTEAM_API_SAMPLES` to change the sample
-count. The harness records response sizes and both end-to-end and Server-Timing
-durations where the endpoint exposes them.
-
-## Authentication overhead
-
-With the isolated stack available in both `disabled` and `required` modes,
-measure the per-request Better Auth session-check cost against the same protected
-runtime response. The benchmark alternates arms and requires byte-for-byte
-response parity:
-
-```sh
-OPENTEAM_AUTH_USERNAME=audit_owner \
-OPENTEAM_AUTH_PASSWORD='local-audit-password' \
-OPENTEAM_AUDIT_OUTPUT=audit/auth-overhead.json \
-  bun scripts/performance/benchmark/auth.ts
-```
-
-The disabled arm defaults to `127.0.0.1:8877` and the required arm to
-`127.0.0.1:8878`. Override `OPENTEAM_AUTH_DISABLED_BASE_URL`,
-`OPENTEAM_AUTH_REQUIRED_BASE_URL`, `OPENTEAM_AUTH_WARMUPS`, or
-`OPENTEAM_AUTH_SAMPLES` as needed.
 
 ## Cleanup
 

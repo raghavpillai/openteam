@@ -1,35 +1,18 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  createEnvironment,
-  installationPaths,
-  writeFileAtomic,
-  writeManifest,
-} from "../src/config";
-import type { CommandRunner, RunOptions, RunResult } from "../src/process";
-import { providerLoginCommand } from "../src/providers";
+import { describe, expect, test } from "bun:test";
+import { parseEnvironment, createEnvironment } from "../src/config";
+import type { RunResult } from "../src/process";
+import { modelUseCommand, providerLoginCommand } from "../src/providers";
+import type { RuntimeInferenceSettings } from "../src/runtime-settings";
 import type { SetupPrompter } from "../src/setup";
+import { FakeDocker, installStack, scratch } from "./fixtures/harness";
 
-class ProviderRunner implements CommandRunner {
-  readonly calls: Array<{
-    command: string;
-    args: readonly string[];
-    options?: RunOptions;
-  }> = [];
+const s = scratch();
+
+class ProviderRunner extends FakeDocker {
   private customProviderAdded = false;
   readonly connected = new Set(["openai-codex"]);
 
-  run(command: string, args: readonly string[], options?: RunOptions): RunResult {
-    this.calls.push({ command, args, options });
-    if (command === "docker" && args[0] === "compose" && args[1] === "version") {
-      return {
-        status: 0,
-        stdout: "Docker Compose version v2.30.0",
-        stderr: "",
-      };
-    }
+  protected override respond(_command: string, args: readonly string[]): RunResult | undefined {
     if (args.includes("selection")) {
       return {
         status: 0,
@@ -91,9 +74,8 @@ class ProviderRunner implements CommandRunner {
       };
     }
     if (args.includes("add-custom")) this.customProviderAdded = true;
-    if (args.includes("login"))
-      this.connected.add(args[args.indexOf("login") + 1]!);
-    return { status: 0, stdout: "", stderr: "" };
+    if (args.includes("login")) this.connected.add(args[args.indexOf("login") + 1]!);
+    return undefined;
   }
 }
 
@@ -108,39 +90,11 @@ class SecretPrompter implements SetupPrompter {
   close(): void {}
 }
 
-const directories: string[] = [];
-
-afterEach(() => {
-  for (const directory of directories.splice(0))
-    rmSync(directory, { recursive: true, force: true });
-});
-
-const fixture = () => {
-  const directory = mkdtempSync(join(tmpdir(), "openteam-provider-test-"));
-  directories.push(directory);
-  const paths = installationPaths(directory);
-  writeFileAtomic(
-    paths.compose,
-    "name: openteam\nservices:\n  computer:\n    image: example/computer\n"
-  );
-  writeFileAtomic(paths.environment, createEnvironment({ version: "1.2.3" }));
-  const now = new Date().toISOString();
-  writeManifest(paths, {
-    schemaVersion: 1,
-    repository: "owner/repo",
-    version: "1.2.3",
-    composeUrl: "https://example.test/openteam-compose.yaml",
-    installedAt: now,
-    updatedAt: now,
-  });
-  return paths;
-};
-
 describe("provider management", () => {
   test("passes API keys over stdin and never command arguments", async () => {
     const runner = new ProviderRunner();
     await providerLoginCommand(
-      fixture(),
+      installStack(s.dir("openteam-provider-test-")).paths,
       runner,
       { providerId: "anthropic", authType: "api_key" },
       new SecretPrompter("anthropic-test-secret")
@@ -151,5 +105,113 @@ describe("provider management", () => {
     expect(login?.args.join(" ")).not.toContain("anthropic-test-secret");
     expect(login?.options?.input).toBe("anthropic-test-secret\n");
     expect(login?.args).toContain("--no-TTY");
+  });
+});
+
+class ModelRunner extends FakeDocker {
+  verificationError: string | undefined;
+  models = ["gpt-5.5", "gpt-5.6-sol"].map((modelId) => ({
+    providerId: "openai-codex",
+    modelId,
+    name: modelId,
+    reasoning: true,
+    reasoningLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+    defaultReasoningLevel: "medium",
+    input: ["text", "image"],
+    contextWindow: 272000,
+    maxTokens: 128000,
+  }));
+  protected override respond(_command: string, args: readonly string[]): RunResult | undefined {
+    if (args.includes("verify") && this.verificationError) {
+      return { status: 1, stdout: "", stderr: this.verificationError };
+    }
+    if (args.includes("catalog")) {
+      return { status: 0, stdout: JSON.stringify({ models: this.models }), stderr: "" };
+    }
+    return undefined;
+  }
+}
+
+const fixture = () => {
+  const environment = createEnvironment({ version: "1.2.3" });
+  const controlToken = parseEnvironment(environment).get("OPENTEAM_CONTROL_TOKEN");
+  const state = {
+    selected: {
+      providerId: "openai-codex",
+      modelId: "gpt-5.5",
+      reasoning: "high",
+    } as RuntimeInferenceSettings,
+    reads: 0,
+    writes: [] as RuntimeInferenceSettings[],
+    queryProviders: [] as Array<string | null>,
+    readStatus: 200,
+    writeStatus: 200,
+    invalidRead: false,
+  };
+  const server = s.serve(async (request) => {
+    if (request.headers.get("authorization") !== `Bearer ${controlToken}`) {
+      return Response.json({ error: { message: "Incorrect test token" } }, { status: 401 });
+    }
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/api/v0/internal/server-settings") {
+      state.reads++;
+      state.queryProviders.push(url.searchParams.get("provider"));
+      if (state.readStatus !== 200)
+        return Response.json(
+          { error: { message: "Settings unavailable" } },
+          { status: state.readStatus }
+        );
+      return Response.json(state.invalidRead ? {} : { inference: state.selected });
+    }
+    if (
+      request.method === "PATCH" &&
+      url.pathname === "/api/v0/internal/server-settings/inference"
+    ) {
+      const input = (await request.json()) as RuntimeInferenceSettings;
+      state.writes.push(input);
+      if (state.writeStatus !== 200)
+        return Response.json(
+          { error: { message: "Model cannot be selected" } },
+          { status: state.writeStatus }
+        );
+      state.selected = input;
+      return Response.json(input);
+    }
+    return new Response(null, { status: 404 });
+  });
+  const { paths } = installStack(s.dir("openteam-model-test-"), {
+    environment,
+    apiPort: server.port,
+  });
+  return { paths, state, runner: new ModelRunner() };
+};
+
+describe("Codex model selection", () => {
+  test("switches the model while preserving reasoning when --thinking is omitted", async () => {
+    const { paths, runner, state } = fixture();
+    await modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.6-sol" });
+    expect(state.writes).toEqual([
+      { providerId: "openai-codex", modelId: "gpt-5.6-sol", reasoning: "high" },
+    ]);
+    expect(state.selected.modelId).toBe("gpt-5.6-sol");
+    expect(state.queryProviders).toEqual(["openai-codex"]);
+    expect(runner.calls.find((call) => call.args.includes("verify"))?.args.slice(-3)).toEqual([
+      "verify",
+      "openai-codex",
+      "gpt-5.6-sol",
+    ]);
+  });
+
+  test.each([
+    "Inference provider openai-codex is not authenticated",
+  ])("rejects failed verification before changing settings: %s", async (error) => {
+    const { paths, runner, state } = fixture();
+    runner.verificationError = error;
+    await expect(
+      modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.6-sol" })
+    ).rejects.toThrow(error);
+    expect(state.reads).toBe(0);
+    expect(state.writes).toHaveLength(0);
+    expect(state.selected.modelId).toBe("gpt-5.5");
   });
 });

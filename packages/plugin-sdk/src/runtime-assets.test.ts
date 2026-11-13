@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
-import * as filesystem from "node:fs/promises";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
+import { parsePluginDefinition } from "./manifest";
+import { validateRuntimeAssets } from "./runtime-asset-definition";
 import { ManagedRuntimeCache } from "./runtime-assets";
+import { createPluginTemplate } from "./templates";
 import type { PluginRuntimeAsset, PluginRuntimeAssetSource } from "./types";
 
 const roots: string[] = [];
@@ -171,5 +173,38 @@ describe("managed runtime cache integrity", () => {
     await symlink(outside, installed);
     await expect(new ManagedRuntimeCache(cache, fetch).resolve(assets(), undefined, platform)).rejects.toThrow(/cache directory/);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("managed runtime manifest validation", () => {
+  test.each(["linux", "Linux-x64", "linux-x64/../../escape", "darwin-aarch64"])("rejects an invalid platform: %s", (platform) => {
+    expect(() => validateRuntimeAssets([{ name: "JAVA", sources: { [platform]: pin() } }])).toThrow();
+  });
+  const invalidSources: Array<[string, Record<string, unknown>]> = [
+    ["insecure HTTP", { url: "http://runtime.example/tool" }],
+    ["URL credentials", { url: "https://user:password@runtime.example/tool" }],
+    ["URL fragment", { url: "https://runtime.example/tool#pin" }],
+    ["array URL", { url: ["https://runtime.example/tool"] }],
+    ["short digest", { sha256: "a".repeat(63) }],
+    ["uppercase digest", { sha256: "A".repeat(64) }],
+    ["fractional size", { bytes: 1.5 }],
+    ["string size", { bytes: "100" }],
+    ["oversized download", { bytes: 512 * 1024 * 1024 + 1 }],
+    ["smaller extraction limit", { maxExtractedBytes: 99 }],
+    ["oversized extraction limit", { maxExtractedBytes: 2 * 1024 * 1024 * 1024 + 1 }],
+    ["unsupported format", { format: "zip" }],
+    ["absolute entry", { path: "/bin/java" }],
+    ["parent traversal", { path: "bin/../../java" }],
+    ["Windows path", { path: "bin\\java" }],
+    ["control entry", { path: "bin/ja\nva" }],
+    ["non-boolean executable", { executable: "true" }],
+  ];
+  test.each(invalidSources)("rejects %s directly and through plugin import", (_label, overrides) => {
+    const runtimes = [{ name: "JAVA", sources: { "linux-arm64": { ...pin(bytes, { format: "tar.gz", maxExtractedBytes: 1_000, bytes: 100 }), ...overrides } } }];
+    expect(() => validateRuntimeAssets(runtimes)).toThrow();
+    // Import boundaries accept unknown JSON, so do not coerce malformed fields into strings.
+    const raw = JSON.parse(JSON.stringify(createPluginTemplate("packaged-mcp", "runtime-example")));
+    raw.connections[0].runtimeAssets = runtimes;
+    expect(() => parsePluginDefinition(raw)).toThrow();
   });
 });

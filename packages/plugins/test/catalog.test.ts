@@ -3,9 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createPluginTemplate,
-} from "@openteam/plugin-sdk";
+import { createPluginTemplate } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { discoverPackages } from "../scripts/generate";
 import { pluginCatalog } from "../src";
@@ -64,6 +62,3 @@ test("every registry package declares its origin and shipped provider files surv
     expect(plugin.files?.["OPENTEAM.md"]).toBeUndefined();
   }
 }, 30_000);
-
-const roundtrip = (key: string) =>
-  importPackageArchive(exportPackageArchive(pluginCatalog.find((plugin) => plugin.key === key)!));

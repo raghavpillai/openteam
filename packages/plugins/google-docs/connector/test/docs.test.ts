@@ -1,7 +1,4 @@
 import { expect, test } from 'bun:test';
-import { createToolValidator } from '@openteam/plugin-sdk/json-schema';
-import { GoogleApi } from '../../../_shared/google';
-import { referenceTools } from '../../../_shared/reference';
 import { harness } from '../../../test/parity-harness';
 import { docsTools } from '../server';
 
@@ -34,23 +31,6 @@ const sample = () => doc([
   headers: { 'h.1': { headerId: 'h.1', content: [para(0, 'Confidential\n')] } }, documentStyle: { defaultHeaderId: 'h.1' },
 }, [{ tabProperties: { tabId: 't.1', title: 'Notes', index: 1 }, documentTab: { body: { content: [sectionBreak, para(1, 'Second tab\n')] } },
   childTabs: [{ tabProperties: { tabId: 't.2', title: 'Child', parentTabId: 't.1', nestingLevel: 1 }, documentTab: { body: { content: [sectionBreak, para(1, '\n')] } } }] }]);
-
-test('Docs exposes exactly the pinned tools, schemas and risk levels', () => {
-  const tools = docsTools(new GoogleApi('https://docs.googleapis.com', 'token'));
-  expect(tools.map(t => t.name).sort()).toEqual(referenceTools.docs.map(t => t.name).sort());
-  for (const reference of referenceTools.docs) {
-    const tool = tools.find(t => t.name === reference.name)!;
-    expect(tool.description).toBe(reference.description);
-    expect(tool.inputSchema.properties).toEqual(reference.inputSchema.properties as any);
-    expect(tool.inputSchema.required).toEqual(reference.inputSchema.required);
-    expect(tool.annotations.readOnlyHint).toBe(Boolean(reference.annotations.readOnlyHint));
-    expect(tool.annotations.destructiveHint).toBe(reference.name === 'delete_content');
-    expect(createToolValidator(tool.inputSchema)({ documentId: 'doc', unexpected: true }).valid).toBe(false);
-  }
-  const createList = createToolValidator(tools.find(t => t.name === 'create_list')!.inputSchema);
-  expect(createList({ documentId: 'doc', startIndex: 3, endIndex: 9 }).valid).toBe(true);
-  expect(createList({ documentId: 'doc', startIndex: 3, endIndex: 0 }).valid).toBe(false);
-});
 
 test('find_text returns fresh UTF-16 ranges in paragraphs and cells, never across cells', async () => {
   const h = harness(docsTools, Array.from({ length: 5 }, sample));

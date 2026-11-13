@@ -7,17 +7,14 @@ const config = {
   keyId: "ABCDE12345",
   teamId: "FGHIJ67890",
   topic: "dev.openbot.mobile",
-  privateKey: generateKeyPairSync("ec", { namedCurve: "prime256v1" })
-    .privateKey.export({ type: "pkcs8", format: "pem" })
-    .toString(),
+  privateKey: generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
 };
 const fixture = () => {
   let row: any = null;
   const prisma = {
     apnsSettings: {
       findUnique: async () => row,
-      upsert: async ({ create, update }: any) =>
-        (row = { ...(row ? { ...row, ...update } : create), updatedAt: new Date() }),
+      upsert: async ({ create, update }: any) => (row = { ...(row ? { ...row, ...update } : create), updatedAt: new Date() }),
     },
   } as unknown as Pick<PrismaClient, "apnsSettings">;
   return { prisma, row: () => row };
@@ -25,11 +22,7 @@ const fixture = () => {
 describe("APNs runtime settings", () => {
   test("encrypts at rest, returns metadata only and authenticates metadata with the ciphertext", async () => {
     const fixtureData = fixture();
-    const store = new ApnsSettingsStore(
-      fixtureData.prisma,
-      () => "test-installation-token-at-least-32-characters",
-      () => config
-    );
+    const store = new ApnsSettingsStore(fixtureData.prisma, () => "test-installation-token-at-least-32-characters", () => config);
     const status = await store.save(config);
     expect(status).toMatchObject({ source: "database", issue: null, missing: [] });
     expect(JSON.stringify(status)).not.toContain("PRIVATE KEY");
@@ -43,11 +36,7 @@ describe("APNs runtime settings", () => {
   test("a changed deployment secret fails closed instead of falling back to environment credentials", async () => {
     const { prisma } = fixture();
     let secret = "first-installation-token-at-least-32-characters";
-    const store = new ApnsSettingsStore(
-      prisma,
-      () => secret,
-      () => config
-    );
+    const store = new ApnsSettingsStore(prisma, () => secret, () => config);
     expect((await store.load()).source).toBe("environment");
     await store.save(config);
     secret = "second-installation-token-at-least-32-characters";

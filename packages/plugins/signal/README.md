@@ -52,7 +52,7 @@ Run from the repository root with Bun 1.4.2:
 ```sh
 bun run prepare:plugins
 bun test packages/plugins/signal/connector/test
-bun test packages/plugin-sdk/src/runtime-assets.test.ts packages/plugin-sdk/src/runtime-asset-definition.test.ts
+bun test packages/plugin-sdk/src/runtime-assets.test.ts
 bun test apps/server/test/plugin/device-link.test.ts apps/computer/test/runtime/managed-account-state.test.ts
 bun packages/plugins/signal/connector/test/build.ts
 bun packages/plugins/signal/connector/test/managed-smoke.ts

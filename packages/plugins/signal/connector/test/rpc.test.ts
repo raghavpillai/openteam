@@ -6,8 +6,8 @@ const processes: SignalRpc[] = [];
 afterEach(async () => {
   await Promise.all(processes.splice(0).map((rpc) => rpc.close()));
 });
-function rpc(receive = (_: any) => {}, maxFrameBytes?: number) {
-  const value = new SignalRpc([process.execPath, fixture], receive, { maxFrameBytes });
+function rpc() {
+  const value = new SignalRpc([process.execPath, fixture], () => {});
   processes.push(value);
   return value;
 }
@@ -38,3 +38,37 @@ test("timed-out responses cannot resolve a later request", async () => {
   await expect(peer.request("delay", { value: "late", ms: 60 }, 10)).rejects.toThrow("timed out");
   expect(await peer.request("delay", { value: "correct", ms: 90 })).toBe("correct");
 });
+
+const wrapper = new URL("./wrapper-fixture.ts", import.meta.url).pathname;
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function expectReaped(pid: number) {
+  for (let i = 0; i < 50 && alive(pid); i++) await Bun.sleep(10);
+  expect(alive(pid)).toBe(false);
+}
+function cleanup(pid?: number) {
+  if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+}
+
+test("wrapper exit fails pending requests promptly and reaps descendants retaining pipes", async () => {
+  const rpc = new SignalRpc([process.execPath, wrapper], () => {});
+  let pid: number | undefined;
+  try {
+    pid = (await rpc.request("descendantPid")).pid;
+    await expect(rpc.request("exitWrapper", {}, 1000)).rejects.toThrow("disconnected");
+    expect(
+      await Promise.race([rpc.exited.then(() => true), Bun.sleep(2500).then(() => false)])
+    ).toBe(true);
+    expect(rpc.exitCode).toBe(0);
+    await expectReaped(pid!);
+  } finally {
+    cleanup(pid);
+    await rpc.close();
+  }
+}, 5000);

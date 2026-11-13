@@ -10,7 +10,7 @@ let observations: any[] = [];
 let reads: Record<string, any> = {};
 let cursor = 1, badgeCount = 0;
 let fixtureEpoch = 0;
-let presence: any[] = [], smartEnabled = true;
+let smartEnabled = true;
 const routing = () => ({ smartEnabled, serverTime: Date.now(), iosActiveUntil: 0, macActiveUntil: 0 });
 const reply = (value: unknown, status = 200) => Response.json(value, { status });
 async function notifyClients() {
@@ -54,15 +54,13 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
   const epoch = fixtureEpoch;
   if (path === "/__push/reset") {
     fixtureEpoch++;
-    presence = []; smartEnabled = true;
+    smartEnabled = true;
     registration = null; receipts = []; alerts = []; observations = []; reads = {}; cursor++; badgeCount = 0;
     await fetch(upstream + "/__qa/reset", { method: "POST", body: "{}" });
     return reply({ ok: true });
   }
-  if (path === "/__push/state") return reply({ registration, receipts, observations, reads, badgeCount, presence, smartEnabled });
-  if (path === "/api/v0/notification-presence" && request.method === "POST") {
-    presence.push(body); return reply(routing());
-  }
+  if (path === "/__push/state") return reply({ registration, receipts, observations, reads, badgeCount, smartEnabled });
+  if (path === "/api/v0/notification-presence" && request.method === "POST") return reply(routing());
   if (path === "/api/v0/notification-preferences") {
     if (request.method === "PATCH") smartEnabled = body.smartEnabled;
     return reply(routing());

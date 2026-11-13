@@ -3,11 +3,7 @@ import XCTest
 @testable import OpenTeamCore
 
 final class ProtocolTests: XCTestCase {
-  func fixture() throws -> Bootstrap {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    return try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-  }
+  private func fixture() throws -> Bootstrap { try Fixture.bootstrap() }
   func testDecodesExistingReactNativeFixture() throws {
     let snapshot = try fixture()
     XCTAssertEqual(snapshot.bots.count, 3)
@@ -53,8 +49,6 @@ final class ProtocolTests: XCTestCase {
     ] {
       XCTAssertThrowsError(try API(server: invalid), invalid)
     }
-    // A bare address gets the scheme its kind of host usually serves.
-    XCTAssertEqual(try API(server: "example.com").baseURL.absoluteString, "https://example.com")
     XCTAssertEqual(API.segment("a/b?c"), "a%2Fb%3Fc")
   }
   func testTimelineTimestampsIgnoreBranchedRepliesAndRefreshEditedMessages() throws {

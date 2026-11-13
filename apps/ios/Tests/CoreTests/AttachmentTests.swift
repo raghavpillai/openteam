@@ -21,10 +21,7 @@ final class AttachmentTests: XCTestCase {
       "mimeType": .string("image/png"), "kind": .string("image"), "byteSize": .number(4200),
       "width": .number(1600), "height": .number(1000), "alt": .string("Caption from the server"),
     ])
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-      .latestMessages[0]
+    var message = try Fixture.message()
     message.metadata = .object([
       "attachments": .array([.null, asset]), "type": .string("attachment"),
     ])
@@ -45,9 +42,7 @@ final class AttachmentTests: XCTestCase {
   }
 
   func testTemplateExportUsesPortableRecipeWithoutAccountData() throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let bot = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url)).bots[0]
+    let bot = try Fixture.bootstrap().bots[0]
     let recipe = BotTemplateExport.recipe(bot: bot, routines: [])
     XCTAssertEqual(recipe["profile"]["name"].string, bot.name)
     XCTAssertEqual(recipe["gettingStarted"], .null)

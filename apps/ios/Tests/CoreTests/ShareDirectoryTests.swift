@@ -5,8 +5,7 @@ import XCTest
 final class ShareDirectoryTests: XCTestCase {
   /// Bots Research, Ops and Build, each with a direct chat.
   private func bootstrap() throws -> Bootstrap {
-    let url = Bundle.module.url(forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var bootstrap = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+    var bootstrap = try Fixture.bootstrap()
     bootstrap.latestMessages = []
     for index in bootstrap.channels.indices { bootstrap.channels[index].updatedAt = "2026-10-01T09:00:00.000Z" }
     return bootstrap

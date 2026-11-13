@@ -4,14 +4,6 @@ import XCTest
 
 @MainActor
 final class BotLaunchTests: SystemIntentFixture {
-  private func connectedStore() async throws -> AppStore {
-    let store = AppStore()
-    store.server = server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
-    return store
-  }
-
   func testOpenBotShortcutSwitchesToChosenBotAndPreservesItsDraft() async throws {
     let client = try await SystemIntentClient.connect()
     let bot = try XCTUnwrap(client.bootstrap.bots.last)
@@ -26,7 +18,7 @@ final class BotLaunchTests: SystemIntentFixture {
     XCTAssertEqual(store.navigation, [bot.dmChannelId])
     XCTAssertEqual(store.draft(bot.dmChannelId), draft)
     XCTAssertNil(store.botVoiceLaunch.pending)
-    try await assertNoDelivery()
+    try await assertNoSubmission()
   }
 
   func testVoiceShortcutSurvivesColdLaunchAndOpeningABotCancelsIt() async throws {
@@ -49,7 +41,7 @@ final class BotLaunchTests: SystemIntentFixture {
     _ = try await open.perform()
     XCTAssertNil(store.botVoiceLaunch.pending)
     store.setForeground(false)
-    try await assertNoDelivery()
+    try await assertNoSubmission()
   }
 
   func testOldAccountShortcutCannotOpenOrRecordInAnotherAccount() async throws {
@@ -70,8 +62,7 @@ final class BotLaunchTests: SystemIntentFixture {
     let store = try await connectedStore()
     let bot = try XCTUnwrap(store.state.bootstrap?.bots.last)
     let entity = TeamBotEntity(bot, scope: scope)
-    _ = try await API(server: server).request("/__qa/control", method: "POST",
-      body: .object(["offline": .bool(true)]))
+    try await control(.object(["offline": .bool(true)]))
     var open = OpenTeamBotIntent()
     open.store = store; open.target = entity
     _ = try await open.perform()
@@ -80,7 +71,7 @@ final class BotLaunchTests: SystemIntentFixture {
     voice.store = store; voice.bot = entity
     _ = try await voice.perform()
     XCTAssertEqual(store.botVoiceLaunch.pending?.channelID, bot.dmChannelId)
-    try await assertNoDelivery()
+    try await assertNoSubmission()
   }
 
   func testCachedBotCannotResolveAfterAccountChangeOrLocalReset() async throws {
@@ -110,13 +101,5 @@ final class BotLaunchTests: SystemIntentFixture {
     XCTAssertFalse(handoff.takeRecording(for: memo, scope: "different-account",
       channelID: "research", key: "research", visible: true))
     XCTAssertNil(handoff.pending)
-  }
-
-  private func assertNoDelivery() async throws {
-    let value = try await API(server: server).request("/__qa/state")
-    XCTAssertFalse(value["requests"].array.contains {
-      $0["method"].string == "POST" && ($0["path"].string.hasSuffix("/messages")
-        || $0["path"].string == "/api/v0/transcriptions")
-    }, "Opening or arming recording must never submit a voice note")
   }
 }

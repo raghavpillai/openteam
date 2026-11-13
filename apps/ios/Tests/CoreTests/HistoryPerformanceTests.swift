@@ -4,8 +4,7 @@ import XCTest
 
 final class HistoryPerformanceTests: XCTestCase {
   private func history(_ count: Int, nested: Bool = false) throws -> [Message] {
-    let url = Bundle.module.url(forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let seed = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url)).latestMessages[0]
+    let seed = try Fixture.message()
     return (0..<count).map { index in
       var message = seed
       message.id = "message-\(index)"

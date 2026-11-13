@@ -152,6 +152,6 @@ system_scheme = system_scheme.replace('shouldUseLaunchSchemeArgsEnv="YES"', 'sho
 system_scheme = system_scheme.replace('</Testables></TestAction>', '</Testables><EnvironmentVariables><EnvironmentVariable key="OPENTEAM_SYSTEM_TEST_HOST" value="1" isEnabled="YES"/></EnvironmentVariables></TestAction>')
 (schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
-visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
 # The push suite needs a disposable simulator and its own fixture, so it runs separately.
-(schemes / 'NativePush.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'NativePushUITests'))
+push_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests>', '<SelectedTests>').replace('</SkippedTests>', '</SelectedTests>')
+(schemes / 'NativePush.xcscheme').write_text(push_scheme)

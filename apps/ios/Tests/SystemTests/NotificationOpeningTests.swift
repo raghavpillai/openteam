@@ -3,23 +3,14 @@ import XCTest
 
 @MainActor
 final class NotificationOpeningTests: SystemIntentFixture {
-  private func connectedStore() async throws -> AppStore {
-    _ = try await API(server: server).request("/__qa/scene", method: "POST",
-      body: .object(["scene": .string("history-pages")]))
-    let store = AppStore()
-    store.server = server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
+  /// 180 messages in `visual-chat`; only the latest 60 are in the first page.
+  private func pagedStore() async throws -> AppStore {
+    try await scene("history-pages")
+    let store = try await connectedStore()
     XCTAssertFalse(store.launchComplete, "This fixture must not start automatic event polling")
     return store
   }
-  private func control(_ failures: JSON) async throws {
-    _ = try await API(server: server).request("/__qa/control", method: "POST",
-      body: .object(["failures": failures]))
-  }
-  private func requests() async throws -> [JSON] {
-    try await API(server: server).request("/__qa/state")["requests"].array
-  }
+  private func fail(_ failures: JSON) async throws { try await control(.object(["failures": failures])) }
   private func waitForRequest(_ path: String, query: String? = nil, after count: Int = 0) async throws {
     for _ in 0..<50 {
       if try await requests().dropFirst(count).contains(where: {
@@ -30,14 +21,14 @@ final class NotificationOpeningTests: SystemIntentFixture {
     throw APIError("Request was not started: \(path)")
   }
   func testCachedNotificationTargetOpensWithoutWaitingForTheNetwork() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     let target = try XCTUnwrap(store.messages("visual-chat").last)
     let before = try await requests().filter {
       $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
     }.count
-    try await control(.object([
+    try await fail(.object([
       "GET /api/v0/channels/visual-chat/history": .object(["status": .number(503), "count": .number(100)]),
       "GET /api/v0/channel-messages/*": .object(["status": .number(503), "count": .number(100)]),
     ]))
@@ -53,7 +44,7 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertNil(store.error)
   }
   func testMessageIdentityOpensAnAlertOutsideTheLatestSixtyMessages() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
@@ -63,12 +54,12 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
   }
   func testNewerNotificationWinsWhenContextResponsesFinishOutOfOrder() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     let oldID = "visual-message-visual-chat-25"
     let newID = "visual-message-visual-chat-150"
     let path = "/api/v0/channel-messages/\(oldID)/context"
-    try await control(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
+    try await fail(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
     let old = Task { await store.openNotification("visual-chat", messageID: oldID, sequence: "25") }
     try await waitForRequest(path)
     await store.openNotification("visual-chat", messageID: newID, sequence: "150")
@@ -78,11 +69,11 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.id == oldID })
   }
   func testSlowNotificationContextCannotOverrideAnotherConversation() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     let target = "visual-message-visual-chat-25"
     let path = "/api/v0/channel-messages/\(target)/context"
-    try await control(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
+    try await fail(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
     let opening = Task { await store.openNotification("visual-chat", messageID: target, sequence: "25") }
     try await waitForRequest(path)
     XCTAssertNotNil(store.openingNotification)

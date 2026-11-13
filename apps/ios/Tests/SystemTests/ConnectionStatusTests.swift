@@ -4,16 +4,6 @@ import XCTest
 
 @MainActor
 final class ConnectionStatusTests: SystemIntentFixture {
-  private func connectedStore() async -> AppStore {
-    let store = AppStore()
-    store.server = server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
-    return store
-  }
-  private func control(_ body: JSON) async throws {
-    _ = try await API(server: server).request("/__qa/control", method: "POST", body: body)
-  }
   private func waitForOutage(_ store: AppStore) async throws {
     for _ in 0..<60 where !store.connectionUnavailable {
       try await Task.sleep(for: .milliseconds(100))
@@ -23,7 +13,7 @@ final class ConnectionStatusTests: SystemIntentFixture {
   }
 
   func testWarningWaitsForThreeConsecutiveFailedChecks() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     defer { store.beginReauthentication() }
     try await control(.object(["offline": .bool(true)]))
     store.handle(URLError(.networkConnectionLost), quiet: true)
@@ -34,7 +24,7 @@ final class ConnectionStatusTests: SystemIntentFixture {
   }
 
   func testHistoryEndpointFailureKeepsConnectionAndCachedMessages() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     await store.loadHistory(channel.id)
     let cached = store.messages(channel.id)
@@ -58,7 +48,7 @@ final class ConnectionStatusTests: SystemIntentFixture {
   }
 
   func testForegroundResumeRecoversAndLoadsMessagesArrivingDuringOutage() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     defer { store.beginReauthentication() }
     let channel = try XCTUnwrap(store.channels.first)
     await store.loadHistory(channel.id)
@@ -81,7 +71,7 @@ final class ConnectionStatusTests: SystemIntentFixture {
   }
 
   func testOldProbeCannotChangeANewlyConnectedSession() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     defer { store.beginReauthentication() }
     try await control(.object(["failures": .object([
       "GET /api/auth/config": .object([

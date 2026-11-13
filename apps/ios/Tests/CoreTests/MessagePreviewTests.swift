@@ -3,7 +3,7 @@ import XCTest
 @testable import OpenTeamCore
 
 final class MessagePreviewTests: XCTestCase {
-  private struct Fixture: Decodable {
+  private struct Previews: Decodable {
     struct Text: Decodable {
       let content: String
       let preview: String
@@ -21,10 +21,10 @@ final class MessagePreviewTests: XCTestCase {
   }
 
   /// Fixture written from packages/contracts by scripts/export-message-previews.ts.
-  private func fixture() throws -> Fixture {
+  private func fixture() throws -> Previews {
     let url = Bundle.module.url(
       forResource: "message-previews", withExtension: "json", subdirectory: "Fixtures")!
-    return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    return try JSONDecoder().decode(Previews.self, from: Data(contentsOf: url))
   }
 
   private func asset(_ fileName: String, _ mimeType: String) -> Asset {
@@ -51,10 +51,7 @@ final class MessagePreviewTests: XCTestCase {
   }
 
   func testLatestMessagePreviewDescribesAttachmentsOnlyWithoutText() throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-      .latestMessages[0]
+    var message = try Fixture.message()
     let image: JSON = .object([
       "assetId": .string(String(repeating: "a", count: 64)), "fileName": .string("chart.png"),
       "mimeType": .string("image/png"), "kind": .string("image"), "byteSize": .number(42),

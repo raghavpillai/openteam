@@ -1,39 +1,12 @@
 import AppIntents
 import CoreSpotlight
+import CoreTransferable
+import UniformTypeIdentifiers
 import XCTest
 @testable import OpenTeamNative
 
-/// Run on an isolated simulator with parity-server.ts on port 20084. These tests
-/// call the actual intent implementations, using only synthetic accounts/data.
 @MainActor
-class SystemIntentFixture: XCTestCase {
-  let server = "http://127.0.0.1:20084"
-  var session: SessionRecord {
-    SessionRecord(server: server, token: nil, userID: "auth-disabled", userName: "Fixture", mode: "disabled")
-  }
-  var scope: String { SystemEntityID.scope(server: server, userID: session.userID) }
-
-  override func setUp() async throws {
-    continueAfterFailure = true
-    XCTAssertEqual(ProcessInfo.processInfo.environment["OPENTEAM_SYSTEM_TEST_HOST"], "1")
-    _ = try await API(server: server).request("/__qa/reset", method: "POST", body: .object([:]))
-    UserDefaults.standard.removeObject(forKey: LocalDataReset.pendingKey)
-    UserDefaults.standard.set(false, forKey: "system-discovery-" + scope)
-    try SecureSession.save(session)
-    await SystemDiscovery.shared.clearAndWait()
-    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("OpenTeam")
-    try DiskStore(directory: root, scope: scope).clear()
-  }
-
-  override func tearDown() async throws {
-    await SystemDiscovery.shared.clearAndWait()
-    try SecureSession.clear()
-    UserDefaults.standard.removeObject(forKey: "system-discovery-" + scope)
-  }
-}
-
-@MainActor
+/// The real App Intents, entity queries and Spotlight donations, scoped to one account.
 final class SystemIntentTests: SystemIntentFixture {
   func testSavedShortcutCannotSendAfterAccountChanges() async throws {
     let client = try await SystemIntentClient.connect()
@@ -51,8 +24,7 @@ final class SystemIntentTests: SystemIntentFixture {
     } catch {
       XCTAssertTrue(error.localizedDescription.contains("different OpenTeam account"))
     }
-    let state = try await client.api.request("/__qa/state")
-    XCTAssertFalse(state["requests"].array.contains { $0["path"].string.hasSuffix("/messages") && $0["method"].string == "POST" })
+    try await assertNoSubmission()
   }
 
   func testAttachmentTransferChecksParentAndUsesCurrentSession() async throws {
@@ -81,9 +53,7 @@ final class SystemIntentTests: SystemIntentFixture {
 
   func testSpotlightOptInIndexesAndOptOutRemovesAllContent() async throws {
     let client = try await SystemIntentClient.connect()
-    let store = AppStore()
-    store.server = server
-    try await store.startForIntentTest()
+    let store = try await connectedStore()
     XCTAssertFalse(store.systemDiscoveryEnabled)
     store.setSystemDiscoveryEnabled(true)
     try await SystemDiscovery.shared.reindex()
@@ -118,11 +88,137 @@ final class SystemIntentTests: SystemIntentFixture {
     }
     return titles
   }
-}
 
-private extension AppStore {
-  func startForIntentTest() async throws {
-    await connect(username: "", password: "")
-    XCTAssertEqual(phase, .ready)
+  func testSignedOutShortcutCannotResolveBots() async throws {
+    try SecureSession.clear()
+    do { _ = try await TeamBotQuery().suggestedEntities(); XCTFail("Resolved without a session") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("connect")) }
+    try await assertNoSubmission()
+  }
+
+  func testOfflineFailureCannotReportASuccessfulTask() async throws {
+    let client = try await SystemIntentClient.connect()
+    var intent = SendBotTaskIntent()
+    intent.bot = TeamBotEntity(try XCTUnwrap(client.bootstrap.bots.first), scope: scope)
+    intent.instructions = "Do not pretend this was accepted"
+    intent.attachments = []
+    try await control(.object(["offline": .bool(true)]))
+    do { _ = try await intent.perform(); XCTFail("Reported success while unavailable") }
+    catch { XCTAssertEqual((error as? APIError)?.status, 503) }
+    try await control(.object(["offline": .bool(false)]))
+    try await assertNoSubmission()
+  }
+
+  func testDataAndFileAttachmentsUploadAndExportExactBytes() async throws {
+    let client = try await SystemIntentClient.connect()
+    let bot = try XCTUnwrap(client.bootstrap.bots.first)
+    let content = Data("Fixture attachment: café 📨".utf8)
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
+    try content.write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    var intent = SendBotTaskIntent()
+    intent.bot = TeamBotEntity(bot, scope: scope)
+    intent.instructions = "Read these two files"
+    intent.attachments = [IntentFile(data: content, filename: "inline.txt", type: .plainText),
+      IntentFile(fileURL: file, filename: "from-disk.txt", type: .plainText)]
+    let result = try await intent.perform()
+    let message = try XCTUnwrap(result.value)
+    XCTAssertEqual(message.text, intent.instructions)
+    XCTAssertEqual(SystemEntityID(message.id)?.channelID, bot.dmChannelId)
+    XCTAssertEqual(message.attachments.map(\.fileName), ["inline.txt", "from-disk.txt"])
+    XCTAssertEqual(Set(message.attachments.map(\.id)).count, 2,
+      "Identical bytes with different filenames must remain distinct attachments")
+    guard #available(iOS 18.2, *) else { return }
+    for attachment in message.attachments {
+      let file = try await client.exportAttachment(attachment.id)
+      XCTAssertEqual(file.lastPathComponent, attachment.fileName)
+      let exported = try await attachment.exported(as: .data)
+      XCTAssertEqual(exported, content)
+    }
+    let state = try await fixtureState()
+    XCTAssertEqual(state["messages"].array.filter { $0["content"].string == intent.instructions }.count, 1)
+    XCTAssertEqual(state["contentReceipts"].array.filter { $0["path"].string == "/api/v0/assets" }.count, 2)
+  }
+
+  func testOptOutAndSignOutCannotBeUndoneByAPendingIndexWrite() async throws {
+    let appStore = try await connectedStore()
+    appStore.setSystemDiscoveryEnabled(true)
+    appStore.setSystemDiscoveryEnabled(false)
+    await SystemDiscovery.shared.waitForPendingUpdates()
+    XCTAssertNil(UserDefaults.standard.data(forKey: "system-discovery-manifest"))
+    appStore.setSystemDiscoveryEnabled(true)
+    await appStore.signOut()
+    await SystemDiscovery.shared.waitForPendingUpdates()
+    XCTAssertEqual(appStore.phase, .signedOut)
+    XCTAssertNil(appStore.systemScope)
+    XCTAssertNil(try SecureSession.read())
+    XCTAssertNil(UserDefaults.standard.data(forKey: "system-discovery-manifest"))
+  }
+
+  func testRevokedSessionCannotRepopulateSpotlightAfterIntentFailure() async throws {
+    let client = try await SystemIntentClient.connect()
+    var state = SavedState(); state.bootstrap = client.bootstrap
+    UserDefaults.standard.set(true, forKey: "system-discovery-" + scope)
+    SystemDiscovery.shared.update(session: session, state: state)
+    await SystemDiscovery.shared.waitForPendingUpdates()
+    try await control(.object(["failures": .object([
+      "GET /api/v0/client-bootstrap": .object(["status": .number(401), "count": .number(100)])])]))
+    do { _ = try await SystemIntentClient.connect(); XCTFail("Accepted an expired session") }
+    catch {
+      if (error as? APIError)?.status != 401 {
+        // A simultaneous Shortcuts parameter refresh can discover expiry first.
+        XCTAssertNil(try SecureSession.read())
+      }
+    }
+    await SystemDiscovery.shared.waitForPendingUpdates()
+    XCTAssertNil(try SecureSession.read(), "A revoked session must no longer authorize later donations")
+    SystemDiscovery.shared.update(session: session, state: state)
+    await SystemDiscovery.shared.waitForPendingUpdates()
+    XCTAssertNil(UserDefaults.standard.data(forKey: "system-discovery-manifest"))
+  }
+
+  func testNamedGroupSendAndDraftNeverGuessBetweenGroupsWithTheSameMembers() async throws {
+    let initial = try await SystemIntentClient.connect()
+    for name in ["Design review", "Release review"] {
+      _ = try await initial.api.request("/api/v0/channels", method: "POST", body: .object([
+        "name": .string(name), "botIds": .array(initial.bootstrap.bots.prefix(2).map { .string($0.id) })]))
+    }
+    let client = try await SystemIntentClient.connect()
+    let target = try XCTUnwrap(client.destinations.first { $0.name == "Release review" })
+    let entity = TeamConversationEntity(target, scope: scope)
+    var send = SendTeamConversationMessageIntent()
+    send.conversation = entity; send.text = "Review this release"; send.attachments = []
+    let result = try await send.perform()
+    XCTAssertEqual(SystemEntityID(try XCTUnwrap(result.value).id)?.channelID, target.id)
+    let store = try await connectedStore()
+    var existing = Draft(); existing.text = "Keep existing draft"
+    store.saveDraft(existing, channel: target.id)
+    var draft = DraftTeamConversationMessageIntent()
+    draft.store = store; draft.conversation = entity; draft.text = "Additional review notes"; draft.attachments = []
+    _ = try await draft.perform()
+    XCTAssertEqual(store.navigation.last, target.id)
+    XCTAssertEqual(store.draft(target.id).text, "Keep existing draft\nAdditional review notes")
+    let state = try await fixtureState()
+    XCTAssertEqual(state["messages"].array.filter { $0["content"].string == send.text }.count, 1)
+    XCTAssertFalse(state["messages"].array.contains { $0["content"].string.contains(draft.text) })
+    var other = session; other.userID = "other-account"; try SecureSession.save(other)
+    do { _ = try await send.perform(); XCTFail("Sent to another account's conversation") } catch {}
+    do { _ = try await draft.perform(); XCTFail("Drafted in another account's conversation") } catch {}
+  }
+
+  func testEnumerableQueriesAndTextTransfersValidateTheLiveAccount() async throws {
+    guard #available(iOS 18.2, *) else { throw XCTSkip("Transfer export requires iOS 18.2") }
+    let bots = try await TeamBotQuery().allEntities()
+    var bot = try XCTUnwrap(bots.first)
+    bot.name = "Stale cached name"
+    let text = try await bot.exported(as: .plainText)
+    XCTAssertFalse(String(decoding: text, as: UTF8.self).contains(bot.name))
+    let conversations = try await TeamConversationQuery().allEntities()
+    let conversation = try XCTUnwrap(conversations.first)
+    let exported = try await conversation.exported(as: .plainText)
+    XCTAssertEqual(String(decoding: exported, as: UTF8.self), conversation.name)
+    var other = session; other.userID = "other-account"; try SecureSession.save(other)
+    do { _ = try await bot.exported(as: .plainText); XCTFail("Exported another account's Bot") } catch {}
+    do { _ = try await conversation.exported(as: .plainText); XCTFail("Exported another account's conversation") } catch {}
   }
 }

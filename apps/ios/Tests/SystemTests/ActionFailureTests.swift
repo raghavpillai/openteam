@@ -4,19 +4,9 @@ import XCTest
 
 @MainActor
 final class ActionFailureTests: SystemIntentFixture {
-  private func connectedStore(server endpoint: String? = nil) async -> AppStore {
-    let store = AppStore()
-    store.server = endpoint ?? server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
-    return store
-  }
-  private func control(_ body: JSON) async throws {
-    _ = try await API(server: server).request("/__qa/control", method: "POST", body: body)
-  }
 
   func testFailedSendIsSavedAndOnlyRetrySendsItAfterRecovery() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     var draft = Draft()
     draft.text = "Retry this saved message"
@@ -47,7 +37,7 @@ final class ActionFailureTests: SystemIntentFixture {
     await store.retry(failed.id)
     await store.retry(failed.id)
     XCTAssertTrue(store.state.outbox.isEmpty)
-    let state = try await API(server: server).request("/__qa/state")
+    let state = try await fixtureState()
     let accepted = state["messages"].array.filter { $0["content"].string == draft.text }
     XCTAssertEqual(accepted.count, 1)
     XCTAssertEqual(accepted.first?["clientId"].string, failed.id)
@@ -76,7 +66,7 @@ final class ActionFailureTests: SystemIntentFixture {
   }
 
   func testAutomaticRetryReconcilesLostAcknowledgementWithoutDuplicateMessage() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     var draft = Draft()
     draft.text = "Accepted before the response was lost"
@@ -84,7 +74,7 @@ final class ActionFailureTests: SystemIntentFixture {
     try await control(.object(["dropNextSend": .bool(true)]))
     await store.enqueue(channel)
     XCTAssertTrue(store.state.outbox.isEmpty)
-    let state = try await API(server: server).request("/__qa/state")
+    let state = try await fixtureState()
     XCTAssertEqual(state["messages"].array.filter { $0["content"].string == draft.text }.count, 1)
     let nonce = try XCTUnwrap(
       state["messages"].array.first { $0["content"].string == draft.text }?["clientId"].string)
@@ -95,7 +85,7 @@ final class ActionFailureTests: SystemIntentFixture {
   }
 
   func testTimedOutSubmissionRemainsUnconfirmedUntilSafeRetry() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     var draft = Draft()
     draft.text = "Bounded request"
@@ -128,7 +118,7 @@ final class ActionFailureTests: SystemIntentFixture {
   }
 
   func testPermanentRejectionDoesNotRetryForTenSeconds() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     let bot = try XCTUnwrap(store.bot(for: channel))
     var draft = Draft()
@@ -154,7 +144,7 @@ final class ActionFailureTests: SystemIntentFixture {
     let proxy = "http://127.0.0.1:20086"
     let health = try await API(server: proxy).request("/__qa/proxy-health")
     XCTAssertEqual(health["bytesPerSecond"].int, 1024 * 1024)
-    let store = await connectedStore(server: proxy)
+    let store = try await connectedStore(server: proxy)
     let channel = try XCTUnwrap(store.channels.first)
     try store.stage(
       Data(repeating: 65, count: 16 * 1024 * 1024),
@@ -166,14 +156,14 @@ final class ActionFailureTests: SystemIntentFixture {
     XCTAssertTrue(
       store.state.outbox.isEmpty,
       "Real upload progress must extend the stall window beyond the old total deadline")
-    let state = try await API(server: server).request("/__qa/state")
+    let state = try await fixtureState()
     XCTAssertEqual(state["contentReceipts"].array.count, 1)
     XCTAssertEqual(state["contentReceipts"].array.first?["byteSize"].int, 16 * 1024 * 1024)
     await store.signOut()  // This one test uses a separate server/account cache scope.
   }
 
   func testCompletedUploadsRefreshStallAndRemainSavedOnRetry() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     store.sendStallTimeout = .seconds(2)
     for index in 0..<3 {
@@ -207,12 +197,12 @@ final class ActionFailureTests: SystemIntentFixture {
     store.flushPersistence()
     await store.retry(failed.id)
     XCTAssertTrue(store.state.outbox.isEmpty)
-    let state = try await API(server: server).request("/__qa/state")
+    let state = try await fixtureState()
     XCTAssertEqual(state["contentReceipts"].array.count, 3, "Retry must reuse uploaded assets")
   }
 
   func testAccountGenerationChangeCancelsOldDeliveryRequest() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
     try await control(.object(["deliveryDelayMs": .number(20000)]))
     var draft = Draft()
@@ -226,7 +216,7 @@ final class ActionFailureTests: SystemIntentFixture {
     XCTAssertTrue(store.state.outbox.isEmpty)
     XCTAssertNil(store.activeSendID)
     XCTAssertNil(store.checkingSendID)
-    let state = try await API(server: server).request("/__qa/state")
+    let state = try await fixtureState()
     XCTAssertFalse(state["requests"].array.contains { $0["method"].string == "POST" })
   }
 }

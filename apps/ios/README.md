@@ -111,7 +111,9 @@ Shortcuts actions work with the switch off.
 ## QA
 
 The loopback parity server uses synthetic accounts and content, never a model or
-connected service. Start it with:
+connected service. It serves sign-in, chats, sending, attachments, read state, first-run
+setup and voice notes; other screens (plugins, routines, network, providers, updates)
+show an empty or unavailable state. Start it with:
 
 ```sh
 bun apps/ios/scripts/parity-server.ts
@@ -131,8 +133,8 @@ bash apps/ios/scripts/verify.sh <simulator-udid> [result-dir]
 It starts fixtures on ports 19997 and 19992 (reusing any already running) and writes
 logs and the result bundle to `output/swift-native-<timestamp>/` unless you pass a
 result directory. The default UI suites are a lean smoke set: sign-in and saved-session
-reset (`AuthFlowUITests`), keyboard send with a lost acknowledgement (`NativeSmokeTests`)
-and private attachments (`AttachmentUITests`). It uses ad hoc simulator signing so the saved-session test can
+reset plus private attachments (`AuthFlowUITests`) and keyboard send with a lost
+acknowledgement (`NativeSmokeTests`). It uses ad hoc simulator signing so the saved-session test can
 exercise Keychain persistence across cold launches.
 
 The `NativePush` scheme checks notification taps and read sync against

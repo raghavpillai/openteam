@@ -3,7 +3,7 @@ import XCTest
 
 final class ConversationActivityTests: XCTestCase {
   func testBackgroundActivityLifecycleAndScope() throws {
-    let bootstrap = try ProtocolTests().fixture()
+    let bootstrap = try Fixture.bootstrap()
     var channel = bootstrap.channels[0]
     channel.kind = "bot_dm"
     let botId = bootstrap.bots[0].id
@@ -40,7 +40,7 @@ final class ConversationActivityTests: XCTestCase {
   }
 
   func testParkedRequestsAndChildrenStaySilentUntilAnActualWake() throws {
-    let bootstrap = try ProtocolTests().fixture()
+    let bootstrap = try Fixture.bootstrap()
     var channel = bootstrap.channels[0]
     channel.kind = "bot_dm"
     let botId = bootstrap.bots[0].id
@@ -75,7 +75,7 @@ final class ConversationActivityTests: XCTestCase {
   }
 
   func testBootstrapAndChannelStateDecodeAndPersistTasks() throws {
-    let original = try ProtocolTests().fixture()
+    let original = try Fixture.bootstrap()
     var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as! [String: Any]
     payload["subagents"] = [["id": "task", "parentBotId": "bot", "parentChannelId": "chat",
       "status": "queued", "description": "Extra contract fields are allowed"]]

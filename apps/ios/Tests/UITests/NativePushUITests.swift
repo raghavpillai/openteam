@@ -246,21 +246,16 @@ import XCTest
     XCTAssertTrue(target.isHittable)
     print("NOTIFICATION_MESSAGE_VISIBLE cold-launch \(Date().timeIntervalSince(selected))")
     // Chat chrome appears before the transcript finishes positioning and marks itself read.
-    var receipts: [[String: Any]] = []
-    for _ in 0..<40 {
-      let state = try await request("/__push/state")
-      receipts = state["receipts"] as? [[String: Any]] ?? []
-      if receipts.contains(where: {
+    var marked = false
+    for _ in 0..<40 where !marked {
+      let receipts = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+      marked = receipts.contains {
         $0["path"] as? String == "/api/v0/channels/" + channel + "/read"
           && $0["throughNotificationSequence"] as? String == "123"
-      }) { break }
-      try await Task.sleep(for: .milliseconds(100))
+      }
+      if !marked { try await Task.sleep(for: .milliseconds(100)) }
     }
-    XCTAssertTrue(
-      receipts.contains {
-        ($0["path"] as? String) == "/api/v0/channels/" + channel + "/read"
-          && $0["throughNotificationSequence"] as? String == "123"
-      })
+    XCTAssertTrue(marked, "Opening the chat must acknowledge its notifications")
     let after = XCTAttachment(screenshot: app.screenshot())
     after.name = "native-notification-opened-chat"
     after.lifetime = .keepAlways

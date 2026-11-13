@@ -8,25 +8,20 @@ final class UnreadResponseTests: SystemIntentFixture {
   private let sidebarPath = "/api/v0/settings/sidebar"
   private var bootstrap: JSON = .null
 
-  private func control(_ failures: [String: JSON] = [:]) async throws {
+  /// Serves the edited `bootstrap` plus any extra injected responses.
+  private func serve(_ failures: [String: JSON] = [:]) async throws {
     var next = failures
     next["GET /api/v0/client-bootstrap"] = .object([
       "status": .number(200), "body": bootstrap, "count": .number(1000),
     ])
-    _ = try await API(server: server).request("/__qa/control", method: "POST",
-      body: .object(["failures": .object(next)]))
+    try await control(.object(["failures": .object(next)]))
   }
-  private func connectedStore() async throws -> AppStore {
-    let api = try API(server: server)
-    _ = try await api.request("/__qa/scene", method: "POST",
-      body: .object(["scene": .string("history-pages")]))
-    bootstrap = try await api.request("/api/v0/client-bootstrap")
+  private func readyStore() async throws -> AppStore {
+    try await scene("history-pages")
+    bootstrap = try await API(server: server).request("/api/v0/client-bootstrap")
     updateBootstrap(message: "180", activity: "500", readMessage: "179", readActivity: "499", unread: 1)
-    try await control()
-    let store = AppStore()
-    store.server = server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
+    try await serve()
+    let store = try await connectedStore()
     await store.loadHistory(channelID)
     store.activeChannel = channelID
     return store
@@ -60,7 +55,7 @@ final class UnreadResponseTests: SystemIntentFixture {
     ])
   }
   private func requestCount(_ path: String, method: String) async throws -> Int {
-    try await API(server: server).request("/__qa/state")["requests"].array.filter {
+    try await requests().filter {
       $0["path"].string == path && $0["method"].string == method
     }.count
   }
@@ -72,21 +67,18 @@ final class UnreadResponseTests: SystemIntentFixture {
     XCTFail("Request barrier was not reached for \(method) \(path)")
     throw APIError("Missing fixture request")
   }
-  private func markUnread(_ store: AppStore, id: String? = nil) async {
-    await store.markUnread(id ?? channelID)
-  }
   private func assertManualUnread(_ store: AppStore, file: StaticString = #filePath,
     line: UInt = #line) async throws {
     XCTAssertTrue(store.sidebar["unreadIds"].array.contains(.string(channelID)), file: file, line: line)
-    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    let persisted = try await fixtureState()["settings"]
     XCTAssertTrue(persisted["unreadIds"].array.contains(.string(channelID)), file: file, line: line)
   }
 
   func testDelayedReadAckPreservesNewerMessageUnread() async throws {
-    let store = try await connectedStore()
+    let store = try await readyStore()
     defer { store.beginReauthentication() }
     let count = try await requestCount(readPath, method: "POST")
-    try await control(["POST " + readPath: ack(delay: 3000)])
+    try await serve(["POST " + readPath: ack(delay: 3000)])
     var completed = false
     let read = Task {
       let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
@@ -95,7 +87,7 @@ final class UnreadResponseTests: SystemIntentFixture {
     }
     try await waitForRequest(readPath, method: "POST", after: count)
     updateBootstrap(message: "181", activity: "500", readMessage: "180", readActivity: "500", unread: 1)
-    try await control()
+    try await serve()
     let refreshed = await store.refresh()
     XCTAssertTrue(refreshed)
     XCTAssertEqual(store.latestMessage(channelID)?.sequence, "181")
@@ -107,10 +99,10 @@ final class UnreadResponseTests: SystemIntentFixture {
   }
 
   func testDelayedReadAckPreservesNewerExplicitMarkUnread() async throws {
-    let store = try await connectedStore()
+    let store = try await readyStore()
     defer { store.beginReauthentication() }
     let count = try await requestCount(readPath, method: "POST")
-    try await control(["POST " + readPath: ack(delay: 3000)])
+    try await serve(["POST " + readPath: ack(delay: 3000)])
     var completed = false
     let read = Task {
       let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
@@ -118,7 +110,7 @@ final class UnreadResponseTests: SystemIntentFixture {
       return accepted
     }
     try await waitForRequest(readPath, method: "POST", after: count)
-    await markUnread(store)
+    await store.markUnread(channelID)
     try await assertManualUnread(store)
     XCTAssertFalse(completed)
     let patches = try await requestCount(sidebarPath, method: "PATCH")
@@ -129,10 +121,10 @@ final class UnreadResponseTests: SystemIntentFixture {
   }
 
   func testConcurrentNewReadAckWinsOverDelayedOldAck() async throws {
-    let store = try await connectedStore()
+    let store = try await readyStore()
     defer { store.beginReauthentication() }
     let count = try await requestCount(readPath, method: "POST")
-    try await control(["POST " + readPath: ack(unread: 1, delay: 3000)])
+    try await serve(["POST " + readPath: ack(unread: 1, delay: 3000)])
     var completed = false
     let old = Task {
       let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
@@ -141,7 +133,7 @@ final class UnreadResponseTests: SystemIntentFixture {
     }
     try await waitForRequest(readPath, method: "POST", after: count)
     updateBootstrap(message: "181", activity: "501", readMessage: "180", readActivity: "500", unread: 1)
-    try await control(["POST " + readPath: ack(message: "181", activity: "501")])
+    try await serve(["POST " + readPath: ack(message: "181", activity: "501")])
     _ = await store.refresh()
     let accepted = await store.markRead(channelID, through: "181", throughNotificationSequence: "501")
     XCTAssertTrue(accepted)
@@ -153,9 +145,9 @@ final class UnreadResponseTests: SystemIntentFixture {
   }
 
   func testAccountChangeRejectsDelayedReadAck() async throws {
-    let store = try await connectedStore()
+    let store = try await readyStore()
     let count = try await requestCount(readPath, method: "POST")
-    try await control(["POST " + readPath: ack(delay: 3000)])
+    try await serve(["POST " + readPath: ack(delay: 3000)])
     let read = Task {
       await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
     }

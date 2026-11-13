@@ -4,8 +4,7 @@ import XCTest
 
 final class ConversationComputerTests: XCTestCase {
   private func fixture() throws -> (Channel, [Bot]) {
-    let url = Bundle.module.url(forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let bootstrap = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+    let bootstrap = try Fixture.bootstrap()
     let bots = (0..<3).map { index in
       var bot = bootstrap.bots[0]
       bot.id = "bot-\(index)"

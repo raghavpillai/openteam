@@ -225,9 +225,7 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(result, .object([:]))
   }
   func testDirectAndGroupSendUseDifferentServerRoutesWithStableNonce() async throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let fixture = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+    let fixture = try Fixture.bootstrap()
     let message = fixture.latestMessages[0]
     let encoded = try JSONEncoder().encode(JSON.object(["message": .encode(message)]))
     let input = SendInput(

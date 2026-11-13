@@ -8,6 +8,7 @@ Connected tools and registered computers run bot actions directly, except that o
 - **Your model provider** receives what the bot needs to work on each task, including messages and file contents.
 - **Connected services** receive the requests bots make through plugins.
 - **Your web search, web fetch, and transcription providers** receive search queries, the addresses of pages bots fetch, and voice recordings.
+- **Map and place services** receive [place searches, route coordinates, map display requests, and photo requests](../integrations/maps.md#privacy-and-map-display), depending on the plugin and client in use.
 - **Apple** delivers iPhone alerts, so it receives each alert's title and a preview of up to 140 characters of the message.
 - **GitHub** is contacted when the desktop app and the `openteam` CLI check for updates, and **openteam.so** when the iPhone app does.
 

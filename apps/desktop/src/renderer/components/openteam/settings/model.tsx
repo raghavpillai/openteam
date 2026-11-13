@@ -1,4 +1,4 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { SettingsSelectContent } from "./select-content";
 import { useModelSetup } from "../../../hooks/use-model-setup";
 import { providerName } from "../../../lib/provider-names";
@@ -10,6 +10,9 @@ import {
   SettingsGroup,
   SettingsRow,
   SettingsIntro,
+  SettingsReveal,
+  SkeletonControl,
+  SkeletonText,
   settingsPrimaryButton,
   settingsSecondaryButton,
   settingsSelect,
@@ -29,8 +32,11 @@ const reasoningLabel = (value: string): string =>
 export default function ModelSettings() {
   const setup = useModelSetup();
   const { data, provider, busy } = setup;
-  const working = Boolean(busy) || setup.test.status === "running";
+  // The skeleton covers loading; the controls shouldn't flash disabled as they appear.
+  const working = (Boolean(busy) && busy !== "load") || setup.test.status === "running";
   const signingIn = Boolean(setup.authSession);
+  // Until the settings arrive, every value is a skeleton of the control it becomes.
+  const loading = !data && !setup.error;
 
   return (
     <>
@@ -40,48 +46,62 @@ export default function ModelSettings() {
           stackControl
           anchors={["inference-provider"]}
           control={
-            <Select
-              disabled={!data || working}
-              onValueChange={(value) => void setup.selectProvider(value)}
-              value={setup.providerId}
-            >
-              <SelectTrigger aria-label="Provider" className={`${selectTrigger} w-[210px]`}>
-                <SelectValue placeholder="Choose a provider" />
-              </SelectTrigger>
-              <SettingsSelectContent>
-                {(data?.providers ?? []).map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    <span className="flex min-w-0 items-center gap-2">
-                      {/* Names line up whether or not the provider has a mark. */}
-                      <span className="grid size-3.5 shrink-0 place-items-center">
-                        <ProviderMark id={candidate.id} />
+            loading ? (
+              <SkeletonControl width={210} />
+            ) : (
+              <Select
+                disabled={!data || working}
+                onValueChange={(value) => void setup.selectProvider(value)}
+                value={setup.providerId}
+              >
+                <SelectTrigger
+                  aria-label="Provider"
+                  className={`${selectTrigger} settings-reveal w-[210px]`}
+                >
+                  <SelectValue placeholder="Choose a provider" />
+                </SelectTrigger>
+                <SettingsSelectContent>
+                  {(data?.providers ?? []).map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      <span className="flex min-w-0 items-center gap-2">
+                        {/* Names line up whether or not the provider has a mark. */}
+                        <span className="grid size-3.5 shrink-0 place-items-center">
+                          <ProviderMark id={candidate.id} />
+                        </span>
+                        <span className="truncate">
+                          {providerName(candidate.id, candidate.name)}
+                        </span>
                       </span>
-                      <span className="truncate">{providerName(candidate.id, candidate.name)}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SettingsSelectContent>
-            </Select>
+                    </SelectItem>
+                  ))}
+                </SettingsSelectContent>
+              </Select>
+            )
           }
           description="The account your bots use to think. Sign-ins and keys stay on your server."
           title="Provider"
         />
         <SettingsRow
           control={
-            provider?.connected ? (
-              <ButtonPrimitive
-                className={settingsSecondaryButton}
+            loading ? (
+              <SkeletonControl width={76} />
+            ) : provider?.connected ? (
+              <Button
+                size="xs"
+                variant="secondary"
+                className={`${settingsSecondaryButton} settings-reveal`}
                 disabled={working || signingIn}
                 onClick={() => void setup.disconnect()}
                 type="button"
               >
                 Disconnect
-              </ButtonPrimitive>
+              </Button>
             ) : signingIn ? null : (
               // The sign-in or key form below replaces these while it's open.
-              <div className="flex items-center gap-2">
+              <div className="settings-reveal flex items-center gap-2">
                 {(provider?.authMethods ?? []).map((method) => (
-                  <ButtonPrimitive
+                  <Button
+                    size="xs"
                     className={settingsPrimaryButton}
                     disabled={working || signingIn}
                     key={method.type}
@@ -90,19 +110,25 @@ export default function ModelSettings() {
                     loading={busy === "connect"}
                   >
                     {method.type === "oauth" ? "Sign in" : "Add API key"}
-                  </ButtonPrimitive>
+                  </Button>
                 ))}
               </div>
             )
           }
           description={
-            provider?.connected
-              ? provider.authType === "oauth"
-                ? `Signed in with your ${providerName(provider.id, provider.name)} account.`
-                : /env/i.test(provider.authSource ?? "")
-                  ? "Using an API key from the server's environment."
-                  : "Connected with an API key."
-              : "Not connected."
+            loading ? (
+              <SkeletonText width={232} />
+            ) : provider?.connected ? (
+              provider.authType === "oauth" ? (
+                `Signed in with your ${providerName(provider.id, provider.name)} account.`
+              ) : /env/i.test(provider.authSource ?? "") ? (
+                "Using an API key from the server's environment."
+              ) : (
+                "Connected with an API key."
+              )
+            ) : (
+              "Not connected."
+            )
           }
           title="Connection"
         />
@@ -120,14 +146,20 @@ export default function ModelSettings() {
           stackControl
           anchors={["inference-model"]}
           control={
-            <ModelPicker
-              models={data?.models ?? []}
-              value={setup.modelId}
-              providerName={providerName(setup.providerId, provider?.name)}
-              disabled={working || !provider?.connected || !data?.models.length}
-              onChange={setup.selectModel}
-              variant="settings"
-            />
+            loading ? (
+              <SkeletonControl width={250} />
+            ) : (
+              <SettingsReveal as="div">
+                <ModelPicker
+                  models={data?.models ?? []}
+                  value={setup.modelId}
+                  providerName={providerName(setup.providerId, provider?.name)}
+                  disabled={working || !provider?.connected || !data?.models.length}
+                  onChange={setup.selectModel}
+                  variant="settings"
+                />
+              </SettingsReveal>
+            )
           }
           description={provider?.modelMessage ?? "Used for every bot's work and background tasks."}
           title="Model"
@@ -136,33 +168,48 @@ export default function ModelSettings() {
           stackControl
           anchors={["inference-reasoning"]}
           control={
-            <Select
-              disabled={working || !setup.selectedModel?.reasoning || !setup.reasoningLevels.length}
-              onValueChange={(value) =>
-                setup.setReasoning(value as typeof setup.effectiveReasoning)
-              }
-              value={setup.effectiveReasoning}
-            >
-              <SelectTrigger aria-label="Reasoning effort" className={`${selectTrigger} w-[130px]`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SettingsSelectContent>
-                {(setup.reasoningLevels.length ? setup.reasoningLevels : ["off"]).map((level) => (
-                  <SelectItem key={level} value={level}>
-                    {!setup.reasoningLevels.length && setup.selectedModel?.reasoning
-                      ? "Provider default"
-                      : reasoningLabel(level)}
-                  </SelectItem>
-                ))}
-              </SettingsSelectContent>
-            </Select>
+            loading ? (
+              <SkeletonControl width={130} />
+            ) : (
+              <Select
+                disabled={
+                  working || !setup.selectedModel?.reasoning || !setup.reasoningLevels.length
+                }
+                onValueChange={(value) =>
+                  setup.setReasoning(value as typeof setup.effectiveReasoning)
+                }
+                value={setup.effectiveReasoning}
+              >
+                <SelectTrigger
+                  aria-label="Reasoning effort"
+                  className={`${selectTrigger} settings-reveal w-[130px]`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SettingsSelectContent>
+                  {(setup.reasoningLevels.length ? setup.reasoningLevels : ["off"]).map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {!setup.reasoningLevels.length && setup.selectedModel?.reasoning
+                        ? "Provider default"
+                        : reasoningLabel(level)}
+                    </SelectItem>
+                  ))}
+                </SettingsSelectContent>
+              </Select>
+            )
           }
           description={
-            setup.selectedModel?.reasoning
-              ? setup.reasoningLevels.length
-                ? "Higher effort is slower but more careful."
-                : "This model manages reasoning automatically."
-              : "This model doesn't offer reasoning levels."
+            loading ? (
+              <SkeletonText width={244} />
+            ) : setup.selectedModel?.reasoning ? (
+              setup.reasoningLevels.length ? (
+                "Higher effort is slower but more careful."
+              ) : (
+                "This model manages reasoning automatically."
+              )
+            ) : (
+              "This model doesn't offer reasoning levels."
+            )
           }
           title="Reasoning effort"
         />
@@ -174,9 +221,9 @@ export default function ModelSettings() {
               `In use: ${providerName(data.inference.providerId, data.providers.find((p) => p.id === data.inference.providerId)?.name)} · ${data.models.find((m) => m.modelId === data.inference.modelId)?.name ?? data.inference.modelId}`
             ) : data ? (
               "No model chosen yet. Bots can't reply until you choose one."
-            ) : (
-              "Loading…"
-            )}
+            ) : loading ? (
+              <SkeletonText width={220} />
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {setup.test.status === "failed" &&
@@ -184,16 +231,20 @@ export default function ModelSettings() {
             provider.authType === "oauth" &&
             !signingIn ? (
               // A plan sign-in that expired is fixed by signing in again, not by disconnecting.
-              <ButtonPrimitive
+              <Button
+                size="xs"
+                variant="secondary"
                 className={settingsSecondaryButton}
                 disabled={working}
                 onClick={() => void setup.connect("oauth")}
                 type="button"
               >
                 Sign in again
-              </ButtonPrimitive>
+              </Button>
             ) : null}
-            <ButtonPrimitive
+            <Button
+              size="xs"
+              variant="secondary"
               className={settingsSecondaryButton}
               disabled={
                 setup.changed ||
@@ -205,8 +256,9 @@ export default function ModelSettings() {
               type="button"
             >
               Test
-            </ButtonPrimitive>
-            <ButtonPrimitive
+            </Button>
+            <Button
+              size="xs"
               className={settingsPrimaryButton}
               disabled={!setup.changed || !provider?.connected || !setup.selectedModel || working}
               onClick={() => void setup.apply()}
@@ -214,7 +266,7 @@ export default function ModelSettings() {
               loading={busy === "save"}
             >
               Apply
-            </ButtonPrimitive>
+            </Button>
           </div>
         </div>
       </SettingsGroup>
@@ -222,14 +274,16 @@ export default function ModelSettings() {
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400" role="alert">
           {setup.error}
           {!data ? (
-            <ButtonPrimitive
+            <Button
+              size="xs"
+              variant="secondary"
               className={settingsSecondaryButton}
               disabled={working}
               onClick={() => void setup.reload()}
               type="button"
             >
               Try again
-            </ButtonPrimitive>
+            </Button>
           ) : null}
         </div>
       ) : null}

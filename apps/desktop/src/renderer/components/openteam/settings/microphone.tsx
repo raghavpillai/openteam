@@ -1,8 +1,15 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { type ReactNode, useState } from "react";
 import { useMicrophoneDevices } from "../../../hooks/use-microphone-devices";
 import { microphoneErrorMessage, setMicrophonePreference } from "../../../lib/microphone";
-import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
+import { MicrophoneAccessSkeleton } from "./microphone-skeleton";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SettingsRow,
+  settingsSecondaryButton,
+} from "./ui";
 
 export interface MicrophoneControlProps {
   disabled: boolean;
@@ -121,43 +128,59 @@ export function MicrophoneSettings({
                   : undefined)
           }
           control={
-            <div className="flex items-center gap-3">
-              <span
-                aria-label={`Microphone access ${accessLabel.toLowerCase()}`}
-                className="inline-flex items-center gap-1.5 text-[12px] text-foreground-secondary"
-                role="status"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`size-1.5 rounded-full ${permission === "granted" && !checking ? "bg-emerald-500" : "bg-foreground-tertiary"}`}
-                />
-                {accessLabel}
+            checking ? (
+              <span aria-label="Checking microphone access" role="status">
+                <MicrophoneAccessSkeleton />
               </span>
-              {!checking && (permission === "prompt" || permission === "unknown") ? (
-                <ButtonPrimitive
-                  className={actionClass}
-                  disabled={requesting || status === "unsupported"}
-                  onClick={() => void requestAccess()}
-                  type="button"
-                  loading={requesting}
-                  loadingLabel="Requesting…"
+            ) : (
+              <SettingsReveal as="div" className="flex items-center gap-3">
+                <span
+                  aria-label={`Microphone access ${accessLabel.toLowerCase()}`}
+                  className="inline-flex items-center gap-1.5 text-[12px] text-foreground-secondary"
+                  role="status"
                 >
-                  Enable microphone
-                </ButtonPrimitive>
-              ) : !checking && canOpenSettings ? (
-                <ButtonPrimitive
-                  className={actionClass}
-                  onClick={() => void showSystemSettings()}
-                  type="button"
-                >
-                  System settings
-                </ButtonPrimitive>
-              ) : !checking && permission === "denied" ? (
-                <ButtonPrimitive className={actionClass} onClick={() => void refresh()} type="button">
-                  Check again
-                </ButtonPrimitive>
-              ) : null}
-            </div>
+                  <span
+                    aria-hidden="true"
+                    className={`size-1.5 rounded-full ${permission === "granted" && !checking ? "bg-emerald-500" : "bg-foreground-tertiary"}`}
+                  />
+                  {accessLabel}
+                </span>
+                {!checking && (permission === "prompt" || permission === "unknown") ? (
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    className={actionClass}
+                    disabled={requesting || status === "unsupported"}
+                    onClick={() => void requestAccess()}
+                    type="button"
+                    loading={requesting}
+                    loadingLabel="Requesting…"
+                  >
+                    Enable microphone
+                  </Button>
+                ) : !checking && canOpenSettings ? (
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    className={actionClass}
+                    onClick={() => void showSystemSettings()}
+                    type="button"
+                  >
+                    System settings
+                  </Button>
+                ) : !checking && permission === "denied" ? (
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    className={actionClass}
+                    onClick={() => void refresh()}
+                    type="button"
+                  >
+                    Check again
+                  </Button>
+                ) : null}
+              </SettingsReveal>
+            )
           }
         />
       </SettingsGroup>

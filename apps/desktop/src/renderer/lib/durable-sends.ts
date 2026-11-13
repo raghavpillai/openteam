@@ -11,7 +11,7 @@ import {
   messageDeliveryAcceptance,
   type MessageDeliveryAcceptance,
 } from "@openteam/product-core/durable-delivery";
-import { getAuthSnapshot, subscribeAuthSnapshot } from "../client/auth";
+import { AUTH_CREDENTIALS_CHANGED_EVENT, getAuthCredentialGeneration, getAuthSnapshot, subscribeAuthSnapshot } from "../client/auth";
 import { API_BASE } from "../client/http";
 import { api } from "../client/openteam-api";
 import { recordPerformance } from "./performance";
@@ -309,13 +309,23 @@ const disposeInactiveControllers = (activeScope: string) => {
 };
 
 subscribeAuthSnapshot(() => disposeInactiveControllers(accountScope()));
+window.addEventListener(AUTH_CREDENTIALS_CHANGED_EVENT, () => {
+  for (const [scope, controller] of controllers) {
+    const cleanup = controllerCleanups.get(controller);
+    if (cleanup) cleanup();
+    else controller.dispose();
+    controllerCleanups.delete(controller);
+    controllers.delete(scope);
+  }
+});
 
 export const desktopDurableSendController = (): DurableSendController => {
   const scope = accountScope();
   disposeInactiveControllers(scope);
   const existing = controllers.get(scope);
   if (existing) return existing;
-  const scopeIsActive = () => accountScope() === scope;
+  const generation = getAuthCredentialGeneration();
+  const scopeIsActive = () => accountScope() === scope && generation === getAuthCredentialGeneration();
   const controller = createDurableSendController(scope, storageFor(scope), {
     dispatch: (record) => {
       if (!scopeIsActive()) throw new InactiveDeliveryScopeError("Delivery account changed");
@@ -333,8 +343,11 @@ export const desktopDurableSendController = (): DurableSendController => {
           record.payload.stagedAttachments ?? [],
           MAX_PARALLEL_UPLOADS,
           async (attachment) => {
+            if (!scopeIsActive()) throw new InactiveDeliveryScopeError("Delivery account changed");
             const file = await readDesktopDeliveryStage(attachment);
+            if (!scopeIsActive()) throw new InactiveDeliveryScopeError("Delivery account changed");
             const asset = await api.uploadAsset(file, attachment.fileName, attachment.mimeType);
+            if (!scopeIsActive()) throw new InactiveDeliveryScopeError("Delivery account changed");
             return attachment.alt ? { ...asset, alt: attachment.alt } : asset;
           }
         )

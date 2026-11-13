@@ -41,12 +41,14 @@ interface Window {
     };
     screenbot?: {
       publishRoster(roster: {
+        accountScope: string | null;
         bots: Array<{ id: string; name: string; title: string; color: string; icon: string; channelId: string; avatarDataUrl?: string }>;
         dictation: boolean;
       }): void;
-      onTranscribe(handler: (request: { audio: Uint8Array; mimeType: string }) => Promise<string>): () => void;
+      onTranscribe(handler: (request: { accountScope: string; audio: Uint8Array; mimeType: string }) => Promise<string>): () => void;
       onDeliver(
         handler: (request: {
+          accountScope: string;
           botId: string;
           content: string;
           nonce: string;

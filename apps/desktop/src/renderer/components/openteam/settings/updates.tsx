@@ -1,11 +1,18 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { TriangleAlert } from "lucide-react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useState } from "react";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
 import { ServerUpdateSettings } from "./server-update";
-import { SectionLabel, SettingsGroup, SettingsLink, SettingsRow, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsLink,
+  SettingsRow,
+  settingsPrimaryButton,
+  settingsSecondaryButton,
+} from "./ui";
 
 const primaryButton = settingsPrimaryButton;
 const secondaryButton = settingsSecondaryButton;
@@ -118,7 +125,8 @@ export default function UpdatesSettings() {
           anchors={["update-status", "automatic-updates"]}
           control={
             clientNeedsUpdate ? (
-              <ButtonPrimitive
+              <Button
+                size="xs"
                 className={primaryButton}
                 disabled={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
                 onClick={() => void updateClient()}
@@ -132,9 +140,11 @@ export default function UpdatesSettings() {
                     : clientUpdate?.status === "installing"
                       ? "Restarting…"
                       : "Update desktop"}
-              </ButtonPrimitive>
+              </Button>
             ) : (
-              <ButtonPrimitive
+              <Button
+                size="xs"
+                variant="secondary"
                 className={secondaryButton}
                 disabled={clientUpdate?.status === "checking"}
                 onClick={() => void check()}
@@ -143,23 +153,21 @@ export default function UpdatesSettings() {
                 loadingLabel="Checking…"
               >
                 Check for Updates
-              </ButtonPrimitive>
+              </Button>
             )
           }
           description={
-            clientUpdate?.status === "available"
-              ? (clientUpdate.message ?? `Desktop ${clientUpdate.latestVersion} is available`)
-              : clientUpdate?.status === "up-to-date"
-                ? (clientUpdate.message ?? "You’re up to date")
-                : ["downloading", "downloaded", "installing"].includes(clientUpdate?.status ?? "")
-                  ? clientUpdate?.message
-                  : clientUpdate?.status === "error" ? (
-                      <span className="line-clamp-2 break-words">
-                        {clientUpdateFailure(clientUpdate)}
-                      </span>
-                    ) : (
-                      "Check for a newer desktop version."
-                    )
+            clientUpdate?.status === "available" ? (
+              (clientUpdate.message ?? `Desktop ${clientUpdate.latestVersion} is available`)
+            ) : clientUpdate?.status === "up-to-date" ? (
+              (clientUpdate.message ?? "You’re up to date")
+            ) : ["downloading", "downloaded", "installing"].includes(clientUpdate?.status ?? "") ? (
+              clientUpdate?.message
+            ) : clientUpdate?.status === "error" ? (
+              <span className="line-clamp-2 break-words">{clientUpdateFailure(clientUpdate)}</span>
+            ) : (
+              "Check for a newer desktop version."
+            )
           }
           title={`Desktop app ${clientVersion}`}
         />

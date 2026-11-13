@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { httpsUrl, isOpenAt, parseOpeningHours, resetPlaceState, routePlaces, searchNearbyPlaces, searchPlaces, type Fetcher } from "../places";
+import { PlaceRouteSchema, PlaceSchema } from "../../../../contracts/src/presentation";
+import { httpsUrl, isOpenAt, parseOpeningHours, resetPlaceState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../places";
 import { callTool, tools } from "../server";
 
 beforeEach(resetPlaceState);
@@ -50,6 +51,11 @@ test("opening_hours: common rules parse, later rules replace days, unsupported s
   expect(isOpenAt(week, new Date("2026-11-12T21:30:00Z"), zone)).toBe(false);
   expect(isOpenAt(week, new Date("2026-11-15T06:00:00Z"), zone)).toBe(true);
   expect(isOpenAt(parseOpeningHours("24/7")!, new Date(), "Asia/Tokyo")).toBe(true);
+  // Cards show today's hours in the place's zone.
+  expect(todaysHours(week, new Date("2026-11-12T20:00:00Z"), zone)).toBe("Today 11:30–16:00, 17:00–22:00");
+  expect(todaysHours(week, new Date("2026-11-14T20:00:00Z"), zone)).toBe("Today 12:00–02:00");
+  expect(todaysHours(parseOpeningHours("Mo-Sa 10:00-20:00; Su off")!, new Date("2026-11-15T20:00:00Z"), zone)).toBe("Closed today");
+  expect(todaysHours(parseOpeningHours("24/7")!, new Date(), zone)).toBe("Open 24 hours today");
 });
 
 test("websites become public HTTPS links or are dropped", () => {
@@ -85,17 +91,23 @@ test("nearby places stay within the radius, sorted by distance, with OSM details
   expect(result.results[0]).toEqual({
     distanceMeters: 44,
     phone: "+1 212 555 0100",
+    openingHours: "Mo-Fr 17:00-22:00",
     openNow: false,
     place: {
       id: "osm:node:1", name: "Near Thai", latitude: 40.751, longitude: -73.9935,
       address: "1 8th Avenue, New York, New York, 10001", category: "thai, noodle restaurant",
-      websiteUrl: "https://nearthai.example/", hours: "Mo-Fr 17:00-22:00", isOpen: false,
+      websiteUrl: "https://nearthai.example/", hours: "Today 17:00–22:00", isOpen: false,
       provider: "OpenStreetMap", sourceUrl: "https://www.openstreetmap.org/node/1", attribution: "© OpenStreetMap contributors",
     },
   });
+  for (const entry of result.results) expect(PlaceSchema.safeParse(entry.place).success).toBe(true);
   const open = await searchNearbyPlaces({ ...input, openNow: true }, fetcher, undefined, now);
   expect(open.results.map((entry) => entry.place.name)).toEqual(["Far Thai"]);
   await expect(searchNearbyPlaces({ ...input, timeZone: "Mars/Olympus" }, fetcher)).rejects.toThrow("IANA");
+  // Nominatim's viewbox can't wrap ±180°, so it is kept inside valid coordinates.
+  resetPlaceState();
+  await searchNearbyPlaces({ query: "resort", latitude: -16.8, longitude: 179.99, radiusMeters: 5000 }, fetcher, undefined, now);
+  expect(request!.searchParams.get("viewbox")!.split(",").map(Number)[2]).toBe(180);
   await expect(searchNearbyPlaces({ query: "thai", latitude: 0, longitude: 0, openNow: true }, fetcher)).rejects.toThrow("timeZone");
 });
 
@@ -107,10 +119,12 @@ test("routes keep measured geometry and legs, and refuse partial routes", async 
   let body: any;
   const fetcher = (async (_url: URL, init?: RequestInit) => {
     body = JSON.parse(String(init?.body));
-    return Response.json({ routes: [{ distance: 700, duration: 540, geometry: { type: "LineString", coordinates: [[-73.985, 40.748], [-73.983, 40.75], [-73.982, 40.753]] }, legs: [{ distance: 700, duration: 540, steps: [{ maneuver: { instruction: "Walk north." } }] }] }] });
+    return Response.json({ routes: [{ distance: 700, duration: 540, geometry: { type: "LineString", coordinates: [[-73.985, 40.748], [-73.983, 40.75], [-73.982, 40.753]] }, legs: [{ distance: 700, duration: 540, steps: [{ maneuver: { instruction: "Walk north." } }, { maneuver: { instruction: "  " } }] }] }] });
   }) as Fetcher;
   const { route } = await routePlaces({ places: stops, mode: "walking" }, fetcher);
   expect(body.costing).toBe("pedestrian");
+  expect(PlaceRouteSchema.safeParse(route).success).toBe(true);
+  expect(route.id).toMatch(/^route:[0-9a-f-]{13}$/); // passed back by reference instead of copying the geometry
   expect(route.geometry.coordinates).toHaveLength(3);
   expect(route.legs).toEqual([{ fromPlaceId: "a", toPlaceId: "b", distanceMeters: 700, durationSeconds: 540, instructions: ["Walk north."] }]);
   await expect(routePlaces({ places: stops, mode: "walking" }, json({ routes: [{ legs: [] }] }))).rejects.toThrow("every stop");

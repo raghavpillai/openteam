@@ -39,6 +39,8 @@ const coordinate = z.tuple([
   z.number().finite().min(-90).max(90),
 ]);
 export const PlaceRouteSchema = z.object({
+  /** Set by routing tools so the agent can pass the route back by reference. */
+  id: z.string().trim().min(1).max(200).optional(),
   mode: z.enum(["walking", "driving", "cycling"]),
   geometry: z.object({
     type: z.literal("LineString"),
@@ -62,103 +64,147 @@ export const PlaceRouteSchema = z.object({
   attribution: text.optional(),
 });
 export type PlaceRoute = z.infer<typeof PlaceRouteSchema>;
-const mapBlock = z.object({
-  type: z.literal("place_map"),
-  title: text.optional(),
-  placeIds: z.array(z.string()).min(1).max(50),
-  carousel: z.enum(["auto", "hidden"]).default("auto"),
-  route: PlaceRouteSchema.optional(),
-});
-const listBlock = z.object({
-  type: z.literal("ranked_media_list"),
-  title: text.optional(),
-  items: z
-    .array(
-      z.object({
-        id: z.string().min(1).max(200),
-        title: text,
-        description: text.optional(),
-        imageUrl: url.optional(),
-        href: url.optional(),
-        placeId: z.string().optional(),
-        sourceLabel: text.optional(),
-        sourceUrl: url.optional(),
-      })
-    )
-    .min(1)
-    .max(50),
-});
-export const PresentationSchema = z
-  .object({
-    version: z.literal(1),
-    places: z.array(PlaceSchema).max(50).default([]),
-    blocks: z
+// Not trimmed: a reference must match the place ids blocks name, exactly.
+const id = z.string().min(1).max(200);
+/** An agent may name a place a tool returned instead of copying it, optionally adding its own words. */
+const PlaceReferenceSchema = z.union([
+  id,
+  z.object({ id, notes: text.optional(), description: text.optional(), icon: z.string().max(80).optional() }).strict(),
+]);
+export type PlaceReference = z.infer<typeof PlaceReferenceSchema>;
+const placeIdOf = (place: Place | PlaceReference) => (typeof place === "string" ? place : place.id);
+
+function presentationSchema<P extends z.ZodTypeAny, R extends z.ZodTypeAny>(placeItem: P, route: R) {
+  const mapBlock = z.object({
+    type: z.literal("place_map"),
+    title: text.optional(),
+    placeIds: z.array(z.string()).min(1).max(50),
+    carousel: z.enum(["auto", "hidden"]).default("auto"),
+    route: route.optional(),
+  });
+  const listBlock = z.object({
+    type: z.literal("ranked_media_list"),
+    title: text.optional(),
+    items: z
       .array(
-        z.discriminatedUnion("type", [
-          z.object({ type: z.literal("markdown"), text: z.string().trim().min(1).max(20000) }),
-          mapBlock,
-          listBlock,
-        ])
+        z.object({
+          id: z.string().min(1).max(200),
+          title: text,
+          description: text.optional(),
+          imageUrl: url.optional(),
+          href: url.optional(),
+          placeId: z.string().optional(),
+          sourceLabel: text.optional(),
+          sourceUrl: url.optional(),
+        })
       )
       .min(1)
-      .max(20),
-  })
-  .superRefine((value, ctx) => {
-    const ids = new Set<string>();
-    value.places.forEach((place, i) => {
-      if (ids.has(place.id))
-        ctx.addIssue({
-          code: "custom",
-          path: ["places", i, "id"],
-          message: "Place ids must be unique",
-        });
-      ids.add(place.id);
-    });
-    value.blocks.forEach((block, i) => {
-      const refs =
-        block.type === "place_map"
-          ? block.placeIds
-          : block.type === "ranked_media_list"
-            ? block.items.flatMap((item) => (item.placeId ? [item.placeId] : []))
-            : [];
-      refs.forEach((id) => {
-        if (!ids.has(id))
-          ctx.addIssue({ code: "custom", path: ["blocks", i], message: `Unknown place id: ${id}` });
+      .max(50),
+  });
+  return z
+    .object({
+      version: z.literal(1),
+      places: z.array(placeItem).max(50).default([]),
+      blocks: z
+        .array(
+          z.discriminatedUnion("type", [
+            z.object({ type: z.literal("markdown"), text: z.string().trim().min(1).max(20000) }),
+            mapBlock,
+            listBlock,
+          ])
+        )
+        .min(1)
+        .max(20),
+    })
+    .superRefine((value: any, ctx) => {
+      const ids = new Set<string>();
+      value.places.forEach((place: Place | PlaceReference, i: number) => {
+        const placeId = placeIdOf(place);
+        if (ids.has(placeId))
+          ctx.addIssue({ code: "custom", path: ["places", i, "id"], message: "Place ids must be unique" });
+        ids.add(placeId);
       });
-      if (block.type === "place_map") {
+      value.blocks.forEach((block: any, i: number) => {
+        const refs: string[] =
+          block.type === "place_map"
+            ? block.placeIds
+            : block.type === "ranked_media_list"
+              ? block.items.flatMap((item: any) => (item.placeId ? [item.placeId] : []))
+              : [];
+        refs.forEach((placeId) => {
+          if (!ids.has(placeId))
+            ctx.addIssue({ code: "custom", path: ["blocks", i], message: `Unknown place id: ${placeId}` });
+        });
+        if (block.type !== "place_map") return;
         if (new Set(block.placeIds).size !== block.placeIds.length)
-          ctx.addIssue({
-            code: "custom",
-            path: ["blocks", i],
-            message: "Map stops must be unique",
-          });
+          ctx.addIssue({ code: "custom", path: ["blocks", i], message: "Map stops must be unique" });
+        const legs = block.route && typeof block.route === "object" ? block.route.legs : null;
         if (
           block.route &&
           (block.placeIds.length < 2 ||
-            block.route.legs.length !== block.placeIds.length - 1 ||
-            block.route.legs.some(
-              (leg, index) =>
-                leg.fromPlaceId !== block.placeIds[index] ||
-                leg.toPlaceId !== block.placeIds[index + 1]
-            ))
+            (legs &&
+              (legs.length !== block.placeIds.length - 1 ||
+                legs.some(
+                  (leg: any, index: number) =>
+                    leg.fromPlaceId !== block.placeIds[index] || leg.toPlaceId !== block.placeIds[index + 1]
+                ))))
         )
-          ctx.addIssue({
-            code: "custom",
-            path: ["blocks", i, "route"],
-            message: "Route legs must connect each map stop in order",
-          });
-      }
+          ctx.addIssue({ code: "custom", path: ["blocks", i, "route"], message: "Route legs must connect each map stop in order" });
+      });
     });
-  });
+}
+/** A delivered presentation: every place and route is complete. */
+export const PresentationSchema = presentationSchema(PlaceSchema, PlaceRouteSchema);
 export type Presentation = z.infer<typeof PresentationSchema>;
+/** What an agent may send: places and routes by reference, resolved before delivery. */
+export const PresentationInputSchema = presentationSchema(z.union([PlaceSchema, PlaceReferenceSchema]), z.union([id, PlaceRouteSchema]));
+export type PresentationInput = z.infer<typeof PresentationInputSchema>;
 export const PresentationSendSchema = z
   .object({
     type: z.literal("presentation"),
-    presentation: PresentationSchema,
+    presentation: PresentationInputSchema,
     end_turn: z.boolean().optional(),
     reply_to: z.string().optional(),
   })
   .strict();
+
+/** The place and route ids an agent input names instead of including. */
+export function presentationReferences(input: unknown): { places: string[]; routes: string[] } {
+  const value = (input ?? {}) as Record<string, any>;
+  const places = (Array.isArray(value.places) ? value.places : []).flatMap((place: any) =>
+    typeof place === "string" ? [place] : place && typeof place === "object" && place.latitude === undefined && typeof place.id === "string" ? [place.id] : []
+  );
+  const routes = (Array.isArray(value.blocks) ? value.blocks : []).flatMap((block: any) =>
+    block?.type === "place_map" && typeof block.route === "string" ? [block.route] : []
+  );
+  return { places: [...new Set<string>(places)], routes: [...new Set<string>(routes)] };
+}
+
+/** Replaces references with the tool results they name; the agent's own notes win over the tool's. */
+export function resolvePresentationReferences(
+  input: unknown,
+  places: ReadonlyMap<string, Place>,
+  routes: ReadonlyMap<string, PlaceRoute>
+): Record<string, unknown> {
+  const value = (input ?? {}) as Record<string, any>;
+  const resolved = (Array.isArray(value.places) ? value.places : []).map((place: any) => {
+    const reference = typeof place === "string" ? { id: place } : place;
+    if (!reference || typeof reference !== "object" || reference.latitude !== undefined) return place;
+    const found = places.get(reference.id);
+    if (!found) return place;
+    const { id: _id, ...own } = reference;
+    return { ...found, ...own };
+  });
+  return {
+    ...value,
+    places: resolved,
+    blocks: (Array.isArray(value.blocks) ? value.blocks : []).map((block: any) =>
+      block?.type === "place_map" && typeof block.route === "string" && routes.has(block.route)
+        ? { ...block, route: routes.get(block.route) }
+        : block
+    ),
+  };
+}
 export type PlaceMapBlock = Extract<Presentation["blocks"][number], { type: "place_map" }>;
 export type RankedMediaBlock = Extract<
   Presentation["blocks"][number],
@@ -197,6 +243,9 @@ export function normalizePlace(value: unknown, index = 0): Place {
 }
 export const parsePresentation = (value: unknown): Presentation => {
   const input = (value ?? {}) as Record<string, unknown>;
+  const unresolved = presentationReferences(input);
+  if (unresolved.places.length || unresolved.routes.length)
+    throw new Error(`Unresolved references: ${[...unresolved.places, ...unresolved.routes].join(", ")}`);
   return PresentationSchema.parse({
     ...input,
     places: Array.isArray(input.places) ? input.places.map(normalizePlace) : [],
@@ -259,46 +308,26 @@ export const placeInputJsonSchema = {
   required: ["id", "name", "latitude", "longitude"],
   additionalProperties: false,
 };
-const routeProperties = {
-  mode: { type: "string", enum: ["walking", "driving", "cycling"] },
-  geometry: {
-    type: "object",
-    properties: {
-      type: { type: "string", enum: ["LineString"] },
-      coordinates: {
-        type: "array",
-        minItems: 2,
-        maxItems: 20000,
-        items: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
-      },
-    },
-    required: ["type", "coordinates"],
-  },
-  distanceMeters: { type: "number" },
-  durationSeconds: { type: "number" },
-  legs: {
-    type: "array",
-    items: {
-      type: "object",
-      properties: {
-        fromPlaceId: { type: "string" },
-        toPlaceId: { type: "string" },
-        distanceMeters: { type: "number" },
-        durationSeconds: { type: "number" },
-        instructions: { type: "array", items: { type: "string" } },
-      },
-      required: ["fromPlaceId", "toPlaceId", "distanceMeters", "durationSeconds"],
-    },
-  },
-  provider: { type: "string" },
-  sourceUrl: { type: "string" },
-  attribution: { type: "string" },
-};
 export const presentationInputJsonSchema = {
   type: "object",
   properties: {
     version: { type: "integer", enum: [1] },
-    places: { type: "array", maxItems: 50, items: placeInputJsonSchema },
+    places: {
+      type: "array",
+      maxItems: 50,
+      items: {
+        anyOf: [
+          { type: "string", description: "Id of a place a tool returned in this conversation" },
+          {
+            type: "object",
+            properties: { id: { type: "string" }, notes: { type: "string" }, description: { type: "string" }, icon: { type: "string" } },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          placeInputJsonSchema,
+        ],
+      },
+    },
     blocks: {
       type: "array",
       minItems: 1,
@@ -319,9 +348,10 @@ export const presentationInputJsonSchema = {
               placeIds: { type: "array", minItems: 1, maxItems: 50, items: { type: "string" } },
               carousel: { type: "string", enum: ["auto", "hidden"] },
               route: {
-                type: "object",
-                properties: routeProperties,
-                required: ["mode", "geometry", "distanceMeters", "durationSeconds", "legs"],
+                anyOf: [
+                  { type: "string", description: "Route id a routing tool returned" },
+                  { type: "object", description: "A routing tool's route object, unchanged" },
+                ],
               },
             },
             required: ["type", "placeIds"],
@@ -365,3 +395,39 @@ export const presentationInputJsonSchema = {
   required: ["version", "blocks"],
   additionalProperties: false,
 };
+
+/** What a plugin tool returned that a presentation may name by id. */
+export type PresentationReferenceIndex = { places: Place[]; routes: PlaceRoute[] };
+/** Collects the places and routes in a plugin tool's JSON text result, so an agent can name them by
+ * id instead of copying them. Only the tool's own JSON structure counts: text inside it (a page, an
+ * email body) is never parsed, so content a tool merely relays can't pose as a verified place. */
+export function presentationReferencesInResult(texts: readonly string[]): PresentationReferenceIndex | undefined {
+  const places = new Map<string, Place>(),
+    routes = new Map<string, PlaceRoute>();
+  const visit = (value: unknown, depth: number) => {
+    if (depth > 8 || value == null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 200)) visit(item, depth + 1);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.id === "string") {
+      if (typeof record.latitude === "number" && !places.has(record.id) && places.size < 100) {
+        const place = PlaceSchema.safeParse(record);
+        if (place.success) places.set(record.id, place.data);
+      } else if (record.geometry && !routes.has(record.id) && routes.size < 10) {
+        const route = PlaceRouteSchema.safeParse(record);
+        if (route.success) routes.set(record.id, route.data);
+      }
+    }
+    for (const child of Object.values(record)) visit(child, depth + 1);
+  };
+  for (const text of texts) {
+    const trimmed = text.trim();
+    if (!/^[[{]/.test(trimmed) || trimmed.length > 8_000_000) continue;
+    try {
+      visit(JSON.parse(trimmed), 0);
+    } catch {}
+  }
+  return places.size || routes.size ? { places: [...places.values()], routes: [...routes.values()] } : undefined;
+}

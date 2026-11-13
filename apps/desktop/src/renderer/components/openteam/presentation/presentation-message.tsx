@@ -11,6 +11,10 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
+import { useResourceActive } from "../../../hooks/resource-activity";
+import { presentationImageResource } from "../../../lib/presentation-image";
 import { Dialog as Modal } from "radix-ui";
 import {
   Clock,
@@ -114,6 +118,14 @@ function ExpandMapIcon() {
   );
 }
 
+function MarkerPhoto({ source, fallback }: { source: string; fallback: string }) {
+  const image = useAuthenticatedResource(presentationImageResource(source));
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [image]);
+  return image && !failed ? <img src={image} alt="" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+    : <span className="place-pin-solid" style={{ display: "grid", placeItems: "center" }}>{fallback || "•"}</span>;
+}
+
 function useDarkAppearance() {
   const read = () =>
     document.documentElement.classList.contains("dark") ||
@@ -141,11 +153,22 @@ function Thumbnail({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const [element, setElement] = useState<HTMLImageElement | HTMLSpanElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  const active = useResourceActive();
+  useEffect(() => {
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry?.isIntersecting === true), { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
   useEffect(() => setFailed(false), [src]);
-  return src && !failed ? (
+  const image = useAuthenticatedResource(presentationImageResource(src), { enabled: active && visible });
+  return image && !failed ? (
     <img
+      ref={setElement}
       className={`place-thumbnail ${className}`}
-      src={src}
+      src={image}
       alt={name}
       loading="lazy"
       decoding="async"
@@ -153,7 +176,7 @@ function Thumbnail({
       onError={() => setFailed(true)}
     />
   ) : (
-    <span className={`place-thumbnail place-thumbnail-empty ${className}`} aria-label={name}>
+    <span ref={setElement} className={`place-thumbnail place-thumbnail-empty ${className}`} aria-label={name}>
       {icon && /\p{Extended_Pictographic}/u.test(icon) ? (
         <span className="place-thumbnail-glyph" aria-hidden>
           {icon}
@@ -340,6 +363,7 @@ function MapSurface({
   useEffect(() => {
     if (!visible) return;
     let disposed = false;
+    const imageRoots: Root[] = [];
     let map: VectorMap | undefined;
     setError(undefined);
     setReady(false);
@@ -459,19 +483,9 @@ function MapSurface({
           face.className = "place-pin-face";
           const glyph = point.icon && /\p{Extended_Pictographic}/u.test(point.icon) ? point.icon : "";
           if (point.imageUrl) {
-            const image = document.createElement("img");
-            image.src = point.imageUrl;
-            image.alt = "";
-            image.decoding = "async";
-            image.referrerPolicy = "no-referrer";
-            image.addEventListener("error", () => {
-              image.remove();
-              button.querySelector(".place-pin-badge")?.remove();
-              face.classList.add("place-pin-solid");
-              face.textContent = block.route ? String(index + 1) : glyph;
-              if (!face.textContent) face.classList.add("place-pin-dot");
-            });
-            face.appendChild(image);
+            const root = createRoot(face);
+            imageRoots.push(root);
+            root.render(<MarkerPhoto source={point.imageUrl} fallback={block.route ? String(index + 1) : glyph} />);
           } else {
             face.classList.add("place-pin-solid");
             face.textContent = block.route ? String(index + 1) : glyph;
@@ -522,6 +536,7 @@ function MapSurface({
       );
     return () => {
       disposed = true;
+      for (const root of imageRoots) queueMicrotask(() => root.unmount());
       markers.current.forEach((marker) => marker.remove());
       markers.current = [];
       try {

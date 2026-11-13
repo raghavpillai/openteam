@@ -37,7 +37,6 @@ let settings: any;
 let routines: any[];
 let events: any[];
 let sequence = 14;
-const presentationRecordingMarkers: { stage: string; at: number }[] = [];
 let offline = false;
 let dropNextSend = false;
 // Send-policy controls: override lookup states (last state repeats),
@@ -165,11 +164,6 @@ const server = Bun.serve({
     let input: any = {};
     const upload = path === "/api/v0/assets" && method === "POST" ? new Uint8Array(await request.arrayBuffer()) : null;
     if (!upload && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
-    if (path === "/__qa/presentation-recording") {
-      if (method === "POST" && typeof input.stage === "string") presentationRecordingMarkers.push({stage:input.stage,at:Date.now()});
-      if (method === "DELETE") presentationRecordingMarkers.length = 0;
-      return response({markers:presentationRecordingMarkers});
-    }
     if (path === "/__qa/browser-network" && method === "POST") { browserNetwork.control(input); return response(browserNetwork.view()); }
     if (path === "/__qa/reset" && method === "POST") { reset(); await resetKeys(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }

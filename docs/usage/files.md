@@ -16,11 +16,21 @@ Say which file to use and what you want back:
 
 For scanned documents or unusual formats, ask the bot to confirm what it could read before you rely on its analysis.
 
+## Send a screenshot with ScreenBot
+
+With the desktop app running and signed in, press both **Command** keys on macOS, or **Ctrl+Shift+2** on Windows or Linux. ScreenBot takes a screenshot of the display under your pointer and opens a floating composer over the app you're using. Select the bot, type what you need, review the screenshot, and send it. You can change the shortcut in [Settings → Keyboard](../configuration/apps.md#keyboard-shortcuts-and-screenbot).
+
+On macOS, allow OpenTeam in **System Settings → Privacy & Security → Screen & System Audio Recording**, then reopen OpenTeam if requested. Modifier-pair shortcuts and Fn dictation use the Mac's keyboard helper; follow the app's permission prompt if input access is needed. Screenshot capture and global shortcuts on other desktops depend on the operating system's permissions and shortcut availability.
+
+The screenshot goes to your selected bot as an attachment when you send it, so it becomes part of that conversation and can be sent to the model provider. Check for private information before sending.
+
 ## Get a file back
 
 Ask for a specific format, such as Markdown or CSV, and ask the bot to attach it in the chat. A file path in a message isn't the same as an attachment you can open.
 
-Select an attachment to preview it (most common file types can be previewed), or download it to open it in another app.
+Select an attachment to preview it, or download it to open it in another app. On desktop, the preview supports documents, spreadsheets, text, images, audio, and video, with a message box for asking the bot about the file. Downloads use the server currently selected in the app, including a remote server.
+
+On iPhone and iPad, CSV and TSV files have a native spreadsheet preview. Tap a cell to see its value, select cells or a row, and copy the selection. Column headers and row numbers stay visible as you scroll. Other supported documents use the system preview; choose **Share** to save a file or open it elsewhere. Preview support varies by format, and a large spreadsheet may show only part of its data; keep the original file for complete analysis.
 
 ## Open links
 

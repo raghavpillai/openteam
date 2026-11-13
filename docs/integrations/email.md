@@ -56,7 +56,7 @@ Forwards show **Forwarding** with the original message's subject and sender. Sen
 
 Files appear inside the review card, where you can open their previews. The card keeps a copy of the reviewed files and sends those exact bytes. A card can carry up to ten files, at most 10 MiB each and 25 MiB combined. Small revisions to a recent draft highlight changed words, recipients, and the subject; editing the revised card clears the highlights.
 
-Discarding a draft immediately notifies the bot. Outcomes that are ready together share one follow-up, with each card identified separately. Sent and discarded cards expand into read-only details, including their attachments. A discarded card stays discarded when you open it and shows its stored content; unsubmitted edits are not saved by Discard. **Send** is disabled while recipients are missing or invalid.
+Discarding a draft immediately notifies the bot. Outcomes that are ready together share one follow-up, with each card identified separately. A sent receipt records the draft outcome; it does not prove that the recipient has read the email. Requested follow-up questions and useful new information can still appear after the outcome acknowledgement. Sent and discarded cards expand into read-only details, including their attachments. A discarded card stays discarded when you open it and shows its stored content; unsubmitted edits are not saved by Discard. **Send** is disabled while recipients are missing or invalid.
 
 The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
 

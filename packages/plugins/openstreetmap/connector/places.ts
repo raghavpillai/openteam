@@ -1,6 +1,6 @@
 /** Free, keyless OpenStreetMap services: Photon for place search, Nominatim for nearby places
  * and Valhalla for routes. Results use the field names of SendToUser presentation places, so a
- * Bot can pass them to a map unchanged. Nothing is invented: OSM has no ratings or photos. */
+ * Bot can name them by id in a map. Nothing is invented: OSM has no ratings or photos. */
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type Place = {
@@ -229,6 +229,16 @@ export function isOpenAt(week: Week, now: Date, timeZone: string): boolean {
   return week[(day + 6) % 7]!.some(([, close]) => close > 1440 && minute < close - 1440);
 }
 
+/** Today's hours for a card, in the place's time zone: "Today 11:00–22:30", "Closed today". */
+export function todaysHours(week: Week, now: Date, timeZone: string): string {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(now);
+  const spans = week[["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday)]!;
+  if (!spans.length) return "Closed today";
+  if (spans.length === 1 && spans[0]![0] === 0 && spans[0]![1] >= 1440) return "Open 24 hours today";
+  const time = (minutes: number) => `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return `Today ${spans.map(([open, close]) => `${time(open)}–${time(close)}`).join(", ")}`;
+}
+
 export function validTimeZone(zone: string) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone });
@@ -278,7 +288,13 @@ export async function searchNearbyPlaces(
   url.searchParams.set("bounded", "1");
   url.searchParams.set(
     "viewbox",
-    [input.longitude - dLon, input.latitude + dLat, input.longitude + dLon, input.latitude - dLat].map((n) => n.toFixed(6)).join(",")
+    // Nominatim's viewbox can't wrap ±180°, so keep it inside valid coordinates.
+    [
+      Math.max(-180, input.longitude - dLon),
+      Math.min(90, input.latitude + dLat),
+      Math.min(180, input.longitude + dLon),
+      Math.max(-90, input.latitude - dLat),
+    ].map((n) => n.toFixed(6)).join(",")
   );
   let rows = cached<any[]>(url.href);
   if (!rows) {
@@ -325,14 +341,21 @@ export async function searchNearbyPlaces(
       ...(line ? { address: line } : {}),
       ...(category ? { category } : {}),
       ...(website ? { websiteUrl: website } : {}),
-      ...(hours ? { hours } : {}),
+      // Today's hours when they can be read; otherwise OSM's own opening_hours text.
+      ...(hours ? { hours: week && input.timeZone ? todaysHours(week, now, input.timeZone) : hours } : {}),
       ...(openNow !== undefined ? { isOpen: openNow } : {}),
       provider: "OpenStreetMap",
       sourceUrl: `https://www.openstreetmap.org/${kind}/${row.osm_id}`,
       attribution: ATTRIBUTION,
     };
     const phone = clean(tags.phone ?? tags["contact:phone"], 100);
-    return [{ place, distanceMeters: distance, ...(phone ? { phone } : {}), ...(openNow !== undefined ? { openNow } : {}) }];
+    return [{
+      place,
+      distanceMeters: distance,
+      ...(phone ? { phone } : {}),
+      ...(hours ? { openingHours: hours } : {}), // the whole week, in OSM's syntax
+      ...(openNow !== undefined ? { openNow } : {}),
+    }];
   });
   results.sort((a, b) => a.distanceMeters - b.distanceMeters);
   return {
@@ -390,6 +413,8 @@ export async function routePlaces(
     throw new Error("The routing service could not resolve every stop");
   return {
     route: {
+      // Pass this id as a place_map route instead of copying the geometry.
+      id: `route:${crypto.randomUUID().slice(0, 13)}`,
       mode: input.mode,
       geometry: { type: "LineString", coordinates: coordinates.slice(0, 20_000).map((point: number[]) => [point[0], point[1]]) },
       distanceMeters: Math.max(0, Number(candidate.distance) || 0),
@@ -399,9 +424,10 @@ export async function routePlaces(
         toPlaceId: input.places[index + 1]!.id,
         distanceMeters: Math.max(0, Number(leg.distance) || 0),
         durationSeconds: Math.max(0, Number(leg.duration) || 0),
-        instructions: (leg.steps ?? []).flatMap((step: any) =>
-          typeof step?.maneuver?.instruction === "string" ? [step.maneuver.instruction] : []
-        ),
+        // Presentation routes accept trimmed, non-empty instructions, at most 200 a leg.
+        instructions: (leg.steps ?? [])
+          .flatMap((step: any) => (typeof step?.maneuver?.instruction === "string" && step.maneuver.instruction.trim() ? [step.maneuver.instruction.trim().slice(0, 2000)] : []))
+          .slice(0, 200),
       })),
       provider: "Valhalla / OpenStreetMap",
       attribution: ATTRIBUTION,

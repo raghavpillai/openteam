@@ -1,15 +1,22 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import type { BusyBotsView } from "@openteam/contracts";
 import { isUpdateBusyMessage, stillWorking } from "@openteam/contracts/server-updates";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { CircleCheck, Server } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { API_BASE } from "../../../client/http";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
-import { SectionLabel, SettingsGroup, settingsSecondaryButton } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SkeletonBar,
+  SkeletonText,
+  settingsSecondaryButton,
+} from "./ui";
 import { ServerUpdateProgressPanel } from "./server-update-progress";
 
 const FAILED = "The server update failed. Try again.";
@@ -40,7 +47,9 @@ export function ConfirmButton({
   }, [armed]);
   const confirming = armed && !pending && !disabled;
   return (
-    <ButtonPrimitive
+    <Button
+      size="xs"
+      variant="secondary"
       aria-label={confirming ? `Click Again to Confirm: ${label}` : label}
       className={cn(
         button,
@@ -58,7 +67,7 @@ export function ConfirmButton({
       type="button"
     >
       {pending && pendingLabel ? pendingLabel : confirming ? "Click Again to Confirm" : label}
-    </ButtonPrimitive>
+    </Button>
   );
 }
 
@@ -87,16 +96,24 @@ export function ServerUpdateSettings({
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const lastBusyCheck = useRef(0);
   const refreshBusy = useCallback(async () => {
+    lastBusyCheck.current = Date.now();
     const next = await api.busyBots().catch(() => null);
     if (next) setBusyBots(next.bots);
     return next?.bots ?? [];
   }, []);
 
+  // Asked alongside the update status rather than after it, so an available update never
+  // shows as ready and then flips to busy one round-trip later.
+  useEffect(() => {
+    void refreshBusy();
+  }, [refreshBusy]);
+
   const pending = serverNeedsUpdate && !serverUpdating;
   useEffect(() => {
     if (!pending) return;
-    void refreshBusy();
+    if (Date.now() - lastBusyCheck.current > BUSY_POLL_MS / 2) void refreshBusy();
     const interval = window.setInterval(() => void refreshBusy(), BUSY_POLL_MS);
     return () => window.clearInterval(interval);
   }, [pending, refreshBusy]);
@@ -148,9 +165,7 @@ export function ServerUpdateSettings({
 
   const failure = error ?? (server?.status === "error" ? server.message : null);
   const extraCopy =
-    state === "loading" ? (
-      "Checking the connected server…"
-    ) : state === "busy" ? (
+    state === "loading" ? null : state === "busy" ? (
       `${stillWorking(busyInOrder.map((bot) => bot.name))}. Update will be available when every agent is done.`
     ) : state === "updating" ? (
       (server?.message ?? "Updating the server…")
@@ -195,9 +210,22 @@ export function ServerUpdateSettings({
           <div className="flex flex-wrap items-center gap-3">
             <Server aria-hidden className="size-4 shrink-0 self-start mt-1 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium leading-5 text-foreground">
-                Server {server?.currentVersion ?? "version unknown"}
-              </div>
+              {state === "loading" ? (
+                <span
+                  aria-label="Checking the connected server"
+                  className="flex h-5 items-center"
+                  role="status"
+                >
+                  <SkeletonText size="title" width={96} />
+                </span>
+              ) : (
+                <SettingsReveal
+                  as="div"
+                  className="text-[13px] font-medium leading-5 text-foreground"
+                >
+                  Server {server?.currentVersion ?? "version unknown"}
+                </SettingsReveal>
+              )}
               <div className="mt-px text-[12px] leading-4 text-foreground-secondary">
                 {new URL(API_BASE).host}
               </div>
@@ -209,7 +237,13 @@ export function ServerUpdateSettings({
                   {extraCopy}
                 </div>
               ) : null}
-              {state === "up-to-date" ? (
+              {state === "loading" ? (
+                // Most checks end up to date, so the skeleton takes that shape.
+                <span className="mt-2 flex h-[18px] items-center gap-1.5">
+                  <SkeletonBar className="size-3.5 rounded-full" />
+                  <SkeletonBar className="h-[8px] w-[176px]" />
+                </span>
+              ) : state === "up-to-date" ? (
                 <div
                   className="mt-2 flex items-center gap-1.5 text-[12px] text-foreground-secondary"
                   role="status"
@@ -223,7 +257,7 @@ export function ServerUpdateSettings({
                 </div>
               ) : null}
             </div>
-            {state === "up-to-date" || state === "updating" ? null : (
+            {state === "loading" || state === "up-to-date" || state === "updating" ? null : (
               <div className="flex shrink-0 items-center gap-2">
                 {stopTarget ? (
                   <ConfirmButton

@@ -1,28 +1,43 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../ui/dialog";
 
 type Grant = "automation" | "contacts" | "fullDiskAccess";
 const ROWS: Array<{ key: Grant; label: string; description: string }> = [
-  { key: "automation", label: "Automation", description: "Lets OpenTeam send texts through Messages" },
+  {
+    key: "automation",
+    label: "Automation",
+    description: "Lets OpenTeam send texts through Messages",
+  },
   { key: "contacts", label: "Contacts", description: "Lets OpenTeam find people by name" },
-  { key: "fullDiskAccess", label: "Full Disk Access", description: "Lets OpenTeam search your texts" },
+  {
+    key: "fullDiskAccess",
+    label: "Full Disk Access",
+    description: "Lets OpenTeam search your texts",
+  },
 ];
 
 export const grantState = (permissions: OpenTeamMessagesPermissions, key: Grant) =>
-  key === "fullDiskAccess" ? (permissions.fullDiskAccess ? "granted" : "notAsked") : permissions[key];
+  key === "fullDiskAccess"
+    ? permissions.fullDiskAccess
+      ? "granted"
+      : "notAsked"
+    : permissions[key];
 
 /** Grants still missing, in the order the dialog lists them. */
 export const missingGrants = (permissions: OpenTeamMessagesPermissions | null) =>
-  permissions ? ROWS.filter((row) => grantState(permissions, row.key) !== "granted").map((row) => row.label) : [];
+  permissions
+    ? ROWS.filter((row) => grantState(permissions, row.key) !== "granted").map((row) => row.label)
+    : [];
 
 let messagesIcon: Promise<string | null> | undefined;
 /** The Messages app's own icon, as macOS draws it. */
 export function useMessagesIcon() {
   const [icon, setIcon] = useState<string | null>(null);
   useEffect(() => {
-    messagesIcon ??= window.openteam?.computer.messagesIcon?.().catch(() => null) ?? Promise.resolve(null);
+    messagesIcon ??=
+      window.openteam?.computer.messagesIcon?.().catch(() => null) ?? Promise.resolve(null);
     void messagesIcon.then(setIcon);
   }, []);
   return icon;
@@ -51,7 +66,10 @@ export function MessagesPermissionsDialog({
     [onChange]
   );
   const refresh = useCallback(() => {
-    void window.openteam?.computer.messagesPermissions().then(apply).catch(() => {});
+    void window.openteam?.computer
+      .messagesPermissions()
+      .then(apply)
+      .catch(() => {});
   }, [apply]);
   useEffect(() => {
     if (!open) return;
@@ -69,10 +87,19 @@ export function MessagesPermissionsDialog({
       const next = await window.openteam!.computer.messagesPermissions(key);
       apply(next);
       // Automation and Contacts ask in place; an unchanged answer means macOS showed nothing.
-      if (next && key !== "fullDiskAccess" && before && grantState(before, key) === grantState(next, key) && grantState(next, key) !== "granted")
+      if (
+        next &&
+        key !== "fullDiskAccess" &&
+        before &&
+        grantState(before, key) === grantState(next, key) &&
+        grantState(next, key) !== "granted"
+      )
         setFailed((current) => ({
           ...current,
-          [key]: key === "automation" ? "macOS didn't show the permission prompt. Open Messages, then try again." : "macOS didn't show the permission prompt. Try again.",
+          [key]:
+            key === "automation"
+              ? "macOS didn't show the permission prompt. Open Messages, then try again."
+              : "macOS didn't show the permission prompt. Try again.",
         }));
     } catch {
       setFailed((current) => ({ ...current, [key]: "Couldn't save. Try again." }));
@@ -85,9 +112,12 @@ export function MessagesPermissionsDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-[440px] gap-0 rounded-[14px] p-6">
         {icon ? <img alt="" className="mb-3 size-10" src={icon} /> : null}
-        <DialogTitle className="text-[15px] font-semibold">Allow OpenTeam to Use Messages</DialogTitle>
+        <DialogTitle className="text-[15px] font-semibold">
+          Allow OpenTeam to Use Messages
+        </DialogTitle>
         <DialogDescription className="mt-1 text-[13px]">
-          OpenTeam needs macOS permissions to send texts, find contacts by name, and search your texts when asked
+          OpenTeam needs macOS permissions to send texts, find contacts by name, and search your
+          texts when asked
         </DialogDescription>
         <div className="mt-4 flex flex-col">
           {ROWS.map((row) => {
@@ -101,10 +131,18 @@ export function MessagesPermissionsDialog({
                   ? "macOS is blocking Contacts. Turn on OpenTeam in Privacy & Security → Contacts."
                   : row.description);
             return (
-              <div className="flex min-h-[52px] items-center gap-4 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]" key={row.key}>
+              <div
+                className="flex min-h-[52px] items-center gap-4 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]"
+                key={row.key}
+              >
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] leading-[17px] text-foreground">{row.label}</div>
-                  <div className="mt-px text-[12px] leading-4 text-foreground-secondary" role={failed[row.key] ? "alert" : undefined}>{description}</div>
+                  <div
+                    className="mt-px text-[12px] leading-4 text-foreground-secondary"
+                    role={failed[row.key] ? "alert" : undefined}
+                  >
+                    {description}
+                  </div>
                 </div>
                 {state === "granted" ? (
                   <span className="inline-flex items-center gap-1 text-[12px] text-foreground-secondary">
@@ -112,15 +150,20 @@ export function MessagesPermissionsDialog({
                     Done
                   </span>
                 ) : (
-                  <ButtonPrimitive
-                    aria-label={state === "denied" ? `Open System Settings for ${row.label}` : `Allow ${row.label}`}
+                  <Button
+                    size="xs"
+                    aria-label={
+                      state === "denied"
+                        ? `Open System Settings for ${row.label}`
+                        : `Allow ${row.label}`
+                    }
                     className="inline-flex h-7 shrink-0 items-center rounded-[8px] bg-[var(--control-accent)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
                     disabled={!permissions || pending !== null}
                     onClick={() => void allow(row.key)}
                     type="button"
                   >
                     {state === "denied" ? "Open System Settings" : "Allow"}
-                  </ButtonPrimitive>
+                  </Button>
                 )}
               </div>
             );

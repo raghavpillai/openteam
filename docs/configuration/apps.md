@@ -7,6 +7,7 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 | Tab | What's there |
 | --- | --- |
 | **General** | Your account and sign out, **Timezone**, **Pause iPhone alerts while using this Mac**, theme, microphone |
+| **Keyboard** | ScreenBot capture shortcut, search, sidebar, settings, dictation, and previous/next bot shortcuts |
 | **Computer** | The current computer's name and Messages access and permissions |
 | **Model** | AI provider and account, model, reasoning effort, and connection test |
 | **Voice notes** | Transcription provider, model, API key, language, and connection test |
@@ -14,11 +15,19 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 | **Providers** | Which service bots use for [web search and page fetching](web-search.md), and those services' API keys |
 | **Updates** | Desktop app and server updates |
 
-**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. **Timezone** and the iPhone-alerts switch in **General** are shared too. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, computer network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-computer-traffic-through-a-connected-computer) is granted locally on that computer.
+**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. **Timezone** and the iPhone-alerts switch in **General** are shared too. Theme, microphone, keyboard shortcuts, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, computer network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-computer-traffic-through-a-connected-computer) is granted locally on that computer.
 
 Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description. iPhone has the same fields in the bot's profile. The standalone bot **Instructions** field has been removed. Give a bot direction in chat, or use [skills](../usage/skills.md) for reusable methods. Updating removes the retired Instructions storage; save any text you need before updating.
 
 On desktop, **Settings → General → Use bot colors for messages** colors your sent messages with the bot's color. It is off by default.
+
+## Keyboard shortcuts and ScreenBot
+
+On desktop, open **Settings → Keyboard** to change or reset the shortcuts for **Search**, the sidebar, settings, dictation, and moving between bots. Choose **Change…**, press the new combination, or press **Esc** to cancel. The app checks for conflicting and reserved shortcuts before saving.
+
+The same page sets the global **ScreenBot** shortcut. ScreenBot captures the display under your pointer and opens a floating composer: choose a bot, add instructions, and send the screenshot without switching to the chat window. OpenTeam must be running and signed in. See [send a screenshot with ScreenBot](../usage/files.md#send-a-screenshot-with-screenbot).
+
+On macOS, ScreenBot defaults to pressing both **Command** keys together. You can choose another pair of modifier keys or a regular shortcut. On Windows and Linux, it defaults to **Ctrl+Shift+2** and uses regular shortcuts. The macOS-only **Fn** key can also be assigned to dictation. These settings belong to the desktop app; the iPhone and iPad apps do not have this Keyboard page.
 
 ## iPhone settings
 

@@ -1,4 +1,6 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import "./browser-network.css";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -13,7 +15,16 @@ import { GripVertical, Laptop, Monitor, Server } from "lucide-react";
 import { DragDropProvider, KeyboardSensor, PointerSensor } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { PrivateSettingValue } from "./private-value";
-import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SkeletonBar,
+  SkeletonSwitch,
+  SkeletonControl,
+  settingsPrimaryButton,
+  settingsSecondaryButton,
+} from "./ui";
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
 import { useWindowVisible } from "../../../hooks/use-window-active";
@@ -86,14 +97,34 @@ export function BrowserNetworkSettings() {
       setTesting(false);
     }
   };
+  // The first exit-IP check starts with the connections request instead of after it; its
+  // answer is used only if it belongs to the route that request reports.
+  const earlyEgress = useRef<Promise<NetworkEgress> | null>(null);
+  useEffect(() => {
+    if (visible && !earlyEgress.current) {
+      const request = api.browserNetworkEgress();
+      request.catch(() => undefined);
+      earlyEgress.current = request;
+    }
+  }, [visible]);
   useEffect(() => {
     if (!visible || !view || !["ready", "server"].includes(view.runtime.state)) return;
     let active = true;
     setEgress(null);
     setEgressFailed(false);
-    const check = async () => {
+    const early = earlyEgress.current;
+    earlyEgress.current = null; // used once; later route changes ask afresh
+    const epoch = view.runtime.routeEpoch;
+    const check = async (first = false) => {
       try {
-        const value = await api.browserNetworkEgress();
+        const reused =
+          first && early
+            ? await early.then(
+                (value) => (!epoch || value.epoch === epoch ? value : null),
+                () => null
+              )
+            : null;
+        const value = reused ?? (await api.browserNetworkEgress());
         if (active) {
           setEgress(value);
           setEgressFailed(false);
@@ -105,7 +136,7 @@ export function BrowserNetworkSettings() {
         }
       }
     };
-    void check();
+    void check(true);
     const timer = setInterval(() => void check(), 60_000);
     return () => {
       active = false;
@@ -181,13 +212,26 @@ export function BrowserNetworkSettings() {
   };
   const activeId = view?.runtime.state === "server" ? "server" : view?.runtime.activeMachineId;
   const ready = view && ["ready", "server"].includes(view.runtime.state);
+  const loading = !view && !error;
   return (
     <section className="bn-network" data-settings-anchor="browser-network">
       <SectionLabel>Computer network</SectionLabel>
       <SettingsGroup>
-        <p role="status" className="bn-status">
-          {view ? browserNetworkLabel(view).split(" · ")[0] : "Loading connections…"}
-        </p>
+        <div
+          role="status"
+          aria-label={loading ? "Loading connections" : undefined}
+          className="bn-status"
+        >
+          {view ? (
+            <SettingsReveal>{browserNetworkLabel(view).split(" · ")[0]}</SettingsReveal>
+          ) : loading ? (
+            <span className="flex h-[1lh] items-center">
+              <SkeletonBar className="h-[8px] w-[164px]" />
+            </span>
+          ) : (
+            "Unavailable"
+          )}
+        </div>
         <DragDropProvider
           sensors={[PointerSensor, KeyboardSensor]}
           onDragEnd={(event) => {
@@ -203,30 +247,46 @@ export function BrowserNetworkSettings() {
           }}
         >
           <ol aria-label="Connection priority" className="bn-list">
-            {ranked.map((id, index) => {
-              const device = view?.devices.find((d) => d.machineId === id);
-              const name =
-                id === "server" ? "Server connection" : (device?.label ?? "Unavailable computer");
-              return (
-                <NetworkSourceRow
-                  key={id}
-                  id={id}
-                  name={name}
-                  index={index}
-                  active={!!ready && activeId === id}
-                  current={!!device && id === localMachineId}
-                  available={
-                    id === "server" ||
-                    (!!device?.enabled &&
-                      (device.working ?? (device.connected && device.sharingAllowed)))
-                  }
-                  disabled={busy || !view}
-                />
-              );
-            })}
+            {loading
+              ? [118, 92].map((width, index) => (
+                  <li aria-hidden="true" className="bn-source" key={index}>
+                    <span className="bn-rank">
+                      <SkeletonBar className="h-[8px] w-[7px]" />
+                    </span>
+                    <SkeletonBar className="size-4 rounded-[4px]" />
+                    <span className="bn-device-label">
+                      <SkeletonBar className="h-[9px]" style={{ width }} />
+                    </span>
+                    <SkeletonBar className="h-[8px] w-11" />
+                    <span className="bn-handle" />
+                  </li>
+                ))
+              : ranked.map((id, index) => {
+                  const device = view?.devices.find((d) => d.machineId === id);
+                  const name =
+                    id === "server"
+                      ? "Server connection"
+                      : (device?.label ?? "Unavailable computer");
+                  return (
+                    <NetworkSourceRow
+                      key={id}
+                      id={id}
+                      name={name}
+                      index={index}
+                      active={!!ready && activeId === id}
+                      current={!!device && id === localMachineId}
+                      available={
+                        id === "server" ||
+                        (!!device?.enabled &&
+                          (device.working ?? (device.connected && device.sharingAllowed)))
+                      }
+                      disabled={busy || !view}
+                    />
+                  );
+                })}
           </ol>
         </DragDropProvider>
-        <NetworkProtocols view={view} />
+        <NetworkProtocols loading={loading} view={view} />
         <div className="bn-egress" key={routeKey}>
           <span>Exit IP</span>
           {ready &&
@@ -241,10 +301,10 @@ export function BrowserNetworkSettings() {
                 label="exit location"
               />
             </div>
+          ) : loading || (ready && !egressFailed) ? (
+            <SkeletonBar className="h-[8px] w-[136px]" />
           ) : (
-            <span className="bn-egress-pending">
-              {!ready || egressFailed ? "Unavailable" : "Checking…"}
-            </span>
+            <span className="bn-egress-pending">Unavailable</span>
           )}
         </div>
         <div className="bn-quality">
@@ -266,29 +326,40 @@ export function BrowserNetworkSettings() {
               <span>Test unavailable</span>
             ) : null}
           </div>
-          <ButtonPrimitive
-            type="button"
-            className={settingsSecondaryButton}
-            aria-label="Test active connection"
-            title="Quick latency and speed estimate from the bot computer; about 1.25 MB"
-            disabled={!ready || testing}
-            onClick={() => void testConnection()}
-            loading={testing}
-            loadingLabel="Testing…"
-          >
-            Test
-          </ButtonPrimitive>
+          {loading ? (
+            <SkeletonControl width={44} />
+          ) : (
+            <Button
+              size="xs"
+              variant="secondary"
+              type="button"
+              className={settingsSecondaryButton}
+              aria-label="Test active connection"
+              title="Quick latency and speed estimate from the bot computer; about 1.25 MB"
+              disabled={!ready || testing}
+              onClick={() => void testConnection()}
+              loading={testing}
+              loadingLabel="Testing…"
+            >
+              Test
+            </Button>
+          )}
         </div>
+        {loading && !sharing && ["darwin", "linux"].includes(window.openteam?.platform ?? "") ? (
+          // Sharing is offered on macOS and Linux; its status arrives with the connections.
+          <div aria-hidden="true" className="bn-share">
+            <span>Share this computer’s connection</span>
+            <SkeletonSwitch />
+          </div>
+        ) : null}
         {sharing?.supported && (
           <label className="bn-share">
             <span>Share this computer’s connection</span>
-            <input
-              type="checkbox"
-              aria-label="Share this computer’s connection"
+            <InteractiveSwitch
+              label="Share this computer’s connection"
               checked={sharing.sharingAllowed}
               disabled={busy || !sharing.connected}
-              onChange={(e) => void share(e.target.checked)}
-              className="bn-switch"
+              onChange={(allowed) => void share(allowed)}
             />
           </label>
         )}
@@ -297,7 +368,9 @@ export function BrowserNetworkSettings() {
             <span>Unsaved changes</span>
             <div className="bn-buttons">
               {dirty && (
-                <ButtonPrimitive
+                <Button
+                  size="xs"
+                  variant="secondary"
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -307,21 +380,24 @@ export function BrowserNetworkSettings() {
                   className={settingsSecondaryButton}
                 >
                   Discard
-                </ButtonPrimitive>
+                </Button>
               )}
-              <ButtonPrimitive
+              <Button
+                size="xs"
                 type="button"
                 disabled={busy || !view || !dirty}
                 onClick={() => void apply()}
                 className={settingsPrimaryButton}
               >
                 Apply
-              </ButtonPrimitive>
+              </Button>
             </div>
           </div>
         )}
         {view && !["ready", "server"].includes(view.runtime.state) && (
-          <ButtonPrimitive
+          <Button
+            size="xs"
+            variant="secondary"
             type="button"
             disabled={busy}
             onClick={() => {
@@ -335,7 +411,7 @@ export function BrowserNetworkSettings() {
             className={`${settingsSecondaryButton} mb-2`}
           >
             Retry connection
-          </ButtonPrimitive>
+          </Button>
         )}
         {error && (
           <p role="alert" className="bn-error">

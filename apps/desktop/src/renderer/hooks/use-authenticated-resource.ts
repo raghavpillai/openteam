@@ -9,6 +9,8 @@ import { API_BASE } from "../client/http";
 import { type BlobResourceLease, createBlobResourceCache } from "../lib/blob-resource-cache";
 import { protectedResourceUrl, resourceCacheUrl } from "../lib/resource-url";
 
+import { fetchPresentationImage } from "../lib/presentation-image";
+
 const resources = createBlobResourceCache();
 let credentialGeneration = getAuthCredentialGeneration();
 const unsubscribeAuth = subscribeAuthSnapshot(() => {
@@ -85,7 +87,9 @@ export const useAuthenticatedResource = (
       retentionKey && previous?.retentionKey === retentionKey ? previous : null
     );
     const lease = resources.acquire(`${generation}:${resourceCacheUrl(target)}`, async (signal) => {
-      const response = await fetch(target, { headers, signal, redirect: "error" });
+      const response = source.startsWith("/api/v0/presentation-image?")
+        ? await fetchPresentationImage(target, { headers, signal })
+        : await fetch(target, { headers, signal, redirect: "error" });
       if (response.status === 401) clearAuthToken(requestToken);
       if (!response.ok) throw new Error(`Protected resource failed (${response.status})`);
       return response.blob();

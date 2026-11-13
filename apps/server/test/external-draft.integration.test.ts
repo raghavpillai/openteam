@@ -266,7 +266,7 @@ test('Grokbot comparison: same-subject discard followed by reverse-order burst r
   await f.ready(); const second = await f.worker().claim(f.botId);
   for (const id of f.ids.slice(1)) expect(second.content).toContain(`Draft card ID: ${id}`);
   await f.messaging.flushDraftNotification(f.context(second.runId));
-  await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: 'Four cards are left to review.' });
+  await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: (await f.visible())[1]!.content });
   const messages = await f.visible();
   expect(messages).toHaveLength(2);
   expect(messages[1]!.content).toContain('5 discarded without sending');
@@ -300,7 +300,15 @@ test('draft discard executes through worker dispatch and projection without a fo
    dispatched.push(input);
    // The treatment status must exist before the computer receives the turn.
    expect(await f.visible()).toHaveLength(variant === 'treatment' ? 1 : 0);
-   await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
+   expect(input.requestSource).toBe(variant === 'treatment' ? 'event' : 'turn');
+   if (variant === 'treatment') {
+    expect(input.draftStatusAcknowledged).toBe(true);
+    expect(input.content).toContain((await f.visible())[0]!.content);
+    expect(input.content).toContain('remaining-review count');
+   }
+   else expect(input.draftStatusAcknowledged).toBeUndefined();
+   // A model can finish an acknowledged event silently; ordinary turns still owe a reply.
+   if (variant === 'control') await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
    return new Response([
     { type: 'turn.started', turnId: input.runId },
     { type: 'prompt.delivered', turnId: input.runId },
@@ -360,7 +368,7 @@ test('A/B: 24 completions, lost response, new call IDs and a replayed run', asyn
    // Same production pre-dispatch hook; ignore the result as if its response were lost.
    await f.messaging.flushDraftNotification(ctx);
    const restarted = new AgentMessaging(f.prisma, f.messaging.boss, f.messaging.agentData);
-   await Promise.all([1, 2].map(i => restarted.sendVisible(f.context(claimed.runId, `retry-${i}`), { type: 'text', content: 'All 24 emails were sent.' })));
+   await Promise.all([1, 2].map(i => restarted.sendVisible(f.context(claimed.runId, `retry-${i}`), { type: 'text', content: '24 email drafts settled: 24 sent. Drafts in this chat: none awaiting review.' })));
    expect(await f.visible()).toHaveLength(variant === 'control' ? 2 : 1);
    const receipts = await Promise.all(f.ids.map(async id => ({ messageId: id, outcomeId: (await f.card(id)).outcomeId })));
    await f.release(claimed);
@@ -418,7 +426,7 @@ test('A/B: interruption after context delivery, worker restart and a deliberatel
  }
 });
 
-test('A/B: database-derived counts, active-turn late outcomes, and no duplicate coverage', async () => {
+test('A/B: canonical counts stay accurate while independent model text retains its actual content and receipt', async () => {
  if (!databaseUrl) return;
  for (const variant of ['control', 'treatment'] as const) {
   const f = await notificationExperiment(variant);
@@ -427,7 +435,8 @@ test('A/B: database-derived counts, active-turn late outcomes, and no duplicate 
    await f.settle(f.ids[0]!, 'send'); await f.settle(f.ids[1]!, 'cancel');
    await f.ready(); const first = await f.worker().claim(f.botId);
    await f.messaging.flushDraftNotification(f.context(first.runId));
-   // Deliberately inject an incorrect model status in both arms. Treatment never persists it.
+   // Arbitrary model prose is not a semantic status filter. Only the platform's
+   // own notification is database-derived; never claim other text was delivered in its place.
    await f.messaging.sendVisible(f.context(first.runId), { type: 'text', content: 'All four emails were sent. No approvals remain.' });
    if (variant === 'treatment') {
     const message = (await f.visible())[0]!;
@@ -442,17 +451,64 @@ test('A/B: database-derived counts, active-turn late outcomes, and no duplicate 
    await f.messaging.flushDraftNotification(f.context(second.runId));
    await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: 'All four emails were sent. No approvals remain.' });
    const messages = await f.visible();
-   expect(messages).toHaveLength(2);
+   expect(messages).toHaveLength(variant === 'treatment' ? 4 : 2);
    if (variant === 'treatment') {
-    expect(messages[1]!.content).toContain('2 sent');
-    expect(messages[1]!.content).toContain('none awaiting review');
-    const covered = messages.flatMap(message => (message.metadata as any).draftOutcomeNotification.outcomeIds);
+    const notifications = messages.filter(message => (message.metadata as any).draftOutcomeNotification);
+    expect(notifications).toHaveLength(2);
+    expect(notifications[1]!.content).toContain('2 sent');
+    expect(notifications[1]!.content).toContain('none awaiting review');
+    const covered = notifications.flatMap(message => (message.metadata as any).draftOutcomeNotification.outcomeIds);
     expect(covered).toHaveLength(4); expect(new Set(covered).size).toBe(4);
    }
    await recordAB({ scenario: 'late outcomes + deliberately incorrect model counts', variant, outcomes: 4,
     visibleMessages: messages.length, incorrectSummaries: messages.filter(row => row.content.startsWith('All four')).length });
   } finally { await f.cleanup(); }
  }
+});
+
+test('treatment delivers follow-up questions, mixed text and warnings with their own truthful receipts', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  for (let i = 0; i < 3; i++) await f.create(i);
+  await f.settle(f.ids[0]!, 'cancel'); await f.ready();
+  const claimed = await f.worker().claim(f.botId);
+  await f.messaging.flushDraftNotification(f.context(claimed.runId));
+  const canonical = (await f.visible())[0]!;
+  const echoed = await f.messaging.sendVisible(f.context(claimed.runId), { type: 'text', content: canonical.content });
+  expect(echoed.acknowledgement).toMatchObject({ sent: true, message_id: canonical.id, duplicate: true });
+  expect(await f.visible()).toHaveLength(1);
+  const texts = [
+   'Would you like revisions to the remaining drafts?',
+   'Disk space is low. Please pause large downloads.',
+   'Please choose which remaining draft to revise.',
+   canonical.content + '\nWould you like revisions?',
+  ];
+  for (const content of texts) {
+   const context = f.context(claimed.runId);
+   const receipt = await f.messaging.sendVisible(context, { type: 'text', content });
+   if (typeof receipt.acknowledgement === 'string') throw new Error('Expected a message receipt');
+   expect(receipt.acknowledgement.sent).toBe(true);
+   const messageId = String(receipt.acknowledgement.message_id);
+   expect(messageId).not.toBe(canonical.id);
+   const message = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
+   expect(message.content).toBe(content);
+   expect((message.metadata as any).draftOutcomeNotification).toBeUndefined();
+   const retried = await f.messaging.sendVisible(context, { type: 'text', content });
+   expect(retried.acknowledgement).toMatchObject({ sent: true, message_id: message.id, duplicate: true });
+  }
+  const reply = await f.messaging.sendVisible(f.context(claimed.runId), { type: 'text', content: canonical.content, reply_to: (canonical.metadata as any).address });
+  if (typeof reply.acknowledgement === 'string') throw new Error('Expected a reply receipt');
+  const replyId = String(reply.acknowledgement.message_id);
+  expect(replyId).not.toBe(canonical.id);
+  const replyMessage = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: replyId } });
+  expect((replyMessage.metadata as any).replyTo).toBe(canonical.id);
+  expect(await f.visible()).toHaveLength(6);
+  await f.prisma.run.update({ where: { id: claimed.runId }, data: { status: 'cancelled' } });
+  const cancelled = await f.messaging.sendVisible(f.context(claimed.runId), { type: 'text', content: 'A late cancelled warning.' });
+  expect(cancelled.acknowledgement).toMatchObject({ sent: false, silent: true });
+  expect(await f.visible()).toHaveLength(6);
+ } finally { await f.cleanup(); }
 });
 
 test('treatment notification, receipts and push outbox roll back together; cancellation and routing remain enforced', async () => {

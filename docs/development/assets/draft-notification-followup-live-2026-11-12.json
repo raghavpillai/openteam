@@ -1,0 +1,259 @@
+{
+  "sourceBaseCommit": "60d787b860b509b6862f3a4bbb3de85d1a7a1960",
+  "sourceSnapshotSha256": "3d5eb012bde65b2304b4843ceaaadeeb17c8a0f87a672e7d1338308880fc713e",
+  "sourceFiles": [
+    "apps/computer/src/runtime.ts",
+    "apps/computer/src/runtime/types.ts",
+    "apps/computer/src/runtime/draft-followup.ts",
+    "apps/worker/src/worker.ts",
+    "packages/contracts/src/index.ts",
+    "packages/messaging/src/draft-notifications.ts",
+    "packages/messaging/src/index.ts"
+  ],
+  "model": "openrouter/x-ai/grok-4.7",
+  "method": "Live configured model, current runtime, real PostgreSQL and worker claim/execute/projection. Fresh bot/session per case. Cards seeded via real draft service. Synthetic connector rejects external mail; worker claims driven by harness, busy/interruption timing gated.",
+  "finalCases": [
+    {
+      "scenario": "partial",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 3,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+          "outcomeCount": 1
+        }
+      ],
+      "modelMessages": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "requestedQuestions": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "visibleQuestions": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "identityAnswer": [
+        "You discarded the EXPANDED-SAME draft. Its body was \"Meeting Monday at ten.\" Two cards remain awaiting review."
+      ],
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": null,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "warning",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 3,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+          "outcomeCount": 1
+        }
+      ],
+      "modelMessages": [
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads."
+      ],
+      "requestedQuestions": [],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": null,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "burst24",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 24,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "24 email drafts settled: 24 discarded without sending. Drafts in this chat: none awaiting review.",
+          "outcomeCount": 24
+        }
+      ],
+      "modelMessages": [],
+      "requestedQuestions": [],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": 1,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "busy",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 4,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "4 email drafts settled: 4 discarded without sending. Drafts in this chat: none awaiting review.",
+          "outcomeCount": 4
+        }
+      ],
+      "modelMessages": [
+        "This computer is almost out of disk space. I tried a read-only size check and it failed, so I don't have the biggest folders to name. I won't delete anything unless you say so."
+      ],
+      "requestedQuestions": [],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": null,
+      "notificationsWhileBusy": 0,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "interrupt",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 3,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+          "outcomeCount": 1
+        }
+      ],
+      "modelMessages": [],
+      "requestedQuestions": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": null,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": true,
+      "postInterruptLeaseCount": 0,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "partial",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 3,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+          "outcomeCount": 1
+        }
+      ],
+      "modelMessages": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "requestedQuestions": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "visibleQuestions": [
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "identityAnswer": [
+        "The discarded same-subject draft was \"EXPANDED-SAME\". Its body was exactly \"Meeting Monday at ten.\"\n\nTwo cards are still awaiting review."
+      ],
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": null,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "idempotency",
+      "variant": "treatment",
+      "result": "mechanical_checks_passed",
+      "createdCards": 1,
+      "truthfulReceipts": true,
+      "platformNotifications": [
+        {
+          "content": "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: none awaiting review.",
+          "outcomeCount": 1
+        }
+      ],
+      "modelMessages": [],
+      "requestedQuestions": [],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": true,
+      "repeatDiscardAccepted": false,
+      "queuedWakes": null,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "burst24",
+      "variant": "control",
+      "result": "mechanical_checks_passed",
+      "createdCards": 24,
+      "truthfulReceipts": true,
+      "platformNotifications": [],
+      "modelMessages": [
+        "Discarded all 24 drafts, including both EXPANDED-SAME notes. None went out.\n\nDisk space is almost full, but a size check didn't return usable numbers, so I can't name the biggest files yet. I can try that again if you want. I won't delete anything unless you say so."
+      ],
+      "requestedQuestions": [],
+      "visibleQuestions": [],
+      "identityAnswer": null,
+      "invalidRecipientRejected": null,
+      "repeatDiscardAccepted": null,
+      "queuedWakes": 24,
+      "notificationsWhileBusy": null,
+      "runtimeCancelled": null,
+      "postInterruptLeaseCount": null,
+      "externalMailAttempts": 0,
+      "credentialConfigRemoved": true
+    }
+  ],
+  "requestedQuestionTrials": {
+    "before": {
+      "attempted": 2,
+      "delivered": 0
+    },
+    "after": {
+      "attempted": 2,
+      "delivered": 2
+    }
+  },
+  "exploratoryFindings": [
+    "Removing blanket replacement alone still lost requested questions: the agent lacked remaining-review counts and could finish silently.",
+    "Adding the exact published status restored authoritative context; a live model also wrote a requested question as internal assistant text.",
+    "One conditional delivery reminder for acknowledged draft events now checks for outstanding user-visible work while permitting status-only turns to finish silently."
+  ],
+  "limits": [
+    "These are individual smoke scenarios, not statistical quality or production error rates.",
+    "Other model prose is normal delivery, not semantic duplicate or factuality classification. Only exact plain copies of canonical status reuse its receipt.",
+    "No real mail, native UI or push transport in this matrix.",
+    "Generic model tool-use compliance cannot be guaranteed by receipt matching."
+  ],
+  "productionTreatmentPercent": 0,
+  "productionConfigurationChanged": false
+}

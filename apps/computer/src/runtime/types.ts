@@ -47,6 +47,7 @@ export interface ActiveTurn {
   todoUpdate: string | null;
   resetSelfSummaryCount: boolean;
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>;
+  draftStatusAcknowledged?: boolean;
   turnId: string;
   session: AgentSession | null;
   sessionPath: string | null;

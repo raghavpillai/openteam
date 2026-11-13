@@ -1,0 +1,51 @@
+{
+  "method": "controlled PostgreSQL fault injection; mocked mail transport and model text; not live user traffic",
+  "results": [
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "control",
+      "outcomes": 24,
+      "queuedWakes": 24,
+      "visibleMessages": 3,
+      "duplicateMessages": 2,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "treatment",
+      "outcomes": 24,
+      "queuedWakes": 1,
+      "visibleMessages": 1,
+      "duplicateMessages": 0,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "control",
+      "outcomes": 2,
+      "visibleMessages": 0,
+      "missingNotification": 1
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "treatment",
+      "outcomes": 2,
+      "visibleMessages": 1,
+      "missingNotification": 0
+    },
+    {
+      "scenario": "late outcomes + deliberately incorrect model counts",
+      "variant": "control",
+      "outcomes": 4,
+      "visibleMessages": 2,
+      "incorrectSummaries": 2
+    },
+    {
+      "scenario": "late outcomes + deliberately incorrect model counts",
+      "variant": "treatment",
+      "outcomes": 4,
+      "visibleMessages": 4,
+      "incorrectSummaries": 2
+    }
+  ]
+}

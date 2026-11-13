@@ -1524,9 +1524,18 @@ export class WakeWorker {
     }, 30_000);
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
+      let draftStatusAcknowledged = false;
+      let draftStatusText: string | null = null;
       if (claimed.inboxType === "draft.response") {
         // Publish before computer dispatch: a model outage cannot lose the status acknowledgement.
-        await this.messaging.flushDraftNotification(claimed);
+        const notification = await this.messaging.flushDraftNotification(claimed);
+        draftStatusAcknowledged = notification?.acknowledgement.sent === true;
+        if (notification && "message_id" in notification.acknowledgement) {
+          const status = await this.prisma.channelMessage.findFirst({ where: {
+            id: String(notification.acknowledgement.message_id), channelId: claimed.channelId, senderBotId: claimed.botId,
+          }, select: { content: true } });
+          draftStatusText = status?.content ?? null;
+        }
       }
       await this.reconcileContextState(claimed);
       const skillAgent = pluginSkillAgent(claimed.runtimeProfile, claimed.subagentType);
@@ -1594,7 +1603,9 @@ export class WakeWorker {
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
-        }, claimed.content),
+        }, draftStatusText
+          ? `${claimed.content}\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Use its remaining-review count when completing any outstanding user request.`
+          : claimed.content),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,
@@ -1609,7 +1620,10 @@ export class WakeWorker {
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-        requestSource: runtimeRequestSourceForOrigin(claimed.origin, claimed.inboxType),
+        // The status is already visible. Event turns can ask useful questions,
+        // but the runtime must not nudge them to send another acknowledgement.
+        requestSource: draftStatusAcknowledged ? "event" : runtimeRequestSourceForOrigin(claimed.origin, claimed.inboxType),
+        ...(draftStatusAcknowledged ? { draftStatusAcknowledged: true } : {}),
         channelId: claimed.channelId,
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,

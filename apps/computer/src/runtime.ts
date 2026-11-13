@@ -1,5 +1,6 @@
 import { createModelRuntime } from "./model-runtime";
 import { providerIdleFetch } from "./runtime/provider-idle-fetch";
+import { checkDraftFollowupDelivery } from "./runtime/draft-followup";
 import { prepareCompactionHistory, recoverStagedPiCompaction } from "./runtime/compaction-history";
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { prepareUserImages } from "./runtime/image-input";
@@ -304,6 +305,7 @@ export class ComputerRuntime {
       todoUpdate: request.todoUpdate ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       requestSource: request.requestSource ?? "turn",
+      draftStatusAcknowledged: request.draftStatusAcknowledged === true,
       turnId: request.runId,
       session: null,
       sessionPath: null,
@@ -871,6 +873,7 @@ export class ComputerRuntime {
           });
         }
       }
+      await checkDraftFollowupDelivery(active, session);
       if (!active.pluginAbortController?.signal.aborted && active.lastStopReason !== "aborted" && active.lastStopReason !== "error") {
         const adopted = await this.compaction.settleAtTurnEnd({
           ...compactionObservation(active),

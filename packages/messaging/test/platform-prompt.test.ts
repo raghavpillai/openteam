@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import presentation from "../../../apps/ios/Tests/CoreTests/Fixtures/presentation.json";
 import { taskProgressBaseInstructions } from "@openteam/contracts/task-progress";
 import {
   AgentMessaging,
@@ -193,4 +194,10 @@ describe("teammates roster", () => {
     expect(Buffer.byteLength(render(10_000))).toBeLessThan(4_000);
     expect(selectPlatformPromptPeers([], peers(10_000))).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
+});
+
+test("validates native maps and lists without accepting silent content or connector fields", () => {
+  expect(() => validateSendToUserInput({ type: "presentation", presentation, end_turn: true })).not.toThrow();
+  expect(() => validateSendToUserInput({ type: "presentation", presentation, channel: "slack:C123" })).toThrow();
+  expect(() => validateSendToUserInput({ type: "presentation", presentation: { ...presentation, places: [] } })).toThrow();
 });

@@ -187,7 +187,14 @@ databaseTest(
         })
       )) as { run: { id: string } };
       await until(
-        async () => (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })) === 2
+        async () => {
+          // Facts commit before the exchange acknowledgement finishes; wait for both.
+          const [facts, bot] = await Promise.all([
+            app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } }),
+            app!.prisma.bot.findUniqueOrThrow({ where: { id: botId } }),
+          ]);
+          return facts === 2 && Array.isArray(bot.pendingMemoryExchanges) && bot.pendingMemoryExchanges.length === 0;
+        }
       );
       expect(extractions).toHaveLength(2);
       expect(extractions[1]).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);

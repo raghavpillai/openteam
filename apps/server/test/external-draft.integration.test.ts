@@ -312,13 +312,17 @@ test('draft discard executes through worker dispatch and projection without a fo
     expect(input.draftStateRevision).toMatch(/^[a-f0-9]{64}$/);
    }
    else expect(input.draftStatusAcknowledged).toBeUndefined();
-   // A model can finish an acknowledged event silently; ordinary turns still owe a reply.
-   if (variant === 'control') await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
-   return new Response([
-    { type: 'turn.started', turnId: input.runId },
-    { type: 'prompt.delivered', turnId: input.runId },
-    { type: 'turn.completed', turnId: input.runId, status: 'completed' },
-   ].map(event => JSON.stringify(event)).join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
+   // Match the real computer: accept the stream before any model tool runs.
+   return new Response(new ReadableStream({ start(controller) {
+    const write = (event: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'));
+    write({ type: 'turn.started', turnId: input.runId });
+    void (async () => {
+     // An acknowledged event may finish silently; ordinary turns still owe a reply.
+     if (variant === 'control') await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
+     write({ type: 'prompt.delivered', turnId: input.runId });
+     write({ type: 'turn.completed', turnId: input.runId, status: 'completed' }); controller.close();
+    })().catch(error => controller.error(error));
+   } }), { headers: { 'content-type': 'application/x-ndjson' } });
   } });
   try {
    await f.messaging.agentData.writeInferenceSettings({ providerId: 'openai-codex', modelId: 'synthetic-fixture', reasoning: 'low' });
@@ -1182,3 +1186,188 @@ test('progress updates do not requeue or rewrite a push already delivering or de
   await f.prisma.user.deleteMany({ where: { id: userId } }); await f.cleanup();
  }
 }, 15_000);
+
+
+test('legacy computers without a revision cannot publish after cancellation wins an in-flight call', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) for (const type of ['text', 'widget'] as const) {
+  const f = await notificationExperiment(variant);
+  let release: () => void = () => {}, locked: () => void = () => {}, barrier: Promise<unknown> | undefined;
+  const gate = new Promise<void>(r => release = r), started = new Promise<void>(r => locked = r);
+  try {
+   await f.create(0); await f.create(1); await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId);
+   const context = f.context(turn.runId), key = `agent-lifecycle:${f.botId}`;
+   barrier = f.prisma.$transaction(async tx => { await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`; locked(); await gate; }, { timeout: 15_000 });
+   await started;
+   // Tool entry was validated while running; an old computer omits the optional revision.
+   const reply = f.messaging.sendVisible(context, type === 'text' ? { type, content: 'Legacy late confirmation' } : { type, widget: { prompt: 'Revise?', options: [{ label: 'Revise', value: 'revise' }] } });
+   await waitForDraftLockWaiter(f.prisma, key);
+   await f.prisma.run.update({ where: { id: turn.runId }, data: { status: 'cancelled' } }); release(); await barrier;
+   expect((await reply).acknowledgement).not.toMatchObject({ sent: true });
+   expect(await f.visible()).toHaveLength(0);
+   expect(await f.prisma.channelMessage.count({ where: { channelId: context.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(0);
+  } finally { release(); await barrier?.catch(() => {}); await f.cleanup(); }
+ }
+}, 30_000);
+
+test('a fresh automatic-send failure is not described to the model as an editable draft', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-auto-failed'); let verifies = 0, sends = 0;
+ try {
+  await f.prisma.bot.update({ where: { id: f.botId }, data: { draftingDisabled: true } });
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') return { identity: ++verifies === 1 ? 'me@example.com' : 'other@example.com', sendingAddresses: ['me@example.com'] };
+   sends++; return { id: 'mock-never' };
+  } } as never);
+  const args = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Synthetic failed auto send', body: 'Do not actually send.' };
+  const result = await service.create(f.context('auto-failed'), args) as any;
+  expect(result.delivery).toBe('failed'); expect((await f.card(result.message_id)).cardState).toBe('failed'); expect(sends).toBe(0);
+  const { renderControlResult } = await import('@openteam/contracts/tool-results'); const text = renderControlResult('DraftExternalMessage', result, args);
+  expect(text).not.toContain('editable card'); expect(text).toContain('not delivered'); expect(text).toContain('account changed');
+ } finally { await f.cleanup(); }
+});
+
+test('a fresh unconfirmed send is not formatted as a completed send or permission to retry', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-auto-unknown'); let attempts = 0;
+ try {
+  await f.prisma.bot.update({ where: { id: f.botId }, data: { draftingDisabled: true } });
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') return { identity: 'me@example.com' };
+   attempts++; throw new Error('Synthetic connection lost after entering send');
+  } } as never);
+  const args = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Synthetic unconfirmed auto send', body: 'Synthetic bytes only.' };
+  const result = await service.create(f.context('auto-unknown'), args) as any;
+  expect(result.delivery).toBe('unknown'); expect(attempts).toBe(1);
+  const { renderControlResult } = await import('@openteam/contracts/tool-results'); const text = renderControlResult('DraftExternalMessage', result, args);
+  expect(text).not.toContain('was sent without review'); expect(text).toContain('unconfirmed'); expect(text).toContain('Do not resend');
+ } finally { await f.cleanup(); }
+});
+
+
+test('active legacy computers still deliver useful questions without supplying a revision', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  try {
+   await f.create(0); await f.create(1); await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId);
+   const result = await f.messaging.sendVisible(f.context(turn.runId), { type: 'widget', widget: { prompt: 'Revise the remaining draft?', options: [{ label: 'Revise', value: 'revise' }] } });
+   expect(result.acknowledgement).toMatchObject({ sent: true });
+   expect(await f.prisma.channelMessage.count({ where: { channelId: f.context('').channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(1);
+   expect(f.mailSends()).toBe(0);
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('archive and deletion while verification is in flight cannot create a new review card', async () => {
+ if (!databaseUrl) return;
+ for (const action of ['archive', 'delete'] as const) {
+  const f = await fixture(`draft-lifecycle-${action}`); let enter: () => void = () => {}, release: () => void = () => {}, creating: Promise<unknown> | undefined, sends = 0;
+  const entered = new Promise<void>(r => enter = r), gate = new Promise<void>(r => release = r);
+  try {
+   const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+    if (input.arguments.action === 'verify') { enter(); await gate; return { identity: 'me@example.com' }; }
+    sends++; return { id: 'mock-never' };
+   } } as never);
+   creating = service.create(f.context('in-flight-create'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Lifecycle boundary', body: 'Review only.', waitForReview: true });
+   // Attach the rejection handler immediately; the gate controls the completion.
+   const result = creating.then(value => ({ value, error: null }), error => ({ value: null, error }));
+   await entered;
+   if (action === 'archive') await f.prisma.channel.update({ where: { id: f.context('').channelId }, data: { archivedAt: new Date() } });
+   else await f.prisma.bot.delete({ where: { id: f.botId } });
+   release(); expect((await result).error).not.toBeNull();
+   expect(await f.prisma.channelMessage.count({ where: { channelId: f.context('').channelId } })).toBe(0);
+   expect(sends).toBe(0);
+  } finally { release(); await creating?.catch(() => {}); await f.cleanup(); }
+ }
+});
+
+test('another bot outcomes cannot invalidate a current reply snapshot', async () => {
+ if (!databaseUrl) return;
+ const first = await notificationExperiment('treatment'), second = await notificationExperiment('treatment');
+ try {
+  await first.create(0); await first.create(1); await first.settle(first.ids[0]!, 'cancel'); await first.ready(); const turn = await first.worker().claim(first.botId);
+  const context = first.context(turn.runId), snapshot = await first.messaging.draftReplySnapshot(context);
+  for (let i = 0; i < 4; i++) await second.settle(await second.create(i), 'cancel');
+  const result = await first.messaging.sendVisible({ ...context, draftStateRevision: snapshot.revision }, { type: 'widget', widget: { prompt: 'Revise your remaining draft?', options: [{ label: 'Revise', value: 'revise' }] } });
+  expect(result.acknowledgement).toMatchObject({ sent: true });
+  expect((await first.messaging.draftReplySnapshot(context)).revision).toBe(snapshot.revision);
+  expect(await second.prisma.channelMessage.count({ where: { channelId: second.context('').channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(0);
+ } finally { await first.cleanup(); await second.cleanup(); }
+});
+
+test('restart recovery uses immutable attachment bytes after the original file disappears', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-attachment-restart'); const { writeFile } = await import('node:fs/promises'); let sends = 0, payload: any;
+ try {
+  const path = join((await f.prisma.bot.findUniqueOrThrow({ where: { id: f.botId } })).defaultDirectory, 'restart.txt'); await writeFile(path, 'Immutable reviewed restart bytes.');
+  const args = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Restart attachment', body: 'Review only.', attachments: [path], waitForReview: true };
+  const context = f.context('restart-create');
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => { if (input.arguments.action === 'verify') return { identity: 'me@example.com' }; sends++; payload = input.arguments.draft; return { id: 'synthetic-only' }; } } as never);
+  const first = await service.create(context, args) as any; await rm(path);
+  const restartedMessaging = new AgentMessaging(f.prisma, f.messaging.boss, f.messaging.agentData);
+  const restarted = new ExternalDraftService(f.prisma, restartedMessaging, { invoke: async () => { throw new Error('Offline verification must not run for a stored receipt'); } } as never);
+  expect(await restarted.create(context, args)).toMatchObject({ duplicate: true, message_id: first.message_id, delivery: 'pending' });
+  expect(sends).toBe(0);
+  await Effect.runPromise(service.mutate(first.message_id, { action: 'send' }));
+  expect(sends).toBe(1); expect(Buffer.from(payload.attachments[0].content, 'base64').toString()).toBe('Immutable reviewed restart bytes.');
+  expect((await f.card(first.message_id)).cardState).toBe('sent');
+ } finally { await f.cleanup(); }
+});
+
+
+test('seeded draft state machine preserves reviewed content, terminal outcomes and transport-at-most-once', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) for (const seed of [1, 7, 42, 99]) {
+  const f = await notificationExperiment(variant);
+  let phase: 'good' | 'before' | 'after' | 'account' = 'good', random = seed;
+  const packets: any[] = [], model: Array<{ id: string; state: string; body: string; to: string[]; outcome: string | undefined }> = [];
+  const next = (n: number) => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') {
+    if (phase === 'before') throw new Error('Synthetic verification outage');
+    return { identity: phase === 'account' ? 'other@example.com' : 'me@example.com', sendingAddresses: ['me@example.com'] };
+   }
+   packets.push(input); if (phase === 'after') throw new Error('Synthetic lost transport response');
+   return { id: `mock-${packets.length}` };
+  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  let expectedAttempts = 0, expectedWakes = 0;
+  try {
+   const seedRun = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   for (let i = 0; i < 6; i++) {
+    const body = `Reviewed body ${i}`, to = [`recipient${i}@example.com`];
+    const created = await service.create(f.context(seedRun, `state-machine-${i}`), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to, subject: `State machine ${i}`, body, waitForReview: true }) as any;
+    model.push({ id: created.message_id, state: 'pending', body, to, outcome: undefined });
+   }
+   const apply = async (index: number, action: 'send' | 'cancel' | 'save' | 'refresh' | 'bad-save', step: number) => {
+    const expected = model[index]!, editable = expected.state === 'pending';
+    const edits = action === 'save' || action === 'bad-save' ? { body: `Edited body ${step}`, to: action === 'bad-save' ? ['invalid@'] : [`edited${step}@example.com`] } : undefined;
+    let error: unknown; try { await Effect.runPromise(service.mutate(expected.id, { action: action === 'bad-save' ? 'save' : action, ...(edits ? { edits } : {}) })); } catch (e) { error = e; }
+    if (editable && action === 'bad-save') expect(error).toBeDefined(); else expect(error).toBeUndefined();
+    if (editable) {
+     if (action === 'save') { expected.body = edits!.body; expected.to = edits!.to; }
+     if (action === 'cancel') { expected.state = 'dismissed'; expectedWakes++; }
+     if (action === 'send') {
+      if (phase === 'good' || phase === 'after') { expectedAttempts++; expect(packets.at(-1).arguments.draft).toMatchObject({ body: expected.body, to: expected.to }); }
+      expected.state = phase === 'good' ? 'sent' : phase === 'after' ? 'unknown' : phase === 'account' ? 'failed' : 'pending';
+      if (expected.state === 'sent' || expected.state === 'failed') expectedWakes++;
+     }
+    }
+    const actual = await f.card(expected.id);
+    expect(actual.cardState ?? 'pending').toBe(expected.state);
+    expect(actual.draft.body).toBe(expected.body); expect(actual.draft.to).toEqual(expected.to);
+    expect(packets.length).toBe(expectedAttempts);
+    if (expected.state === 'pending') expect(actual.outcomeId).toBeUndefined();
+    else { if (expected.outcome) expect(actual.outcomeId).toBe(expected.outcome); else expected.outcome = actual.outcomeId; expect(actual.outcomeId).toEqual(expect.any(String)); }
+   };
+   // Guarantee coverage of every terminal state before randomized edits/retries.
+   phase = 'good'; await apply(0, 'send', -1); phase = 'after'; await apply(1, 'send', -2);
+   phase = 'account'; await apply(2, 'send', -3); phase = 'good'; await apply(3, 'cancel', -4);
+   const actions = ['send', 'cancel', 'save', 'refresh', 'bad-save'] as const, phases = ['good', 'before', 'after', 'account'] as const;
+   for (let step = 0; step < 30; step++) { phase = phases[next(phases.length)]!; await apply(next(model.length), actions[next(actions.length)]!, step); }
+   const actualWakes = await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } });
+   expect(actualWakes).toBe(variant === 'treatment' ? Math.min(expectedWakes, 1) : expectedWakes);
+   for (const card of model.filter(m => m.state !== 'pending')) expect((await f.card(card.id)).outcomeId).toBe(card.outcome);
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);

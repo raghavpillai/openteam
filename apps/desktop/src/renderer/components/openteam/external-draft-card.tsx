@@ -37,7 +37,7 @@ export function signatureText(html: string): string {
 type Tone = "ready" | "sent" | "warning" | "muted";
 const STATUS: Record<string, { label: string; tone: Tone; dot: boolean }> = {
   pending: { label: "Ready to send", tone: "ready", dot: true },
-  sending: { label: "Ready to send", tone: "ready", dot: true },
+  sending: { label: "Sending", tone: "ready", dot: true },
   sent: { label: "Sent", tone: "sent", dot: true },
   dismissed: { label: "Discarded", tone: "muted", dot: true },
   unknown: { label: "Unconfirmed", tone: "muted", dot: false },
@@ -336,7 +336,7 @@ export function ExternalDraftCard({
       {sentUnder.rule ? (
         <p className="draft-note">Auto-approved by your rule: {String(sentUnder.rule)}</p>
       ) : sentUnder.draftingDisabled ? (
-        <p className="draft-note">Sent without review: drafts are off for this Bot</p>
+        <p className="draft-note">{state === "sent" ? "Sent without review" : "Review skipped"}: drafts are off for this Bot</p>
       ) : null}
       {notice && <p className="draft-note">{notice}</p>}
       {(error || (state === "pending" && sendError)) && (

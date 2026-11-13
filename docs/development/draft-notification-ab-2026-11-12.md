@@ -104,6 +104,20 @@ The refreshed matrix passes **3,742 unique tests**, with **74 environment-specif
 
 Two final live-model cases passed in control/treatment with twelve synthetic cards after the production changes were complete. Four preceding exploratory live cases passed with another 37 cards. Builds and typechecks passed for server, worker, computer and desktop renderer, alongside all architecture checks. No external mail or real APNs was sent. [Evidence, test accounting and limits](assets/draft-durability-retries-2026-11-12.json) include the failing probes and final results; earlier reports remain historical.
 
+## Mixed-version cancellation, terminal receipts and state labels
+
+Further testing reproduced an old-client bypass: a reply without the optional draft revision skipped the active-run check. Cancellation now fences those requests before applying the optional snapshot comparison. Active legacy clients still work; they cannot detect snapshot drift without the revision. In-flight text and widget checks cover both variants, and two real-model interruption probes with the field removed produced no late replies.
+
+Fresh automatic-send failures also fell through to editable-card wording. Failure receipts now preserve their actual reason, while unknown receipts explicitly say they do not confirm a send and forbid resending. Two live failed cases reported that nothing was sent. One initial unknown report still ambiguously said the draft “sent itself”; after refining the receipt, four new control/treatment probes clearly reported uncertainty without retrying. Inactive-turn receipts now retain the ended-turn instruction instead of suggesting another user message.
+
+Native computer-use testing found an in-flight card labeled “Ready to send” and failed/unconfirmed cards labeled “Sent without review.” Desktop and iOS now say “Sending” while in flight and “Review skipped” unless the send is confirmed. The actual desktop component passed held-send, disabled-action, failed/unconfirmed read-only reopen and successful synthetic completion checks. These were native component checks, not a new automated UI test.
+
+The latest isolated matrix passes **3,753 unique automated tests**, with **73 environment-specific checks skipped**. It includes 39 draft integration cases, eight new cases, and two new formatter tests. A seeded state machine checks review edits, terminal-state protection, receipt identity and transport-at-most-once; its expanded diagnostic run passed **1,088 operations across 32 trials and 192 cards**. Repetitions are counted separately. The native shortcut helper, built during desktop validation, now passes instead of being skipped. A memory test acknowledgement race and fake HTTP acceptance ordering were corrected without changing those production behaviors. A desktop fixture timeout passed both isolation and the fresh-process matrix.
+
+Ten live-model scenarios used twenty synthetic cards: four initial terminal-receipt probes, four final unknown-receipt probes and two legacy-wire interruption probes. The initial ambiguous wording is recorded as a finding, not a semantic pass. No real email or APNs was sent. Extra opening acknowledgements and unrelated disk warnings remain possible; this work does not classify arbitrary model prose or prove a single-message guarantee. No fresh native Grokbot comparison was made in this pass.
+
+Server, worker, computer and desktop typechecks/builds and architecture checks pass. **Two validation blockers remain:** the full iOS build fails in unchanged Siri code requiring iOS 27 APIs absent from this machine’s iOS 26.5 SDK; the modified Swift file passes syntax parsing. The desktop renderer gzip budget also fails at 4,470,256 bytes against 4,468,300. Rebuilding with the previous card source still measures 4,470,248, so the label change adds eight bytes. The budget was not raised. These failures prevent calling the entire branch fully green. [Latest evidence, accounting and limits](assets/draft-mixed-recovery-2026-11-12.json) supersede earlier numerical matrices.
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

@@ -486,7 +486,7 @@ struct RichMessageCard: View {
     if !sentUnder["rule"].string.isEmpty {
       DraftNote("Auto-approved by your rule: " + sentUnder["rule"].string)
     } else if sentUnder["draftingDisabled"].bool {
-      DraftNote("Sent without review: drafts are off for this Bot")
+      DraftNote((state == "sent" ? "Sent without review" : "Review skipped") + ": drafts are off for this Bot")
     }
     if let draftNotice { DraftNote(draftNotice) }
     if state == "pending", !meta["sendError"].string.isEmpty {
@@ -978,7 +978,8 @@ struct DraftStatusBadge: View {
   let state: String
   static func label(_ state: String) -> String {
     switch state {
-    case "pending", "sending": "Ready to send"
+    case "pending": "Ready to send"
+    case "sending": "Sending"
     case "sent": "Sent"
     case "dismissed": "Discarded"
     case "failed", "draft-created": "Message not delivered"

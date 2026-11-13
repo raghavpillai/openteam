@@ -314,7 +314,8 @@ export class ExternalDraftService {
     if (!sentUnder || typeof acknowledgement === "string" || acknowledgement.duplicate)
       return acknowledgement;
     const delivered = await this.deliver(String(acknowledgement.message_id), false);
-    const state = String(metadataRecord(delivered.message.metadata).cardState);
+    const deliveredMetadata = metadataRecord(delivered.message.metadata);
+    const state = String(deliveredMetadata.cardState);
     return {
       ...acknowledgement,
       delivery: state,
@@ -322,8 +323,10 @@ export class ExternalDraftService {
         state === "sent"
           ? `${sentUnder.rule ? `The user allowed ${externalDraftRecipients(draft).join(", ")} for you` : "Your drafts are off"}, so it skipped the review card. Don't send it again.`
           : state === "pending"
-            ? `It couldn't be sent automatically (${String(metadataRecord(delivered.message.metadata).sendError)}), so it waits for the user to press Send.`
-            : "Check the destination before trying again; it will not be retried automatically.",
+            ? `It couldn't be sent automatically (${String(deliveredMetadata.sendError)}), so it waits for the user to press Send.`
+            : state === "failed" || state === "unknown"
+              ? String(deliveredMetadata.outcomeText ?? (state === "unknown" ? UNCONFIRMED_DRAFT_OUTCOME : "The draft was not delivered.")).split("\n\n", 1)[0]
+              : "Check the destination before trying again; it will not be retried automatically.",
     };
   }
   private creationReceipt(message: { id: string; metadata: unknown }, room: boolean) {

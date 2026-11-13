@@ -140,3 +140,23 @@ test('recovered draft receipts report stored routing and lifecycle without claim
  const room = renderControlResult('DraftExternalMessage', { sent: true, duplicate: true, in_dm: true, message_id: 'stored-card', delivery: 'pending' }, { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] });
  expect(room).toContain('in your own 1:1 chat with the user, not in this room');
 });
+
+
+test('fresh failed and unconfirmed sends report terminal facts rather than a new review card', async () => {
+ const { renderControlResult } = await import('../src/tool-results');
+ const args = { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] };
+ for (const delivery of ['failed', 'draft-created']) {
+  const text = renderControlResult('DraftExternalMessage', { sent: true, delivery, message_id: 'failed-card', note: 'The connector account changed.' }, args);
+  expect(text).toContain('not delivered'); expect(text).toContain('account changed'); expect(text).not.toContain('editable card');
+ }
+ const unknown = renderControlResult('DraftExternalMessage', { sent: true, delivery: 'unknown', message_id: 'uncertain-card', note: 'Check the destination.' }, args);
+ expect(unknown).toContain('unconfirmed'); expect(unknown).toContain('Do not resend'); expect(unknown).not.toContain('was sent without review');
+ expect(unknown).toContain('does not confirm a send'); expect(unknown).toContain('may or may not have gone out');
+});
+
+test('an inactive outcome turn does not tell the model to send a failure message from the stopped turn', async () => {
+ const { renderControlResult } = await import('../src/tool-results');
+ const text = renderControlResult('SendToUser', { sent: false, delivery_failed: true, retryable: false, reason: 'turn_not_active', note: 'Nothing was delivered. This turn has ended; do not retry its reply.' }, { type: 'text', content: 'Obsolete reply' });
+ expect(text).toContain('turn has ended'); expect(text).toContain('do not retry');
+ expect(text).not.toContain('Tell the user'); expect(text).not.toContain('undefined');
+});

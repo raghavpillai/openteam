@@ -90,7 +90,6 @@ export async function draftReplySnapshot(tx: DB, context: Pick<DraftNotification
 
 /** Never report success for a reply based on a superseded snapshot. The next response can retry useful information. */
 export async function guardDraftReply(tx: DB, context: DraftNotificationContext & { draftStateRevision?: string }) {
-  if (!context.draftStateRevision) return null; // Older computers remain compatible during a rolling update.
   const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response",
     run: { channelId: context.channelId } }, select: { id: true } });
   if (!event) return null;
@@ -99,6 +98,8 @@ export async function guardDraftReply(tx: DB, context: DraftNotificationContext 
     sent: false, delivery_failed: true, retryable: false, reason: "turn_not_active",
     note: "Nothing was delivered. This draft-outcome turn has ended; do not retry its reply.",
   };
+  // Older computers cannot compare snapshots, but cancellation still fences their replies.
+  if (!context.draftStateRevision) return null;
   const current = await draftReplySnapshot(tx, context);
   if (current.revision === context.draftStateRevision) return null;
   return {

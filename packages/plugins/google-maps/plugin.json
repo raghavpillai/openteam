@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "key": "google-maps",
+  "version": "1.0.0",
+  "name": "Google Maps",
+  "description": "Google Maps places with ratings, reviews, photos, prices and live opening hours, plus walking, cycling and driving routes. Bots show them on maps in chat. Uses your own Google Maps Platform API key.",
+  "publisher": "OpenTeam",
+  "category": "Productivity",
+  "featured": true,
+  "components": ["mcp", "skills"],
+  "homepageUrl": "https://developers.google.com/maps/documentation/places/web-service/op-overview",
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "In Google Cloud, create or pick a project with billing, enable Places API (New) and Routes API, and create an API key.",
+    "Install this plugin from the marketplace, paste the key in account settings and choose Connect.",
+    "Ask a Bot for the best places near somewhere, reviews of a place, or a route between stops."
+  ],
+  "setup": {
+    "kind": "none",
+    "connectionKey": "google-maps",
+    "title": "Connect Google Maps",
+    "description": "Paste a Google Maps Platform API key with Places API (New) and Routes API enabled. Google charges per request after each monthly free allowance; ratings and reviews are its highest tiers.",
+    "documentationUrl": "https://developers.google.com/maps/documentation/places/web-service/get-api-key",
+    "steps": [
+      "In the Google Cloud console, pick a project with a billing account.",
+      "Enable Places API (New) and Routes API for that project.",
+      "Create an API key under APIs & Services → Credentials. Restricting it to those two APIs is safest.",
+      "Paste the key below and choose Connect. Every Bot can then use it."
+    ],
+    "fields": [
+      {
+        "key": "GOOGLE_MAPS_API_KEY",
+        "label": "API key",
+        "type": "string",
+        "required": true,
+        "secret": true,
+        "placeholder": "AIza…",
+        "helpText": "A Google Maps Platform key with Places API (New) and Routes API enabled. It is stored on your server and used only by this plugin."
+      }
+    ],
+    "requiredScopes": []
+  },
+  "connections": [
+    {
+      "key": "google-maps",
+      "name": "Google Maps",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "",
+      "tools": [],
+      "configuration": {
+        "command": "bun",
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"],
+        "env": { "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}" }
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "google-maps-places",
+      "description": "When the user asks about real places with Google Maps connected: the best place of a kind, what is near somewhere, ratings, reviews, opening hours, or directions between stops.",
+      "path": "skills/google-maps-places"
+    }
+  ]
+}

@@ -68,12 +68,13 @@ Place data comes from plugins. The OpenStreetMap plugin needs no account or key;
 | Purpose | Default | Configuration |
 | --- | --- | --- |
 | Place search, nearby places, routes | OpenStreetMap plugin (Photon, Nominatim, Valhalla) | Install from the marketplace |
+| Ratings, reviews, photos, live hours, routes | Google Maps plugin (Places API (New), Routes API) | Install from the marketplace with a Google Maps Platform API key |
 | Desktop map rendering | MapLibre GL with OpenFreeMap tiles | Client style in `presentation/map-style.ts` |
 | iOS map rendering | Native Apple MapKit | Automatic light/dark appearance |
 
 Desktop keeps MapLibre/OpenStreetMap with a palette sampled from Apple Maps (land, city blocks, roads, parks and water in both themes, with spaced-capital neighborhood labels), blue route accents, and glass cards, pins and controls (a translucent blurred fill with a specular rim). It requires no Apple Maps token. Street geometry, labels and POI artwork come from the selected map source, so they are not identical to Apple's basemap. The native iOS view uses Apple's built-in MapKit SDK, which also needs no MapKit JS browser token. A browser token is relevant only to an app that chooses Apple's web renderer; it is managed by the app operator, not by every end user.
 
-OpenStreetMap has no business photos, star ratings or reviews. The contract can carry them from a source the bot verifies, such as reviews it found with web search. Only include what a source actually gives, and keep that source as the place's provider. The map renderer separately requests tiles and fonts.
+OpenStreetMap has no business photos, star ratings or reviews. The Google Maps plugin returns them on each place (rating, review count, photo, open-now, today's hours), with up to five reviews from `GetPlaceDetails`. Otherwise the contract can carry them from a source the bot verifies, such as reviews it found with web search. Only include what a source actually gives, and keep that source as the place's provider. The map renderer separately requests tiles and fonts.
 
 References: [Photon API](https://github.com/komoot/photon/blob/master/docs/api-v1.md), [Valhalla routing API](https://valhalla.github.io/valhalla/api/route/api-reference/), [OpenFreeMap](https://openfreemap.org/quick_start/), [MapKit for SwiftUI](https://developer.apple.com/documentation/mapkit/mapkit-for-swiftui).
 

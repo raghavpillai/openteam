@@ -380,7 +380,8 @@ model MemoryReviewLease {
   botId     String   @id @db.Uuid
   bot       Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
   ownerId   String   @db.Uuid
-  expiresAt DateTime
+  // An absolute instant shared by workers with different session timezones.
+  expiresAt DateTime @db.Timestamptz(3)
 
   @@index([expiresAt])
 }

@@ -3491,7 +3491,7 @@ export class AgentDataStore {
         if (run && !run.memoryReviewPending) return "complete";
         if (run) {
           const oldest = await tx.run.findFirst({
-            where: { botId, memoryReviewPending: true, status: "completed" },
+            where: { botId, memoryReviewPending: true, status: "completed", inboxEvents: { some: { status: "completed" } } },
             orderBy: [{ completedAt: "asc" }, { id: "asc" }], select: { id: true },
           });
           if (oldest && oldest.id !== runId) return "busy";
@@ -3597,7 +3597,13 @@ export class AgentDataStore {
     } finally {
       clearInterval(timer);
       await heartbeat;
-      await this.prisma.memoryReviewLease.deleteMany({ where: { botId, ownerId } });
+      try {
+        await this.prisma.memoryReviewLease.deleteMany({ where: { botId, ownerId } });
+      } catch (error) {
+        // A lost database connection must not replace the retry result with a
+        // cleanup rejection. The owner-qualified lease expires without renewal.
+        console.warn(`memory review lease cleanup for ${botId}`, error);
+      }
     }
   }
 

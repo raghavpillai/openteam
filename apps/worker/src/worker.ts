@@ -458,6 +458,7 @@ export class WakeWorker {
   private pushNotificationTimer: ReturnType<typeof setInterval> | null = null;
   private memoryReviewTimer: ReturnType<typeof setInterval> | null = null;
   private memoryReviewScanActive = false;
+  private memoryReviewCursor: string | null = null;
   private readonly memoryReviews = new Map<string, Promise<void>>();
   private reconcilingAgentStores = false;
   private routinePassActive = false;
@@ -2150,20 +2151,34 @@ export class WakeWorker {
     if (this.stopping || this.memoryReviewScanActive) return;
     this.memoryReviewScanActive = true;
     try {
-      const pending = await this.prisma.run.findMany({
-        where: {
-          memoryReviewPending: true,
-          status: "completed",
-          id: { notIn: [...this.memoryReviews.keys()] },
-          inboxEvents: { some: { status: "completed" } },
-        },
-        orderBy: [{ completedAt: "asc" }, { id: "asc" }],
-        take: 32,
-        select: { id: true },
-      });
+      // Select one oldest eligible exchange per bot, then rotate through bots.
+      // A leased/outage backlog must not fill every scan and starve other owners.
+      // Filter locally running reviews after DISTINCT, so their later turns cannot
+      // jump the queue while the oldest exchange is still being inferred.
+      const capacity = Math.max(0, 32 - this.memoryReviews.size);
+      if (!capacity) return;
+      const cursor = this.memoryReviewCursor ?? null;
+      const active = [...this.memoryReviews.keys()];
+      const pending = await this.prisma.$queryRaw<Array<{ id: string; botId: string }>>`
+        SELECT candidate."id", candidate."botId" FROM (
+          SELECT DISTINCT ON (r."botId") r."id", r."botId"
+          FROM "Run" r
+          WHERE r."memoryReviewPending" = true AND r."status" = 'completed'
+            AND EXISTS (SELECT 1 FROM "InboxEvent" i WHERE i."runId" = r."id" AND i."status" = 'completed')
+          ORDER BY r."botId", r."completedAt" ASC NULLS LAST, r."id"
+        ) candidate
+        WHERE NOT (candidate."id" = ANY(${active}::uuid[]))
+        ORDER BY CASE WHEN ${cursor}::uuid IS NULL OR candidate."botId" > ${cursor}::uuid THEN 0 ELSE 1 END,
+          candidate."botId"
+        LIMIT ${capacity}`;
       // Start reviews without holding up worker readiness or queue dispatch on inference.
       if (this.stopping) return;
-      for (const run of pending) void this.reviewMemoryRun(run.id);
+      for (const run of pending) {
+        // Foreground settlement may have started a review while this query ran.
+        if (this.memoryReviews.size >= 32) break;
+        this.memoryReviewCursor = run.botId;
+        void this.reviewMemoryRun(run.id);
+      }
     } finally {
       this.memoryReviewScanActive = false;
     }

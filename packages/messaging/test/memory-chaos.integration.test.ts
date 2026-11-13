@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openteam/db";
+import { createPrismaClient, type Prisma } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
@@ -22,6 +22,16 @@ async function fixture(run: (f: { prisma: ReturnType<typeof createPrismaClient>;
     await prisma.$disconnect();
     await rm(root, { recursive: true, force: true });
   }
+}
+
+// Durable review ordering applies only to settled exchanges with completed inboxes.
+function createPendingReview(prisma: ReturnType<typeof createPrismaClient>, input: {
+  data: Prisma.RunUncheckedCreateInput & { botId: string; conversationId: string }
+}) {
+  return prisma.run.create({ data: { ...input.data, inboxEvents: { create: {
+    botId: input.data.botId, conversationId: input.data.conversationId,
+    idempotencyKey: `memory-chaos:${crypto.randomUUID()}`, type: "message.created", payload: {}, status: "completed",
+  } } } });
 }
 
 dbTest("SIGKILL before correction commit rolls back facts, events, cache and revision and releases locks", () => fixture(async ({ prisma, store, botId, root }) => {
@@ -168,7 +178,7 @@ dbTest("inference failures retain exchanges for retry and heartbeat protects a s
 
 dbTest("durable runs review in order and an acknowledged stale worker cannot override a later correction", () => fixture(async ({ prisma, botId, root, store }) => {
   const conversation = await prisma.conversation.create({ data: { botId } });
-  const runs = await Promise.all(Array.from({ length: 6 }, (_, index) => prisma.run.create({ data: {
+  const runs = await Promise.all(Array.from({ length: 6 }, (_, index) => createPendingReview(prisma, { data: {
     botId, conversationId: conversation.id, userMessageId: crypto.randomUUID(), status: "completed", memoryReviewPending: true,
     completedAt: new Date(1_000 + index * 1_000),
   } })));
@@ -213,7 +223,7 @@ dbTest("a correction fence survives failed review and also cancels a durable run
   const revision = (await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).memoryRevision +
     ((await prisma.memoryRevision.findUnique({ where: { scope: "user" } }))?.revision ?? 0);
   const conversation = await prisma.conversation.create({ data: { botId } });
-  const run = await prisma.run.create({ data: { botId, conversationId: conversation.id, userMessageId: crypto.randomUUID(),
+  const run = await createPendingReview(prisma, { data: { botId, conversationId: conversation.id, userMessageId: crypto.randomUUID(),
     status: "completed", memoryReviewPending: true, memoryReviewRevision: revision, completedAt: new Date() } });
   // A second old exchange represents a crash after hold, before acknowledgement.
   const heldId = crypto.randomUUID();
@@ -234,7 +244,7 @@ dbTest("six queued durable corrections advance chronologically without dropping 
   const revision = (await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).memoryRevision +
     ((await prisma.memoryRevision.findUnique({ where: { scope: "user" } }))?.revision ?? 0);
   const conversation = await prisma.conversation.create({ data: { botId } });
-  const runs = await Promise.all(Array.from({ length: 6 }, (_, index) => prisma.run.create({ data: {
+  const runs = await Promise.all(Array.from({ length: 6 }, (_, index) => createPendingReview(prisma, { data: {
     botId, conversationId: conversation.id, userMessageId: crypto.randomUUID(), status: "completed", memoryReviewPending: true,
     memoryReviewRevision: revision, completedAt: new Date(1_000 + index * 1_000),
   } })));
@@ -265,7 +275,7 @@ dbTest("rebasing a learner correction cannot swallow a concurrent peer shared co
     const revision = (await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).memoryRevision +
       ((await prisma.memoryRevision.findUnique({ where: { scope: "user" } }))?.revision ?? 0);
     const conversation = await prisma.conversation.create({ data: { botId } });
-    const runs = await Promise.all([0, 1].map(index => prisma.run.create({ data: { botId, conversationId: conversation.id,
+    const runs = await Promise.all([0, 1].map(index => createPendingReview(prisma, { data: { botId, conversationId: conversation.id,
       userMessageId: crypto.randomUUID(), status: "completed", memoryReviewPending: true, memoryReviewRevision: revision,
       completedAt: new Date(1_000 + index * 1_000),
     } })));

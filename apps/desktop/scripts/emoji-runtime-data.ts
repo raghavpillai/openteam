@@ -7,11 +7,11 @@ export type EmojiRuntimeSource = {
   unicode: string;
 };
 
-/** Search treats terms as a set of normalized words. Omit repeated words from
- * build data while retaining labels, category order and every searchable term. */
+/** Omit exact repeated search words. Keep case here so the output preserves
+ * runtime normalization even when the user's locale differs from the builder's. */
 export function emojiPickerRuntimeEntries(source: readonly EmojiRuntimeSource[]) {
   const normalize = (value: string) =>
-    value.trim().toLocaleLowerCase().replaceAll(/[_-]+/g, " ").replaceAll(/\s+/g, " ");
+    value.trim().replaceAll(/[_-]+/g, " ").replaceAll(/\s+/g, " ");
   const groups = new Set([0, 1, 3, 4, 5, 6, 7, 8, 9]);
   return source
     .filter(entry => entry.group !== undefined && groups.has(entry.group))

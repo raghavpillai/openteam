@@ -1,4 +1,4 @@
-import { emojiPickerRuntimeEntries, type EmojiRuntimeSource } from "./scripts/emoji-runtime-data.ts";
+import { emojiPickerRuntimeEntries, type EmojiRuntimeSource } from "./scripts/emoji-runtime-data";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";

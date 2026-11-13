@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import source from "emojibase-data/en/compact.json";
 import { emojiPickerRuntimeEntries, type EmojiRuntimeSource } from "../scripts/emoji-runtime-data";
 
-const terms = (entry: EmojiRuntimeSource) => {
+const terms = (entry: EmojiRuntimeSource, locale = "en") => {
   const emoticons = Array.isArray(entry.emoticon) ? entry.emoticon : entry.emoticon ? [entry.emoticon] : [];
   return new Set([entry.unicode, entry.label, ...(entry.tags ?? []), ...emoticons].join(" ")
-    .trim().toLocaleLowerCase().replaceAll(/[_-]+/g, " ").replaceAll(/\s+/g, " ").split(" "));
+    .trim().toLocaleLowerCase(locale).replaceAll(/[_-]+/g, " ").replaceAll(/\s+/g, " ").split(" "));
 };
 
 test("smaller emoji build data preserves every searchable word, label, glyph and category order", () => {
@@ -15,7 +15,7 @@ test("smaller emoji build data preserves every searchable word, label, glyph and
   for (const entry of runtime) {
     const before = original.get(entry.unicode)!;
     // Query matching and ranking depend only on this word set and glyph/order.
-    expect(terms(entry)).toEqual(terms(before));
+    for (const locale of ["en", "tr", "az", "lt"]) expect(terms(entry, locale)).toEqual(terms(before, locale));
     expect([entry.label, entry.group, entry.emoticon]).toEqual([before.label, before.group, before.emoticon]);
   }
   expect(runtime.map(entry => entry.unicode)).toEqual(source.filter(entry => entry.group !== undefined && entry.group !== 2)

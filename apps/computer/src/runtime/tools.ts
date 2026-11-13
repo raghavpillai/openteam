@@ -1,5 +1,6 @@
 import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { presentationReferencesInResult } from "@openteam/contracts/presentation";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { markDelivered } from "./events";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
@@ -1573,10 +1574,18 @@ export class RuntimeTools {
     }
     if (tool === "PluginCall") {
       const { parts, isError } = connectorResultParts(body);
+      // Index places and routes before a large result is moved to a file, so a map reply can name
+      // them by id. Details are stored with the run, never sent to the model.
+      const references = isError ? undefined : presentationReferencesInResult(parts.flatMap((part) => (part.type === "text" ? [part.text] : [])));
       const spilled = await spillConnectorText(parts, active.cwd, (path, data) => agentFileIO("write", path, undefined, data));
       return {
         content: spilled.parts,
-        details: { tool, ...(isError ? { isError: true } : {}), ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}) },
+        details: {
+          tool,
+          ...(isError ? { isError: true } : {}),
+          ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}),
+          ...(references ? { presentationReferences: references } : {}),
+        },
         ...(active.endTurnRequested ? { terminate: true } : {}),
       };
     }

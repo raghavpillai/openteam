@@ -538,7 +538,7 @@ describe("API contracts", () => {
     const actual = referenceTool("SendToUser");
     expect(actual.description).toStartWith(expected.description + " Use type:presentation");
     // Places and routes are named by id and filled in from tool results; nothing is invented.
-    for (const rule of ["list the ids of places a tool returned", "never invent coordinates", "pass the route id a routing tool returned"])
+    for (const rule of ["list the ids of places a places tool returned", "never invent coordinates", "pass the route id a routing tool returned"])
       expect(actual.description).toContain(rule);
     properties.type.enum.push("presentation");
     properties.presentation = (NATIVE_TOOLS.find(tool => tool.name === "SendToUser")!.inputSchema as any).properties.presentation;

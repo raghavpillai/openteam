@@ -12,58 +12,52 @@ import type { PrismaClient } from "@openteam/db";
 type Client = Pick<PrismaClient, "$queryRaw">;
 type Found = { places: Map<string, Place>; routes: Map<string, PlaceRoute> };
 
-/** Collects the places and routes named in `wanted` from one stored tool result. Results often
- * arrive as JSON text (MCP content), so JSON-looking strings are parsed and searched as well. */
-export function collectReferences(value: unknown, wanted: ReadonlySet<string>, found: Found, depth = 0): void {
-  if (depth > 12 || value == null) return;
-  if (typeof value === "string") {
-    const text = value.trim();
-    if (text.length < 2 || text.length > 4_000_000 || !/^[[{]/.test(text)) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return;
-    }
-    return collectReferences(parsed, wanted, found, depth + 1);
+/** Adds one stored index (the Bot computer's `presentationReferences` for a plugin result) to
+ * `found`, keeping the first, newest, object per id. */
+export function addIndexed(index: unknown, wanted: ReadonlySet<string>, found: Found): void {
+  const record = (index ?? {}) as { places?: unknown; routes?: unknown };
+  for (const value of Array.isArray(record.places) ? record.places : []) {
+    const id = (value as { id?: unknown })?.id;
+    if (typeof id !== "string" || !wanted.has(id) || found.places.has(id)) continue;
+    const place = PlaceSchema.safeParse(value);
+    if (place.success) found.places.set(id, place.data);
   }
-  if (Array.isArray(value)) {
-    for (const item of value) collectReferences(item, wanted, found, depth + 1);
-    return;
+  for (const value of Array.isArray(record.routes) ? record.routes : []) {
+    const id = (value as { id?: unknown })?.id;
+    if (typeof id !== "string" || !wanted.has(id) || found.routes.has(id)) continue;
+    const route = PlaceRouteSchema.safeParse(value);
+    if (route.success) found.routes.set(id, route.data);
   }
-  if (typeof value !== "object") return;
-  const record = value as Record<string, unknown>;
-  if (typeof record.id === "string" && wanted.has(record.id)) {
-    if (!found.places.has(record.id)) {
-      const place = PlaceSchema.safeParse(record);
-      if (place.success) found.places.set(record.id, place.data);
-    }
-    if (!found.routes.has(record.id)) {
-      const route = PlaceRouteSchema.safeParse(record);
-      if (route.success) found.routes.set(record.id, route.data);
-    }
-  }
-  for (const child of Object.values(record)) collectReferences(child, wanted, found, depth + 1);
 }
 
-const like = (id: string) => `%${id.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+const like = (id: string) => `%${JSON.stringify(id).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
-/** Tool results from the sending bot's and its subagents' runs in the last day, newest first. Only
- * results are searched, never arguments the agent wrote, so referenced data is what a tool returned. */
+/** Places and routes the Bot computer indexed from plugin results in the last day, for the sending
+ * bot and its subagents (at any depth), newest first. Only plugin results are indexed, and only their
+ * own JSON structure, so a referenced place is always what a places tool returned. */
 async function lookup(prisma: Client, botId: string, ids: string[]): Promise<Found> {
-  const rows = await prisma.$queryRaw<Array<{ result: unknown }>>`
-    SELECT ri."content"->'result' AS "result"
+  const rows = await prisma.$queryRaw<Array<{ index: unknown }>>`
+    WITH RECURSIVE bots("id", "depth") AS (
+      SELECT ${botId}::uuid, 0
+      UNION
+      SELECT s."childBotId", bots."depth" + 1 FROM "Subagent" s JOIN bots ON s."parentBotId" = bots."id" WHERE bots."depth" < 4
+    )
+    SELECT ri."content"->'result'->'details'->'presentationReferences' AS "index"
     FROM "RunItem" ri
     JOIN "Run" r ON r."id" = ri."runId"
-    WHERE (r."botId" = ${botId}::uuid OR r."botId" IN (SELECT "childBotId" FROM "Subagent" WHERE "parentBotId" = ${botId}::uuid))
+    WHERE r."botId" IN (SELECT "id" FROM bots)
       AND r."createdAt" > CURRENT_TIMESTAMP - INTERVAL '1 day'
       AND ri."kind" = 'tool'
-      AND (ri."content"->'result')::text LIKE ANY (${ids.map(like)}::text[])
+      AND ri."content"->'result'->'details' ? 'presentationReferences'
+      AND (ri."content"->'result'->'details'->'presentationReferences')::text LIKE ANY (${ids.map(like)}::text[])
     ORDER BY ri."createdAt" DESC
-    LIMIT 40`;
+    LIMIT 200`;
   const found: Found = { places: new Map(), routes: new Map() };
   const wanted = new Set(ids);
-  for (const row of rows) collectReferences(row.result, wanted, found);
+  for (const row of rows) {
+    addIndexed(row.index, wanted, found);
+    if (found.places.size + found.routes.size === wanted.size) break;
+  }
   return found;
 }
 
@@ -92,7 +86,7 @@ export async function resolvePlaceReferences(
       throw new ApiError(
         400,
         "unknown_presentation_reference",
-        `Nothing was sent: no tool result in this conversation has ${parts.join(" or ")}. Use ids exactly as a tool returned them, call the tool again, or give the full place object.`
+        `Nothing was sent: no places or routing tool result from the last day has ${parts.join(" or ")}. Use ids exactly as such a tool returned them, call it again, or give the full place object.`
       );
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));

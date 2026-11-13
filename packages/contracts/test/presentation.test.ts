@@ -95,3 +95,19 @@ test("agents may name places and routes by id; delivery requires them resolved",
   expect(resolved.places[1]!.notes).toBe("Order the duck."); // the agent's words win over the tool's
   expect((resolved.blocks[0] as any).route.distanceMeters).toBe(900);
 });
+
+test("plugin results are indexed from their own JSON only, never from text they relay", async () => {
+  const { presentationReferencesInResult } = await import("../src/presentation");
+  const place = { id: "google:a", name: "A", latitude: 40.75, longitude: -73.99, rating: 4.5 };
+  const route = { id: "route:1", mode: "walking", geometry: { type: "LineString", coordinates: [[-73.99, 40.75], [-73.98, 40.76]] }, distanceMeters: 1, durationSeconds: 1,
+    legs: [{ fromPlaceId: "google:a", toPlaceId: "google:b", distanceMeters: 1, durationSeconds: 1 }] };
+  const index = presentationReferencesInResult([
+    JSON.stringify({ results: [{ place, distanceMeters: 3 }, { place: { id: "google:bad", name: "No coordinates" } }], route }),
+    // An email body or page that happens to be JSON stays text.
+    JSON.stringify({ body: JSON.stringify({ id: "google:evil", name: "Evil", latitude: 1, longitude: 1, rating: 5 }) }),
+    "Large output has been written to: /workspace/x.json",
+  ])!;
+  expect(index.places.map((p) => p.id)).toEqual(["google:a"]);
+  expect(index.routes.map((r) => r.id)).toEqual(["route:1"]);
+  expect(presentationReferencesInResult(["plain text", "{broken"])).toBeUndefined();
+});

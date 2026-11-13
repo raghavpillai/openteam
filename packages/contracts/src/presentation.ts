@@ -64,7 +64,8 @@ export const PlaceRouteSchema = z.object({
   attribution: text.optional(),
 });
 export type PlaceRoute = z.infer<typeof PlaceRouteSchema>;
-const id = z.string().trim().min(1).max(200);
+// Not trimmed: a reference must match the place ids blocks name, exactly.
+const id = z.string().min(1).max(200);
 /** An agent may name a place a tool returned instead of copying it, optionally adding its own words. */
 const PlaceReferenceSchema = z.union([
   id,
@@ -394,3 +395,39 @@ export const presentationInputJsonSchema = {
   required: ["version", "blocks"],
   additionalProperties: false,
 };
+
+/** What a plugin tool returned that a presentation may name by id. */
+export type PresentationReferenceIndex = { places: Place[]; routes: PlaceRoute[] };
+/** Collects the places and routes in a plugin tool's JSON text result, so an agent can name them by
+ * id instead of copying them. Only the tool's own JSON structure counts: text inside it (a page, an
+ * email body) is never parsed, so content a tool merely relays can't pose as a verified place. */
+export function presentationReferencesInResult(texts: readonly string[]): PresentationReferenceIndex | undefined {
+  const places = new Map<string, Place>(),
+    routes = new Map<string, PlaceRoute>();
+  const visit = (value: unknown, depth: number) => {
+    if (depth > 8 || value == null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 200)) visit(item, depth + 1);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.id === "string") {
+      if (typeof record.latitude === "number" && !places.has(record.id) && places.size < 100) {
+        const place = PlaceSchema.safeParse(record);
+        if (place.success) places.set(record.id, place.data);
+      } else if (record.geometry && !routes.has(record.id) && routes.size < 10) {
+        const route = PlaceRouteSchema.safeParse(record);
+        if (route.success) routes.set(record.id, route.data);
+      }
+    }
+    for (const child of Object.values(record)) visit(child, depth + 1);
+  };
+  for (const text of texts) {
+    const trimmed = text.trim();
+    if (!/^[[{]/.test(trimmed) || trimmed.length > 8_000_000) continue;
+    try {
+      visit(JSON.parse(trimmed), 0);
+    } catch {}
+  }
+  return places.size || routes.size ? { places: [...places.values()], routes: [...routes.values()] } : undefined;
+}

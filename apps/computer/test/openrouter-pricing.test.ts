@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { calculateCost, type Model } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { openRouterCost, openRouterEndpointCost } from "../src/chat-provider-registry";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const pricing = {
   prompt: "0.000002",
@@ -144,19 +145,15 @@ describe("OpenRouter pricing overrides", () => {
     expect(tiered.stopReason).toBe(base.stopReason);
     expect(tiered.usage.cost.total).toBeCloseTo(0.835);
     expect(base.usage.cost.total).toBeCloseTo(0.42);
-    const root = await mkdtemp(join(tmpdir(), "openteam-tier-session-"));
-    try {
-      const session = SessionManager.create(root, root);
-      session.appendMessage(tiered);
-      const entries = (await readFile(session.getSessionFile()!, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(entries.find((entry) => entry.type === "message").message.usage.cost).toEqual(
-        tiered.usage.cost
-      );
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    const root = await tempDir("openteam-tier-session-");
+    const session = SessionManager.create(root, root);
+    session.appendMessage(tiered);
+    const entries = (await readFile(session.getSessionFile()!, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(entries.find((entry) => entry.type === "message").message.usage.cost).toEqual(
+      tiered.usage.cost
+    );
   });
 });

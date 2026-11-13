@@ -1,9 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CommandRunner } from "../src/apt-packages";
 import { rebuildLanguagePackages, requestedDistributions, uvToolsOn } from "../src/language-packages";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 async function distribution(sitePackages: string, name: string, requested: boolean) {
   const info = join(sitePackages, `${name.toLowerCase()}-1.0.dist-info`);
@@ -12,14 +13,8 @@ async function distribution(sitePackages: string, name: string, requested: boole
   if (requested) await writeFile(join(info, "REQUESTED"), "");
 }
 
-const roots: string[] = [];
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
-});
-
 async function scratch() {
-  const root = await mkdtemp(join(tmpdir(), "openteam-languages-"));
-  roots.push(root);
+  const root = await tempDir("openteam-languages-");
   const home = join(root, "home");
   await distribution(join(root, "usr/local/lib/python3.12/dist-packages"), "Rich", true);
   await distribution(join(root, "usr/local/lib/python3.12/dist-packages"), "markdown-it-py", false);

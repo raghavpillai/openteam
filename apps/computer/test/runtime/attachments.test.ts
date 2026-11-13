@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, symlink, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile, symlink, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { attachmentPath, attachmentRoots, loadAttachmentImages } from "../../src/runtime/attachments";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 test("attachment roots include only the trusted owner's uploads", () => {
   const owner = "11111111-1111-4111-8111-111111111111";
@@ -12,26 +13,24 @@ test("attachment roots include only the trusted owner's uploads", () => {
 });
 
 test("media paths accept workspace and owner uploads but reject sibling and symlink escapes", async () => {
-  const dir = await realpath(await mkdtemp(join(tmpdir(), "attachment-scope-")));
+  const dir = await realpath(await tempDir("attachment-scope-"));
   const workspace = join(dir,"workspace"), uploads = join(dir,"owner","attachments"), sibling = join(dir,"other","attachments");
-  try {
-    for (const root of [workspace,uploads,sibling]) { await mkdir(root,{recursive:true}); await writeFile(join(root,"image.png"),"fixture"); }
-    const roots = [workspace,uploads];
-    expect(await attachmentPath(workspace,"image.png",roots)).toBe(join(workspace,"image.png"));
-    expect(await attachmentPath(workspace,join(uploads,"image.png"),roots)).toBe(join(uploads,"image.png"));
-    await expect(attachmentPath(workspace,join(sibling,"image.png"),roots)).rejects.toThrow("owning agent");
-    await expect(attachmentPath(workspace,"../other/attachments/image.png",roots)).rejects.toThrow("owning agent");
-    await symlink(join(sibling,"image.png"),join(workspace,"escape.png"));
-    await expect(attachmentPath(workspace,"escape.png",roots)).rejects.toThrow("resolves outside");
-    const linkedRoot = join(dir,"linked-root");
-    await symlink(sibling,linkedRoot);
-    await expect(attachmentPath(workspace,join(linkedRoot,"image.png"),[linkedRoot])).rejects.toThrow("resolves outside");
-  } finally { await rm(dir,{recursive:true,force:true}); }
+  for (const root of [workspace,uploads,sibling]) { await mkdir(root,{recursive:true}); await writeFile(join(root,"image.png"),"fixture"); }
+  const roots = [workspace,uploads];
+  expect(await attachmentPath(workspace,"image.png",roots)).toBe(join(workspace,"image.png"));
+  expect(await attachmentPath(workspace,join(uploads,"image.png"),roots)).toBe(join(uploads,"image.png"));
+  await expect(attachmentPath(workspace,join(sibling,"image.png"),roots)).rejects.toThrow("owning agent");
+  await expect(attachmentPath(workspace,"../other/attachments/image.png",roots)).rejects.toThrow("owning agent");
+  await symlink(join(sibling,"image.png"),join(workspace,"escape.png"));
+  await expect(attachmentPath(workspace,"escape.png",roots)).rejects.toThrow("resolves outside");
+  const linkedRoot = join(dir,"linked-root");
+  await symlink(sibling,linkedRoot);
+  await expect(attachmentPath(workspace,join(linkedRoot,"image.png"),[linkedRoot])).rejects.toThrow("resolves outside");
 });
 
 
 test("a worker receives uploaded image bytes directly from its trusted parent's attachment directory", async () => {
-  const dir = await realpath(await mkdtemp(join(tmpdir(), "attachment-image-")));
+  const dir = await realpath(await tempDir("attachment-image-"));
   const previous = process.env.OPENTEAM_AGENT_DATA_ROOT;
   process.env.OPENTEAM_AGENT_DATA_ROOT = dir;
   const owner = "11111111-1111-4111-8111-111111111111";
@@ -58,13 +57,12 @@ test("a worker receives uploaded image bytes directly from its trusted parent's 
   } finally {
     if (previous === undefined) delete process.env.OPENTEAM_AGENT_DATA_ROOT;
     else process.env.OPENTEAM_AGENT_DATA_ROOT = previous;
-    await rm(dir, { recursive:true, force:true });
   }
 });
 
 test("attachment overflow is reported instead of silently dropping the 65th file", async () => {
   const previous = process.env.OPENTEAM_AGENT_DATA_ROOT;
-  const dir = await realpath(await mkdtemp(join(tmpdir(), "attachment-count-")));
+  const dir = await realpath(await tempDir("attachment-count-"));
   process.env.OPENTEAM_AGENT_DATA_ROOT = dir;
   const owner = "11111111-1111-4111-8111-111111111111";
   try {
@@ -83,7 +81,6 @@ test("attachment overflow is reported instead of silently dropping the 65th file
   } finally {
     if (previous === undefined) delete process.env.OPENTEAM_AGENT_DATA_ROOT;
     else process.env.OPENTEAM_AGENT_DATA_ROOT = previous;
-    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -91,7 +88,7 @@ test.skipIf(!Bun.which("ffmpeg"))(
   "video frames cannot crowd later image attachments out of the model input",
   async () => {
     const previous = process.env.OPENTEAM_AGENT_DATA_ROOT;
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "attachment-video-count-")));
+    const dir = await realpath(await tempDir("attachment-video-count-"));
     process.env.OPENTEAM_AGENT_DATA_ROOT = dir;
     const owner = "11111111-1111-4111-8111-111111111111";
     try {
@@ -156,7 +153,6 @@ test.skipIf(!Bun.which("ffmpeg"))(
     } finally {
       if (previous === undefined) delete process.env.OPENTEAM_AGENT_DATA_ROOT;
       else process.env.OPENTEAM_AGENT_DATA_ROOT = previous;
-      await rm(dir, { recursive: true, force: true });
     }
   },
   15000

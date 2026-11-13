@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import { normalizeKey, performComputerUseBatch } from "../src/screen/actions";
 import { RuntimeTools } from "../src/runtime/tools";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 test("punctuation and modifier spellings form valid X11 key chords", () => {
   expect(normalizeKey("ctrl+-")).toBe("ctrl+minus");
@@ -35,7 +34,7 @@ test("a partial Computer batch reports its applied prefix and does not execute l
 });
 
 test("switching from browser to desktop returns a fresh frame before any pointer mutation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coordinate-guard-"));
+  const root = await tempDir("coordinate-guard-");
   const calls: any[] = [];
   const runtime = Object.create(RuntimeTools.prototype) as any;
   runtime.workspaceRoot = root;
@@ -43,11 +42,9 @@ test("switching from browser to desktop returns a fresh frame before any pointer
   runtime.screens = { actComputerUse: async (_bot: string, _cwd: string, actions: unknown) => { calls.push(actions); return frame; } };
   runtime.privateBrowser = async () => { throw new Error("no browser fixture"); };
   const active = { botId: "test", screenBotId: "test", cwd: root, lastGraphicalSurface: "browser" };
-  try {
-    const first = await runtime.callComputerUse(active, { action: "drag", x: 200, y: 300, x2: 400, y2: 500 });
-    expect(calls[0]).toEqual([{ action: "screenshot" }]);
-    expect(first.details.requestedActionsSkipped).toBe(true);
-    await runtime.callComputerUse(active, { action: "click", x: 100, y: 100 });
-    expect(calls[1][0].action).toBe("click");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  const first = await runtime.callComputerUse(active, { action: "drag", x: 200, y: 300, x2: 400, y2: 500 });
+  expect(calls[0]).toEqual([{ action: "screenshot" }]);
+  expect(first.details.requestedActionsSkipped).toBe(true);
+  await runtime.callComputerUse(active, { action: "click", x: 100, y: 100 });
+  expect(calls[1][0].action).toBe("click");
 });

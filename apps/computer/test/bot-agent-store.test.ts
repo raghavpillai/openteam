@@ -1,9 +1,10 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BotAgentStore } from "../src/bot-agent-store";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const agentId = "7bd0b588-a0c3-48a2-a73d-f250f10ef8cd";
 const LIVE_ROOT = "sand-live-conversation-root-v1__";
@@ -13,7 +14,6 @@ let store: BotAgentStore | null = null;
 afterEach(async () => {
   await store?.closeAll();
   store = null;
-  if (root) await rm(root, { recursive: true, force: true });
   root = null;
 });
 
@@ -32,7 +32,7 @@ const publication = async (dir: string, id: string) =>
 
 describe("OpenTeam-compatible agent SQLite stores", () => {
   test("deleting an open agent is idempotent under concurrency, leaves nothing retired, and preserves another agent's retired files", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-delete-"));
+    root = await tempDir("openteam-bot-store-delete-");
     const retiredRoot = join(root, "retired");
     store = new BotAgentStore(join(root, "data"), retiredRoot);
     await store.openForWake(agentId);
@@ -51,7 +51,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("first wake leaves shared agent directories writable by the server group", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
+    root = await tempDir("openteam-agent-permissions-");
     store = new BotAgentStore(root);
     await store.openForWake(agentId);
     for (const directory of [join(root, "agents"), store.agentDirectory(agentId), join(store.agentDirectory(agentId), "automations")]) {
@@ -61,7 +61,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("closeAll waits for leases, permits their nested work, and rejects new work", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-handle-shutdown-"));
+    root = await tempDir("openteam-bot-handle-shutdown-");
     const leasedStore = new BotAgentStore(root, undefined, { maxOpenAgents: 2, idleCloseMs: 60_000 });
     store = leasedStore;
     let enterLease!: () => void;
@@ -94,7 +94,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("bulk envelope publication is atomic and byte-identical to ordered appends", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-envelope-bulk-"));
+    root = await tempDir("openteam-bot-envelope-bulk-");
     const now = () => 1_788_000_000_000;
     const sequential = new BotAgentStore(join(root, "sequential"), undefined, { now });
     const bulk = new BotAgentStore(join(root, "bulk"), undefined, { now });
@@ -129,7 +129,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("first wake creates WAL stores and plaintext envelopes whose live root survives a reopen", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-"));
+    root = await tempDir("openteam-bot-store-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
     await Promise.all([store.openForWake(agentId), store.openForWake(agentId), store.openForWake(agentId)]);
@@ -150,7 +150,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("unknown durable agent directories are adopted into the local roster", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-"));
+    root = await tempDir("openteam-bot-store-");
     store = new BotAgentStore(join(root, "sand-data"), join(root, "quarantine"));
     await store.initializeAgent(agentId);
     const unknownId = "5ab461fc-b440-488f-9f3c-88fc15d92c46";
@@ -165,7 +165,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("corrupt stores are quarantined and rebuilt while blob recovery finishes pending markers", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-recovery-"));
+    root = await tempDir("openteam-bot-store-recovery-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
     await store.openForWake(agentId);
@@ -185,7 +185,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
   });
 
   test("turn metadata, transcript projections, and search indexes rebuild from store.db", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-projections-"));
+    root = await tempDir("openteam-bot-projections-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
     await writeFile(join(store.agentDirectory(agentId), "profile.json"), '{"name":"Indexed Bot","description":"Projection source"}\n');
@@ -216,7 +216,7 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
 });
 
 test("concurrent transcript refreshes during bot provisioning publish a consistent snapshot", async () => {
-  root = await mkdtemp(join(tmpdir(), "openteam-projection-race-"));
+  root = await tempDir("openteam-projection-race-");
   const dir = root;
   const raceStore = new BotAgentStore(dir);
   store = raceStore;

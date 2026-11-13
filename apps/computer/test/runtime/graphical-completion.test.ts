@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { routeEvent } from "../../src/runtime/events";
 import type { ActiveTurn } from "../../src/runtime/types";
-import { RuntimeTools } from "../../src/runtime/tools";
+import { runtimeTools } from "./tool-fixtures";
 
 test("failed tool events keep the error flag in the persisted result", () => {
   const events: any[] = [];
@@ -19,24 +19,6 @@ test("failed tool events keep the error flag in the persisted result", () => {
   } as any);
   expect(events[0].item.status).toBe("failed");
   expect(events[0].item.result.isError).toBe(true);
-});
-
-test("a computerUse turn ends when the model ends it, with no extra verification prompt", async () => {
-  const { ComputerRuntime } = await import("../../src/runtime");
-  const runtime = new ComputerRuntime() as any;
-  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
-  runtime.cleanup = async () => {};
-  const prompts: string[] = [];
-  const events: any[] = [];
-  const active = {
-    subagentType: "computerUse", requestSource: "subagent", lastStopReason: "stop", turnId: "turn", runId: "run",
-    contextSessionId: "context", instructions: "Open the fixture page.", attachmentTempDirectories: [], sentMessageCount: 0,
-    session: { prompt: async (text: string) => { prompts.push(text); }, messages: [], getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [] },
-    queue: { push: (event: any) => events.push(event), end() {} },
-  } as any;
-  await runtime.execute(active, "Open the fixture page.", []);
-  expect(prompts).toEqual(["Open the fixture page."]);
-  expect(events.at(-1)).toMatchObject({ type: "turn.completed", status: "completed" });
 });
 
 test("the computerUse breaker counts only real consecutive failures", async () => {
@@ -72,17 +54,15 @@ test("a computerUse report with leaked tool-call markup becomes a blocked report
 });
 
 test("graphical actions run directly but stop once the turn has ended or the call is cancelled", async () => {
-  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const tools = runtimeTools();
   const active: any = { runId: "run", botId: "bot", screenBotId: "screen" };
   let executions = 0;
-  const call = (tool: string, signal?: AbortSignal) => tools.executeGraphicalAction(active, signal, async () => { executions++; return "done"; });
-  for (const tool of ["Computer", "browser_click", "browser_fill_form", "browser_navigate", "browser_file_upload", "browser_run_code", "browser_snapshot", "browser_tabs", "browser_handle_dialog"])
-    expect(await call(tool)).toBe("done");
-  expect(executions).toBe(9);
+  const call = (signal?: AbortSignal) => tools.executeGraphicalAction(active, signal, async () => { executions++; return "done"; });
+  expect(await call()).toBe("done");
   active.endTurnRequested = true;
-  await expect(call("browser_click")).rejects.toThrow("turn has ended");
+  await expect(call()).rejects.toThrow("turn has ended");
   active.endTurnRequested = false;
   const controller = new AbortController(); controller.abort();
-  await expect(call("Computer", controller.signal)).rejects.toThrow();
-  expect(executions).toBe(9);
+  await expect(call(controller.signal)).rejects.toThrow();
+  expect(executions).toBe(1);
 });

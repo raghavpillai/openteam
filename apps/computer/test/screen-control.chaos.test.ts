@@ -1,17 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
-const homes: string[] = [];
-afterEach(async () => {
-  await Promise.all(homes.splice(0).map((p) => rm(p, { recursive: true, force: true })));
-});
-const home = async () => {
-  const p = await mkdtemp(join(tmpdir(), "control-chaos-"));
-  homes.push(p);
-  return p;
-};
+const home = () => tempDir("control-chaos-");
 class Worker {
   child: Bun.Subprocess<"pipe", "pipe", "inherit">;
   private next = 0;

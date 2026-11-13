@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { AUTOMATION_PARENT_ONLY_TOOLS, AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
 import { ComputerRuntime } from "../../src/runtime";
+import { compactionObservation } from "../../src/runtime/compaction";
+import { withFetch } from "./tool-fixtures";
 
 const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown }).tools;
 
 test('background status evidence comes only from active server records', async () => {
   const runtime = runtimeTools() as any;
-  const previousFetch = globalThis.fetch;
   const pending = {subagent_id: 'worker', status: 'running', run_status: 'running'};
   const fixtures: Array<[unknown, boolean]> = [
     [pending, true],
@@ -19,13 +21,10 @@ test('background status evidence comes only from active server records', async (
     ['No background subagents are running right now.', false],
     ['The worker is running', false],
   ];
-  try {
-    for (const [body, expected] of fixtures) {
-      globalThis.fetch = (async () => Response.json(body)) as unknown as typeof fetch;
-      const result = await runtime.callControlPlaneTool({}, 'check', 'CheckSubagent', {});
-      expect(result.details.pendingBackgroundWork).toBe(expected);
-    }
-  } finally { globalThis.fetch = previousFetch; }
+  for (const [body, expected] of fixtures) {
+    const result = await withFetch(async () => Response.json(body), () => runtime.callControlPlaneTool({}, 'check', 'CheckSubagent', {}));
+    expect(result.details.pendingBackgroundWork).toBe(expected);
+  }
 });
 
 const turnRequest = (overrides: Record<string, unknown> = {}) => ({
@@ -265,21 +264,16 @@ test('browser calls and forms on an already connected browser mark that desktop 
 
 test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
   const runtime = runtimeTools() as any;
-  const previousFetch = globalThis.fetch;
   const sent: any[] = [];
-  globalThis.fetch = (async (_url: any, init: any) => {
+  const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
+  expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
+  await expect(withFetch(async (_url: any, init: any) => {
     sent.push(JSON.parse(init.body).arguments);
     return Response.json({ error: { code: 'subagent_not_resumable', message: "That background subagent is still running, so it can't be resumed yet." } }, { status: 409 });
-  }) as unknown as typeof fetch;
-  try {
-    const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
-    expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
-    const active = { ...workerTurn(null), runId: 'run-1' };
-    await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
-      namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
-    })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
-    expect(sent[0].subagent_type).toBe('computerUse');
-  } finally { globalThis.fetch = previousFetch; }
+  }, () => runtime.executeOpenTeamTool({ ...workerTurn(null), runId: 'run-1' }, 'call', 'CallDynamicTool', {
+    namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
+  }))).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
+  expect(sent[0].subagent_type).toBe('computerUse');
 });
 
 test('a readonly worker lists and greps with Shell on the box, reads only through read tools, and moves no files', async () => {
@@ -316,4 +310,101 @@ test('Messages tools appear only while a connected Mac has Messages on, and neve
     expect(cursor(active).filter((name: string) => messages.includes(name))).toEqual([]);
   // The Chrome sign-in import does not depend on Messages.
   expect(cursor(workerTurn(null))).toContain('RequestCookieOriginApproval');
+});
+
+describe("routine runs", () => {
+  const automation = () => ({ requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [], botId: "bot" }) as any;
+  const names = (tools: any, turn: any) => [...tools.customTools(turn).map((tool: any) => tool.name), ...tools.contextCatalog(turn).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name))];
+
+  test("automation calls WakeParent directly and keeps work tools, with all communication surfaces removed", () => {
+    const tools = runtimeTools() as any;
+    const turn = automation();
+    expect(tools.customTools(turn).map((tool: any) => tool.name)).toContain("WakeParent");
+    expect(tools.contextCatalog(turn).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name))).not.toContain("WakeParent");
+    for (const name of AUTOMATION_PARENT_ONLY_TOOLS) expect(names(tools, turn)).not.toContain(name);
+    // Routine management tools stay: none of them opens a card or waits for the user.
+    for (const name of ["Shell", "Read", "RecallMemory", "UpdateMemory", "UpdateRoutine", "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "Task", "CheckSubagent",
+      "WebFetch", "WebSearch", "CopyToBox", "CopyFromBox", "GetPlugin", "SearchPlugins", "UninstallPlugin", "UninstallMcpServer", "RestartMcpServers", "SetMcpInstructions", "RenameMcpAccount", "RemoveMcpAccount"])
+      expect(names(tools, turn)).toContain(name);
+    for (const profile of [
+      { requestSource: "turn", runtimeProfile: "agent", subagentType: null },
+      { requestSource: "agent", runtimeProfile: "subagent", subagentType: "executor" },
+      { requestSource: "automation", runtimeProfile: "subagent", subagentType: "executor" },
+    ]) expect(names(tools, { ...turn, ...profile })).not.toContain("WakeParent");
+  });
+
+  test("a rejected WakeParent leaves the automation able to continue, and communication tools point to WakeParent", async () => {
+    const tools = runtimeTools() as any;
+    const turn = automation();
+    const wake = tools.customTools(turn).find((tool: any) => tool.name === "WakeParent")!;
+    await expect(withFetch(async () => Response.json({ error: "storage unavailable" }, { status: 503 }),
+      () => wake.execute("wake", { message: "Complete report" }, undefined, undefined, {} as never))).rejects.toThrow("storage unavailable");
+    expect(turn.endTurnRequested).not.toBe(true);
+    for (const [tool, args] of [["SendToUser", { type: "text", content: "Done" }], ["ReactToMessage", { message_address: "t1", emoji: "👍" }]] as const)
+      await expect(tools.executeOpenTeamTool(turn, "call", tool, args)).rejects.toThrow(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
+  });
+});
+
+describe("task progress", () => {
+  const input = { key: "generated", state: "working", summary: "Generated the requested artifact", evidence: ["/documents/export"], remaining: ["Confirm destination receipt"], nextAction: "Check receipt" };
+  const later = () => new Date(Date.now() + 3600_000).toISOString();
+  const worker = (subagentType: string, overrides: Record<string, unknown> = {}) => ({
+    requestSource: "agent", runtimeProfile: "subagent", subagentType, pluginNamespaces: [], botId: "child", instructions: "Original authorization and scope.",
+    modelRef: {}, reasoning: "low", compactionReadPiMessages: () => [], cwd: "/tmp", contextSessionId: "context", ...overrides,
+  }) as any;
+  const run = (tools: any, turn: any, name: string, id: string, args: unknown) => tools.customTools(turn).find((tool: any) => tool.name === name)!.execute(id, args, undefined, undefined, {} as never);
+
+  test("worker progress keeps the turn alive, waiting parks it, and compaction sees the latest obligations", async () => {
+    const tools = runtimeTools() as any;
+    const turn = worker("executor");
+    let deferred = false;
+    const host = async (_url: unknown, init: any) => {
+      const { arguments: args } = JSON.parse(init.body);
+      return Response.json({ saved: true, deferred, progress: { ...args, runId: "run", revision: deferred ? 2 : 1 } });
+    };
+    await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "progress", input));
+    expect(turn.endTurnRequested).not.toBe(true);
+    expect(compactionObservation(turn).systemPrompt).toContain("Confirm destination receipt");
+    expect(compactionObservation(turn).systemPrompt).toContain("Original authorization and scope.");
+    deferred = true;
+    await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
+    expect(turn.endTurnRequested).toBe(true);
+    expect(turn.instructions.split("<durable_task_state>")).toHaveLength(2);
+  });
+
+  test("only work-capable delegated workers hold progress, and a failed write neither ends the task nor invents saved state", async () => {
+    const tools = runtimeTools() as any;
+    for (const kind of ["executor", "knowledgeWork", "computerUse"]) {
+      const names = tools.customTools(worker(kind)).map((tool: any) => tool.name);
+      expect(names).toContain("ReportTaskProgress");
+      expect(names).not.toContain("WakeParent");
+    }
+    expect(tools.customTools({ requestSource: "turn", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] }).map((tool: any) => tool.name)).not.toContain("ReportTaskProgress");
+    const turn = worker("computerUse", { instructions: "Original scope" });
+    await expect(withFetch(async () => Response.json({ error: "database unavailable" }, { status: 503 }), () => run(tools, turn, "ReportTaskProgress", "failed", input))).rejects.toThrow();
+    expect(turn.endTurnRequested).not.toBe(true);
+    expect(turn.instructions).toBe("Original scope");
+  });
+
+  test("a parent saves a separate request wait, carries it into compaction, and workers cannot access that operation", async () => {
+    const requestId = crypto.randomUUID();
+    const tools = runtimeTools() as any;
+    const host = async (_url: unknown, init: any) => {
+      const request = JSON.parse(init.body);
+      expect(request.tool).toBe("ReportRequestProgress");
+      return Response.json({ request_run_id: requestId, deferred: request.arguments.state === "waiting", ended: request.arguments.state === "complete",
+        requests: request.arguments.state === "complete" ? [] : [{ request_run_id: requestId, progress: request.arguments }] });
+    };
+    const active = worker("", { requestSource: "turn", runtimeProfile: "agent", subagentType: null, botId: "owner", instructions: "Only one outgoing message is approved." });
+    const waiting = await withFetch(host, () => run(tools, active, "ReportRequestProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
+    expect(waiting.terminate).toBe(true);
+    expect(active.endTurnRequested).toBe(true);
+    const snapshot = compactionObservation(active).systemPrompt;
+    for (const value of [requestId, "Confirm destination receipt", "Only one outgoing message is approved."]) expect(snapshot).toContain(value);
+    const next = { ...active, endTurnRequested: false };
+    expect((await withFetch(host, () => run(tools, next, "ReportRequestProgress", "complete", { ...input, state: "complete", remaining: [] }))).terminate).toBe(true);
+    expect(next.endTurnRequested).toBe(true);
+    for (const turn of [{ ...active, runtimeProfile: "subagent", subagentType: "executor" }, { ...active, requestSource: "automation" }])
+      expect(tools.customTools(turn).map((tool: any) => tool.name)).not.toContain("ReportRequestProgress");
+  });
 });

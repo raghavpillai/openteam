@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { ComputerRuntime } from "../../src/runtime";
 import { fenceToolResults, untrustedResultsExtension } from "../../src/runtime/untrusted-results";
+import { withFetch } from "./tool-fixtures";
 
 const runtimeTools = () => (new ComputerRuntime() as any).tools;
 const turn = (overrides: Record<string, unknown> = {}): any => ({
@@ -12,14 +13,8 @@ const connector = (namespaceStatus = "ready") => ({
   tools: [{ connectionId: "c", name: "search_threads", description: "Search", inputSchema: { type: "object" }, source: "gmail/gmail" }],
 });
 
-async function withControlPlane(respond: (tool: string, args: any) => unknown, run: () => Promise<any>): Promise<any> {
-  const original = globalThis.fetch;
-  globalThis.fetch = (async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body));
-    return Response.json(await respond(body.tool, body.arguments));
-  }) as any;
-  try { return await run(); } finally { globalThis.fetch = original; }
-}
+const withControlPlane = (respond: (tool: string, args: any) => unknown, run: () => Promise<any>): Promise<any> =>
+  withFetch(async (_url: string, init: RequestInit) => { const body = JSON.parse(String(init.body)); return Response.json(await respond(body.tool, body.arguments)); }, run);
 
 test("a connector tool runs without a prior GetDynamicTools lookup", async () => {
   const tools = runtimeTools();

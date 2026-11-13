@@ -1,7 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import {
   InMemoryCredentialStore,
   type Model,
@@ -13,6 +10,8 @@ import { ComputerRuntime } from "../../src/runtime";
 import { inferenceReasoningOptions } from "../../src/runtime/reasoning";
 import { inferCompaction } from "../../src/runtime/compaction";
 import type { ActiveTurn } from "../../src/runtime/types";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 const model: Model<"openai-codex-responses"> = {
   id: "gpt-5.6-sol",
@@ -50,10 +49,30 @@ function captureRequests() {
   return { requests, options };
 }
 
-const directories: string[] = [];
-afterEach(async () => {
-  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
-});
+/** A ComputerRuntime whose real Pi sessions serialize requests for `routed` into `capture`, fully offline. */
+async function capturingRuntime(routed: Model<any>, stream: (model: any, context: any, options: any) => any) {
+  const directory = await tempDir("openteam-reasoning-");
+  const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.checkAuth = async () => ({ type: "api_key" });
+  const capture = captureRequests();
+  // Keep the real session, agent loop, extensions and provider serializer;
+  // substitute only credentials/transport.
+  modelRuntime.streamSimple = (_model, messages, options) => stream(routed, messages, { ...options, ...capture.options });
+  const runtime = new ComputerRuntime();
+  const internals = runtime as any;
+  internals.start = async () => {};
+  internals.agentDir = directory;
+  internals.modelRuntime = modelRuntime;
+  internals.resolveModel = () => routed;
+  internals.customTools = () => [];
+  internals.compactionExtension = () => ({ name: "offline-compaction", hidden: true, factory() {} });
+  const session = (reasoning: string): Promise<AgentSession> => {
+    const manager = SessionManager.inMemory(directory);
+    return internals.createStandaloneSession(directory, "Offline", manager, { contextSessionId: manager.getSessionId(), reasoning } as ActiveTurn,
+      { providerId: routed.provider, modelId: routed.id });
+  };
+  return { runtime, modelRuntime, capture, directory, session };
+}
 
 describe("Codex reasoning request semantics", () => {
   test.each([
@@ -80,33 +99,8 @@ describe("Codex reasoning request semantics", () => {
   });
 
   test("normal ComputerRuntime sessions send none through the actual Pi request pipeline", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "openteam-reasoning-"));
-    directories.push(directory);
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    const capture = captureRequests();
-    // Keep the real session, agent loop, extensions and provider serializer;
-    // substitute only credentials/transport so this test stays fully offline.
-    modelRuntime.streamSimple = (_model, messages, options) => streamSimple(model, messages, { ...options, ...capture.options });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as any;
-    internals.agentDir = directory;
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => model;
-    internals.customTools = () => [];
-    internals.compactionExtension = () => ({ name: "offline-compaction", hidden: true, factory() {} });
-    const manager = SessionManager.inMemory(directory);
-    const session: AgentSession = await internals.createStandaloneSession(
-      directory,
-      "Offline test",
-      manager,
-      { contextSessionId: manager.getSessionId(), reasoning: "off" } as ActiveTurn,
-      { providerId: model.provider, modelId: model.id }
-    );
+    const { capture, session: open } = await capturingRuntime(model, streamSimple);
+    const session = await open("off");
     try {
       await session.prompt("Capture the request.");
       expect(session.thinkingLevel).toBe("off");
@@ -142,43 +136,7 @@ describe("OpenRouter reasoning across inference paths", () => {
             }
       ),
     };
-    const directory = await mkdtemp(join(tmpdir(), "openteam-openrouter-reasoning-"));
-    directories.push(directory);
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    const capture = captureRequests();
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      routedStream(routedModel, messages, { ...options, ...capture.options });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      start: () => Promise<void>;
-      agentDir: string;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof routedModel;
-      customTools: () => [];
-      compactionExtension: () => { name: string; hidden: boolean; factory: () => void };
-      createStandaloneSession: (
-        cwd: string,
-        instructions: string,
-        manager: SessionManager,
-        active: ActiveTurn,
-        ref: { providerId: string; modelId: string }
-      ) => Promise<AgentSession>;
-    };
-    internals.start = async () => {};
-    internals.agentDir = directory;
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => routedModel;
-    internals.customTools = () => [];
-    internals.compactionExtension = () => ({
-      name: "offline-compaction",
-      hidden: true,
-      factory() {},
-    });
+    const { runtime, modelRuntime, capture, directory, session: open } = await capturingRuntime(routedModel, routedStream);
     await expect(
       runtime.infer({
         instructions: "Offline",
@@ -202,14 +160,7 @@ describe("OpenRouter reasoning across inference paths", () => {
         new AbortController().signal
       )
     ).rejects.toThrow("Offline request captured");
-    const manager = SessionManager.inMemory(directory);
-    const session = await internals.createStandaloneSession(
-      directory,
-      "Offline",
-      manager,
-      { contextSessionId: manager.getSessionId(), reasoning: requested } as ActiveTurn,
-      { providerId: routedModel.provider, modelId: routedModel.id }
-    );
+    const session = await open(requested);
     try {
       await session.prompt("Capture request");
       expect(capture.requests).toHaveLength(3);

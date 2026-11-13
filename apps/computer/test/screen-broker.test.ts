@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ScreenSession } from "../src/screen/types";
 import { createViewerPassword, ScreenBroker } from "../src/screen-broker";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 describe("graphical screen lifecycle", () => {
   let home: string | undefined;
 
   afterEach(async () => {
-    if (home) await rm(home, { force: true, recursive: true });
     home = undefined;
   });
 
   test("asks for a snapshot only of the profile whose browser a bot used", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-screen-browser-use-"));
+    home = await tempDir("openteam-screen-browser-use-");
     const broker = new ScreenBroker(home);
     const session = { botId: "nova", profileDirectory: join(home, "chrome-profile-2") } as ScreenSession;
     Object.assign(broker, {
@@ -30,7 +30,7 @@ describe("graphical screen lifecycle", () => {
   });
 
   test("tombstones destroyed bots so a late inspector poll cannot recreate them", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-screen-broker-"));
+    home = await tempDir("openteam-screen-broker-");
     const mappingPath = join(home, ".sand-window-assignments.json");
     await mkdir(home, { recursive: true });
     await writeFile(mappingPath, `${JSON.stringify({ "archived-bot": 4 })}\n`);
@@ -45,7 +45,7 @@ describe("graphical screen lifecycle", () => {
   });
 
   test("shutdown closes running browsers cleanly and publishes their profiles first", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-screen-shutdown-"));
+    home = await tempDir("openteam-screen-shutdown-");
     const browser = join(home, "google-chrome");
     // Like Chromium, the fake browser saves extension settings only when it exits cleanly.
     await writeFile(

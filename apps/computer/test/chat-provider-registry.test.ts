@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, type AuthInteraction } from "@earendil-works/pi-ai";
+import { availableInferenceModels, requireInferenceModel } from "../src/inference-models";
+import { InferenceProviderService } from "../src/inference-providers";
+import { reasoningCapabilities } from "../src/reasoning-capabilities";
+import { tempDirs } from "./temp";
 import {
   ChatProviderRegistry,
   inputWindow,
@@ -11,11 +14,8 @@ import {
   KEYLESS_API_KEY,
   modelsEndpoint,
 } from "../src/chat-provider-registry";
+const tempDir = tempDirs();
 
-const dirs: string[] = [];
-afterEach(async () => {
-  await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
-});
 const model = (provider: string, id: string) => ({
   provider,
   id,
@@ -28,9 +28,8 @@ const model = (provider: string, id: string) => ({
   contextWindow: 128000,
   maxTokens: 8192,
 });
-async function fixture(custom: Record<string, unknown> = {}) {
-  const directory = await mkdtemp(join(tmpdir(), "openteam-chat-registry-"));
-  dirs.push(directory);
+async function fixture(custom: Record<string, unknown> = {}, extraModels: Array<ReturnType<typeof model>> = []) {
+  const directory = await tempDir("openteam-chat-registry-");
   const path = join(directory, "models.json");
   await writeFile(path, JSON.stringify({ providers: custom }));
   const connected = new Set(["openai", "anthropic", "google", ...Object.keys(custom)]);
@@ -48,6 +47,7 @@ async function fixture(custom: Record<string, unknown> = {}) {
     model("openai", "gpt-audio"),
     model("anthropic", "claude-chat"),
     model("google", "unregistered-model"),
+    ...extraModels,
   ];
   const calls: Array<{ url: URL; init: RequestInit }> = [];
   const state = { status: 200, body: null as unknown, fail: false };
@@ -61,6 +61,12 @@ async function fixture(custom: Record<string, unknown> = {}) {
     checkAuth: async (id: string) =>
       connected.has(id) ? { type: "api_key", source: "test" } : undefined,
     getAuth: async (id: string) => ({ auth: { apiKey: `synthetic-${id}-key` } }),
+    login: async (id: string, _type: string, interaction: AuthInteraction) => {
+      const key = await interaction.prompt({ type: "secret", message: "API key" });
+      connected.add(id);
+      return { type: "api_key", key };
+    },
+    logout: async (id: string) => { connected.delete(id); },
     registerProvider: (id: string, config: { models: Array<ReturnType<typeof model>> }) => {
       for (const value of config.models) {
         const existing = known.findIndex((m) => m.provider === id && m.id === value.id);
@@ -449,7 +455,6 @@ test("OpenRouter pricing refresh preserves a model reselected during its endpoin
 });
 
 test("issue 281: advertised efforts drive API selection, validation and saved mappings", async () => {
-  const { InferenceProviderService } = await import("../src/inference-providers");
   const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
   const entry = {
     id: "anthropic/claude-fable-5.2",
@@ -544,7 +549,6 @@ test("known providers also persist advertised capabilities instead of retaining 
     ],
   };
   const discovered = (await f.registry.catalog("anthropic")).models[0]!;
-  const { reasoningCapabilities } = await import("../src/reasoning-capabilities");
   expect(reasoningCapabilities(discovered)).toEqual({
     reasoningLevels: ["low", "max"],
     defaultReasoningLevel: "max",
@@ -565,4 +569,67 @@ test("known providers also persist advertised capabilities instead of retaining 
   expect(JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].reasoning).toBe(
     false
   );
+});
+
+describe("inference provider service", () => {
+  const eventually = async <T>(read: () => T, matches: (value: T) => boolean): Promise<T> => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const value = read();
+      if (matches(value)) return value;
+      await Bun.sleep(5);
+    }
+    throw new Error("Expected provider session state was not reached");
+  };
+
+  test("exposes catalogs and keeps submitted secrets out of session views", async () => {
+    const f = await fixture();
+    f.connected.delete("anthropic");
+    const service = new InferenceProviderService(() => f.runtime, f.path, f.fetcher);
+    const catalog = await service.catalog("anthropic");
+    expect(catalog.providers.find((p) => p.id === "anthropic")).toMatchObject({ connected: false, modelCount: 0 });
+    expect(catalog.models).toEqual([]);
+    const waitingFor = (id: string) => eventually(() => service.authSession(id), (session) => session.status === "waiting");
+    const started = service.startAuthSession("anthropic", "api_key");
+    const waiting = await waitingFor(started.id);
+    expect(waiting.prompt).toMatchObject({ type: "secret", message: "API key" });
+    service.respond(started.id, waiting.prompt!.id, "super-secret-value");
+    const complete = await eventually(() => service.authSession(started.id), (session) => session.status === "connected");
+    expect(f.connected.has("anthropic")).toBe(true);
+    expect(JSON.stringify(complete)).not.toContain("super-secret-value");
+    const expiring = service.startAuthSession("anthropic", "api_key");
+    await waitingFor(expiring.id);
+    (service as unknown as { sessions: Map<string, { createdAt: number }> }).sessions.get(expiring.id)!.createdAt = Date.now() - 16 * 60_000;
+    expect(service.authSession(expiring.id).status).toBe("cancelled");
+  });
+
+  test("does not invent effort controls when OpenRouter omits supported efforts", async () => {
+    const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" } });
+    const entry = (id: string, parameters: string[], reasoning?: unknown) => ({
+      id, name: id, architecture: { output_modalities: ["text"] }, supported_parameters: ["tools", ...parameters], ...(reasoning ? { reasoning } : {}),
+    });
+    f.state.body = { data: [
+      entry("openrouter/auto", ["reasoning"]),
+      entry("anthropic/claude-sonnet-5.5", ["reasoning"], { mandatory: true }),
+      entry("anthropic/claude-haiku-5.5", ["reasoning"], { mandatory: false }),
+      entry("author/no-reasoning", []),
+    ] };
+    const catalog = await new InferenceProviderService(() => f.runtime, f.path, f.fetcher).catalog("openrouter");
+    expect(catalog.models.map((model) => [model.modelId, model.reasoningLevels, model.defaultReasoningLevel])).toEqual([
+      ["openrouter/auto", [], "off"],
+      ["anthropic/claude-sonnet-5.5", [], "off"],
+      ["anthropic/claude-haiku-5.5", [], "off"],
+      ["author/no-reasoning", ["off"], "off"],
+    ]);
+  });
+
+  test("retired ChatGPT models are hidden even from a cached catalog and rejected with a replacement", async () => {
+    const f = await fixture({}, [...["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-sol"].map((id) => model("openai-codex", id)), model("openai", "gpt-5.4")]);
+    expect(availableInferenceModels(f.runtime, "openai-codex").map((m) => m.id)).toEqual(["gpt-5.5", "gpt-5.6-sol"]);
+    expect(availableInferenceModels(f.runtime, "openai").map((m) => m.id)).toContain("gpt-5.4");
+    for (const [modelId, replacement] of [["gpt-5.4", "gpt-5.6-terra"], ["gpt-5.4-mini", "gpt-5.6-luna"]] as const) {
+      const ref = { providerId: "openai-codex", modelId };
+      expect(() => requireInferenceModel(f.runtime, ref)).toThrow(`Select openai-codex/${replacement}`);
+      await expect(new InferenceProviderService(() => f.runtime, f.path).verify({ ...ref, reasoning: "low" })).rejects.toThrow("retired for ChatGPT sign-in");
+    }
+  });
 });

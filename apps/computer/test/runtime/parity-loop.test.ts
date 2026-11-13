@@ -1,88 +1,71 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
-import { ComputerRuntime } from "../../src/runtime";
 import { RuntimeTools } from "../../src/runtime/tools";
 import type { ActiveTurn } from "../../src/runtime/types";
-import { offlineModel, offlineModelRuntime, sseResponse } from "./pi-fixtures";
+import { tempDirs } from "../temp";
+import { offlineComputerRuntime, offlineModel, piTurn, requestBody, sseStep, toolCall } from "./pi-fixtures";
+const tempDir = tempDirs();
 const model = offlineModel("parity-fixture", { contextWindow: 128_000 });
+
+/** A real Pi session over a tool host at `server`, with compaction stubbed out. */
+async function loop(root: string, server: { url: URL }, fetch: (url: unknown, init: any) => Promise<Response>, turn: Record<string, unknown>,
+  subscriber: (internals: any, active: any, manager: SessionManager) => (event: any) => void = (internals, active) => (event) => internals.routeEvent(active, event)) {
+  const internals = await offlineComputerRuntime(model, root, fetch);
+  internals.tools = new RuntimeTools({} as never, server.url.origin, "synthetic-control-token", root, root);
+  internals.compactionExtension = () => ({ name: "fixture-compaction", hidden: true, factory() {} });
+  const active: any = piTurn(model, root, { conversationId: crypto.randomUUID(), channelId: crypto.randomUUID(), deliveryId: null, requestSource: "turn", endTurnRequested: false, ...turn });
+  const sessions = join(root, "sessions");
+  await mkdir(sessions);
+  const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
+  const session: AgentSession = await internals.createStandaloneSession(root, active.instructions, manager, active, active.modelRef);
+  active.session = session;
+  session.subscribe(subscriber(internals, active, manager));
+  internals.bindTurnStop(active, session);
+  return { internals, active: active as ActiveTurn & Record<string, any>, manager, session };
+}
 
 // Typed messages supersede a main turn instead of steering it.
 for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true }, { handoff: false, batch: true }])
   test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${batch ? " with three ordered replies" : ""}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-parity-"));
+    const root = await tempDir("pi-parity-");
     const requests: any[] = [];
     const sent: any[] = [];
     const acknowledged: any[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const input = (await request.json()) as any;
-        sent.push(input);
-        return Response.json(handoff ? { woken: true, run_id: "parent-wake" } : { sent: true, message_id: `delivery-${sent.length}` });
-      },
-    });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      sent.push(await request.json());
+      return Response.json(handoff ? { woken: true, run_id: "parent-wake" } : { sent: true, message_id: `delivery-${sent.length}` });
+    } });
     let session: AgentSession | undefined;
     try {
-      const modelRuntime = await offlineModelRuntime(model, async (_url: any, init: any) => {
+      let manager!: SessionManager;
+      const fixture = await loop(root, server, async (_url, init) => {
         // Pi used to delay first-write until an assistant existed. This assertion
         // runs inside the actual provider call, before the first assistant arrives.
         expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain("<user_query>Read the result</user_query>");
-        requests.push(JSON.parse(await new Response(init.body).text()));
+        requests.push(await requestBody(init));
         const toolId = `send-${requests.length}`;
-        const call = (index: number, id: string, name: string, args: unknown) => ({ index, id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-        const tool_calls = batch
-          ? Array.from({ length: 3 }, (_, index) => call(index, index === 0 ? toolId : `${toolId}-${index}`, "SendToUser", { type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }))
-          : [handoff ? call(0, toolId, "WakeParent", { message: "Fixture result: notify the user." }) : call(0, toolId, "SendToUser", { type: "text", content: "Fixture result", end_turn: true })];
-        return sseResponse(model, [
-          { choices: [{ index: 0, delta: { role: "assistant", tool_calls }, finish_reason: null }] },
-          { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } },
-        ]);
+        return sseStep(model, batch
+          ? Array.from({ length: 3 }, (_, index) => toolCall(index, index === 0 ? toolId : `${toolId}-${index}`, "SendToUser", { type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }))
+          : [handoff ? toolCall(0, toolId, "WakeParent", { message: "Fixture result: notify the user." }) : toolCall(0, toolId, "SendToUser", { type: "text", content: "Fixture result", end_turn: true })]);
+      }, {
+        requestSource: handoff ? "automation" : "turn", instructions: "System fixture: verified instructions",
+        initialUserStarted: false, initialUserClientId: "fixture-user", queue: { push: (event: any) => acknowledged.push(event) },
+      }, (internals, active, manager) => {
+        internals.activeByRun.set(active.runId, active);
+        return (event) => {
+          if (event.type === "message_end" && event.message.role === "user") {
+            expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain("Read the result");
+            internals.routeEvent(active, event);
+          }
+        };
       });
-      const runtime = new ComputerRuntime();
-      const internals = runtime as any;
-      internals.agentDir = root;
-      internals.modelRuntime = modelRuntime;
-      internals.resolveModel = () => model;
-      const toolHost = new RuntimeTools({} as never, server.url.origin, "synthetic-control-token", root, root);
-      internals.tools = toolHost;
-      internals.compactionExtension = () => ({ name: "fixture-compaction", hidden: true, factory() {} });
-      const active = {
-        runId: crypto.randomUUID(),
-        botId: crypto.randomUUID(),
-        conversationId: crypto.randomUUID(),
-        contextSessionId: crypto.randomUUID(),
-        channelId: crypto.randomUUID(),
-        deliveryId: null,
-        runtimeProfile: "agent",
-        requestSource: handoff ? "automation" : "turn",
-        subagentType: null,
-        pluginNamespaces: [],
-        sentMessageCount: 0,
-        reasoning: "off",
-        cwd: root,
-        endTurnRequested: false,
-        initialUserStarted: false,
-        initialUserClientId: "fixture-user",
-        queue: { push: (event: any) => acknowledged.push(event) },
-      } as unknown as ActiveTurn;
-      const sessions = join(root, "sessions");
-      await mkdir(sessions);
-      const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
-      session = await internals.createStandaloneSession(root, "System fixture: verified instructions", manager, active, { providerId: model.provider, modelId: model.id });
-      active.session = session!;
-      internals.activeByRun.set(active.runId, active);
-      session!.subscribe((event) => {
-        if (event.type === "message_end" && event.message.role === "user") {
-          expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain("Read the result");
-          internals.routeEvent(active, event);
-        }
-      });
-      internals.bindTurnStop(active, session!);
+      manager = fixture.manager;
+      session = fixture.session;
+      const { active } = fixture;
+      const toolHost = fixture.internals.tools as RuntimeTools;
       await session!.sendCustomMessage(
         { customType: "openteam-ambient", content: "[SAND_HIDDEN_PROMPT]A background job completed.", display: false, details: { messageId: "ambient-fixture" } },
         { triggerTurn: false }
@@ -119,7 +102,6 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
     } finally {
       session?.dispose();
       server.stop(true);
-      await rm(root, { recursive: true, force: true });
     }
   }, 15000);
 
@@ -145,7 +127,7 @@ describe("sibling closing calls", () => {
   ];
   for (const { closings, failures = 0, routineDelay = 0, closingDelays, failedSend, failedClosing, connectorFailure, extraRoutine, cancelOnSend } of cases)
     test(`real Pi loop settles sibling closing calls ${closings.join("+")} with ${failures} failure${routineDelay ? " arriving late" : ""}${closingDelays ? ` delays ${closingDelays.join("/")}` : ""}${failedSend !== undefined ? ` undelivered send ${failedSend}` : ""}${failedClosing !== undefined ? ` rejected closing ${failedClosing}` : ""}${connectorFailure ? " connector error receipt" : ""}${extraRoutine ? " queued mutation sibling" : ""}${cancelOnSend !== undefined ? " interrupted batch" : ""}`, async () => {
-      const root = await mkdtemp(join(tmpdir(), "pi-end-turn-hold-"));
+      const root = await tempDir("pi-end-turn-hold-");
       const requests: any[] = [];
       const host: any[] = [];
       const completedClosings: string[] = [];
@@ -180,54 +162,24 @@ describe("sibling closing calls", () => {
       });
       let session: AgentSession | undefined;
       try {
-        const modelRuntime = await offlineModelRuntime(model, async (_url: any, init: any) => {
-          requests.push(JSON.parse(await new Response(init.body).text()));
-          const step = requests.length;
-          const delta = step > 1
-            ? { role: "assistant", content: "The reply already went out." }
-            : { role: "assistant", tool_calls: [
-                ...closings.map((closing, index) => ({ index, id: `closing-${index}`, type: "function", function: {
-                  name: CLOSINGS[closing].name, arguments: JSON.stringify(CLOSINGS[closing].arguments),
-                } })),
-                { index: closings.length, id: "routine", type: "function", function: connectorFailure || extraRoutine
-                  ? { name: "CallDynamicTool", arguments: JSON.stringify({ namespace: "fixture", toolName: "read_case", arguments: {} }) }
-                  : { name: "UpdateRoutine", arguments: JSON.stringify({ action: "create", name: "Check back",
-                    prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *" }) } },
-                ...(extraRoutine ? [{ index: closings.length + 1, id: "routine-2", type: "function", function: { name: "CallDynamicTool",
-                  arguments: JSON.stringify({ namespace: "fixture", toolName: "read_case", arguments: {} }) } }] : []),
-              ] };
-          const chunks = [
-            { choices: [{ index: 0, delta, finish_reason: null }] },
-            { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" in delta ? "tool_calls" : "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } },
-          ];
-          return sseResponse(model, chunks);
-        });
-        const runtime = new ComputerRuntime();
-        const internals = runtime as any;
-        internals.agentDir = root;
-        internals.modelRuntime = modelRuntime;
-        internals.resolveModel = () => model;
-        internals.tools = new RuntimeTools({} as never, server.url.origin, "synthetic-control-token", root, root);
-        internals.compactionExtension = () => ({ name: "fixture-compaction", hidden: true, factory() {} });
-        const active = {
-          runId: crypto.randomUUID(), botId: crypto.randomUUID(), turnId: crypto.randomUUID(),
-          conversationId: crypto.randomUUID(), contextSessionId: crypto.randomUUID(), channelId: crypto.randomUUID(),
-          deliveryId: null, runtimeProfile: "agent", requestSource: "turn", subagentType: null,
+        const fixture = await loop(root, server, async (_url, init) => {
+          requests.push(await requestBody(init));
+          if (requests.length > 1) return sseStep(model, "The reply already went out.");
+          const readCase = (index: number, id: string) => toolCall(index, id, "CallDynamicTool", { namespace: "fixture", toolName: "read_case", arguments: {} });
+          return sseStep(model, [
+            ...closings.map((closing, index) => toolCall(index, `closing-${index}`, CLOSINGS[closing].name, CLOSINGS[closing].arguments)),
+            connectorFailure || extraRoutine ? readCase(closings.length, "routine") : toolCall(closings.length, "routine", "UpdateRoutine", {
+              action: "create", name: "Check back", prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *" }),
+            ...(extraRoutine ? [readCase(closings.length + 1, "routine-2")] : []),
+          ]);
+        }, {
           pluginNamespaces: connectorFailure || extraRoutine ? [{ name: "fixture", namespaceStatus: "ready", description: "Fixture connector",
             tools: [{ name: "read_case", description: "Read case", inputSchema: { type: "object" }, source: "fixture/read_case", connectionId: "synthetic" }] }] : [],
-          discoveredDynamicTools: new Set(), sentMessageCount: 0, reasoning: "off", cwd: root,
-          endTurnRequested: false, initialUserStarted: true, pendingSteers: [], acceptedSteerIds: new Set(),
-          assistantOrdinal: 0, startedItems: new Set(), toolArgs: new Map(), queue: { push() {} },
-          pluginAbortController: new AbortController(),
-        } as unknown as ActiveTurn;
-        const sessions = join(root, "sessions");
-        await mkdir(sessions);
-        const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
-        session = await internals.createStandaloneSession(root, "System fixture", manager, active, { providerId: model.provider, modelId: model.id });
-        active.session = session!;
+          discoveredDynamicTools: new Set(), initialUserStarted: true, pendingSteers: [], acceptedSteerIds: new Set(), pluginAbortController: new AbortController(),
+        });
+        const { internals, active, manager } = fixture;
+        session = fixture.session;
         stopTurn = () => { active.pluginAbortController!.abort(); stopPromise = session!.abort(); };
-        session!.subscribe((event) => internals.routeEvent(active, event));
-        internals.bindTurnStop(active, session!);
         const prompt = session!.prompt("<user_query>Check back on my support case at 1:10</user_query>");
         let timedOut = false;
         const timeout = setTimeout(() => {
@@ -273,7 +225,6 @@ describe("sibling closing calls", () => {
       } finally {
         session?.dispose();
         server.stop(true);
-        await rm(root, { recursive: true, force: true });
       }
     }, 15000);
 });

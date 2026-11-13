@@ -102,13 +102,15 @@ test("the catalog in user_info is pinned for the epoch; a changed cursor namespa
   expect(pinDynamicToolCatalog(log, 1, [cursor(["TodoWrite", "UploadFile"]), gmail]).catalog).toContain('<namespace name="gmail"');
 });
 
-test("a reaction that went through acknowledges the user; a widget or failed reaction does not", () => {
+test("a reaction that went through acknowledges the user; a widget, attachment or failed reaction does not", () => {
   const react = { role: "assistant", content: [{ type: "toolCall", id: "r", name: "ReactToMessage", arguments: { emoji: "👍" } }] };
   const reacted = (isError: boolean) => [user, react, { role: "toolResult", toolCallId: "r", isError, content: [] }, call("Shell"), call("Shell")];
   expect(communicationReminder(reacted(false), active)).toBeNull();
   expect(communicationReminder(reacted(true), active)?.kind).toBe("ack");
-  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")], active)?.kind).toBe("ack");
-  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read")], active)).toBeNull();
+  for (const type of ["widget", "attachment"]) {
+    expect(communicationReminder([user, call("SendToUser", { type }), call("Read"), call("Read")], active)?.kind).toBe("ack");
+    expect(communicationReminder([user, call("SendToUser", { type }), call("Read")], active)).toBeNull();
+  }
 });
 
 test("a reply cut off at the output limit gets one reminder to continue in smaller pieces", async () => {

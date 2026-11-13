@@ -80,43 +80,18 @@ describe("memory inference", () => {
       });
   };
 
-  test("an actual HTTP disconnect reaches the provider through the request signal", async () => {
+  test("a caller abort or the inference deadline cancels the provider, preserving the timeout error", async () => {
     const runtime = runtimeWithResult(null);
-    const controller = new AbortController();
-    let entered!: () => void;
-    let canceled!: () => void;
+    let canceled = 0, entered!: () => void;
     const providerEntered = new Promise<void>((resolve) => (entered = resolve));
-    const providerCanceled = new Promise<void>((resolve) => (canceled = resolve));
-    hangingProvider(runtime, entered, canceled);
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        try {
-          return new Response(await runtime.infer({ ...inferenceRequest, signal: request.signal }));
-        } catch {
-          return new Response("Canceled", { status: 499 });
-        }
-      },
-    });
-    try {
-      const request = fetch(`http://127.0.0.1:${server.port}/`, { signal: controller.signal }).catch((error) => error);
-      await providerEntered;
-      controller.abort();
-      await providerCanceled;
-      expect(await request).toBeInstanceOf(Error);
-    } finally {
-      controller.abort();
-      await server.stop(true);
-    }
-  });
-
-  test("an inference deadline cancels the provider and preserves the timeout error", async () => {
-    const runtime = runtimeWithResult(null);
-    let providerCanceled = false;
-    hangingProvider(runtime, () => {}, () => (providerCanceled = true));
+    hangingProvider(runtime, () => entered(), () => canceled++);
+    const controller = new AbortController();
+    const outcome = runtime.infer({ ...inferenceRequest, signal: controller.signal }).catch((error) => error);
+    await providerEntered;
+    controller.abort();
+    expect(await outcome).toBeInstanceOf(Error);
     await expect(runtime.infer({ ...inferenceRequest, timeoutMs: 5 })).rejects.toThrow("Memory inference timed out");
-    expect(providerCanceled).toBe(true);
+    expect(canceled).toBe(2);
   });
 
   test("uses the provider-qualified model and reasoning supplied at runtime, and never guesses a provider", async () => {

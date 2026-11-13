@@ -1,18 +1,17 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { formatUserFormReceipt, parseUserForm } from "@openteam/contracts";
 import { FormPreparationError, UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
-const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const form = { title: "Sign in", instruction: "Complete these fields", domain: "example.com", fields: [
   { id: "email", label: "Email", type: "email", required: true, target: { kind: "ref", value: "e1" } },
   { id: "password", label: "Password", type: "password", secret: false, target: { kind: "ref", value: "e2" } },
 ] };
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "user-form-host-")); roots.push(root);
+  const root = await tempDir("user-form-host-");
   const fills: string[] = []; let fail = false; let entered = 0;
   const browser: FormBrowser = {
     canSave: async (_, field) => field.type !== "password",

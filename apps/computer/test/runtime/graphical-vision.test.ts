@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createJimp } from "@jimp/core";
 import png from "@jimp/js-png";
@@ -8,7 +7,9 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import { assertGraphicalModel } from "../../src/inference-models";
-import { offlineModel, offlineModelRuntime, sseResponse } from "./pi-fixtures";
+import { tempDirs } from "../temp";
+import { offlineComputerRuntime, offlineModel, piTurn, requestBody, sseStep, toolCall } from "./pi-fixtures";
+const tempDir = tempDirs();
 
 const model = offlineModel("vision-fixture", { input: ["text", "image"] });
 
@@ -33,30 +34,20 @@ test("text agents and executors remain usable without vision", () => {
 });
 
 test("a Computer screenshot reaches the model request through the real Pi tool loop", async () => {
-  const root = await mkdtemp(join(tmpdir(), "graphical-vision-"));
+  const root = await tempDir("graphical-vision-");
   const requests: any[] = [];
   const screenshot = await new (createJimp({ formats: [png] }))({ width: 1280, height: 800, color: 0xffffffff }).getBuffer("image/png");
   let session: any;
   try {
-    const provider = await offlineModelRuntime(model, async (_url: unknown, init: any) => {
-      requests.push(JSON.parse(await new Response(init.body).text()));
-      const takeScreenshot = requests.length === 1;
-      const delta = takeScreenshot
-        ? { role: "assistant", tool_calls: [{ index: 0, id: "capture", type: "function", function: { name: "Computer", arguments: '{"action":"screenshot"}' } }] }
-        : { role: "assistant", content: "The desktop screenshot was received." };
-      const chunks = [
-        { choices: [{ index: 0, delta, finish_reason: null }] },
-        { choices: [{ index: 0, delta: {}, finish_reason: takeScreenshot ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } },
-      ];
-      return sseResponse(model, chunks);
-    });
+    const fetch = async (_url: unknown, init: any) => {
+      requests.push(await requestBody(init));
+      return sseStep(model, requests.length === 1 ? [toolCall(0, "capture", "Computer", { action: "screenshot" })] : "The desktop screenshot was received.", 100);
+    };
     const screens = { actComputerUse: async () => screenshot };
-    const runtime = new ComputerRuntime(screens as never) as any;
+    const runtime = await offlineComputerRuntime(model, root, fetch, new ComputerRuntime(screens as never));
     const tools = runtime.tools;
     tools.workspaceRoot = root;
     tools.privateBrowser = () => { throw new Error("No browser is needed for this native screenshot"); };
-    runtime.agentDir = root;
-    runtime.modelRuntime = provider;
     let refreshed = false;
     let refreshes = 0;
     runtime.resolveModel = () => refreshed ? model : { ...model, input: ["text"] };
@@ -78,14 +69,10 @@ test("a Computer screenshot reaches the model request through the real Pi tool l
       }],
       acknowledgeToolOutcomes: async () => {},
     };
-    const active: any = {
-      contextSessionId: crypto.randomUUID(), botId: crypto.randomUUID(), screenBotId: crypto.randomUUID(),
-      runId: crypto.randomUUID(), turnId: crypto.randomUUID(),
-      modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
-      instructions: "Inspect the native desktop", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, pluginAbortController: new AbortController(),
-      queue: { push() {} },
-    };
+    const active: any = piTurn(model, root, {
+      screenBotId: crypto.randomUUID(), instructions: "Inspect the native desktop", subagentType: "computerUse", requestSource: "subagent",
+      pluginAbortController: new AbortController(),
+    });
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });
     session = await runtime.createStandaloneSession(root, active.instructions, manager, active, active.modelRef);
     active.session = session;
@@ -101,6 +88,5 @@ test("a Computer screenshot reaches the model request through the real Pi tool l
     expect(stored.find(m => m.role === "toolResult" && m.toolName === "Computer").content.some((part: any) => part.type === "image")).toBe(true);
   } finally {
     session?.dispose();
-    await rm(root, { recursive: true, force: true });
   }
 });

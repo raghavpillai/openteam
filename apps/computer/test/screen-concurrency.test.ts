@@ -1,18 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ScreenSession } from "../src/screen/types";
 import { ScreenBroker } from "../src/screen-broker";
 import { assignAgentOwnership } from "../src/agent-process";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
-const homes: string[] = [];
-afterEach(async () => {
-  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
-});
 const fixture = async () => {
-  const home = await mkdtemp(join(tmpdir(), "screen-concurrency-"));
-  homes.push(home);
+  const home = await tempDir("screen-concurrency-");
   const broker = new ScreenBroker(home);
   const starts: number[] = [];
   Object.assign(broker, {

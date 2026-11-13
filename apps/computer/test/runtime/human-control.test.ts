@@ -1,16 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
 import { RuntimeTools } from "../../src/runtime/tools";
 import { ScreenBroker } from "../../src/screen-broker";
 import type { ScreenSession } from "../../src/screen/types";
 import type { BrowserUseSession } from "../../src/browser/use";
 import type { ActiveTurn } from "../../src/runtime/types";
-const roots: string[] = [];
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
-});
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 const deferred = <T = void>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => {
@@ -21,8 +16,7 @@ const deferred = <T = void>() => {
 async function fixture(
   execute: (tool: string, args: unknown, signal?: AbortSignal) => Promise<any>
 ) {
-  const home = await mkdtemp(join(tmpdir(), "human-control-runtime-"));
-  roots.push(home);
+  const home = await tempDir("human-control-runtime-");
   const broker = new ScreenBroker(home);
   Object.assign(broker, {
     startSession: async (s: ScreenSession) => {

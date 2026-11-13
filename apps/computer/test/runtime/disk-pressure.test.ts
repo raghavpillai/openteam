@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor } from "../../src/runtime/disk-pressure";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 const GIB = 1024 ** 3;
 
@@ -39,26 +39,22 @@ test("each bot hears about a low-disk episode once, and again after the disk rec
 });
 
 test("a restarted computer keeps the episode and who already heard about it, as the reference's ledger does", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-disk-ledger-"));
-  try {
-    const ledger = join(root, "disk-pressure-reminders.json");
-    let available = 5 * GIB;
-    const read = async () => ({ device: "1", availableBytes: available, totalBytes: 100 * GIB });
-    const before = new DiskPressureMonitor(["/workspace"], ledger, read);
-    const episode = await before.claim("a");
-    await before.commit("a", episode!);
-    const after = new DiskPressureMonitor(["/workspace"], ledger, read);
-    expect(await after.claim("a")).toBeNull();
-    expect(await after.claim("b")).toBe(episode);
-    available = 60 * GIB;
-    const recovered = new DiskPressureMonitor(["/workspace"], ledger, read);
-    expect(await recovered.claim("b")).toBeNull();
-    available = 5 * GIB;
-    const refilled = new DiskPressureMonitor(["/workspace"], ledger, read);
-    expect(await refilled.claim("a")).not.toBe(episode);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  const root = await tempDir("openteam-disk-ledger-");
+  const ledger = join(root, "disk-pressure-reminders.json");
+  let available = 5 * GIB;
+  const read = async () => ({ device: "1", availableBytes: available, totalBytes: 100 * GIB });
+  const before = new DiskPressureMonitor(["/workspace"], ledger, read);
+  const episode = await before.claim("a");
+  await before.commit("a", episode!);
+  const after = new DiskPressureMonitor(["/workspace"], ledger, read);
+  expect(await after.claim("a")).toBeNull();
+  expect(await after.claim("b")).toBe(episode);
+  available = 60 * GIB;
+  const recovered = new DiskPressureMonitor(["/workspace"], ledger, read);
+  expect(await recovered.claim("b")).toBeNull();
+  available = 5 * GIB;
+  const refilled = new DiskPressureMonitor(["/workspace"], ledger, read);
+  expect(await refilled.claim("a")).not.toBe(episode);
 });
 
 test("a main-agent turn on a low disk gets the reminder before its first request", async () => {

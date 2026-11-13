@@ -8,13 +8,13 @@ const result = (id: string, isError = false) => ({ role: "toolResult", toolCallI
 const ack = [call("ack", "SendToUser", { content: "On it." }), result("ack")];
 const task = [call("task", "CallDynamicTool", { namespace: "cursor", toolName: "Task", arguments: { prompt: "x" } }), result("task")];
 
-function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
+function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; subagentType?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
   const runtime = new ComputerRuntime() as any;
   const events: any[] = [];
   const prompts: string[] = [];
   const active: any = {
     contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-    runtimeProfile: "agent", subagentType: null, requestSource: options.requestSource ?? "turn",
+    runtimeProfile: "agent", subagentType: options.subagentType ?? null, requestSource: options.requestSource ?? "turn",
     modelRef: { providerId: "fixture", modelId: "fixture" }, instructions: "fixture",
     sentMessageCount: options.sent ?? 0, endTurnRequested: options.endTurn, lastStopReason: "stop",
     attachmentTempDirectories: [], toolArgs: new Map(), pluginAbortController: new AbortController(),
@@ -78,4 +78,11 @@ test("a provider failure still fails the turn", async () => {
   const completion = events.find((event) => event.type === "turn.completed");
   expect(completion.status).toBe("failed");
   expect(completion.error.message).toContain("Provider unavailable");
+});
+
+test("a computerUse turn ends when the model ends it, with no extra verification prompt", async () => {
+  const { runtime, active, events, prompts } = fixture({ messages: [], subagentType: "computerUse", requestSource: "subagent" });
+  await runtime.execute(active, "fixture", []);
+  expect(prompts).toEqual(["turn"]);
+  expect(events.at(-1)).toMatchObject({ type: "turn.completed", status: "completed" });
 });

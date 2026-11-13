@@ -1,21 +1,21 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BoxStoreSync } from "../src/box-store-sync";
 import { fileDigest, STREAM_FILE_THRESHOLD } from "../src/box-store/file-stream";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 let root: string | undefined;
 let database: Database | undefined;
 afterEach(async () => {
   database?.close();
   database = undefined;
-  if (root) await rm(root, { recursive: true, force: true });
   root = undefined;
 });
 const fixture = async () => {
-  root = await mkdtemp(join(tmpdir(), "openteam-sqlite-streaming-"));
+  root = await tempDir("openteam-sqlite-streaming-");
   const workspaceRoot = join(root, "workspace");
   const storeRoot = join(root, "store");
   await mkdir(workspaceRoot);
@@ -132,7 +132,7 @@ test("a commit during snapshot copying is picked up by the next scan", async () 
 });
 
 const fileFixture = async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), "openteam-streamed-store-")));
+  root = await realpath(await tempDir("openteam-streamed-store-"));
   const options = { home: join(root, "home"), sandRoot: join(root, "sand"), workspaceRoot: join(root, "workspace"), storeRoot: join(root, "store") };
   await mkdir(options.workspaceRoot, { recursive: true });
   return { ...options, file: join(options.workspaceRoot, "large.bin"), sync: new BoxStoreSync(options) };

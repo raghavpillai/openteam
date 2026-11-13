@@ -1,14 +1,14 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type BoxStoreDirtyHint, type BoxStoreManifest, BoxStoreSync } from "../src/box-store-sync";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 let root: string | null = null;
 
 afterEach(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
   root = null;
 });
 
@@ -25,7 +25,7 @@ const blob = async (manifest: BoxStoreManifest, path: string) =>
 
 describe("OpenTeam-compatible box-store synchronization", () => {
   test("stat reuse detects same-size content changes even when mtime is restored", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-signature-safety-"));
+    root = await tempDir("openteam-box-store-signature-safety-");
     const dirs = await layout("source");
     const path = join(dirs.workspaceRoot, "same-size.txt");
     await writeFile(path, "aaaa");
@@ -40,7 +40,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("coalesces a burst during an active snapshot into one merged rerun", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-coalescing-"));
+    root = await tempDir("openteam-box-store-coalescing-");
     let signalStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => (signalStarted = resolve));
     let releaseFirst: (() => void) | undefined;
@@ -73,7 +73,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("snapshots WAL databases with VACUUM and hydrates by hash without pruning extras", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-"));
+    root = await tempDir("openteam-box-store-");
     const replica = join(root, "replica");
     const sourceDirs = await layout("source");
     await mkdir(join(sourceDirs.sandRoot, "agents", "probe"), { recursive: true });
@@ -116,7 +116,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("propagates tombstones, recursively repairs transfer temps, and refuses live DB clobbers", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-recovery-"));
+    root = await tempDir("openteam-box-store-recovery-");
     const replica = join(root, "replica");
     const sourceDirs = await layout("source");
     const agentDirectory = join(sourceDirs.sandRoot, "agents", "probe");
@@ -151,7 +151,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("skips Chromium caches in profiles while keeping sign-in state and same-named workspace folders", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-caches-"));
+    root = await tempDir("openteam-box-store-chrome-caches-");
     const home = join(root, "home");
     const sandRoot = join(home, "sand-data");
     const workspaceRoot = join(root, "workspace");
@@ -180,7 +180,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("snapshots a running browser's profile at most once per interval, and on browser requests and exit", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-live-profile-"));
+    root = await tempDir("openteam-box-store-live-profile-");
     const home = join(root, "home");
     const sandRoot = join(home, "sand-data");
     const workspaceRoot = join(root, "workspace");
@@ -226,7 +226,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   });
 
   test("a turn's browser request captures only that bot's running profile", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-profile-request-"));
+    root = await tempDir("openteam-box-store-profile-request-");
     const home = join(root, "home");
     const sandRoot = join(home, "sand-data");
     const workspaceRoot = join(root, "workspace");
@@ -259,5 +259,4 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     expect(await saved(merged, used)).toBe("v3");
     expect(await saved(merged, idle)).toBe("v1");
   });
-
 });

@@ -1,18 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ComputerRuntime } from "../src/runtime";
 import { assertSessionPath, disposableSessionPath } from "../src/runtime/session-path";
-
-const roots: string[] = [];
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
-});
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const fixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-context-deletion-"));
-  roots.push(root);
+  const root = await tempDir("openteam-context-deletion-");
   const sessionsDir = join(root, "sessions", "openteam");
   await mkdir(sessionsDir, { recursive: true });
   const activeByContext = new Map();

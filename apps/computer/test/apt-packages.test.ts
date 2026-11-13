@@ -1,13 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { archivesToPrune, captureSources, forgetPackages, imagePackagePins, installFailureReason, installsPaths, keepSources, localDebArguments, nextRecordedList, packageSnapshot, parseAutoInstalled, parseInstalled, parseSourceFile, readRecord, recordAfterApt, replayRecordedPackages, restoreSources, snapshotBeforeApt, unfetchedUrls, type CommandRunner } from "../src/apt-packages";
-
-const roots: string[] = [];
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
-});
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const snapshot = (manual: string[], auto: string[] = []) =>
   packageSnapshot(Object.fromEntries([...manual, ...auto].map((name) => [name, "1"])), new Set(auto));
@@ -70,8 +66,7 @@ interface FakeRepo { [name: string]: Array<{ version: string; uri: string; suite
  * path without downloading only from its cache folder.
  */
 async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, options: { cached?: Set<string>; deps?: Record<string, string[]>; broken?: Set<string>; offlineNetwork?: boolean; unreachable?: Set<string> } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "openteam-installs-"));
-  roots.push(root);
+  const root = await tempDir("openteam-installs-");
   const paths = installsPaths(join(root, "state"));
   const system = (path: string) => join(root, "system", path);
   const image = { baseline: join(root, "image/apt-baseline"), sourcesBaseline: join(root, "image/apt-sources-baseline"), buildId: join(root, "image/build-id") };

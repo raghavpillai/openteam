@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
-import { substituteConfiguration, validatePackageFiles, validateValues } from "@openteam/plugin-sdk";
+import { fieldsForConnector, substituteConfiguration, validatePackageFiles, validateValues } from "@openteam/plugin-sdk";
 import { settings } from "../process";
 import { pluginCatalog } from "../../../src";
 
@@ -24,13 +24,18 @@ test("WhatsApp exports below the package limit with both binaries and skills, wi
   expect(imported.binaryFiles?.["connector/bin/linux-arm64.br"]).toBe(plugin.binaryFiles?.["connector/bin/linux-arm64.br"]);
 });
 
-test("typed account settings reach the connector through interpolated string options", () => {
+test("WhatsApp connects with no setup parameters, using the same QR lifecycle as Signal", () => {
   const plugin = pluginCatalog.find((entry) => entry.key === "whatsapp")!;
-  const values = validateValues(plugin.setup!.fields, { WHATSAPP_READ_ONLY: true, WHATSAPP_MAX_MESSAGES: 4321 });
-  const configuration = substituteConfiguration(plugin.connections[0]!.configuration, { ...values, PLUGIN_ROOT: "/installed/plugin" }) as { args: string[]; env: Record<string, string> };
-  expect(configuration.args).toContain("--read-only=true");
-  expect(configuration.args).toContain("--max-messages=4321");
-  expect(Object.values(configuration.env).every((value) => typeof value === "string")).toBe(true);
-  const runtime = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account" }, "/home/box", { readOnly: "true", maxMessages: "4321" });
-  expect(runtime.readOnly).toBe(true); expect(runtime.maxMessages).toBe(4321);
+  const signal = pluginCatalog.find((entry) => entry.key === "signal")!;
+  expect(plugin.setup!.fields).toEqual(signal.setup!.fields);
+  expect(fieldsForConnector(plugin, "whatsapp")).toEqual([]);
+  const values = validateValues(fieldsForConnector(plugin, "whatsapp"), {});
+  const connector = plugin.connections[0]!;
+  const configuration = substituteConfiguration(connector.configuration, { ...values, PLUGIN_ROOT: "/installed/plugin" });
+  expect(configuration).toEqual({ command: "bun", args: ["/installed/plugin/connector/server.mjs"] });
+  expect(Object.keys(connector.deviceLink!).sort()).toEqual(Object.keys(signal.connections[0]!.deviceLink!).sort());
+  const runtime = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account" }, "/home/box");
+  expect(runtime.readOnly).toBe(false);
+  expect(runtime.maxMessages).toBe(100000);
+  expect(runtime.mediaRoot).toBe("/workspace");
 });

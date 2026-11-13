@@ -1,3 +1,4 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { ButtonPrimitive } from "../../ui/button-primitive";
 import { Button } from "../../ui/button";
 import "./browser-network.css";
@@ -17,7 +18,6 @@ import { PrivateSettingValue } from "./private-value";
 import {
   SectionLabel,
   SettingsGroup,
-  InteractiveSwitch,
   SettingsReveal,
   SkeletonBar,
   SkeletonSwitch,

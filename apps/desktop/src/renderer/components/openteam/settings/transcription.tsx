@@ -1,3 +1,4 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { Input } from "../../ui/input";
 import { Button } from "../../ui/button";
 import { SettingsSelectContent } from "./select-content";
@@ -22,7 +23,6 @@ import {
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ProviderMark } from "../setup/provider-marks";
 import {
-  InteractiveSwitch,
   SectionLabel,
   SettingsGroup,
   SettingsLoading,

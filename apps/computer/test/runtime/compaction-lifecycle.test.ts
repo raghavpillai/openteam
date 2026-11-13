@@ -235,7 +235,8 @@ for (const timing of ["pending", "ready", "capacity", "task-progress"] as const)
         releaseTool.resolve();
         await running;
         expect(toolCalls).toBe(round);
-        expect(summaryCalls).toBe(timing === "task-progress" ? round * 2 : round);
+        // Progress changes in flight must not double summary inference.
+        expect(summaryCalls).toBe(round);
         expect((await store.manifest(id)).epoch).toBe(round);
         const inputs = requests
           .filter((r) => r.round === round)

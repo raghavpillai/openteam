@@ -44,8 +44,8 @@ test("worker progress keeps the turn alive, waiting parks it, and compaction see
     expect(progress).toBeDefined();
     await progress.execute("progress", input, undefined, undefined, {} as never);
     expect(turn.endTurnRequested).not.toBe(true);
-    expect(compactionObservation(turn).systemPrompt).toContain("Confirm destination receipt");
-    expect(compactionObservation(turn).systemPrompt).toContain("Original authorization and scope.");
+    expect(turn.instructions).toContain("Confirm destination receipt");
+    expect(compactionObservation(turn).systemPrompt).toBe("Original authorization and scope.");
     deferred = true;
     await progress.execute(
       "wait",
@@ -130,10 +130,11 @@ test("a parent saves a separate request wait, carries it into compaction, and wo
     const waiting = await operation.execute("wait", { ...input, state: "waiting", checkAt: new Date(Date.now() + 3600_000).toISOString() }, undefined, undefined, {} as never);
     expect((waiting as any).terminate).toBe(true);
     expect(active.endTurnRequested).toBe(true);
-    const snapshot = compactionObservation(active).systemPrompt;
+    const snapshot = active.instructions;
     expect(snapshot).toContain(requestId);
     expect(snapshot).toContain("Confirm destination receipt");
     expect(snapshot).toContain("Only one outgoing message is approved.");
+    expect(compactionObservation(active).systemPrompt).toBe("Only one outgoing message is approved.");
     const next = { ...active, endTurnRequested: false };
     const complete = await tools.customTools(next).find(t => t.name === "ReportRequestProgress")!
       .execute("complete", { ...input, state: "complete", remaining: [] }, undefined, undefined, {} as never);

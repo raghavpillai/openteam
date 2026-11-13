@@ -30,7 +30,7 @@ test("a computerUse turn ends when the model ends it, with no extra verification
   const events: any[] = [];
   const active = {
     subagentType: "computerUse", requestSource: "subagent", lastStopReason: "stop", turnId: "turn", runId: "run",
-    contextSessionId: "context", attachmentTempDirectories: [], sentMessageCount: 0,
+    contextSessionId: "context", instructions: "Open the fixture page.", attachmentTempDirectories: [], sentMessageCount: 0,
     session: { prompt: async (text: string) => { prompts.push(text); }, messages: [], getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [] },
     queue: { push: (event: any) => events.push(event), end() {} },
   } as any;

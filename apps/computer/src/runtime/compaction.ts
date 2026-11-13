@@ -76,7 +76,9 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
     contextSessionId: active.contextSessionId,
     piMessages,
     piBoundary: active.compactionReadPiBoundary?.(),
-    systemPrompt: active.instructions,
+    // Hash and summarize the same system prefix as normal inference. Host
+    // progress is persisted in conversation messages and may advance mid-summary.
+    systemPrompt: taskProgressBaseInstructions(active.instructions),
     userInfoMessage: active.userInfoMessage,
     usedTokens: active.compactionUsageInvalidated?.() ? null : estimateBotMeasuredContextTokens(piMessages),
     maxTokens: usage?.contextWindow ?? active.session?.model?.contextWindow ?? 0,

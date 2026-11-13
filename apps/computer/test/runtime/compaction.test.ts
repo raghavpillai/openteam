@@ -18,6 +18,60 @@ import {
   withPendingSummaryResults,
 } from "../../src/runtime/compaction";
 import type { ActiveTurn } from "../../src/runtime/types";
+import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
+
+test.each(["ReportTaskProgress", "ReportRequestProgress"].flatMap(tool =>
+  [false, true].flatMap(ready => [false, true].map(parked => ({ tool, ready, parked })))
+))("progress updates preserve summaries but real instructions invalidate them %j", async ({ tool, ready, parked }) => {
+  const root = await mkdtemp(join(tmpdir(), "progress-compaction-"));
+  const coordinator = new BotCompactionCoordinator(new BotCompactionArchiveStore(root), 0);
+  const snapshot = (revision: number, base = "Original authority") =>
+    replaceTaskProgressContext(base, tool === "ReportRequestProgress"
+      ? { requests: [{ revision, summary: `Progress ${revision}` }] }
+      : { revision, summary: `Progress ${revision}` });
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: snapshot(1), modelRef,
+    reasoning: "off", cwd: root,
+    session: {
+      messages: [{ role: "user", content: "Goal" },
+        { role: "assistant", content: "Work", usage: { input: 90_000, output: 1 } },
+        { role: "user", content: "Continue" }],
+      getContextUsage: () => ({ contextWindow: 100_000 }),
+      getAllTools: () => [], getActiveToolNames: () => [],
+    },
+  } as unknown as ActiveTurn;
+  const signals: AbortSignal[] = [];
+  const observe = () => coordinator.observe({ ...compactionObservation(active),
+    infer: async (_request, signal) => {
+      signals.push(signal);
+      if (ready) return { text: "Original summary" };
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    },
+  });
+  try {
+    await observe();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(signals).toHaveLength(1);
+    if (parked) coordinator.parkBackground(active.contextSessionId);
+    for (let revision = 2; revision <= 20; revision++) {
+      active.instructions = snapshot(revision);
+      await observe();
+    }
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+    expect(compactionObservation(active).systemPrompt).toBe("Original authority");
+    active.instructions = snapshot(2, "Changed authority");
+    await observe();
+    expect(signals).toHaveLength(2);
+    expect(signals[0]!.aborted).toBe(true);
+    expect(compactionObservation(active).systemPrompt).toBe("Changed authority");
+  } finally {
+    coordinator.discardBackground(active.contextSessionId);
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const model: Model<"openai-completions"> = {
   id: "compaction-fixture",

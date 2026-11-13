@@ -1,21 +1,44 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Input } from "../../ui/input";
+import { Button } from "../../ui/button";
 import { useCallback, useEffect, useState } from "react";
 import type { DesktopTailscaleStatus } from "@openteam/contracts/tailscale";
 import { API_BASE } from "../../../client/http";
-import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton, settingsInput } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SettingsRow,
+  SkeletonText,
+  settingsSecondaryButton,
+  settingsInput,
+} from "./ui";
+
+const statusRequest = () =>
+  window.openteam?.tailscale?.request({ serverUrl: API_BASE, action: "status" }) ??
+  Promise.resolve(undefined);
+
+// Asked for as soon as this code loads (Settings preloads it on open) and kept between
+// visits: whether this desktop can manage Tailscale decides which rows the section has.
+let lastResult: DesktopTailscaleStatus | null = null;
+void statusRequest()
+  .then((next) => {
+    if (next) lastResult ??= next;
+  })
+  .catch(() => undefined);
 
 export function TailscaleSettings() {
-  const [result, setResult] = useState<DesktopTailscaleStatus | null>(null);
-  const [port, setPort] = useState("443");
-  const [busy, setBusy] = useState<string | null>("Checking Tailscale…");
+  const [result, setResult] = useState<DesktopTailscaleStatus | null>(() => lastResult);
+  const [port, setPort] = useState(() => lastResult?.status?.httpsPort ?? "443");
+  // A known status is refreshed quietly on open; Refresh and the actions show their progress.
+  const [busy, setBusy] = useState<string | null>(() =>
+    lastResult ? null : "Checking Tailscale…"
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     try {
-      const next = await window.openteam?.tailscale?.request({
-        serverUrl: API_BASE,
-        action: "status",
-      });
+      const next = await statusRequest();
+      if (next) lastResult = next;
       setResult(
         next ?? {
           canManage: false,
@@ -48,6 +71,7 @@ export function TailscaleSettings() {
         httpsPort: port,
       });
       setResult(next);
+      lastResult = next;
       setNotice(
         `Server address: ${next.status?.publicUrl}. Reconnect your apps using this address. ${action === "disable" ? "User-managed Serve mappings were preserved." : "Keep Tailscale connected on your devices."}`
       );
@@ -58,6 +82,8 @@ export function TailscaleSettings() {
     }
   };
   const status = result?.status;
+  // The first status check: what this desktop can manage decides the rows below.
+  const loading = result === null && !error;
   const validPort = /^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535;
   const buttonClass = settingsSecondaryButton;
   return (
@@ -69,7 +95,9 @@ export function TailscaleSettings() {
           anchors={["tailscale-https"]}
           description="Use a private HTTPS address to connect your devices. Tailscale must be running on the server and on each device."
           control={
-            <ButtonPrimitive
+            <Button
+              size="xs"
+              variant="secondary"
               className={buttonClass}
               disabled={!!busy}
               onClick={() => {
@@ -78,17 +106,31 @@ export function TailscaleSettings() {
               }}
             >
               Refresh
-            </ButtonPrimitive>
+            </Button>
           }
         />
-        <SettingsRow title="Server address" description={status?.publicUrl || API_BASE} />
-        {result?.canManage ? (
+        <SettingsRow
+          title="Server address"
+          description={
+            loading ? (
+              <SkeletonText width={176} />
+            ) : (
+              <SettingsReveal>{status?.publicUrl || API_BASE}</SettingsReveal>
+            )
+          }
+        />
+        {loading ? (
+          <SettingsRow
+            title={<SkeletonText size="title" width={140} />}
+            description={<SkeletonText width={260} />}
+          />
+        ) : result?.canManage ? (
           <>
             <SettingsRow
               title="HTTPS port"
               description="Default 443. Choose another port if another application uses it."
               control={
-                <input
+                <Input
                   aria-label="Tailscale HTTPS port"
                   className={`${settingsInput} w-24`}
                   type="number"
@@ -116,13 +158,15 @@ export function TailscaleSettings() {
                   : "Enabling restarts the server and creates or reuses a private Serve mapping. HTTPS must be enabled for your tailnet."
               }
               control={
-                <ButtonPrimitive
+                <Button
+                  size="xs"
+                  variant="secondary"
                   className={buttonClass}
                   disabled={!!busy || !validPort}
                   onClick={() => void change("enable")}
                 >
                   {status?.enabled ? "Apply / repair" : "Enable"}
-                </ButtonPrimitive>
+                </Button>
               }
             />
             {(status?.enabled || !!status?.managedRoutes) && (
@@ -130,13 +174,15 @@ export function TailscaleSettings() {
                 title="Disable Tailscale HTTPS"
                 description="Switch to local access and restart the server. Remote devices will disconnect. Only unchanged OpenTeam-managed mappings are removed."
                 control={
-                  <ButtonPrimitive
+                  <Button
+                    size="xs"
+                    variant="secondary"
                     className={buttonClass}
                     disabled={!!busy}
                     onClick={() => void change("disable")}
                   >
                     Disable
-                  </ButtonPrimitive>
+                  </Button>
                 }
               />
             )}
@@ -163,7 +209,7 @@ export function TailscaleSettings() {
           Enter an HTTPS port from 1 to 65535.
         </p>
       )}
-      {busy && (
+      {busy && !loading && (
         <p className="px-2 text-xs text-foreground-secondary" role="status">
           {busy}
         </p>

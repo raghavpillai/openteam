@@ -1,0 +1,57 @@
+/* Switching sections: the new one fades in with a small rise. Short and front-loaded,
+   so it reads as a response to the click rather than something to wait for. */
+.settings-view-enter {
+  animation: settings-view-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Starting above zero keeps every frame showing content: no blank frame between sections. */
+@keyframes settings-view-enter {
+  from {
+    opacity: 0.3;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The selected section's pill, drawn once behind the list so it can glide. */
+.settings-nav-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 7px;
+  background: var(--selected);
+  pointer-events: none;
+}
+
+.settings-nav-highlight[data-animate] {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-view-enter {
+    animation: settings-view-enter-reduced 120ms ease-out both;
+  }
+  .settings-nav-highlight[data-animate] {
+    transition: none;
+  }
+}
+
+@keyframes settings-view-enter-reduced {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* See ui.css: entrances run to the end even while the window is inactive. */
+:root:is([data-window-hidden], [data-window-inactive]) .settings-view-enter {
+  animation-play-state: running !important;
+}

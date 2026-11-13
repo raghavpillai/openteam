@@ -18,6 +18,8 @@ const storage: Storage = {
 let secureToken: string | null = null;
 let failTokenRead = false;
 let failTokenWrite = false;
+let signOutWork = async () => {};
+const screenBotRosters: unknown[] = [];
 
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
 Object.defineProperty(globalThis, "window", {
@@ -26,6 +28,7 @@ Object.defineProperty(globalThis, "window", {
     dispatchEvent: () => true,
     location: { href: "http://127.0.0.1:8787" },
     openteam: {
+      screenbot: { publishRoster: (roster: unknown) => screenBotRosters.push(roster) },
       auth: {
         signIn: async (serverUrl: string, username: string, password: string) => {
           nativeCalls.push({ method: "signIn", serverUrl, username, password });
@@ -33,6 +36,7 @@ Object.defineProperty(globalThis, "window", {
         },
         signOut: async (serverUrl: string, token: string) => {
           nativeCalls.push({ method: "signOut", serverUrl, token });
+          await signOutWork();
         },
         readToken: async () => {
           if (failTokenRead) throw new Error("Keychain unavailable: native diagnostic");
@@ -195,4 +199,77 @@ describe("desktop authenticated session", () => {
       globalThis.fetch = openTeamFetch;
     }
   });
+  test("ScreenBot scopes survive same-account verification and rotate at sign-out/relogin", async () => {
+    await auth.signIn("owner", "synthetic");
+    const scope = auth.getScreenBotAccountScope();
+    expect(typeof scope).toBe("string");
+    expect(scope).not.toContain("owner");
+    expect(scope).not.toContain("test-session-token");
+    await auth.refreshAuthSession();
+    expect(auth.getScreenBotAccountScope()).toBe(scope);
+    auth.clearAuthToken();
+    expect(auth.getScreenBotAccountScope()).toBeNull();
+    expect(screenBotRosters.at(-1)).toEqual({ accountScope: null, bots: [], dictation: false });
+    await auth.signIn("owner", "synthetic");
+    expect(auth.getScreenBotAccountScope()).not.toBe(scope);
+    await auth.signOut();
+  });
+
+  test("credential replacement invalidates ScreenBot before native storage finishes", async () => {
+    await auth.signIn("owner", "synthetic");
+    const scope = auth.getScreenBotAccountScope();
+    const replacement = auth.signInToServer("https://owned.example.test", "owner", "synthetic");
+    // Native sign-in resolves, then persist invalidates before awaiting writeToken.
+    await Promise.resolve();
+    expect(auth.getScreenBotAccountScope()).toBeNull();
+    await replacement;
+    expect(auth.getScreenBotAccountScope()).toBeNull();
+    expect(scope).toBeTruthy();
+    await auth.clearAuthCredentialsForServerChange();
+  });
+
+  test("late session verification cannot reauthorize ScreenBot after credential invalidation", async () => {
+    await auth.signIn("owner", "synthetic");
+    let resolve!: (response: Response) => void;
+    let entered!: () => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    const started = new Promise<void>((done) => { entered = done; });
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/auth/get-session")) { entered(); return pending; }
+      return openTeamFetch(input, init);
+    }) as typeof fetch;
+    try {
+      const refresh = auth.refreshAuthSession(); await started;
+      auth.clearAuthToken();
+      resolve(Response.json({ session: { id: "old-session" }, user }));
+      await refresh;
+      expect(auth.getScreenBotAccountScope()).toBeNull();
+      expect(auth.getAuthSnapshot().status).toBe("signed-out");
+    } finally { globalThis.fetch = openTeamFetch; }
+  });
+
+  test("verified account replacement rotates scope even when credentials and bot ids are unchanged", async () => {
+    await auth.signIn("owner", "synthetic");
+    const scope = auth.getScreenBotAccountScope();
+    const originalId = user.id;
+    try {
+      user.id = "replacement-owner";
+      await auth.refreshAuthSession();
+      expect(auth.getScreenBotAccountScope()).not.toBe(scope);
+      expect(auth.getScreenBotAccountScope()).not.toContain("replacement-owner");
+    } finally { user.id = originalId; await auth.signOut(); }
+  });
+
+  test("local ScreenBot ownership ends before remote sign-out finishes", async () => {
+    await auth.signIn("owner", "synthetic");
+    let finish!: () => void;
+    signOutWork = () => new Promise<void>((resolve) => { finish = resolve; });
+    try {
+      const signingOut = auth.signOut();
+      expect(auth.getScreenBotAccountScope()).toBeNull();
+      expect(auth.getAuthSnapshot().status).toBe("signed-out");
+      finish(); await signingOut;
+    } finally { signOutWork = async () => {}; }
+  });
+
 });

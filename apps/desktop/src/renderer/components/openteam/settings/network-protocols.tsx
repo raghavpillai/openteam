@@ -3,6 +3,7 @@ import {
   type BrowserNetworkView,
   type NetworkFamilyHealth,
 } from "@openteam/contracts/browser-network";
+import { SkeletonBar } from "./ui";
 
 const label = (health?: NetworkFamilyHealth) =>
   health?.state === "working"
@@ -12,7 +13,13 @@ const label = (health?: NetworkFamilyHealth) =>
       : health
         ? "Checking…"
         : "Not checked";
-export function NetworkProtocols({ view }: { view: BrowserNetworkView | null }) {
+export function NetworkProtocols({
+  view,
+  loading = false,
+}: {
+  view: BrowserNetworkView | null;
+  loading?: boolean;
+}) {
   const live = view && ["ready", "server"].includes(view.runtime.state);
   const connectivity = live
     ? currentConnectivity(
@@ -26,13 +33,20 @@ export function NetworkProtocols({ view }: { view: BrowserNetworkView | null }) 
     <div className="bn-protocols" role="group" aria-label="Internet protocols">
       <span className="bn-protocol-title">Protocols</span>
       <span className="bn-protocol-values">
-        {families.map((family, index) => (
-          <span key={family} className={`bn-protocol ${connectivity?.[family].state ?? "unknown"}`}>
-            <span className="bn-status-dot" aria-hidden="true" />
-            <span>IPv{index === 0 ? "4" : "6"}</span>
-            <span className="bn-protocol-state">{label(connectivity?.[family])}</span>
-          </span>
-        ))}
+        {loading ? (
+          <SkeletonBar className="h-[8px] w-[188px]" />
+        ) : (
+          families.map((family, index) => (
+            <span
+              key={family}
+              className={`bn-protocol ${connectivity?.[family].state ?? "unknown"}`}
+            >
+              <span className="bn-status-dot" aria-hidden="true" />
+              <span>IPv{index === 0 ? "4" : "6"}</span>
+              <span className="bn-protocol-state">{label(connectivity?.[family])}</span>
+            </span>
+          ))
+        )}
       </span>
     </div>
   );

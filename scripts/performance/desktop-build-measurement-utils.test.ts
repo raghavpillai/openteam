@@ -99,3 +99,38 @@ describe("desktop build measurement utilities", () => {
     ]);
   });
 });
+
+test.skipIf(process.platform !== "darwin")("universal helper permits compiler-unsigned x64 but requires every packaged slice signed and unchanged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-universal-signature-test-"));
+  const run = (args: string[]) => expect(Bun.spawnSync(args).exitCode).toBe(0);
+  try {
+    const input = join(root, "main.c"), original = join(root, "original"), resigned = join(root, "resigned");
+    const parts = ["x86_64", "arm64"].map(arch => join(root, arch));
+    await writeFile(input, '#include <stdio.h>\nint main(void) { puts("fixture-code-constant"); return 0; }\n');
+    for (const [i, arch] of ["x86_64", "arm64"].entries()) run(["cc", "-arch", arch, "-mmacosx-version-min=12.0", input, "-o", parts[i]!]);
+    // Swift's shipping helper likewise has an unsigned x64 slice and ad-hoc arm64.
+    const x64Signature = Bun.spawnSync(["codesign", "--verify", "--strict", parts[0]!]);
+    if (x64Signature.exitCode === 0) run(["codesign", "--remove-signature", parts[0]!]);
+    run(["lipo", "-create", ...parts, "-output", original]);
+    await copyFile(original, resigned);
+    const entitlements = join(root, "entitlements.plist");
+    await writeFile(entitlements, '<?xml version="1.0"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>');
+    run(["codesign", "--force", "--sign", "-", "--options", "runtime", "--entitlements", entitlements, resigned]);
+    const source = await readFile(original), packaged = await readFile(resigned);
+    expect(source.equals(packaged)).toBe(false);
+    expect(await matchesResignedMacExecutable(source, packaged)).toBe(true);
+    expect(await matchesResignedMacExecutable(source, source)).toBe(false);
+    const tampered = Buffer.from(packaged);
+    const marker = tampered.indexOf("fixture-code-constant");
+    expect(marker).toBeGreaterThan(0); tampered[marker] ^= 1;
+    expect(await matchesResignedMacExecutable(source, tampered)).toBe(false);
+    run(["codesign", "--force", "--sign", "-", join(root, "arm64")]);
+    expect(await matchesResignedMacExecutable(source, await readFile(join(root, "arm64")))).toBe(false);
+    await writeFile(input, '#include <stdio.h>\nint main(void) { puts("different-program"); return 1; }\n');
+    for (const [i, arch] of ["x86_64", "arm64"].entries()) run(["cc", "-arch", arch, "-mmacosx-version-min=12.0", input, "-o", parts[i]!]);
+    run(["lipo", "-create", ...parts, "-output", resigned]);
+    run(["codesign", "--force", "--sign", "-", resigned]);
+    expect(await matchesResignedMacExecutable(source, await readFile(resigned))).toBe(false);
+    expect(source.equals(await readFile(original))).toBe(true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

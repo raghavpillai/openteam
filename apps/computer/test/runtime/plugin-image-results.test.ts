@@ -107,3 +107,20 @@ test("control-plane failures surface the server's message, not its JSON envelope
     await expect(tools.callControlPlaneToolRequest(active, "d", "PluginCall", {})).rejects.toMatchObject({message: "MCP error -32603: upstream exploded", code: "internal_error"});
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("places and routes in a plugin result are indexed for map replies, even when the text spills to a file", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "connector-index-"));
+  try {
+    const coordinates = Array.from({length: 2500}, (_, i) => [-122.4 + i / 10_000, 37.7 + i / 10_000]);
+    const route = {id: "route:1", mode: "driving", geometry: {type: "LineString", coordinates}, distanceMeters: 600_000, durationSeconds: 22_000,
+      legs: [{fromPlaceId: "google:a", toPlaceId: "google:b", distanceMeters: 600_000, durationSeconds: 22_000}]};
+    const places = [{id: "google:a", name: "A", latitude: 37.7, longitude: -122.4, rating: 4.6}, {id: "google:b", name: "B", latitude: 34.05, longitude: -118.24}];
+    const big = await pluginCall({content: [{type: "text", text: JSON.stringify({route, results: places.map((place) => ({place}))})}]}, cwd);
+    expect(big.content[0].text).toStartWith("Large output has been written to:"); // the model gets the pointer…
+    expect(big.details.presentationReferences.routes.map((r: any) => r.geometry.coordinates.length)).toEqual([2500]); // …the run keeps the index
+    expect(big.details.presentationReferences.places.map((p: any) => p.id)).toEqual(["google:a", "google:b"]);
+    // Errors and results without places carry no index.
+    expect((await pluginCall({content: [{type: "text", text: JSON.stringify({places})}], isError: true}, cwd)).details.presentationReferences).toBeUndefined();
+    expect((await pluginCall({content: [{type: "text", text: "{\"ok\":true}"}]}, cwd)).details.presentationReferences).toBeUndefined();
+  } finally { await rm(cwd, {recursive: true, force: true}); }
+});

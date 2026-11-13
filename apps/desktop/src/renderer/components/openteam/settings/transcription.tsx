@@ -1,4 +1,6 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { InteractiveSwitch } from "./interactive-switch";
+import { Input } from "../../ui/input";
+import { Button } from "../../ui/button";
 import { SettingsSelectContent } from "./select-content";
 import {
   defaultTranscriptionSettings,
@@ -18,15 +20,17 @@ import {
   HOSTED_TRANSCRIPTION_ENDPOINTS,
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../../lib/transcription-providers";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ProviderMark } from "../setup/provider-marks";
 import {
-  InteractiveSwitch,
   SectionLabel,
   SettingsGroup,
+  SettingsLoading,
   SettingsRow,
   SettingsIntro,
+  SkeletonControl,
+  SkeletonSwitch,
+  SkeletonText,
   settingsPrimaryButton,
   settingsSecondaryButton,
   settingsInput,
@@ -35,6 +39,53 @@ import {
 import "./transcription.css";
 
 const inputClass = `${settingsInput} transcription-input`;
+
+/** The form's shape, with every value still to come, while the saved settings load. */
+function VoiceNotesSkeleton() {
+  return (
+    <SettingsLoading label="Loading voice notes">
+      <SettingsGroup>
+        <SettingsRow
+          title="Voice notes"
+          description="Enable transcription for recorded messages on desktop and iPhone."
+          control={<SkeletonSwitch />}
+        />
+      </SettingsGroup>
+      <SectionLabel>Transcription service</SectionLabel>
+      <SettingsGroup className="transcription-fields">
+        <SettingsRow
+          title="Provider"
+          stackControl
+          control={<SkeletonControl className="transcription-input" width={270} />}
+        />
+        <SettingsRow
+          title="Model"
+          stackControl
+          control={<SkeletonControl className="transcription-input" width={270} />}
+        />
+      </SettingsGroup>
+      <SectionLabel>Credentials and language</SectionLabel>
+      <SettingsGroup className="transcription-fields">
+        <SettingsRow
+          title="API key"
+          stackControl
+          description={<SkeletonText width={236} />}
+          control={<SkeletonControl className="transcription-input" width={270} />}
+        />
+        <SettingsRow
+          title="Language"
+          stackControl
+          description="Leave blank to detect automatically, or use a code such as en."
+          control={<SkeletonControl className="transcription-input" width={270} />}
+        />
+      </SettingsGroup>
+      <div className="mt-4 flex justify-end gap-2 px-2">
+        <SkeletonControl width={112} />
+        <SkeletonControl width={50} />
+      </div>
+    </SettingsLoading>
+  );
+}
 
 export default function VoiceNotesSettings() {
   return <TranscriptionSettingsPanel />;
@@ -153,32 +204,28 @@ export function TranscriptionSettingsPanel() {
         Turn recordings into text you can review before sending. Shared by all apps connected to
         this server.
       </SettingsIntro>
-      {!saved ? (
+      {!saved && busy ? (
+        <VoiceNotesSkeleton />
+      ) : !saved ? (
         <SettingsGroup>
           <div
             className="flex min-h-[72px] items-center gap-2 py-4 text-[13px] text-foreground-secondary"
-            role={failed ? "alert" : "status"}
+            role="alert"
           >
-            {busy ? (
-              <>
-                <LoadingOrb aria-hidden size={16} /> Loading voice notes…
-              </>
-            ) : (
-              <>
-                <span className="flex-1">{message}</span>
-                <ButtonPrimitive
-                  className={settingsSecondaryButton}
-                  onClick={() => void load()}
-                  type="button"
-                >
-                  Try again
-                </ButtonPrimitive>
-              </>
-            )}
+            <span className="flex-1">{message}</span>
+            <Button
+              size="xs"
+              variant="secondary"
+              className={settingsSecondaryButton}
+              onClick={() => void load()}
+              type="button"
+            >
+              Try again
+            </Button>
           </div>
         </SettingsGroup>
       ) : (
-        <fieldset disabled={Boolean(busy)} className="min-w-0">
+        <fieldset disabled={Boolean(busy)} className="settings-reveal min-w-0">
           <SettingsGroup>
             <SettingsRow
               title="Voice notes"
@@ -251,7 +298,7 @@ export function TranscriptionSettingsPanel() {
                 stackControl
                 description="An audio service reachable from your OpenTeam server."
                 control={
-                  <input
+                  <Input
                     className={inputClass}
                     aria-label="Transcription base URL"
                     inputMode="url"
@@ -267,7 +314,7 @@ export function TranscriptionSettingsPanel() {
               title="Model"
               stackControl
               control={
-                <input
+                <Input
                   className={inputClass}
                   aria-label="Transcription model"
                   spellCheck={false}
@@ -294,7 +341,7 @@ export function TranscriptionSettingsPanel() {
               }
               control={
                 <div className="transcription-key flex w-[270px] max-w-full flex-wrap items-center gap-2">
-                  <input
+                  <Input
                     className={`${inputClass} min-w-0 flex-1`}
                     type="password"
                     autoComplete="new-password"
@@ -314,7 +361,9 @@ export function TranscriptionSettingsPanel() {
                     }}
                   />
                   {saved.hasApiKey ? (
-                    <ButtonPrimitive
+                    <Button
+                      size="xs"
+                      variant="secondary"
                       type="button"
                       className={`${settingsSecondaryButton} text-destructive`}
                       onClick={() => {
@@ -324,7 +373,7 @@ export function TranscriptionSettingsPanel() {
                       }}
                     >
                       {removeKey ? "Undo deletion" : "Delete key"}
-                    </ButtonPrimitive>
+                    </Button>
                   ) : null}
                 </div>
               }
@@ -334,7 +383,7 @@ export function TranscriptionSettingsPanel() {
               stackControl
               description="Leave blank to detect automatically, or use a code such as en."
               control={
-                <input
+                <Input
                   className={inputClass}
                   aria-label="Transcription language"
                   spellCheck={false}
@@ -346,7 +395,9 @@ export function TranscriptionSettingsPanel() {
             />
           </SettingsGroup>
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2 px-2">
-            <ButtonPrimitive
+            <Button
+              size="xs"
+              variant="secondary"
               type="button"
               className={settingsSecondaryButton}
               disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
@@ -354,8 +405,9 @@ export function TranscriptionSettingsPanel() {
               loading={busy === "check"}
             >
               Test connection
-            </ButtonPrimitive>
-            <ButtonPrimitive
+            </Button>
+            <Button
+              size="xs"
               type="button"
               className={settingsPrimaryButton}
               disabled={Boolean(busy) || !changed}
@@ -363,7 +415,7 @@ export function TranscriptionSettingsPanel() {
               loading={busy === "save"}
             >
               Save
-            </ButtonPrimitive>
+            </Button>
           </div>
           {message ? (
             <p

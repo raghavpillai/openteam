@@ -431,8 +431,9 @@ export function PromptInput({
     const content = contentRef.current;
     if (!surface || !content) return;
     const style = getComputedStyle(surface);
+    // A computed width can be "" (e.g. before styles apply); parseFloat("") is NaN.
     const borders =
-      Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+      (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0);
     setSurfaceHeight(
       Math.max(44, content.getBoundingClientRect().height + (expanded ? 16 : 8) + borders)
     );

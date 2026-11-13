@@ -1,11 +1,13 @@
+import { Input } from "../../ui/input";
 import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import type { UserTimeZoneView } from "@openteam/contracts";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { supportedTimeZones, timeInZone, timeZoneLabel } from "../../../lib/time-zone";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
-import { SettingsGroup, SettingsRow, settingsSelect } from "./ui";
+import { SettingsGroup, SettingsRow, SkeletonControl, settingsSelect } from "./ui";
 
 const AUTO = "auto";
 
@@ -16,6 +18,7 @@ export function TimeZoneSettings() {
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const zones = useMemo(supportedTimeZones, []);
 
@@ -28,7 +31,8 @@ export function TimeZoneSettings() {
           if (active) setSetting(value);
         })
         .catch(() => {
-          /* The row stays hidden until the setting loads. */
+          // The row is left out when the setting can't load; a later change event retries.
+          if (active) setUnavailable(true);
         });
     };
     refresh();
@@ -39,7 +43,14 @@ export function TimeZoneSettings() {
     };
   }, []);
 
-  if (!setting) return null;
+  if (!setting) {
+    if (unavailable) return null;
+    return (
+      <SettingsGroup>
+        <SettingsRow stackControl title="Timezone" control={<SkeletonControl width={212} />} />
+      </SettingsGroup>
+    );
+  }
   const detected = setting.detectedTimeZone;
   const autoLabel = detected ? `Auto-detect (${timeZoneLabel(detected)})` : "Auto-detect";
   const override = setting.overrideTimeZone;
@@ -53,7 +64,11 @@ export function TimeZoneSettings() {
   ];
   const needle = query.trim().toLowerCase().replaceAll("_", " ");
   const visible = needle
-    ? entries.filter((entry) => entry.value !== AUTO && `${entry.label} ${entry.value}`.toLowerCase().replaceAll("_", " ").includes(needle))
+    ? entries.filter(
+        (entry) =>
+          entry.value !== AUTO &&
+          `${entry.label} ${entry.value}`.toLowerCase().replaceAll("_", " ").includes(needle)
+      )
     : entries;
   const selected = override ?? AUTO;
 
@@ -74,7 +89,13 @@ export function TimeZoneSettings() {
       <SettingsRow
         stackControl
         title="Timezone"
-        description={failed ? <span role="alert" className="text-destructive">Couldn't save. Try again.</span> : undefined}
+        description={
+          failed ? (
+            <span role="alert" className="text-destructive">
+              Couldn't save. Try again.
+            </span>
+          ) : undefined
+        }
         control={
           <Popover
             open={open}
@@ -87,21 +108,26 @@ export function TimeZoneSettings() {
             }}
           >
             <PopoverTrigger asChild>
-              <ButtonPrimitive
+              <Button
+                variant="outline"
+                size="xs"
                 aria-label="Timezone"
-                className={`${settingsSelect} inline-flex max-w-[260px] items-center gap-1 border`}
+                className={`${settingsSelect} settings-reveal inline-flex max-w-[260px] items-center gap-1 border`}
                 disabled={saving}
                 type="button"
               >
                 <span className="truncate">{override ? timeZoneLabel(override) : autoLabel}</span>
                 <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-              </ButtonPrimitive>
+              </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-[424px] max-w-[calc(100vw-16px)] rounded-[12px] p-1.5">
-              <input
+            <PopoverContent
+              align="end"
+              className="w-[424px] max-w-[calc(100vw-16px)] rounded-[12px] p-1.5"
+            >
+              <Input
                 aria-label="Search timezone"
                 autoFocus
-                className="mb-1 h-8 w-full rounded-[8px] bg-black/[0.035] px-2.5 text-[13px] outline-none dark:bg-white/[0.07]"
+                className="mb-1 h-8 w-full rounded-[8px] border-0 bg-black/[0.035] px-2.5 text-[13px] shadow-none outline-none focus-visible:ring-0 dark:bg-white/[0.07]"
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && visible[0]) choose(visible[0].value);
@@ -122,8 +148,12 @@ export function TimeZoneSettings() {
                       type="button"
                     >
                       <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                      {time ? <span className="shrink-0 text-foreground-tertiary">{time}</span> : null}
-                      <Check className={`size-3.5 shrink-0 ${entry.value === selected ? "" : "invisible"}`} />
+                      {time ? (
+                        <span className="shrink-0 text-foreground-tertiary">{time}</span>
+                      ) : null}
+                      <Check
+                        className={`size-3.5 shrink-0 ${entry.value === selected ? "" : "invisible"}`}
+                      />
                     </ButtonPrimitive>
                   );
                 })}

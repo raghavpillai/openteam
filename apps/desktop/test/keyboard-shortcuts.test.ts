@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KeyboardShortcutStore } from "../src/main/keyboard-shortcuts";
@@ -81,5 +81,71 @@ describe("keyboard shortcuts", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  test("overlapping conflicting saves reject once and reload without changing either binding", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shortcuts-race-"));
+    try {
+      const path = join(directory, "settings.json");
+      const create = () => new KeyboardShortcutStore({ path, platform: "darwin", screenBotAccelerator: () => null, onChange() {} });
+      const store = create(); await store.start();
+      const results = await Promise.allSettled([store.set("search", "Command+Shift+F"), store.set("toggleSidebar", "Command+Shift+F")]);
+      expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+      expect((results[1] as PromiseRejectedResult).reason.message).toContain("Search already uses");
+      expect(JSON.parse(await readFile(path, "utf8")).bindings).toEqual({ search: "Command+Shift+F" });
+      const reloaded = create(); await reloaded.start();
+      expect(reloaded.view()).toEqual(store.view());
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("queued resets validate after earlier saves free or claim the default", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shortcuts-reset-race-"));
+    try {
+      const store = new KeyboardShortcutStore({ path: join(directory, "settings.json"), platform: "darwin", screenBotAccelerator: () => null, onChange() {} });
+      await store.start();
+      await store.set("search", "Command+Shift+F");
+      await store.set("toggleSidebar", "Command+K");
+      // The default K is in use when reset is submitted; the earlier queued save frees it.
+      await Promise.all([store.set("toggleSidebar", "Command+Shift+B"), store.set("search", null)]);
+      expect(store.get("search")).toBe("CommandOrControl+K");
+      await store.set("search", "Command+Shift+F");
+      const claimed = await Promise.allSettled([store.set("toggleSidebar", "Command+K"), store.set("search", null)]);
+      expect(claimed.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+      expect(store.get("search")).toBe("Command+Shift+F");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("queued validation uses current ScreenBot reservation and retains sequential system checks", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shortcuts-reserved-"));
+    let reserved: string | null = null;
+    try {
+      const store = new KeyboardShortcutStore({ path: join(directory, "settings.json"), platform: "darwin", screenBotAccelerator: () => reserved, onChange() {} });
+      await store.start();
+      const pending = store.set("search", "Command+Shift+F");
+      reserved = "Command+Shift+F";
+      await expect(pending).rejects.toThrow("ScreenBot already uses");
+      await expect(store.set("search", "Command+C")).rejects.toThrow("Your system uses");
+      await expect(store.set("search", "bad-key")).rejects.toThrow("Include");
+      await expect(store.set("missing", null)).rejects.toThrow("can’t be changed");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("failed persistence rolls back memory and notifications and does not poison the queue", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shortcuts-write-failure-"));
+    try {
+      const path = join(directory, "settings.json");
+      const changes: unknown[] = [];
+      const store = new KeyboardShortcutStore({ path, platform: "darwin", screenBotAccelerator: () => null, onChange: (view) => changes.push(view) });
+      await store.start(); const before = store.view();
+      await mkdir(path); // Owned path makes the atomic rename fail deterministically.
+      const failures = await Promise.allSettled([store.set("search", "Command+Shift+F"), store.set("toggleSidebar", "Command+Shift+F")]);
+      expect(failures.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+      expect(store.view()).toEqual(before); expect(changes).toHaveLength(1);
+      await rm(path, { recursive: true });
+      await store.set("toggleSidebar", "Command+Shift+F");
+      expect(store.get("search")).toBe(before.bindings.search);
+      expect(JSON.parse(await readFile(path, "utf8")).bindings).toEqual({ toggleSidebar: "Command+Shift+F" });
+      expect(changes).toHaveLength(2);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

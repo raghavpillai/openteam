@@ -212,6 +212,8 @@ export function ScreenBotApp() {
   const sentLeaveTimer = useRef(0);
   const draftTimer = useRef(0);
   const rosterVersion = useRef(0);
+  const accountScope = useRef<string | null>(null);
+  const accountEpoch = useRef(0);
   const lastDisplay = useRef<string | null>(null);
 
   const bot = roster.bots.find((candidate) => candidate.id === botId) ?? roster.bots[0] ?? null;
@@ -221,8 +223,12 @@ export function ScreenBotApp() {
   // The overlay records; the signed-in main window transcribes (the same server pipeline as
   // voice notes), and the words land at the caret.
   const transcribeViaApp = useCallback<Transcriber>(async (audio, signal) => {
+    const scope = accountScope.current;
+    const epoch = accountEpoch.current;
+    const shotId = shotRef.current?.id;
     const bytes = new Uint8Array(await audio.arrayBuffer());
-    const result = await bridge()!.transcribe(bytes, audio.type || "audio/webm");
+    if (signal.aborted || !scope || !shotId || epoch !== accountEpoch.current) throw new DOMException("Dictation was cancelled", "AbortError");
+    const result = await bridge()!.transcribe(bytes, audio.type || "audio/webm", shotId, scope);
     if (signal.aborted) throw new DOMException("Dictation was cancelled", "AbortError");
     if (!result.ok) throw new Error(result.error);
     return { text: result.text };
@@ -517,7 +523,7 @@ export function ScreenBotApp() {
 
   const flushDraft = (value: string) => {
     window.clearTimeout(draftTimer.current);
-    bridge()?.saveDraft(value);
+    if (accountScope.current && shotRef.current) bridge()?.saveDraft(value, shotRef.current.id, accountScope.current);
   };
 
   // ---- Scenes ---------------------------------------------------------------------------
@@ -1065,6 +1071,7 @@ export function ScreenBotApp() {
     setInteractive(false);
     writeStorage(BOT_KEY, target.id);
     // The words leave with the shot: a retake mid-send must not offer them to send again.
+    const owner = accountEpoch.current;
     const sentText = text;
     setText("");
     flushDraft("");
@@ -1073,10 +1080,12 @@ export function ScreenBotApp() {
     );
     const signal = startScene();
     const outcome = await playSend(signal, result, () => {
+      if (owner !== accountEpoch.current) return;
       setSent({ bot: target, leaving: false });
       setPhase("sent");
       scheduleSentExit();
     });
+    if (owner !== accountEpoch.current) return;
     if (signal.aborted) {
       // A retake took over mid-send. If the send then failed, the words come back to the new
       // composer with the reason, rather than vanishing as if they'd gone.
@@ -1090,6 +1099,7 @@ export function ScreenBotApp() {
       setText((current) => current || sentText);
       setPhase("intro");
       await restoreAfterFailure(signal);
+      if (owner !== accountEpoch.current || signal.aborted) return;
       setError(outcome.error);
       return;
     }
@@ -1099,7 +1109,33 @@ export function ScreenBotApp() {
   useEffect(() => {
     const api = bridge();
     if (!api) return;
+    const resetAccount = () => {
+      accountEpoch.current += 1;
+      accountScope.current = null;
+      startScene();
+      window.clearTimeout(draftTimer.current);
+      window.clearTimeout(sentTimer.current);
+      window.clearTimeout(sentLeaveTimer.current);
+      sendAfterDictation.current = false;
+      voiceRef.current.cancel();
+      endDrag();
+      textRef.current = "";
+      setText("");
+      setError(null);
+      setSent(null);
+      setMenuOpen(false);
+      setBotId(null);
+      setRoster({ bots: [], dictation: false });
+      writeStorage(BOT_KEY, "");
+      setInteractive(false);
+      setPhase("idle");
+      releaseShot();
+    };
+    const stopReset = api.onReset(resetAccount);
     const stopShot = api.onShot(async (incoming: ScreenBotShot) => {
+      if (incoming.rosterVersion < rosterVersion.current) return;
+      if (incoming.accountScope !== accountScope.current) resetAccount();
+      accountScope.current = incoming.accountScope;
       const signal = startScene();
       window.clearTimeout(sentTimer.current);
       window.clearTimeout(sentLeaveTimer.current);
@@ -1180,13 +1216,17 @@ export function ScreenBotApp() {
       // An older list (from a shot that was already in flight) never replaces a newer one.
       if ((next.version ?? 0) < rosterVersion.current) return;
       rosterVersion.current = next.version ?? rosterVersion.current;
+      if (next.accountScope !== accountScope.current) resetAccount();
+      accountScope.current = next.accountScope ?? null;
       refreshScreenBotTheme(next.theme);
       setRoster(next);
       setBotId((current) => pickBot(next, current));
     });
     return () => {
+      stopReset();
       stopShot();
       stopHidden();
+      resetAccount();
       stopRoster();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1203,7 +1243,7 @@ export function ScreenBotApp() {
     hands.current.forEach((_, index) => placeHand(index, { x: -50, y: -50 }, 0));
     placeGoo({ x: 0, y: 0, width: 0, height: 0 }, null, 0);
     input.current?.focus();
-    bridge()?.ready();
+    bridge()?.ready(shot.id);
     bridge()?.focus();
     const signal = scene.current?.signal ?? startScene();
     let started = false;
@@ -1238,7 +1278,14 @@ export function ScreenBotApp() {
   useEffect(() => {
     if (!shot) return;
     window.clearTimeout(draftTimer.current);
-    draftTimer.current = window.setTimeout(() => bridge()?.saveDraft(text), DRAFT_SYNC_MS);
+    const owner = accountEpoch.current;
+    const scope = accountScope.current;
+    draftTimer.current = window.setTimeout(() => {
+      if (scope && owner === accountEpoch.current && shotRef.current?.id === shot.id) {
+        bridge()?.saveDraft(text, shot.id, scope);
+      }
+    }, DRAFT_SYNC_MS);
+    return () => window.clearTimeout(draftTimer.current);
   }, [shot, text]);
 
   // Click-through everywhere except the card, its menu and the sent pill.
@@ -1697,7 +1744,7 @@ export function ScreenBotApp() {
             window.clearTimeout(sentTimer.current);
             window.clearTimeout(sentLeaveTimer.current);
             setInteractive(false);
-            bridge()?.openChat(sent.bot.id);
+            if (accountScope.current) bridge()?.openChat(sent.bot.id, accountScope.current);
             setSent(null);
             setPhase("idle");
             releaseShot();

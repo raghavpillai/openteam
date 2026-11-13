@@ -54,6 +54,17 @@ public struct PresentationPlace: Codable, Identifiable, Sendable, Equatable {
   public let attribution: String?
 }
 public struct PresentationRoute: Codable, Sendable, Equatable {
+  /// Unrepresentable route metadata stays readable instead of trapping during render.
+  public static func travelTime(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds >= 0 else { return "—" }
+    if seconds < 60 { return "<1 min" }
+    guard let minutes = Int(exactly: (seconds / 60).rounded()) else { return "—" }
+    if minutes < 60 { return "\(minutes) min" }
+    let hours = minutes / 60
+    if hours >= 24 { return hours % 24 == 0 ? "\(hours / 24) d" : "\(hours / 24) d \(hours % 24) hr" }
+    return minutes % 60 == 0 ? "\(hours) hr" : "\(hours) hr \(minutes % 60) min"
+  }
+
   public struct Geometry: Codable, Sendable, Equatable { public let type: String; public let coordinates: [[Double]] }
   public struct Leg: Codable, Sendable, Equatable {
     public let fromPlaceId: String

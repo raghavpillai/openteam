@@ -11,6 +11,7 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 | [1Password](1password/README.md) | Skill using the 1Password CLI | Sign in to websites with logins and one-time codes from the vaults you choose |
 | [Email](email/README.md) | Packaged MCP over IMAP and SMTP | Search and read mail, reply through review cards, and run routines when mail arrives |
 | [GitHub](github/README.md) | Remote MCP, personal access token | Search repositories, inspect code, manage issues, and work with pull requests |
+| [Google Maps](google-maps/README.md) | Packaged MCP, your Google Maps Platform API key | Find places with Google ratings, reviews, photos and live hours, plan routes, and show them on maps |
 | [Gmail](gmail/README.md) | Packaged MCP, Google OAuth | Search, read, draft, and manage email, and send reviewed drafts |
 | [Google Calendar](google-calendar/README.md) | Packaged MCP, Google OAuth | Search events and schedule meetings |
 | [Google Docs](google-docs/README.md) | Packaged MCP, Google OAuth | Read, create, and edit documents |

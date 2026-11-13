@@ -70,9 +70,10 @@ export class KeyboardShortcutStore {
     const name = action as ShortcutAction;
     const binding = value === null ? defaultShortcutBindings()[name] : typeof value === "string" ? canonicalShortcut(value, this.mac) : null;
     if (!binding) return Promise.reject(new Error("Include ⌘, ⌃ or ⌥ (or Ctrl or Alt) with a key."));
-    const error = checkShortcut(name, binding, this.bindings, this.mac, this.options.screenBotAccelerator());
-    if (error) return Promise.reject(new Error(error));
     const run = this.saving.then(async () => {
+      // Earlier queued saves may have claimed this binding (or freed it for a reset).
+      const error = checkShortcut(name, binding, this.bindings, this.mac, this.options.screenBotAccelerator());
+      if (error) throw new Error(error);
       const next = { ...this.bindings, [name]: binding };
       const defaults = defaultShortcutBindings();
       // Only what differs from the defaults, so new defaults reach anyone who never changed them.

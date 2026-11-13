@@ -1,4 +1,6 @@
+import { Input } from "../../ui/input";
 import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import {
   RECOMMENDED_SEARCH_PROVIDER,
   WEB_PROVIDER_LISTS,
@@ -9,13 +11,30 @@ import {
   type WebToolInput,
 } from "@openteam/contracts/web-search";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, TriangleAlert } from "lucide-react";
+import {
+  Ban,
+  Check,
+  ChevronRight,
+  CircleCheck,
+  CircleX,
+  ExternalLink,
+  TriangleAlert,
+} from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
 import { webProviderIcon as iconFor } from "../../../lib/web-provider-icons";
-import { SettingsGroup, SettingsHeading, SettingsIntro, settingsPrimaryButton, settingsSecondaryButton, settingsInput, settingsRow } from "./ui";
+import {
+  SettingsGroup,
+  SettingsHeading,
+  SettingsIntro,
+  SkeletonBar,
+  settingsPrimaryButton,
+  settingsSecondaryButton,
+  settingsInput,
+  settingsRow,
+} from "./ui";
 
 const actionButton = settingsPrimaryButton;
 const secondaryButton = settingsSecondaryButton;
@@ -42,10 +61,28 @@ const toneClass: Record<Tone, string> = {
   neutral: "text-foreground-tertiary",
 };
 
-function Status({ tone, children, title }: { tone: Tone; children: React.ReactNode; title?: string }) {
-  const Icon = tone === "ok" ? CircleCheck : tone === "error" ? CircleX : tone === "warn" ? TriangleAlert : null;
+function Status({
+  tone,
+  children,
+  title,
+}: {
+  tone: Tone;
+  children: React.ReactNode;
+  title?: string;
+}) {
+  const Icon =
+    tone === "ok"
+      ? CircleCheck
+      : tone === "error"
+        ? CircleX
+        : tone === "warn"
+          ? TriangleAlert
+          : null;
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-1 text-[11.5px]", toneClass[tone])} title={title}>
+    <span
+      className={cn("inline-flex min-w-0 items-center gap-1 text-[11.5px]", toneClass[tone])}
+      title={title}
+    >
       {Icon ? <Icon className="size-3.5 shrink-0" strokeWidth={2} /> : null}
       <span className="truncate">{children}</span>
     </span>
@@ -57,7 +94,9 @@ function ProviderIcon({ info, size = "size-5" }: { info?: WebProviderInfo; size?
   const icon = info && iconFor(info.brand);
   if (icon) return <img alt="" className={cn(size, "shrink-0 rounded-[5px]")} src={icon} />;
   return (
-    <span className={cn(size, "grid shrink-0 place-items-center rounded-[5px] bg-[#8e8e93] text-white")}>
+    <span
+      className={cn(size, "grid shrink-0 place-items-center rounded-[5px] bg-[#8e8e93] text-white")}
+    >
       <Ban className="size-[70%]" strokeWidth={2.4} />
     </span>
   );
@@ -65,23 +104,41 @@ function ProviderIcon({ info, size = "size-5" }: { info?: WebProviderInfo; size?
 
 const ago = (iso: string) => {
   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 1_440 ? `${Math.round(minutes / 60)} h ago` : new Date(iso).toLocaleDateString();
+  return minutes < 1
+    ? "just now"
+    : minutes < 60
+      ? `${minutes} min ago`
+      : minutes < 1_440
+        ? `${Math.round(minutes / 60)} h ago`
+        : new Date(iso).toLocaleDateString();
 };
 
 function providerStatus(info: WebProviderInfo, state: WebProviderState | undefined) {
   const check = state?.check;
-  if (check?.status === "passed") return <Status tone="ok" title={`${check.message} · ${ago(check.checkedAt)}`}>Checked</Status>;
+  if (check?.status === "passed")
+    return (
+      <Status tone="ok" title={`${check.message} · ${ago(check.checkedAt)}`}>
+        Checked
+      </Status>
+    );
   if (check?.status === "failed") return <Status tone="error">Check failed</Status>;
-  return <Status tone="neutral">{state?.ready || !info.fields.length ? "Not checked" : "Add API key"}</Status>;
+  return (
+    <Status tone="neutral">
+      {state?.ready || !info.fields.length ? "Not checked" : "Add API key"}
+    </Status>
+  );
 }
 
 /** Why a tool needs attention: off, basic built-in fetch, or a failing check. */
 function toolWarning(tool: WebTool, view: WebProvidersView): { tone: Tone; text: string } | null {
   const selected = view[tool].selected;
   if (!selected) return { tone: "warn", text: TOOL_COPY[tool].off };
-  const name = WEB_PROVIDER_LISTS[tool].find((provider) => provider.id === selected)?.name ?? selected;
-  if (view[tool].providers[selected]?.check?.status === "failed") return { tone: "error", text: `${name} failed its last check.` };
-  if (tool === "fetch" && selected === "builtin") return { tone: "warn", text: "Basic pages only; can't run JavaScript." };
+  const name =
+    WEB_PROVIDER_LISTS[tool].find((provider) => provider.id === selected)?.name ?? selected;
+  if (view[tool].providers[selected]?.check?.status === "failed")
+    return { tone: "error", text: `${name} failed its last check.` };
+  if (tool === "fetch" && selected === "builtin")
+    return { tone: "warn", text: "Basic pages only; can't run JavaScript." };
   return null;
 }
 
@@ -123,7 +180,11 @@ export default function ProvidersSettings() {
     setPage(tool);
     resetDraft(tool, view);
     // With search off, the recommended provider opens ready for its key.
-    setExpanded(new Set(tool === "search" && view && !view.search.selected ? [RECOMMENDED_SEARCH_PROVIDER] : []));
+    setExpanded(
+      new Set(
+        tool === "search" && view && !view.search.selected ? [RECOMMENDED_SEARCH_PROVIDER] : []
+      )
+    );
     setError(null);
     setApplied(false);
   };
@@ -197,7 +258,12 @@ export default function ProvidersSettings() {
             const warning = view ? toolWarning(tool, view) : null;
             return (
               <ButtonPrimitive
-                className={cn(settingsRow, "w-full px-3.5 text-left outline-none hover:bg-black/[0.025] focus-visible:bg-black/[0.035] disabled:opacity-60 dark:hover:bg-white/[0.03]")}
+                className={cn(
+                  settingsRow,
+                  "w-full px-3.5 text-left outline-none hover:bg-black/[0.025] focus-visible:bg-black/[0.035] disabled:opacity-60 dark:hover:bg-white/[0.03]",
+                  // While loading, the skeleton says so; the row shouldn't also look disabled.
+                  !view && busy === "load" && "disabled:opacity-100"
+                )}
                 data-settings-anchor={`web-${tool}-provider`}
                 data-testid={`providers-${tool}`}
                 disabled={!view}
@@ -206,22 +272,41 @@ export default function ProvidersSettings() {
                 type="button"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] leading-[17px] text-foreground">{TOOL_COPY[tool].title}</span>
+                  <span className="block text-[13px] leading-[17px] text-foreground">
+                    {TOOL_COPY[tool].title}
+                  </span>
                   <span className="mt-px block" data-testid={`${tool}-note`}>
                     {warning ? (
                       <Status tone={warning.tone}>{warning.text}</Status>
                     ) : (
-                      <span className="text-[12px] text-foreground-secondary">{TOOL_COPY[tool].description}</span>
+                      <span className="text-[12px] text-foreground-secondary">
+                        {TOOL_COPY[tool].description}
+                      </span>
                     )}
                   </span>
                 </span>
-                {view ? (
-                  <span className="flex shrink-0 items-center gap-2 text-[12.5px] text-foreground-secondary" data-testid={`${tool}-provider`}>
+                {!view && busy === "load" ? (
+                  <span
+                    aria-label="Loading provider"
+                    className="flex shrink-0 items-center gap-2"
+                    role="status"
+                  >
+                    <SkeletonBar className="size-[18px] rounded-[5px]" />
+                    <SkeletonBar className="h-[8px] w-[52px]" />
+                  </span>
+                ) : view ? (
+                  <span
+                    className="settings-reveal flex shrink-0 items-center gap-2 text-[12.5px] text-foreground-secondary"
+                    data-testid={`${tool}-provider`}
+                  >
                     <ProviderIcon info={info} size="size-[18px]" />
                     <span>{info?.name ?? "Off"}</span>
                   </span>
                 ) : null}
-                <ChevronRight className="size-4 shrink-0 text-foreground-tertiary" strokeWidth={1.8} />
+                <ChevronRight
+                  className="size-4 shrink-0 text-foreground-tertiary"
+                  strokeWidth={1.8}
+                />
               </ButtonPrimitive>
             );
           })}
@@ -261,35 +346,62 @@ export default function ProvidersSettings() {
           <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-foreground">
             <span>{info.name}</span>
             {tool === "search" && info.id === RECOMMENDED_SEARCH_PROVIDER ? (
-              <span className="rounded-[5px] bg-black/[0.06] px-1.5 py-px text-[10.5px] text-foreground-secondary dark:bg-white/[0.08]">Recommended</span>
+              <span className="rounded-[5px] bg-black/[0.06] px-1.5 py-px text-[10.5px] text-foreground-secondary dark:bg-white/[0.08]">
+                Recommended
+              </span>
             ) : null}
           </span>
-          <span className={cn("block truncate text-[11.5px]", failed ? toneClass.error : "text-foreground-secondary")} title={failed ?? undefined}>
+          <span
+            className={cn(
+              "block truncate text-[11.5px]",
+              failed ? toneClass.error : "text-foreground-secondary"
+            )}
+            title={failed ?? undefined}
+          >
             {failed ?? info.description}
           </span>
         </span>
         <span className="shrink-0">{providerStatus(info, state)}</span>
         {/* Fixed columns keep statuses and chevrons aligned, with or without a key field. */}
         {keyed ? (
-          <ChevronRight className={cn("size-3.5 shrink-0 text-foreground-tertiary transition-transform duration-200 ease-out motion-reduce:transition-none", open && "rotate-90")} />
+          <ChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-foreground-tertiary transition-transform duration-200 ease-out motion-reduce:transition-none",
+              open && "rotate-90"
+            )}
+          />
         ) : (
           <span className="size-3.5 shrink-0" />
         )}
       </>
     );
     return (
-      <div key={info.id} className="border-t border-black/[0.065] py-2 dark:border-white/[0.07]" data-testid={`provider-${tool}:${info.id}`}>
+      <div
+        key={info.id}
+        className="border-t border-black/[0.065] py-2 dark:border-white/[0.07]"
+        data-testid={`provider-${tool}:${info.id}`}
+      >
         <div className="settings-provider-header flex min-h-9 items-center gap-2.5">
           {radio(info.id, `Use ${info.name} for ${tool}`)}
           {keyed ? (
-            <ButtonPrimitive aria-expanded={open} aria-controls={`${contentId}-${tool}-${info.id}`} className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none" onClick={() => toggle(info.id)} type="button">
+            <ButtonPrimitive
+              aria-expanded={open}
+              aria-controls={`${contentId}-${tool}-${info.id}`}
+              className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
+              onClick={() => toggle(info.id)}
+              type="button"
+            >
               {label}
             </ButtonPrimitive>
           ) : (
-            <span className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5">{label}</span>
+            <span className="settings-provider-choice flex min-w-0 flex-1 items-center gap-2.5">
+              {label}
+            </span>
           )}
           {!missing ? (
-            <ButtonPrimitive
+            <Button
+              size="xs"
+              variant="secondary"
               aria-label={`Check ${info.name} ${tool}`}
               className={cn(secondaryButton, "settings-provider-check w-[72px] justify-center")}
               disabled={!view || Boolean(busy)}
@@ -298,7 +410,7 @@ export default function ProvidersSettings() {
               loading={busy === `check:${info.id}`}
             >
               Check
-            </ButtonPrimitive>
+            </Button>
           ) : (
             <span className="settings-provider-check w-[72px] shrink-0" />
           )}
@@ -306,7 +418,7 @@ export default function ProvidersSettings() {
         <AnimatedCollapse open={open} id={`${contentId}-${tool}-${info.id}`}>
           <div className="settings-provider-fields mt-2 space-y-2 pl-[54px]">
             <div className="flex flex-wrap items-center gap-2">
-              <input
+              <Input
                 aria-label={`${info.name} ${tool} API key`}
                 autoComplete="new-password"
                 className={inputClass}
@@ -326,7 +438,9 @@ export default function ProvidersSettings() {
                 value={typed[info.id] ?? ""}
               />
               {state?.secretSaved ? (
-                <ButtonPrimitive
+                <Button
+                  size="xs"
+                  variant="secondary"
                   className={secondaryButton}
                   disabled={!view || Boolean(busy)}
                   onClick={() => {
@@ -340,12 +454,19 @@ export default function ProvidersSettings() {
                   type="button"
                 >
                   {removing ? "Keep" : "Remove"}
-                </ButtonPrimitive>
+                </Button>
               ) : null}
-              <span className="text-[11.5px] text-foreground-tertiary">{removing ? "Will be removed" : state?.secretSaved ? "Saved" : ""}</span>
+              <span className="text-[11.5px] text-foreground-tertiary">
+                {removing ? "Will be removed" : state?.secretSaved ? "Saved" : ""}
+              </span>
             </div>
             {state?.check ? (
-              <div className={cn("text-[11.5px]", toneClass[state.check.status === "passed" ? "ok" : "error"])}>
+              <div
+                className={cn(
+                  "text-[11.5px]",
+                  toneClass[state.check.status === "passed" ? "ok" : "error"]
+                )}
+              >
                 {state.check.message} · {ago(state.check.checkedAt)}
               </div>
             ) : null}
@@ -380,7 +501,10 @@ export default function ProvidersSettings() {
         >
           Providers
         </ButtonPrimitive>
-        <ChevronRight className="mx-1 inline size-4 align-[-2px] text-foreground-tertiary" strokeWidth={1.8} />
+        <ChevronRight
+          className="mx-1 inline size-4 align-[-2px] text-foreground-tertiary"
+          strokeWidth={1.8}
+        />
         {TOOL_COPY[tool].title}
       </SettingsHeading>
       <SettingsIntro className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -397,14 +521,19 @@ export default function ProvidersSettings() {
           <ProviderIcon />
           <span className="min-w-0 flex-1">
             <span className="block text-[12.5px] text-foreground">Off</span>
-            <span className="block truncate text-[11.5px] text-foreground-secondary">{TOOL_COPY[tool].off}</span>
+            <span className="block truncate text-[11.5px] text-foreground-secondary">
+              {TOOL_COPY[tool].off}
+            </span>
           </span>
         </div>
         {WEB_PROVIDER_LISTS[tool].map(renderProvider)}
       </SettingsGroup>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 px-2">
-        <div className="text-[12px] text-foreground-secondary">Keys are stored on your server and never shown again.</div>
-        <ButtonPrimitive
+        <div className="text-[12px] text-foreground-secondary">
+          Keys are stored on your server and never shown again.
+        </div>
+        <Button
+          size="xs"
           className={actionButton}
           disabled={!changed || Boolean(busy)}
           onClick={() => void save()}
@@ -413,7 +542,7 @@ export default function ProvidersSettings() {
         >
           {!(busy === "save") && (applied ? <Check className="size-3.5" /> : null)}
           {applied ? "Saved" : "Save"}
-        </ButtonPrimitive>
+        </Button>
       </div>
       {errorAlert}
     </section>

@@ -2,9 +2,17 @@ import type { SystemActivityView } from "@openteam/contracts";
 import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../../lib/window-visibility";
-import { SettingsGroup } from "./ui";
+import { SettingsGroup, SettingsReveal, SkeletonBar } from "./ui";
 
-function ResourceGauge({ label, value }: { label: string; value: number | null }) {
+function ResourceGauge({
+  label,
+  value,
+  loading,
+}: {
+  label: string;
+  value: number | null;
+  loading: boolean;
+}) {
   const percent =
     value === null || !Number.isFinite(value)
       ? null
@@ -21,7 +29,7 @@ function ResourceGauge({ label, value }: { label: string; value: number | null }
     <div
       className="min-w-0 text-center"
       role="img"
-      aria-label={`${label}: ${percent === null ? "unavailable" : `${percent}% used`}`}
+      aria-label={`${label}: ${loading ? "loading" : percent === null ? "unavailable" : `${percent}% used`}`}
     >
       <div className={`mx-auto w-full max-w-[80px] ${color}`}>
         <svg viewBox="0 0 160 112" className="w-full" aria-hidden="true">
@@ -45,15 +53,20 @@ function ResourceGauge({ label, value }: { label: string; value: number | null }
               strokeDasharray={`${percent} 100`}
             />
           )}
-          <text
-            x="80"
-            y="84"
-            textAnchor="middle"
-            fill="currentColor"
-            className="text-[34px] font-semibold tabular-nums"
-          >
-            {percent === null ? "—" : `${percent}%`}
-          </text>
+          {loading ? (
+            // Where the reading goes, in the skeleton's colour.
+            <rect className="settings-skeleton-fill" height="22" rx="6" width="58" x="51" y="60" />
+          ) : (
+            <text
+              x="80"
+              y="84"
+              textAnchor="middle"
+              fill="currentColor"
+              className="settings-reveal text-[34px] font-semibold tabular-nums"
+            >
+              {percent === null ? "—" : `${percent}%`}
+            </text>
+          )}
         </svg>
       </div>
       <p className="text-[11px] font-medium">{label}</p>
@@ -108,32 +121,39 @@ export function ServerActivity() {
     };
   }, [visible]);
 
+  const loading = visible && !failed && !activity;
   return (
     <section aria-label="Live server activity" className="mb-7">
       <div className="mb-2 flex items-center justify-between gap-3 px-2">
         {/* Same style as the other section labels (SectionLabel). */}
-        <h3 className="text-[12px] font-normal leading-4 text-foreground-tertiary">Live activity</h3>
+        <h3 className="text-[12px] font-normal leading-4 text-foreground-tertiary">
+          Live activity
+        </h3>
         <span
-          className="flex items-center gap-1.5 text-[11px] text-foreground-tertiary"
+          className="flex items-center gap-1.5 text-[11px] leading-4 text-foreground-tertiary"
           role="status"
         >
           <span
             className={`size-1.5 rounded-full ${failed || !activity || !visible ? "bg-foreground-tertiary" : "bg-emerald-500"}`}
           />
-          {!visible
-            ? "Paused"
-            : failed
-              ? "Unavailable · retrying"
-              : activity
-                ? "Every 5 seconds"
-                : "Connecting…"}
+          {!visible ? (
+            "Paused"
+          ) : failed ? (
+            "Unavailable · retrying"
+          ) : activity ? (
+            <SettingsReveal>Every 5 seconds</SettingsReveal>
+          ) : (
+            <span aria-label="Connecting" className="flex h-4 items-center">
+              <SkeletonBar className="h-[7px] w-[74px]" />
+            </span>
+          )}
         </span>
       </div>
       <SettingsGroup className="py-2">
         <div className="grid grid-cols-3 gap-3">
-          <ResourceGauge label="CPU" value={activity?.cpuPercent ?? null} />
-          <ResourceGauge label="RAM" value={activity?.memoryPercent ?? null} />
-          <ResourceGauge label="Disk" value={activity?.diskPercent ?? null} />
+          <ResourceGauge label="CPU" loading={loading} value={activity?.cpuPercent ?? null} />
+          <ResourceGauge label="RAM" loading={loading} value={activity?.memoryPercent ?? null} />
+          <ResourceGauge label="Disk" loading={loading} value={activity?.diskPercent ?? null} />
         </div>
       </SettingsGroup>
       <p className="mt-1.5 px-2 text-[10px] leading-relaxed text-foreground-tertiary">

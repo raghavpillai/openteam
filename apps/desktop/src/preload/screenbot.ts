@@ -16,25 +16,30 @@ contextBridge.exposeInMainWorld("screenbot", {
     ipcRenderer.on("screenbot:hidden", listener);
     return () => ipcRenderer.removeListener("screenbot:hidden", listener);
   },
+  onReset: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("screenbot:reset", listener);
+    return () => ipcRenderer.removeListener("screenbot:reset", listener);
+  },
   onRoster: (callback: (roster: ScreenBotRoster) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, roster: ScreenBotRoster) => callback(roster);
     ipcRenderer.on("screenbot:roster", listener);
     return () => ipcRenderer.removeListener("screenbot:roster", listener);
   },
   /** The shot has decoded: show the overlay. */
-  ready: () => ipcRenderer.send("screenbot:ready"),
+  ready: (shotId: string) => ipcRenderer.send("screenbot:ready", shotId),
   setInteractive: (interactive: boolean) => ipcRenderer.send("screenbot:interactive", interactive === true),
   focus: () => ipcRenderer.send("screenbot:focus"),
-  saveDraft: (draft: string) => {
-    if (typeof draft === "string") ipcRenderer.send("screenbot:draft", draft.slice(0, 100_000));
+  saveDraft: (draft: string, shotId: string, accountScope: string) => {
+    if (typeof draft === "string") ipcRenderer.send("screenbot:draft", { draft: draft.slice(0, 100_000), shotId, accountScope });
   },
   send: (request: { shotId: string; botId: string; content: string }): Promise<ScreenBotSendResult> =>
     ipcRenderer.invoke("screenbot:send", request),
-  transcribe: (audio: Uint8Array, mimeType: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> =>
-    ipcRenderer.invoke("screenbot:transcribe", { audio, mimeType }),
+  transcribe: (audio: Uint8Array, mimeType: string, shotId: string, accountScope: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke("screenbot:transcribe", { audio, mimeType, shotId, accountScope }),
   /** Tagged with its shot, so a close that lands after a retake can't hide the new one. */
   close: (shotId: string) => ipcRenderer.send("screenbot:closed", typeof shotId === "string" ? shotId : ""),
-  openChat: (botId: string) => ipcRenderer.send("screenbot:open-chat", botId),
+  openChat: (botId: string, accountScope: string) => ipcRenderer.send("screenbot:open-chat", { botId, accountScope }),
   /** The app's rebindable shortcuts (dictate, next and previous Bot), and their changes. */
   shortcuts: {
     get: () => ipcRenderer.invoke("openteam:shortcuts:get"),

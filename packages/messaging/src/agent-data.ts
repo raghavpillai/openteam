@@ -101,6 +101,7 @@ import {
 } from "./prompt-sections";
 import { AUTOMATION_STATUS_CLEARED } from "./automation-status";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
+import { canonicalAgentId, lockAgentLifecycle } from "./agent-lifecycle";
 import {
   buildExtractionUserPrompt,
   gatherExtractionMemories,
@@ -627,9 +628,14 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
 
 type MemoryScope = "agent" | "user";
 
+const canonicalMemoryBotId = (value: string): string => {
+  if (!UUID_FOLDER.test(value)) throw new ApiError(404, "bot_not_found", "Bot not found");
+  return canonicalAgentId(value);
+};
+
 /** A bot's own facts, or its shard of the shared user memory. */
 const memoryNamespace = (botId: string, scope: MemoryScope): string =>
-  scope === "agent" ? `agent:${botId}` : `user:agent:${botId}`;
+  scope === "agent" ? `agent:${canonicalAgentId(botId)}` : `user:agent:${canonicalAgentId(botId)}`;
 
 const lockMemoryNamespace = (tx: Tx, namespace: string) =>
   tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory:${namespace}`}))`;
@@ -747,7 +753,6 @@ export class AgentDataStore {
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
   /** Held exchanges whose review is running in this process; the rest were left by one that stopped. */
-  private readonly memoryExchangesInReview = new Set<string>();
   private timelineEventSink:
     | ((
         tx: Tx,
@@ -2310,7 +2315,7 @@ export class AgentDataStore {
   /** The Memories panel lists the bot's own facts, the same rows RecallMemory and the prompt read. */
   private async managedMemoryList(tx: Tx, botId: string): Promise<BotMemoryList> {
     const facts = await tx.memoryFact.findMany({
-      where: { namespace: memoryNamespace(botId, "agent") },
+      where: { namespace: memoryNamespace(botId, "agent"), supersededAt: null },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
       select: { logicalId: true, fact: true, tier: true, createdAt: true },
     });
@@ -2327,20 +2332,23 @@ export class AgentDataStore {
   }
 
   async listBotMemories(botId: string): Promise<BotMemoryList> {
+    botId = canonicalMemoryBotId(botId);
     await this.requireManagedMemoryBot(this.prisma, botId);
     return this.managedMemoryList(this.prisma, botId);
   }
 
   /** Omitted id clears the bot's own facts, never shared user memory or pending learning. */
   async deleteBotMemories(botId: string, memoryId?: string): Promise<BotMemoryList> {
+    botId = canonicalMemoryBotId(botId);
     if (memoryId !== undefined && !/^[a-f0-9]{16}$/.test(memoryId))
       throw new ApiError(400, "invalid_memory_id", "Invalid memory id");
     return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
       await this.requireManagedMemoryBot(tx, botId);
       const namespace = memoryNamespace(botId, "agent");
       await lockMemoryNamespace(tx, namespace);
       const { count } = await tx.memoryFact.deleteMany({ where: { namespace, ...(memoryId ? { logicalId: memoryId } : {}) } });
-      if (count > 0) await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+      if (count > 0) await this.invalidateMemory(tx, botId, "agent");
       // The owner's deletion reaches the bot at once: unpin memory in every conversation, even on an idempotent clear.
       await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
       return this.managedMemoryList(tx, botId);
@@ -2353,16 +2361,16 @@ export class AgentDataStore {
     botId: string,
     input: { scope: MemoryScope; tier: "profile" | "log"; fact: string; at?: Date },
     provenance: MemoryProvenance
-  ): Promise<{ saved: boolean; logicalId: string; content: string }> {
+  ): Promise<{ saved: boolean; logicalId: string; content: string; id?: string }> {
     const content = normalizeMemoryContent(input.fact);
     const logicalId = memoryLogicalId(content);
     const namespace = memoryNamespace(botId, input.scope);
     if (!content) return { saved: false, logicalId, content };
     await lockMemoryNamespace(tx, namespace);
-    if (await tx.memoryFact.findFirst({ where: { namespace, logicalId }, select: { id: true } }))
+    if (await tx.memoryFact.findFirst({ where: { namespace, logicalId, supersededAt: null }, select: { id: true } }))
       return { saved: false, logicalId, content };
     const last = await tx.memoryFact.aggregate({ where: { namespace }, _max: { sourceOrdinal: true } });
-    await tx.memoryFact.create({
+    const saved = await tx.memoryFact.create({
       data: {
         namespace,
         scope: input.scope,
@@ -2380,14 +2388,14 @@ export class AgentDataStore {
     });
     // A content-free invalidation reaches every connected client.
     if (input.scope === "agent") await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
-    return { saved: true, logicalId, content };
+    return { saved: true, logicalId, content, id: saved.id };
   }
 
   private async deleteMemoryFact(tx: Tx, botId: string, scope: MemoryScope, fact: string): Promise<boolean> {
     const namespace = memoryNamespace(botId, scope);
     await lockMemoryNamespace(tx, namespace);
     const { count } = await tx.memoryFact.deleteMany({ where: { namespace, logicalId: memoryLogicalId(fact) } });
-    if (count > 0 && scope === "agent") await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+    if (count > 0) await this.invalidateMemory(tx, botId, scope);
     return count > 0;
   }
 
@@ -2400,8 +2408,10 @@ export class AgentDataStore {
       at?: Date;
     },
     provenance: MemoryProvenance = { source: "tool" }
-  ): Promise<{ saved: boolean; logicalId: string; content: string }> {
+  ): Promise<{ saved: boolean; logicalId: string; content: string; id?: string }> {
+    botId = canonicalMemoryBotId(botId);
     return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
       const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
       if (!bot || bot.status !== "active") throw new Error("Cannot write memory for an inactive bot");
       return this.insertMemoryFact(tx, botId, input, provenance);
@@ -2415,10 +2425,100 @@ export class AgentDataStore {
       fact: string;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
+    botId = canonicalMemoryBotId(botId);
     const content = normalizeMemoryContent(input.fact);
-    // Like a write, a forget shows in the pinned memory after the next summary; the tool result reports it now.
+    // Forgetting removes historical copies too and evicts cached memory immediately.
     const forgotten = await this.prisma.$transaction((tx) => this.deleteMemoryFact(tx, botId, input.scope, content));
     return { forgotten, logicalId: memoryLogicalId(content), content };
+  }
+
+  private async currentMemoryRevision(db: Pick<Tx, "bot" | "memoryRevision">, botId: string): Promise<number | null> {
+    const bot = await db.bot.findUnique({ where: { id: botId }, select: { memoryRevision: true } });
+    const shared = await db.memoryRevision.findUnique({ where: { scope: "user" } });
+    return bot ? bot.memoryRevision + (shared?.revision ?? 0) : null;
+  }
+
+  /** Invalidate corrections immediately, including shared facts pinned by other bots. */
+  private async invalidateMemory(tx: Tx, botId: string, scope: MemoryScope): Promise<void> {
+    // A stale prompt preparation may finish after invalidation. Its old revision
+    // ensures the next turn cannot keep that stale snapshot pinned indefinitely.
+    if (scope === "agent") {
+      await tx.bot.updateMany({ where: { id: botId }, data: { memoryRevision: { increment: 1 } } });
+    } else {
+      // Shared invalidation must not update every Bot row: archival locks a
+      // parent's children before the parent and can otherwise deadlock here.
+      await tx.memoryRevision.upsert({ where: { scope: "user" }, create: { scope: "user", revision: 1 }, update: { revision: { increment: 1 } } });
+    }
+    if (scope === "agent") {
+      await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+      await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
+    } else {
+      await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "promptSections" ? 'memory'`;
+    }
+  }
+
+  /** Compare-and-replace within the writer's namespace. Concurrent stale corrections fail. */
+  async replaceMemory(
+    botId: string,
+    input: { scope: MemoryScope; tier: "profile" | "log"; id: string; fact: string },
+    provenance: MemoryProvenance = { source: "tool" }
+  ): Promise<{ saved: boolean; logicalId: string; content: string; id: string; supersededId: string }> {
+    botId = canonicalMemoryBotId(botId);
+    if (!UUID_FOLDER.test(input.id)) throw new ApiError(400, "invalid_memory_id", "Use the fact id returned by RecallMemory");
+    const content = normalizeMemoryContent(input.fact);
+    if (!content) throw new ApiError(400, "empty_memory_fact", "The replacement fact must not be empty");
+    return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
+      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
+      if (!bot || bot.status !== "active") throw new Error("Cannot write memory for an inactive bot");
+      return this.replaceMemoryFact(tx, botId, input, provenance);
+    });
+  }
+
+  private async replaceMemoryFact(
+    tx: Tx,
+    botId: string,
+    input: { scope: MemoryScope; tier: "profile" | "log"; id: string; fact: string; at?: Date },
+    provenance: MemoryProvenance
+  ) {
+    const content = normalizeMemoryContent(input.fact);
+    const logicalId = memoryLogicalId(content);
+    const tier = memoryTier(content, input.tier);
+    const namespace = memoryNamespace(botId, input.scope);
+    await lockMemoryNamespace(tx, namespace);
+    const previous = await tx.memoryFact.findFirst({ where: { id: input.id, namespace } });
+    if (previous?.supersededAt && previous.supersededById) {
+      const applied = await tx.memoryFact.findFirst({ where: {
+        id: previous.supersededById, namespace, logicalId, tier, supersededAt: null,
+      } });
+      if (applied) return { saved: true, logicalId: applied.logicalId, content: applied.fact, id: applied.id, supersededId: previous.id };
+    }
+    if (!previous || previous.supersededAt) throw new ApiError(409, "memory_fact_changed", "That fact is unavailable or already superseded. Call RecallMemory before correcting it.");
+    const copies = await tx.memoryFact.findMany({
+      where: { namespace, logicalId: { in: [previous.logicalId, logicalId] }, supersededAt: null },
+      select: { id: true, logicalId: true, tier: true },
+    });
+    const sameFact = previous.logicalId === logicalId && previous.tier === tier;
+    if (sameFact && copies.length === 1)
+      return { saved: false, logicalId: previous.logicalId, content: previous.fact, id: previous.id, supersededId: previous.id };
+    const targetCopies = copies.filter(copy => copy.logicalId === logicalId);
+    // A legacy duplicate cleanup needs an honest successor for the named source,
+    // even when its text and type already match the requested result.
+    const existing = sameFact ? undefined : targetCopies.find(copy => copy.tier === tier);
+    const retiredAt = new Date();
+    if (!existing && targetCopies.length) {
+      // A type change is a new revision too. Retire wrong-type copies before
+      // insertion so text deduplication cannot silently ignore the requested type.
+      await tx.memoryFact.updateMany({ where: { id: { in: targetCopies.map(copy => copy.id) } },
+        data: { supersededAt: retiredAt } });
+    }
+    if (!existing) await this.insertMemoryFact(tx, botId, { ...input, fact: content }, provenance);
+    const replacement = await tx.memoryFact.findFirstOrThrow({ where: { namespace, logicalId, tier, supersededAt: null } });
+    // Merge duplicate sources/targets into one correctly typed active revision.
+    await tx.memoryFact.updateMany({ where: { id: { in: copies.filter(copy => copy.id !== replacement.id).map(copy => copy.id) } },
+      data: { supersededAt: retiredAt, supersededById: replacement.id } });
+    await this.invalidateMemory(tx, botId, input.scope);
+    return { saved: true, logicalId, content: replacement.fact, id: replacement.id, supersededId: previous.id };
   }
 
   async writeSkill(
@@ -2760,10 +2860,11 @@ export class AgentDataStore {
   }
 
   async recallMemory(botId: string, input: unknown, channelId?: string | null): Promise<string> {
+    botId = canonicalMemoryBotId(botId);
     const args = parseRecallInput(input);
     const userVisible = !(await this.isSharedConversation(botId, channelId));
     const facts = await this.prisma.memoryFact.findMany({
-      where: { OR: [
+      where: { ...(args.includeHistory ? {} : { supersededAt: null }), OR: [
         { namespace: memoryNamespace(botId, "agent") },
         ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
       ] },
@@ -2777,14 +2878,24 @@ export class AgentDataStore {
     const own = facts.filter((fact) => fact.scope !== "user").sort((a, b) =>
       Number(b.tier === "profile") - Number(a.tier === "profile") || b.createdAt.getTime() - a.createdAt.getTime() ||
       b.sourceOrdinal - a.sourceOrdinal);
+    // Keep the newest shared copy's date/provenance, but retain the caller's
+    // editable duplicate identity so text deduplication cannot hide its own row.
+    const editableShared = new Map<string, string>();
+    for (const fact of facts) {
+      if (fact.namespace !== memoryNamespace(botId, "user") || fact.supersededAt) continue;
+      const key = normalizeMemoryContent(fact.fact).toLowerCase();
+      if (!editableShared.has(key)) editableShared.set(key, fact.id);
+    }
     const shared = new Map<string, (typeof facts)[number]>();
     for (const fact of facts.filter((fact) => fact.scope === "user").sort((a, b) => (a.writtenByBotId ?? "").localeCompare(b.writtenByBotId ?? ""))) {
-      const key = normalizeMemoryContent(fact.fact).toLowerCase();
+      const key = args.includeHistory ? fact.id : normalizeMemoryContent(fact.fact).toLowerCase();
       const previous = shared.get(key);
       if (!previous || fact.createdAt > previous.createdAt) shared.set(key, fact);
     }
     const candidates = [...own, ...[...shared.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.fact < b.fact ? -1 : a.fact > b.fact ? 1 : 0))];
     return recallMemoryResult(args, candidates.map((fact) => ({
+      id: fact.id, supersededAt: fact.supersededAt, supersededById: fact.supersededById,
+      editableId: fact.scope === "user" && !fact.supersededAt ? editableShared.get(normalizeMemoryContent(fact.fact).toLowerCase()) : undefined,
       content: fact.fact, createdAt: fact.createdAt, tier: fact.tier,
       scope: fact.scope === "user" ? "user" : "agent",
       via: fact.writtenByBotId ? names.get(fact.writtenByBotId) ?? fact.writtenByBotId : undefined,
@@ -2812,9 +2923,15 @@ export class AgentDataStore {
 
   /** The memory policy for the system prompt, and the facts for <memory_context>. A group room sees no shared user memory. */
   private async renderMemory(botId: string, sharedConversation: boolean): Promise<LiveMemory> {
+    botId = canonicalMemoryBotId(botId);
     const userVisible = !sharedConversation;
+    // Read the revision before the facts: an overlapping correction is caught
+    // on the next render even when this preparation finishes after its commit.
+    const revision = await this.currentMemoryRevision(this.prisma, botId);
+    if (revision === null) throw new ApiError(404, "bot_not_found", "Bot not found");
     const all = await this.prisma.memoryFact.findMany({
       where: {
+        supersededAt: null,
         OR: [
           { namespace: memoryNamespace(botId, "agent") },
           ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
@@ -2849,7 +2966,7 @@ export class AgentDataStore {
       recent: own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, MEMORY_RECENT_PROMPT_LIMIT).map(record),
     });
     const ownPolicy = `${MEMORY_HEADING}\n${renderMemorySystemPolicyPrompt()}`;
-    if (!userVisible) return { policy: ownPolicy, facts: ownFacts };
+    if (!userVisible) return { policy: ownPolicy, facts: ownFacts, revision };
 
     // Shards merge with the newest copy winning; other assistants' part is fingerprinted for change notes.
     const sharedSelection = (facts: Fact[]) => {
@@ -2867,6 +2984,7 @@ export class AgentDataStore {
     const others = sharedSelection(shared.filter((fact) => fact.writtenByBotId !== botId));
     const otherFacts = [...others.profile, ...others.recent];
     return {
+      revision,
       policy: `${SHARED_USER_MEMORY_HEADING}\n${renderUserMemorySystemPolicyPrompt()}\n\n${ownPolicy}`,
       facts: `${renderUserMemoryFactSnapshot(records(sharedSelection(shared)))}\n\n${ownFacts}`,
       otherAgents: {
@@ -3228,11 +3346,13 @@ export class AgentDataStore {
     if (!this.memoryInference) return null;
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      request.signal?.throwIfAborted();
       const remaining = deadlineAt - Date.now();
       if (remaining <= 0) break;
       try {
         return await this.memoryInference({ ...request, timeoutMs: remaining });
       } catch (error) {
+        request.signal?.throwIfAborted();
         lastError = error;
         if (attempt >= 2) break;
         const delay = Math.min(2_000 * 2 ** attempt, 30_000, Math.max(0, remaining - 1));
@@ -3244,12 +3364,14 @@ export class AgentDataStore {
 
   private async runMemoryExtraction(
     botId: string,
-    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string }
-  ): Promise<void> {
+    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string; ownerId: string; signal: AbortSignal; reviewRevision?: number }
+  ): Promise<boolean> {
+    const observed = await this.currentMemoryRevision(this.prisma, botId);
+    if (observed === null || (input.reviewRevision !== undefined && observed !== input.reviewRevision)) return true;
     const facts = await this.prisma.memoryFact.findMany({
-      where: { namespace: memoryNamespace(botId, "agent") },
+      where: { namespace: memoryNamespace(botId, "agent"), supersededAt: null },
       orderBy: { sourceOrdinal: "asc" },
-      select: { fact: true, tier: true, createdAt: true, importance: true },
+      select: { id: true, fact: true, tier: true, createdAt: true, importance: true },
     });
     const existing = gatherExtractionMemories(
       facts.map((fact) => ({ ...fact, content: fact.fact })),
@@ -3257,6 +3379,7 @@ export class AgentDataStore {
     );
     const response = await this.inferMemory({
       kind: "extraction",
+      signal: input.signal,
       instructions: MEMORY_EXTRACTION_SYSTEM_PROMPT,
       prompt: buildExtractionUserPrompt(
         input.exchange.user,
@@ -3266,101 +3389,221 @@ export class AgentDataStore {
         renderTurnMemoryDate(new Date(input.occurredAt), input.timeZone)
       ),
     });
-    if (!response) return;
+    if (!response) return true;
     const extraction = parseExtractedMemories(response, existing);
-    if (!extraction.additions.length && !extraction.removals.length) return;
+    if (!extraction.additions.length && !extraction.removals.length && !extraction.replacements?.length) return true;
     const known = new Set(existing.map((fact) => memoryLogicalId(fact)));
-    await this.prisma.$transaction(async (tx) => {
-      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
-      if (!bot || bot.status !== "active") return;
-      // Only a fact the learner was shown can be retired; it cannot invent removals.
+    const targets = new Map<string, string>();
+    for (const correction of extraction.replacements ?? []) {
+      const source = memoryLogicalId(correction.old);
+      const target = memoryLogicalId(correction.fact);
+      if (targets.has(source) && targets.get(source) !== target) return true;
+      targets.set(source, target);
+    }
+    const removals = new Set(extraction.removals.map(memoryLogicalId).filter(key => known.has(key)));
+    // Overlapping chains/cycles have no unambiguous simultaneous meaning. Reject
+    // the whole batch rather than make its outcome depend on line order or skip
+    // a correction whose source an earlier line happened to retire.
+    if ([...targets].some(([source, target]) => removals.has(target) || (source !== target && targets.has(target)))) return true;
+    return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
+      if (!await this.ownsMemoryReview(tx, botId, input.ownerId)) return false;
+      await lockMemoryNamespace(tx, memoryNamespace(botId, "agent"));
+      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true, memoryRevision: true } });
+      // Addition-only output can be stale too: it may have been generated before
+      // the fact existed and then restore a value a newer correction retired.
+      // Discard the entire inference result after any intervening correction.
+      const shared = await tx.memoryRevision.findUnique({ where: { scope: "user" } });
+      if (!bot || bot.status !== "active" || bot.memoryRevision + (shared?.revision ?? 0) !== observed) return true;
+      // Validate the whole correction batch before writing anything. Otherwise a
+      // stale remove/add response (or an extra profile line next to replace) can
+      // append its outdated value even when the retirement itself is skipped.
+      const retiringKeys = new Set([
+        ...extraction.removals,
+        ...(extraction.replacements ?? []).map(correction => correction.old),
+      ].map(memoryLogicalId).filter(key => known.has(key)));
+      if (retiringKeys.size) {
+        const active = await tx.memoryFact.findMany({
+          where: { id: { in: facts.filter(fact => retiringKeys.has(memoryLogicalId(fact.fact))).map(fact => fact.id) }, supersededAt: null },
+          select: { logicalId: true },
+        });
+        const activeKeys = new Set(active.map(fact => fact.logicalId));
+        if ([...retiringKeys].some(key => !activeKeys.has(key))) return true;
+      }
+      // The learner can replace only a fact it saw, and only if that revision is still active.
+      // A concurrent correction wins over a delayed extraction response.
+      for (const correction of extraction.replacements ?? []) {
+        if (!known.has(memoryLogicalId(correction.old))) continue;
+        const previous = facts.find(fact => memoryLogicalId(fact.fact) === memoryLogicalId(correction.old));
+        if (!previous) continue;
+        const active = await tx.memoryFact.findFirst({ where: { id: previous.id, supersededAt: null } });
+        if (!active) continue;
+        await this.replaceMemoryFact(tx, botId, { scope: "agent", tier: "profile", id: active.id, fact: correction.fact, at: new Date(input.occurredAt) },
+          { source: "extract", turnId: input.runId });
+      }
+      // Legacy remove lines retire facts without destroying their history.
       for (const removal of extraction.removals) {
-        if (known.has(memoryLogicalId(removal))) await this.deleteMemoryFact(tx, botId, "agent", removal);
+        if (known.has(memoryLogicalId(removal))) {
+          const retired = await tx.memoryFact.updateMany({
+            where: { id: { in: facts.filter(fact => memoryLogicalId(fact.fact) === memoryLogicalId(removal)).map(fact => fact.id) }, supersededAt: null },
+            data: { supersededAt: new Date() },
+          });
+          if (retired.count) await this.invalidateMemory(tx, botId, "agent");
+        }
       }
       for (const addition of extraction.additions) {
         await this.insertMemoryFact(tx, botId, {
           scope: "agent", tier: addition.kind, fact: addition.content, at: new Date(input.occurredAt),
         }, { source: "extract", turnId: input.runId });
       }
+      // Later completed turns must advance past this ordered learner's own
+      // corrections, while preserving any older fence invalidated by a tool.
+      const updatedBot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { memoryRevision: true } });
+      // Keep the checked shared component fixed: a peer can correct shared
+      // memory concurrently, and its invalidation must not be rebased away.
+      const resultingRevision = updatedBot.memoryRevision + (shared?.revision ?? 0);
+      if (resultingRevision !== observed) {
+        await tx.run.updateMany({ where: { botId, memoryReviewPending: true, memoryReviewRevision: observed },
+          data: { memoryReviewRevision: resultingRevision } });
+      }
+      return true;
     });
   }
 
-  /** Record the exchange before extraction runs; take over earlier ones an interrupted review left unreviewed. */
-  private async holdMemoryExchange(
-    botId: string,
-    exchange: HeldMemoryExchange,
-    claimed: string[]
-  ): Promise<HeldMemoryExchange[]> {
+  // Lifecycle locks serialize claims with archival and extraction. Database time
+  // prevents clock skew or a paused worker from extending an expired lease.
+  private async ownsMemoryReview(tx: Tx, botId: string, ownerId: string): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ botId: string }>>`
+      SELECT "botId" FROM "MemoryReviewLease"
+      WHERE "botId" = ${botId}::uuid AND "ownerId" = ${ownerId}::uuid
+        AND "expiresAt" > clock_timestamp() FOR UPDATE`;
+    return rows.length > 0;
+  }
+
+  private async claimMemoryReview(botId: string, ownerId: string, runId?: string): Promise<"claimed" | "busy" | "complete"> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
-      const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
-      const held = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((entry) => entry.id !== exchange.id);
-      // An exchange another review here still owns stays with it; any other was left by a stopped process.
-      const inReview = held.filter((entry) => this.memoryExchangesInReview.has(entry.id));
-      const earlier = held.filter((entry) => !this.memoryExchangesInReview.has(entry.id)).slice(-(MAX_HELD_MEMORY_EXCHANGES - 1));
-      // Claimed under the lock, so a concurrent hold here sees them as owned.
-      claimed.push(exchange.id, ...earlier.map((entry) => entry.id));
-      for (const id of claimed) this.memoryExchangesInReview.add(id);
-      await tx.bot.update({
-        where: { id: botId },
-        data: {
-          pendingMemoryExchanges: asInputJson(
-            [...inReview, ...earlier, holdMemoryExchange(exchange)].slice(-MAX_HELD_MEMORY_EXCHANGES)
-          ),
-        },
-      });
-      return earlier;
+      await lockAgentLifecycle(tx, botId);
+      if (!await tx.bot.count({ where: { id: botId, status: "active" } })) return "complete";
+      // A worker may have read a pending Run before another owner acknowledged
+      // it. Recheck under the same lifecycle lock used by atomic acknowledgement.
+      if (runId && UUID_FOLDER.test(runId)) {
+        const run = await tx.run.findFirst({ where: { id: runId, botId }, select: { memoryReviewPending: true } });
+        if (run && !run.memoryReviewPending) return "complete";
+        if (run) {
+          const oldest = await tx.run.findFirst({
+            where: { botId, memoryReviewPending: true, status: "completed", inboxEvents: { some: { status: "completed" } } },
+            orderBy: [{ completedAt: "asc" }, { id: "asc" }], select: { id: true },
+          });
+          if (oldest && oldest.id !== runId) return "busy";
+        }
+      }
+      const rows = await tx.$queryRaw<Array<{ botId: string }>>`
+        INSERT INTO "MemoryReviewLease" ("botId", "ownerId", "expiresAt")
+        VALUES (${botId}::uuid, ${ownerId}::uuid, clock_timestamp() + INTERVAL '30 seconds')
+        ON CONFLICT ("botId") DO UPDATE SET "ownerId" = EXCLUDED."ownerId", "expiresAt" = EXCLUDED."expiresAt"
+        WHERE "MemoryReviewLease"."expiresAt" <= clock_timestamp() RETURNING "botId"`;
+      return rows.length > 0 ? "claimed" : "busy";
     });
   }
 
-  private async releaseMemoryExchanges(botId: string, ids: readonly string[]): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
+  /** Persist the exchange before inference; only its durable lease owner may claim the backlog. */
+  private async holdMemoryExchange(
+    botId: string, ownerId: string, exchange: HeldMemoryExchange, claimed: string[]
+  ): Promise<{ earlier: HeldMemoryExchange[]; latest: HeldMemoryExchange } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
+      if (!await this.ownsMemoryReview(tx, botId, ownerId)) return null;
+      const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
+      const held = parseHeldMemoryExchanges(bot.pendingMemoryExchanges);
+      const previous = held.find(entry => entry.id === exchange.id);
+      const run = UUID_FOLDER.test(exchange.id)
+        ? await tx.run.findFirst({ where: { id: exchange.id, botId }, select: { memoryReviewRevision: true } }) : null;
+      const revision = await this.currentMemoryRevision(tx, botId);
+      const current = holdMemoryExchange({ ...exchange,
+        occurredAt: previous?.occurredAt ?? exchange.occurredAt,
+        memoryRevision: previous?.memoryRevision ?? run?.memoryReviewRevision ?? revision ?? 0,
+      });
+      // Failed/abandoned reviews retain their original correction fence. Never
+      // rebase an old user exchange onto a correction committed during an outage.
+      // Legacy entries without dates precede dated ones.
+      const ordered = [...held.filter(entry => entry.id !== exchange.id), current]
+        .sort((a, b) => (a.occurredAt ?? 0) - (b.occurredAt ?? 0)).slice(-MAX_HELD_MEMORY_EXCHANGES);
+      const latest = ordered.at(-1)!;
+      const earlier = ordered.slice(0, -1);
+      claimed.push(...ordered.map(entry => entry.id));
+      await tx.bot.update({ where: { id: botId }, data: { pendingMemoryExchanges: asInputJson(ordered) } });
+      return { earlier, latest };
+    });
+  }
+
+  private async releaseMemoryExchanges(botId: string, ownerId: string, ids: readonly string[]): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, botId);
+      if (!await this.ownsMemoryReview(tx, botId, ownerId)) return false;
       const bot = await tx.bot.findUnique({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
-      if (!bot) return;
+      if (!bot) return false;
       const remaining = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((held) => !ids.includes(held.id));
       await tx.bot.update({ where: { id: botId }, data: { pendingMemoryExchanges: asInputJson(remaining) } });
+      await tx.run.updateMany({ where: { botId, id: { in: ids.filter(id => UUID_FOLDER.test(id)) }, memoryReviewPending: true },
+        data: { memoryReviewPending: false } });
+      await tx.memoryReviewLease.deleteMany({ where: { botId, ownerId } });
+      return true;
     });
   }
 
-  /** After a completed user or group turn, learn lasting profile facts from it. */
+  /** True acknowledges review (or an intentional skip); false preserves durable work for retry. */
   async recordTurnMemory(
     botId: string,
-    input: {
-      user: string;
-      assistant: string;
-      hidden?: boolean;
-      occurredAt?: number;
-      runId?: string;
-      timeZone?: string;
-    }
-  ): Promise<void> {
-    if (!this.memoryInference || input.hidden || !input.user.trim()) return;
-    const bot = await this.prisma.bot.findUnique({
-      where: { id: botId },
-      select: { status: true },
-    });
-    if (!bot || bot.status !== "active") return;
-    if (!isMemorableExchange(input.user)) return;
-    const exchange = { id: input.runId ?? randomUUID(), user: input.user, agent: input.assistant };
+    input: { user: string; assistant: string; hidden?: boolean; occurredAt?: number; runId?: string; timeZone?: string }
+  ): Promise<boolean> {
+    botId = canonicalMemoryBotId(botId);
+    if (!this.memoryInference || input.hidden || !input.user.trim() || !isMemorableExchange(input.user)) return true;
+    const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { status: true } });
+    if (!bot || bot.status !== "active") return true;
+    const ownerId = randomUUID();
+    const claim = await this.claimMemoryReview(botId, ownerId, input.runId);
+    if (claim !== "claimed") return claim === "complete";
+    const abort = new AbortController();
+    let heartbeat: Promise<void> | undefined;
+    const timer = setInterval(() => {
+      if (heartbeat) return;
+      heartbeat = (async () => {
+        try {
+          const count = await this.prisma.$executeRaw`
+            UPDATE "MemoryReviewLease" SET "expiresAt" = clock_timestamp() + INTERVAL '30 seconds'
+            WHERE "botId" = ${botId}::uuid AND "ownerId" = ${ownerId}::uuid AND "expiresAt" > clock_timestamp()`;
+          if (!count) abort.abort(new Error("Memory review lease lost"));
+        } catch (error) { abort.abort(error); }
+      })().finally(() => { heartbeat = undefined; });
+    }, 5_000);
     const claimed: string[] = [];
     try {
-      const earlier = await this.holdMemoryExchange(botId, exchange, claimed);
-      try {
-        await this.runMemoryExtraction(botId, {
-          exchange,
-          earlier,
-          occurredAt: input.occurredAt ?? Date.now(),
-          timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)),
-          runId: input.runId,
-        });
-      } catch (error) {
-        console.warn(`memory extraction for ${botId}`, error);
-      }
-      // Reviewed or failed, these are done. Only a process that stops mid-extraction leaves one held.
-      await this.releaseMemoryExchanges(botId, claimed);
+      const exchange = { id: input.runId ?? randomUUID(), user: input.user, agent: input.assistant, occurredAt: input.occurredAt ?? Date.now() };
+      const held = await this.holdMemoryExchange(botId, ownerId, exchange, claimed);
+      if (held === null) return false;
+      const reviewed = await this.runMemoryExtraction(botId, {
+        exchange: held.latest, earlier: held.earlier, ownerId, signal: abort.signal,
+        reviewRevision: held.latest.memoryRevision,
+        occurredAt: held.latest.occurredAt ?? exchange.occurredAt,
+        timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)), runId: held.latest.id === exchange.id ? input.runId : held.latest.id,
+      });
+      clearInterval(timer);
+      await heartbeat;
+      if (!reviewed || abort.signal.aborted) return false;
+      return await this.releaseMemoryExchanges(botId, ownerId, claimed);
+    } catch (error) {
+      console.warn(`memory extraction for ${botId}`, error);
+      return false;
     } finally {
-      for (const id of claimed) this.memoryExchangesInReview.delete(id);
+      clearInterval(timer);
+      await heartbeat;
+      try {
+        await this.prisma.memoryReviewLease.deleteMany({ where: { botId, ownerId } });
+      } catch (error) {
+        // A lost database connection must not replace the retry result with a
+        // cleanup rejection. The owner-qualified lease expires without renewal.
+        console.warn(`memory review lease cleanup for ${botId}`, error);
+      }
     }
   }
 

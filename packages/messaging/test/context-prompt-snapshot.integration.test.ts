@@ -171,7 +171,7 @@ test("profile, memory facts, and skills freeze independently per context epoch",
     ).toBe(true);
     expect(snapshots.every((snapshot) => snapshot.skillEpoch === 1)).toBe(true);
 
-    // A forget, like a write, shows after the next summary; the owner's deletion unpins at once.
+    // Forget and owner deletion unpin immediately so removed facts cannot remain current.
     await store.forgetMemory(botId, {
       scope: "agent",
       fact: "Second fact waits for compaction.",
@@ -179,7 +179,7 @@ test("profile, memory facts, and skills freeze independently per context epoch",
     expect((await store.promptContext(botId, homeContextId)).memory.facts).not.toContain(
       "Second fact waits for compaction."
     );
-    expect(await pinned(homeContextId)).toContain("Second fact waits for compaction.");
+    expect(await pinned(homeContextId)).not.toContain("Second fact waits for compaction.");
     await store.deleteBotMemories(botId, memoryLogicalId("First fact waits for compaction."));
     for (const contextId of [homeContextId, groupContextId]) {
       const facts = await pinned(contextId);

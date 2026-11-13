@@ -3,6 +3,7 @@ export interface PromptSectionSnapshot {
   render: string;
   compactionEpoch: number;
   announcedRender?: string;
+  memoryRevision?: number;
   /** memory only: the other assistants' shared facts last shown, and their fingerprint. */
   otherAgentRender?: string;
   otherAgentFingerprint?: string;
@@ -17,6 +18,7 @@ export interface AutomationStatusReceipt {
 
 /** Memory facts pin per epoch with no change notes; only other assistants' shared changes are announced. */
 export interface MemoryContextLive {
+  revision?: number;
   facts: string;
   otherAgents?: { render: string; fingerprint: string };
 }
@@ -54,6 +56,7 @@ export function parsePromptSections(value: unknown): Record<string, PromptSectio
     result[name] = {
       render: entry.render,
       compactionEpoch: entry.compactionEpoch,
+      ...(name === "memory" && Number.isSafeInteger(entry.memoryRevision) ? { memoryRevision: entry.memoryRevision } : {}),
       ...(typeof entry.announcedRender === "string"
         ? { announcedRender: entry.announcedRender }
         : {}),
@@ -104,11 +107,17 @@ export function prepareMemoryContext(
   live: MemoryContextLive
 ): { facts: string; changed: boolean; receipt?: MemoryContextReceipt } {
   const pinned = snapshots.memory;
+  // A delayed preparation must not overwrite a newer correction or summary,
+  // nor replace its shared-memory delivery bookkeeping with older data.
+  if (pinned && (pinned.compactionEpoch > epoch ||
+      (pinned.memoryRevision !== undefined && live.revision !== undefined && pinned.memoryRevision > live.revision)))
+    return { facts: pinned.render, changed: false };
   const other = live.otherAgents;
-  if (!pinned || pinned.compactionEpoch !== epoch) {
+  if (!pinned || pinned.compactionEpoch !== epoch || pinned.memoryRevision !== live.revision) {
     snapshots.memory = {
       render: live.facts,
       compactionEpoch: epoch,
+      ...(live.revision !== undefined ? { memoryRevision: live.revision } : {}),
       ...(other ? { otherAgentRender: other.render, otherAgentFingerprint: other.fingerprint } : {}),
     };
     return { facts: live.facts, changed: false };

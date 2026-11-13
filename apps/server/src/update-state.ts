@@ -286,7 +286,7 @@ export class DurableStateService {
     runId: string | null,
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
-    if (input.action !== "write" && input.action !== "forget") {
+    if (input.action !== "write" && input.action !== "forget" && input.action !== "replace") {
       return stateError(tool, input.action);
     }
     const fact = requiredText(input.fact, "fact", tool, input.action);
@@ -300,6 +300,13 @@ export class DurableStateService {
     if (input.action === "forget") {
       const removed = await this.agentData.forgetMemory(botId, { scope, fact });
       return { target: "memory", action: "forget", type, forgotten: removed.forgotten, fact: removed.content };
+    }
+    if (input.action === "replace") {
+      const id = requiredText(input.id, "id", tool, input.action);
+      const saved = await this.agentData.replaceMemory(botId,
+        { scope, tier: type === "profile" || type === "shared_profile" ? "profile" : "log", id, fact },
+        { source: "tool", ...(runId ? { turnId: runId } : {}) });
+      return { target: "memory", action: "replace", type, ...saved, fact: saved.content };
     }
     const saved = await this.agentData.writeMemory(
       botId,

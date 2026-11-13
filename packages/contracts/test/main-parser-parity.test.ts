@@ -233,3 +233,10 @@ test("CheckSubagent and MessageSubagent results read as the reference words them
     "Message delivered to subagent sand-subagent-1. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it."
   );
 });
+
+test("memory correction and historical recall arguments survive normalization", () => {
+  const correction = { action: "replace", type: "profile", id: "00000000-0000-4000-8000-000000000207", fact: "Prefers Messi." };
+  expect(normalizeMainToolArguments("UpdateMemory", correction)).toEqual(correction);
+  expect(() => normalizeMainToolArguments("UpdateMemory", { ...correction, id: "wrong" })).toThrow();
+  expect(normalizeMainToolArguments("RecallMemory", { query: "football", includeHistory: true })).toEqual({ query: "football", includeHistory: true });
+});

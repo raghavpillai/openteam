@@ -226,7 +226,7 @@ async function notificationExperiment(variant: 'control' | 'treatment') {
   return { id: `mock-mail-${++mailSends}` };
  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
  const { WakeWorker } = await import('../../worker/src/worker');
- const worker = () => Object.assign(Object.create(WakeWorker.prototype), { prisma: f.prisma, messaging: f.messaging, workspaceRoot: f.messaging.agentData.workspaceRoot }) as any;
+ const worker = () => Object.assign(Object.create(WakeWorker.prototype), { prisma: f.prisma, messaging: f.messaging, workspaceRoot: f.messaging.agentData.workspaceRoot, memoryReviews: new Map() }) as any;
  const ids: string[] = [];
  const create = async (number: number) => {
   const result = await service.create(f.context(`create-${number}`), { platform: 'email', providerIdentifier: f.connection.id,

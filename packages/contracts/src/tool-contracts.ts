@@ -34,6 +34,23 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+// Versioned memory is an OpenTeam extension of the captured tool contracts.
+contracts.UpdateMemory!.description = contracts.UpdateMemory!.description.replace(
+  "write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact.",
+  "write adds a fact (deduped). To correct an existing fact, call RecallMemory and use replace with its editable id when shown (otherwise the id of a fact you own), the corrected fact and type; replacement is atomic and preserves the old fact only in history. Do not append a contradictory fact with write. If the change is ambiguous, ask rather than replacing unrelated facts. forget permanently drops a fact by its exact recorded text, including historical copies."
+);
+contracts.UpdateMemory!.inputSchema.properties.action.enum.push("replace");
+contracts.UpdateMemory!.inputSchema.properties.id = {
+  type: "string", format: "uuid", description: "For replace, use the editable id from RecallMemory when shown; otherwise use your own active fact id. Required for replace.",
+};
+contracts.RecallMemory!.description = contracts.RecallMemory!.description.replace(
+  "Results list each fact with its date, memory type",
+  "By default only active facts are searched. Set includeHistory to true only for historical questions; superseded facts must not be treated as current. Results list each fact with its stable id, status, date, memory type"
+);
+contracts.RecallMemory!.inputSchema.properties.includeHistory = {
+  type: "boolean", description: "Include superseded facts, labeled as historical. Default false.",
+};
+
 // Ref lifetime is an OpenTeam adaptation; keep the captured artifact intact.
 function adaptStableRefLifetime(value: any): void {
   if (!value || typeof value !== "object") return;

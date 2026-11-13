@@ -119,3 +119,43 @@ test("the extraction prompt opens with OpenTeam's own marker", async () => {
   expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toStartWith("<<OPENTEAM_MEMORY_EXTRACTION>>\nYou maintain the long-term memory");
   expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).not.toContain("SAND_MEMORY_EXTRACTION");
 });
+
+test("extraction corrections require a real shown fact and malformed JSON never becomes a fact", () => {
+  const result = parseExtractedMemories([
+    'replace: {"old":"Lives in Boston.","fact":"Lives in NYC."}',
+    'replace: {"old":"Invented existing fact.","fact":"Unfounded correction."}',
+    'replace: {"old":"Lives in Boston.","fact":"  "}',
+    'replace: null',
+    'replace: not-json',
+  ].join("\n"), ["Lives in Boston."]);
+  expect(result).toEqual({ additions: [], removals: [] });
+});
+
+test("indented extraction corrections retain their structured meaning", () => {
+  expect(parseExtractedMemories([
+    '  replace: {"old":"Lives in Boston.","fact":"Lives in NYC."}  ',
+    '  profile: Prefers concise replies.',
+  ].join("\n"), ["Lives in Boston."])).toEqual({
+    additions: [{ content: "Prefers concise replies.", kind: "profile" }],
+    removals: [], replacements: [{ old: "Lives in Boston.", fact: "Lives in NYC." }],
+  });
+});
+
+test("malformed or unknown correction/removal instructions reject the whole extraction batch", () => {
+  const source = "Lives in Boston.";
+  const invalid = [
+    'replace: {\n  "old": "Lives in Boston.",\n  "fact": "Lives in NYC."\n}',
+    'replace: {"old":"Lives in Boston","fact":"Lives in NYC."}\nprofile: Lives in NYC.',
+    'remove:\nprofile: Lives in NYC.',
+    'remove: Lives in Boston\nprofile: Lives in NYC.',
+    'replace: {"old":"Lives in Boston.","fact":"Lives in NYC."}\nreplace: null',
+  ];
+  for (const raw of invalid) expect(parseExtractedMemories(raw, [source])).toEqual({ additions: [], removals: [] });
+});
+
+test("a wrapping Markdown fence is formatting, not a pair of memory facts", () => {
+  expect(parseExtractedMemories('```json\nreplace: {"old":"Lives in Boston.","fact":"Lives in NYC."}\n```', ["Lives in Boston."])).toEqual({
+    additions: [], removals: [], replacements: [{ old: "Lives in Boston.", fact: "Lives in NYC." }],
+  });
+  expect(parseExtractedMemories('```text\nprofile: Likes tea.', [])).toEqual({ additions: [], removals: [] });
+});

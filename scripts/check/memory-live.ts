@@ -12,7 +12,7 @@
  */
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { normalizePiReasoningLevel, parsePiModelRef } from "../../packages/contracts/src/inference";
 import { ComputerRuntime } from "../../apps/computer/src/runtime";
 import { ScreenBroker } from "../../apps/computer/src/screen-broker";
@@ -36,6 +36,8 @@ if (!reasoningInput) throw new Error("Set OPENTEAM_MEMORY_LIVE_REASONING explici
 const reasoning = normalizePiReasoningLevel(reasoningInput);
 const resultsPath = process.env.OPENTEAM_MEMORY_LIVE_RESULTS;
 if (resultsPath && !isAbsolute(resultsPath)) throw new Error("OPENTEAM_MEMORY_LIVE_RESULTS must be an absolute path.");
+if (resultsPath && (resolve(resultsPath) === resolve(agentDir) || resolve(resultsPath).startsWith(resolve(agentDir) + sep)))
+  throw new Error("Results must be outside the imported authentication directory.");
 
 type Check = { description: string; test: (facts: string[]) => boolean };
 type Step = { user: string; assistant?: string; checks: Check[] };

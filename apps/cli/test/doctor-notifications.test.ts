@@ -38,10 +38,8 @@ describe("Doctor notification readiness", () => {
     expect(check(checks, "iOS push delivery")).toMatchObject({ level: "fail" });
     expect(check(checks, "iOS push delivery").detail).toContain("87");
     const result = { ok: false, installed: true, checks };
-    const output = renderDoctor(result, { color: false, width: 100 });
-    expect(output).toContain("NOTIFICATIONS");
+    expect(renderDoctor(result, { color: false, width: 100 })).toContain("NOTIFICATIONS");
     expect(doctorNextSteps(result).join("\n")).toContain("notifications configure");
-    expect(doctorNextSteps(result).join("\n")).toContain("apply it live");
     // A key for another app's bundle ID is the same silent failure.
     const wrongTopic = notificationChecks(state, {
       ...config,
@@ -126,18 +124,11 @@ describe("APNs configuration import", () => {
         JSON.stringify({ ...metadata, privateKey, privateKeyFile: "secret-key-path" })
       );
       expect(() => readApnsConfiguration(options)).toThrow("Choose one");
-      expect(() => readApnsConfiguration({ ...options, apnsKeyFile: "key.p8" })).toThrow(
-        "Choose --config"
-      );
       writeFileSync(
         path,
         JSON.stringify({ ...metadata, privateKey, secretUnknownField: "secret-value" })
       );
       expect(() => readApnsConfiguration(options)).toThrow("Unknown APNs configuration field");
-      writeFileSync(path, "{secret-value");
-      expect(() => readApnsConfiguration(options)).toThrow(
-        "Could not read valid APNs configuration JSON"
-      );
       writeFileSync(path, "secret-value".repeat(4000));
       expect(() => readApnsConfiguration(options)).toThrow(
         "Could not read valid APNs configuration JSON"

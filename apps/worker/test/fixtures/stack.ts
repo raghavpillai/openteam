@@ -45,7 +45,6 @@ function streamed(response: Promise<Response>): Response {
 export async function startStack(options: {
   turn?: (input: Turn, call: Call) => Promise<TurnScript>;
   infer?: (body: { kind: string; prompt: string }) => string;
-  cancel?: (runId: string, reason?: string) => void;
   streaming?: boolean;
   truncate?: boolean;
 } = {}) {
@@ -143,11 +142,6 @@ export async function startStack(options: {
       if (context && request.method === "GET") {
         contextReads.push(context);
         return Response.json({ type: "context.state", contextSessionId: context, epoch: 0, archives: [] });
-      }
-      const cancel = path.match(/^\/v1\/turns\/([^/]+)\/cancel$/)?.[1];
-      if (cancel) {
-        options.cancel?.(cancel, ((await request.json().catch(() => ({}))) as { reason?: string }).reason);
-        return Response.json({ ok: true });
       }
       if (/\/background-shells\/stop$/.test(path)) return Response.json({ stopped: 0 });
       if (path !== "/v1/turns") return Response.json({ ok: true, quarantined: [] });

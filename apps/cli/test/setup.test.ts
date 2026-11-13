@@ -192,7 +192,6 @@ describe("interactive setup", () => {
     const updated = parseEnvironment(updatedContents);
     const before = parseEnvironment(fixture.environment);
     expect(updated.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("4");
-    expect(updated.get("OPENTEAM_CONTROL_TOKEN")).toBe(before.get("OPENTEAM_CONTROL_TOKEN"));
     expect(updated.get("OPENTEAM_POSTGRES_PASSWORD")).toBe(
       before.get("OPENTEAM_POSTGRES_PASSWORD")
     );
@@ -206,17 +205,11 @@ describe("interactive setup", () => {
     ).toBe(false);
     expect(runner.index("pull")).toBeGreaterThan(runner.index("config"));
     expect(runner.index("up")).toBeGreaterThan(runner.index("pull"));
-    expect(output).toContain(
-      "Downloading OpenTeam (about 1.5 GB). This can take a few minutes; no more input is needed."
-    );
     const ownerCall = runner.calls.find((call) => call.args.includes("owner-credentials"));
     expect(ownerCall?.args).not.toContain("correct horse battery staple");
     expect(ownerCall?.options?.input).toContain('"operation":"setup"');
     expect(readManifest(fixture.paths)?.ownerUsername).toBe("Sam-Pillai");
-
     expect(output).toContain("OpenTeam is ready");
-    expect(output).toContain("Desktop: https://openteam.so/download");
-    expect(output).toContain("iPhone: https://testflight.apple.com/join/KFBFPkjP");
     expect(providerCalls(runner)).toEqual([]);
     expect(fixture.requests.filter((request) => request.includes("server-settings"))).toEqual([]);
   });

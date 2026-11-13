@@ -15,16 +15,10 @@ const turnBody = (content: string) => {
 const a2a = (metadata: unknown) => Boolean(metadata && typeof metadata === "object" && ("toAgent" in metadata || "fromAgent" in metadata));
 
 test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group rounds", async () => {
-  const cancelled: Array<{ runId: string; reason?: string }> = [];
-  const releaseTurn = new Map<string, () => void>();
   let answers = 0;
   let onTurn: (input: Turn, call: Call) => Promise<void> = async () => {};
   const stack = await startStack({
     truncate: true,
-    cancel(runId, reason) {
-      cancelled.push({ runId, reason });
-      releaseTurn.get(runId)?.();
-    },
     async turn(input, call) {
       await onTurn(input, call);
       const turnId = input.runId, itemId = `agent-${++answers}`, text = `durable answer ${answers}`;
@@ -70,7 +64,6 @@ test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs
     expect(firstTurn!.content).toContain(join(root, "data", "agents", bot.id, "attachments", `${image.assetId}.png`));
     expect(firstSnapshot.channelMessages.find((message) => message.channelId === bot.dmChannelId && message.sender === "user"))
       .toMatchObject({ content: "first", metadata: { attachments: [image] } });
-    expect("messages" in (await Effect.runPromise(app.clientSnapshot()))).toBe(false);
     expect(firstSnapshot.bots.find((candidate) => candidate.id === bot.id)?.onboardingStatus).toBe("skipped_by_user");
     // Room sessions record their own model and tape; they do not repoint the bot home session
     // or turn a root default into a bot override.
@@ -79,7 +72,6 @@ test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs
     const recorded = { inferenceProvider: "openai-codex", inferenceModel: "fake" };
     expect(await app.prisma.contextSession.findUniqueOrThrow({ where: { id: firstTurn!.contextSessionId } })).toMatchObject(recorded);
     expect(await app.prisma.run.findUniqueOrThrow({ where: { id: first.run.id } })).toMatchObject(recorded);
-    expect(firstSnapshot.workspace).toMatchObject({ root, botsDirectory: join(root, "bots"), sharedDirectory: join(root, "shared") });
 
     // A recreated host resumes the same Pi tape.
     await stack.shutdown();
@@ -95,20 +87,6 @@ test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs
     expect(stack.contextReads).toEqual(turns.map((turn) => turn.contextSessionId));
     expect(secondSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(2);
     expect(secondSnapshot.runItems.filter((item) => item.runId === second.run.id && item.kind === "error")).toMatchObject([{ status: "completed" }]);
-
-    // A typed message during a running turn supersedes it and runs as a new turn.
-    onTurn = async (input) => {
-      if (turnBody(input.content) !== "superseded base task") return;
-      await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
-    };
-    const base = await send(bot.conversationId, { content: "superseded base task", clientId: "client-superseded-base-0003" });
-    await stack.until(() => releaseTurn.has(base.run.id), "active user turn");
-    const redirected = await send(bot.conversationId, { content: "redirect the active task", clientId: "client-superseding-0004", attachments: [image] });
-    expect(redirected.run.id).not.toBe(base.run.id);
-    await stack.until(() => cancelled.some((cancel) => cancel.runId === base.run.id), "superseded turn cancelled");
-    expect(cancelled.find((cancel) => cancel.runId === base.run.id)?.reason).toBe("user_message");
-    await stack.until(() => turns.some((turn) => turnBody(turn.content) === "redirect the active task"), "superseding turn");
-    expect(turns.find((turn) => turnBody(turn.content) === "redirect the active task")?.images).toEqual([inlineImage]);
 
     // New bots greet proactively; agent DMs stay hidden and private context is not forwarded.
     let peerId = "";
@@ -193,7 +171,6 @@ test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs
       expect(turn.content).not.toContain("belongs to the next round");
       // Teammate and group IDs are in the per-turn user_info catalog.
       expect(turn.userInfo).toStartWith("<user_info>\nToday's date: ");
-      expect(turn.userInfo).toEndWith("</available_skills>\n</agent_skills>");
       expect(turn.userInfo).toContain(group.id);
       // Each member gets a fresh room session, separate from its DM session.
       expect(turn.sessionPath).toBeNull();

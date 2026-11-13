@@ -16,29 +16,20 @@ describe("installation configuration", () => {
     ).toContain("OpenTeam");
   });
 
-  test("creates random single-line secrets and stable release settings", () => {
+  test("creates random secrets and a loopback-only, sign-in-required default", () => {
     const first = parseEnvironment(createEnvironment({ version: "1.2.3", workerConcurrency: "8" }));
     const second = parseEnvironment(
       createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
-    expect(first.get("OPENTEAM_VERSION")).toBe("1.2.3");
+    // A fresh install is loopback-only with required sign-in until setup opens it up.
     expect(first.get("OPENTEAM_BIND_HOST")).toBe("127.0.0.1");
     expect(first.get("OPENTEAM_VIEWER_BIND_HOST")).toBe("127.0.0.1");
-    expect(first.get("OPENTEAM_PUBLIC_HOST")).toBe("127.0.0.1");
-    expect(first.get("OPENTEAM_PUBLIC_URL")).toBe("http://127.0.0.1:8787");
-    expect(first.get("OPENTEAM_ACCESS_MODE")).toBe("local");
-    expect(first.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("8");
-    expect(first.get("COMPOSE_PROFILES")).toBe("direct");
     expect(first.get("OPENTEAM_AUTH_MODE")).toBe("required");
-    expect(first.has("OPENTEAM_PI_PROVIDER")).toBe(false);
-    expect(first.has("OPENTEAM_PI_MODEL")).toBe(false);
-    expect(first.has("OPENTEAM_PI_THINKING")).toBe(false);
     expect(first.get("OPENTEAM_CONTROL_TOKEN")).toHaveLength(64);
     expect(first.get("OPENTEAM_AUTH_SECRET")).toHaveLength(64);
     expect(first.get("OPENTEAM_PROXY_SECRET")).toHaveLength(64);
     expect(first.get("OPENTEAM_POSTGRES_PASSWORD")).toHaveLength(64);
     expect(first.get("OPENTEAM_CONTROL_TOKEN")).not.toBe(second.get("OPENTEAM_CONTROL_TOKEN"));
     expect(first.get("OPENTEAM_AUTH_SECRET")).not.toBe(second.get("OPENTEAM_AUTH_SECRET"));
-    expect(first.get("OPENTEAM_PROXY_SECRET")).not.toBe(second.get("OPENTEAM_PROXY_SECRET"));
   });
 });

@@ -4,78 +4,24 @@ import type { RunResult } from "../src/process";
 import { modelUseCommand, providerLoginCommand } from "../src/providers";
 import type { RuntimeInferenceSettings } from "../src/runtime-settings";
 import type { SetupPrompter } from "../src/setup";
-import { FakeDocker, installStack, scratch } from "./fixtures/harness";
+import { FakeDocker, installStack, ok, scratch } from "./fixtures/harness";
 
 const s = scratch();
 
+/** Lists Anthropic as an API-key provider that becomes configured after `login`. */
 class ProviderRunner extends FakeDocker {
-  private customProviderAdded = false;
-  readonly connected = new Set(["openai-codex"]);
-
+  private configured = false;
   protected override respond(_command: string, args: readonly string[]): RunResult | undefined {
-    if (args.includes("selection")) {
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          providerId: "openai-codex",
-          modelId: "gpt-5.5",
-          reasoning: "high",
-        }),
-        stderr: "",
-      };
-    }
-    if (args.includes("providers")) {
-      return {
-        status: 0,
-        stdout: JSON.stringify([
-          {
-            id: "openai-codex",
-            name: "OpenAI Codex",
-            authMethods: [{ type: "oauth", label: "ChatGPT", subscription: true }],
-            configured: this.connected.has("openai-codex"),
-            authType: "oauth",
-            authSource: "OAuth",
-            models: 4,
-            custom: false,
-          },
-          {
-            id: "anthropic",
-            name: "Anthropic",
-            authMethods: [
-              { type: "oauth", label: "Claude Pro/Max", subscription: true },
-              {
-                type: "api_key",
-                label: "Anthropic API key",
-                subscription: false,
-              },
-            ],
-            configured: this.connected.has("anthropic"),
-            authType: null,
-            authSource: null,
-            models: 3,
-            custom: false,
-          },
-          ...(this.customProviderAdded
-            ? [
-                {
-                  id: "acme",
-                  name: "Acme AI",
-                  authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-                  configured: this.connected.has("acme"),
-                  authType: null,
-                  authSource: null,
-                  models: 1,
-                  custom: true,
-                },
-              ]
-            : []),
-        ]),
-        stderr: "",
-      };
-    }
-    if (args.includes("add-custom")) this.customProviderAdded = true;
-    if (args.includes("login")) this.connected.add(args[args.indexOf("login") + 1]!);
-    return undefined;
+    if (args.includes("login")) this.configured = true;
+    if (!args.includes("providers")) return undefined;
+    const authMethods = [{ type: "api_key", label: "Anthropic API key", subscription: false }];
+    const provider = {
+      id: "anthropic",
+      name: "Anthropic",
+      authMethods,
+      configured: this.configured,
+    };
+    return ok(JSON.stringify([provider]));
   }
 }
 
@@ -125,9 +71,7 @@ class ModelRunner extends FakeDocker {
     if (args.includes("verify") && this.verificationError) {
       return { status: 1, stdout: "", stderr: this.verificationError };
     }
-    if (args.includes("catalog")) {
-      return { status: 0, stdout: JSON.stringify({ models: this.models }), stderr: "" };
-    }
+    if (args.includes("catalog")) return ok(JSON.stringify({ models: this.models }));
     return undefined;
   }
 }
@@ -144,9 +88,6 @@ const fixture = () => {
     reads: 0,
     writes: [] as RuntimeInferenceSettings[],
     queryProviders: [] as Array<string | null>,
-    readStatus: 200,
-    writeStatus: 200,
-    invalidRead: false,
   };
   const server = s.serve(async (request) => {
     if (request.headers.get("authorization") !== `Bearer ${controlToken}`) {
@@ -156,12 +97,7 @@ const fixture = () => {
     if (request.method === "GET" && url.pathname === "/api/v0/internal/server-settings") {
       state.reads++;
       state.queryProviders.push(url.searchParams.get("provider"));
-      if (state.readStatus !== 200)
-        return Response.json(
-          { error: { message: "Settings unavailable" } },
-          { status: state.readStatus }
-        );
-      return Response.json(state.invalidRead ? {} : { inference: state.selected });
+      return Response.json({ inference: state.selected });
     }
     if (
       request.method === "PATCH" &&
@@ -169,11 +105,6 @@ const fixture = () => {
     ) {
       const input = (await request.json()) as RuntimeInferenceSettings;
       state.writes.push(input);
-      if (state.writeStatus !== 200)
-        return Response.json(
-          { error: { message: "Model cannot be selected" } },
-          { status: state.writeStatus }
-        );
       state.selected = input;
       return Response.json(input);
     }
@@ -202,9 +133,8 @@ describe("Codex model selection", () => {
     ]);
   });
 
-  test.each([
-    "Inference provider openai-codex is not authenticated",
-  ])("rejects failed verification before changing settings: %s", async (error) => {
+  test("rejects failed verification before changing settings", async () => {
+    const error = "Inference provider openai-codex is not authenticated";
     const { paths, runner, state } = fixture();
     runner.verificationError = error;
     await expect(

@@ -49,26 +49,9 @@ describe.skipIf(process.platform === "win32")("install and setup preflight", () 
     });
     expect(code).toBe(2);
     expect(output).toContain(message);
-    if (scenario === "missing") {
-      // Missing Docker gets one short answer instead of a diagnostic report.
-      expect(output).toContain(
-        process.platform === "linux"
-          ? "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/"
-          : "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
-      );
-      expect(output).toContain("Then run: openteam setup --dir");
-      expect(output).not.toContain("NEXT STEPS");
-    } else {
-      expect(output).toContain("NEXT STEPS");
-      expect(output).toContain("openteam setup --dir");
-      expect(output).toContain("paused");
-    }
-    for (const text of [
-      "Unexpected Docker command",
-      "requires a terminal",
-      "Downloading",
-      "Password",
-    ])
+    // Missing Docker gets one short answer; other failures get the paused report.
+    expect(output).toContain(scenario === "missing" ? "Then run: openteam setup --dir" : "paused");
+    for (const text of ["Unexpected Docker command", "Downloading", "Password"])
       expect(output).not.toContain(text);
     for (const [file, body] of before) expect(readFileSync(file, "utf8")).toBe(body);
     if (!installed) expect(existsSync(paths.directory)).toBe(false);

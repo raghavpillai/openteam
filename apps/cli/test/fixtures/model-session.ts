@@ -46,12 +46,7 @@ export const modelFixture = () => {
     apiKeySuffix: "A7z9",
     configured: true,
   };
-  const calls = {
-    inference: [] as RuntimeInferenceSettings[],
-    transcription: [] as TranscriptionDraft[],
-    discovery: [] as TranscriptionDraft[],
-    checks: 0,
-  };
+  const calls = { transcription: [] as TranscriptionDraft[] };
   const api: ModelSettingsAPI = {
     async catalog(provider = inference.providerId): Promise<ModelCatalog> {
       return {
@@ -91,7 +86,6 @@ export const modelFixture = () => {
       return { ...transcription };
     },
     async saveInference(value) {
-      calls.inference.push({ ...value });
       inference = { ...value };
       return { ...inference };
     },
@@ -124,14 +118,12 @@ export const modelFixture = () => {
       return { ...transcription };
     },
     async checkTranscription() {
-      calls.checks++;
       return {
         level: "pass",
         detail: "Provider reachable; model available. Send a voice note to verify transcription.",
       };
     },
-    async transcriptionModels(value) {
-      calls.discovery.push({ ...value });
+    async transcriptionModels() {
       return ["speech-large", "speech-small"];
     },
   };

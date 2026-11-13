@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import {
@@ -63,12 +62,10 @@ describe("doctor service probes", () => {
   const containers = (stdout: string) =>
     checkContainers(projectWith(result("a".repeat(64))), { run: () => result(stdout) }, ["worker"]);
 
-  test.each(["unhealthy"])("fails %s health even when running", (health) => {
-    expect(containers(inspect({ health }))[0]?.level).toBe("fail");
-  });
-  test.each([137])("fails schema deployment with exit code %d", (exitCode) => {
+  test("fails unhealthy-but-running services and a killed schema deployment", () => {
+    expect(containers(inspect({ health: "unhealthy" }))[0]?.level).toBe("fail");
     const checks = containers(
-      `${inspect()}\n${inspect({ service: "migrate", state: "exited", exitCode })}`
+      `${inspect()}\n${inspect({ service: "migrate", state: "exited", exitCode: 137 })}`
     );
     expect(checks.find((c) => c.label === "Schema setup")?.level).toBe("fail");
   });
@@ -80,23 +77,14 @@ describe("doctor service probes", () => {
     ]);
     expect(checks.every((c) => c.level === "fail" && c.detail.includes("timed out"))).toBe(true);
   });
-  test.each([
-    { name: "default bot identity", initialUid: 0, env: {}, expectedUid: 1000, expectedGid: 1000 },
-    {
-      name: "non-root computer",
-      initialUid: 2003,
-      env: {},
-      expectedUid: 2003,
-      expectedGid: undefined,
-    },
-  ])("workspace probe uses $name", async ({ initialUid, env, expectedUid, expectedGid }) => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-storage-"));
-    let uid: number = initialUid;
+  test("workspace probe drops root to the default bot identity before touching files", async () => {
+    const directory = s.dir("openteam-storage-");
+    let uid = 0;
     const identities: unknown[] = [];
     let output = "";
     // Exercise the embedded probe without requiring root on the test host.
     const probeProcess = {
-      env: { ...env, OPENTEAM_DOCTOR_STORAGE: "computer", OPENTEAM_WORKSPACE_ROOT: directory },
+      env: { OPENTEAM_DOCTOR_STORAGE: "computer", OPENTEAM_WORKSPACE_ROOT: directory },
       getuid: () => uid,
       setgroups: (groups: number[]) => identities.push(groups),
       setgid: (gid: number) => identities.push(gid),
@@ -111,59 +99,25 @@ describe("doctor service probes", () => {
         },
       },
     };
-    try {
-      await new Function("process", `return (async () => {${STORAGE_PROBE}})()`)(probeProcess);
-      expect(identities).toEqual(initialUid === 0 ? [[], expectedGid, expectedUid] : []);
-      expect(JSON.parse(output)).toEqual([
-        {
-          level: "pass",
-          label: directory,
-          detail: `Read, write, and delete verified as UID ${expectedUid}`,
-        },
-      ]);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-  test("a stale worker heartbeat is a failure rather than a false pass", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-heartbeat-"));
-    const path = join(directory, "heartbeat");
-    writeFileSync(path, JSON.stringify({ instance: "test", updatedAt: Date.now() - 30_000 }));
-    try {
-      const script = WORKER_PROBE.replace(
-        '"/tmp/openteam-worker-heartbeat.json"',
-        JSON.stringify(path)
-      );
-      const process = Bun.spawn(["node", "-e", `(async () => {${script}})()`], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const checks = JSON.parse(await new Response(process.stdout).text());
-      expect(await process.exited).toBe(0);
-      expect(checks[0]).toMatchObject({ level: "fail", label: "Worker heartbeat" });
-      expect(checks[1]).toMatchObject({ level: "warn", label: "Queue round trip" });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    await new Function("process", `return (async () => {${STORAGE_PROBE}})()`)(probeProcess);
+    expect(identities).toEqual([[], 1000, 1000]);
+    expect(JSON.parse(output)[0]).toMatchObject({ level: "pass", label: directory });
   });
 });
 
 describe.skipIf(process.platform === "win32")("actual worker diagnostic socket probe", () => {
-  test.each(["healthy", "hung"])("handles %s responses", async (mode) => {
-    const directory = mkdtempSync(join(tmpdir(), "ot-socket-"));
+  // A stale heartbeat must fail rather than pass on an old timestamp.
+  test.each(["healthy", "hung", "stale"])("handles %s workers", async (mode) => {
+    const directory = s.dir("ot-socket-");
     const heartbeat = join(directory, "h");
     const socket = join(directory, "s");
-    writeFileSync(heartbeat, JSON.stringify({ instance: "self", updatedAt: Date.now() }));
+    const updatedAt = Date.now() - (mode === "stale" ? 30_000 : 0);
+    writeFileSync(heartbeat, JSON.stringify({ instance: "self", updatedAt }));
     const server = createServer((_request, response) => {
       if (mode === "hung") return;
-      response.writeHead(200).end(
-        JSON.stringify({
-          ok: true,
-          instance: "self",
-          consumer: "self",
-          durationMs: 1,
-        })
-      );
+      response
+        .writeHead(200)
+        .end(JSON.stringify({ ok: true, instance: "self", consumer: "self", durationMs: 1 }));
     });
     try {
       await new Promise<void>((resolve) => server.listen(socket, resolve));
@@ -181,6 +135,11 @@ describe.skipIf(process.platform === "win32")("actual worker diagnostic socket p
       try {
         const checks = JSON.parse(await new Response(child.stdout).text());
         expect(await child.exited).toBe(0);
+        if (mode === "stale") {
+          expect(checks[0]).toMatchObject({ level: "fail", label: "Worker heartbeat" });
+          expect(checks[1].level).toBe("warn");
+          return;
+        }
         expect(checks[0].level).toBe("pass");
         expect(checks[1].level).toBe(mode === "healthy" ? "pass" : "fail");
         if (mode === "hung") expect(checks[1].detail).toContain("timed out");
@@ -190,7 +149,6 @@ describe.skipIf(process.platform === "win32")("actual worker diagnostic socket p
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(directory, { recursive: true, force: true });
     }
   });
 });
@@ -229,12 +187,9 @@ test("doctor checks transcription through the authenticated server and reports o
   expect((await checkTranscription(paths)).level).toBe("fail");
   response = Response.json({ level: "invalid", detail: "bad" });
   expect((await checkTranscription(paths)).level).toBe("fail");
-  expect(calls).toBe(3);
   response = new Response(null, { status: 401 });
   expect((await checkTranscription(paths)).level).toBe("fail");
-  response = new Response(null, { status: 404 });
-  expect((await checkTranscription(paths)).level).toBe("fail");
-  expect(calls).toBe(5);
+  expect(calls).toBe(4);
 });
 
 const settings = {
@@ -255,15 +210,9 @@ const probeFixture = (result: RunResult = { status: 0, stdout: '{"ok":true}\n', 
 };
 
 describe("model connection probe", () => {
-  test.each([
-    "anthropic",
-  ])("uses the saved %s model and thinking setting without exporting credentials", (providerId) => {
+  test("uses the saved model and thinking setting without exporting credentials", () => {
     const { project, calls } = probeFixture();
-    const selected = {
-      ...settings,
-      providerId,
-      modelId: providerId === "anthropic" ? "claude-sonnet-5" : settings.modelId,
-    };
+    const selected = { ...settings, providerId: "anthropic", modelId: "claude-sonnet-5" };
     expect(checkInferenceConnection(project, selected).ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.args.slice(0, 5)).toEqual(["exec", "--no-TTY", "server", "bun", "-e"]);

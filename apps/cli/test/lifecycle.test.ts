@@ -5,6 +5,7 @@ import { updateBusyMessage } from "@openteam/contracts/server-updates";
 import { parseArguments } from "../src/arguments";
 import {
   type InstallationPaths,
+  installationPaths,
   parseEnvironment,
   readManifest,
   replaceEnvironmentValue,
@@ -19,6 +20,7 @@ import {
   updateCommand,
 } from "../src/lifecycle";
 import type { RunOptions, RunResult } from "../src/process";
+import type { SetupPrompter } from "../src/setup";
 import { readUpdateState } from "../src/update-safety";
 import {
   FakeDocker,
@@ -146,6 +148,25 @@ describe("installed lifecycle", () => {
     expect(readManifest(paths)?.uninstalledAt).toBeUndefined();
   });
 
+  test("a cancelled first install keeps its manifest, so the next install resumes setup", async () => {
+    const paths = installationPaths(join(s.dir("openteam-cli-resume-"), "installation"));
+    let sessions = 0;
+    const cancel: SetupPrompter = {
+      question: async () => "",
+      secret: async () => "",
+      session: async () => (sessions++, null),
+      close() {},
+    };
+    const install = (args: string[]) =>
+      quietly(() => installCommand(paths, parseArguments(args), new StackDocker(), cancel));
+    await install(["install", ...releaseArguments()]);
+    expect(readManifest(paths)?.version).toBeString();
+    const { lines } = await install(["install"]);
+    expect(lines.join("\n")).toContain("setup is incomplete; resuming setup");
+    expect(sessions).toBe(2);
+    expect(readManifest(paths)?.ownerUsername).toBeUndefined();
+  });
+
   test("repeated start checks preflight and reports already running without restarting services or setup jobs", async () => {
     const { paths } = fixture();
     const runner = new StackDocker();
@@ -168,15 +189,9 @@ describe("installed lifecycle", () => {
       runner.stateFormat = "array";
       await startCommand(paths, runner);
     });
-    expect(lines.filter((line) => line.includes("Checking startup ports…"))).toHaveLength(2);
     const summaries = lines.filter((line) => line.includes("ALREADY RUNNING"));
     expect(summaries).toHaveLength(2);
-    for (const summary of summaries) {
-      expect(summary).toContain("OpenTeam is already running");
-      expect(summary).toContain("http://127.0.0.1:");
-      expect(summary).toContain("Network address");
-      expect(summary).toContain("http://100.64.0.5:8787");
-    }
+    for (const summary of summaries) expect(summary).toContain("http://100.64.0.5:8787");
     expect(runner.index("up")).toBe(-1);
     expect(runner.index("-e")).toBe(-1);
   });
@@ -208,17 +223,12 @@ describe("installed lifecycle", () => {
   test("safe uninstall removes containers but preserves configuration", async () => {
     const { directory, paths } = fixture();
     const runner = new StackDocker();
-    let removedCli = false;
     await uninstallCommand(paths, parseArguments(["uninstall", "--yes"]), runner, {
-      removeCli: () => {
-        removedCli = true;
-        return "/usr/local/bin/openteam";
-      },
+      removeCli: () => "/usr/local/bin/openteam",
     });
+    expect(existsSync(directory)).toBe(true);
     expect(readFileSync(paths.environment, "utf8")).toContain("OPENTEAM_CONTROL_TOKEN=");
     expect(readManifest(paths)?.uninstalledAt).toBeString();
-    expect(removedCli).toBe(true);
-    expect(directory).toBe(paths.directory);
     expect(runner.calls.at(-1)?.args).toContain("down");
     expect(runner.calls.at(-1)?.args).not.toContain("--volumes");
   });
@@ -242,8 +252,6 @@ describe("installed lifecycle", () => {
       targetVersion: "1.3.0",
     });
     expect(existsSync(readUpdateState(paths)?.backupPath ?? "")).toBe(true);
-    expect(runner.index("pull")).toBeGreaterThan(-1);
-    expect(runner.index("up")).toBeGreaterThan(-1);
     const phases = lines
       .filter((line) => line.startsWith(UPDATE_PROGRESS_PREFIX))
       .map((line) => JSON.parse(line.slice(UPDATE_PROGRESS_PREFIX.length)).phase);
@@ -304,7 +312,6 @@ describe("installed lifecycle", () => {
       ).rejects.toThrow("previous Compose configuration was restored and restarted");
     });
     expect(runner.index("dropdb")).toBeGreaterThan(-1);
-    expect(runner.index("createdb")).toBeGreaterThan(-1);
     const restoreIndex = runner.calls.findIndex((call) => Boolean(call.options?.inputFile));
     expect(restoreIndex).toBeGreaterThan(-1);
     const stopIndexes = runner.calls

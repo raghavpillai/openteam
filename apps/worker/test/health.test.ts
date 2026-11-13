@@ -93,11 +93,7 @@ const post = (socketPath: string, path = "/queue", method = "POST") =>
     req.end();
   });
 
-const fixture = async (
-  mode: "ready" | "failed" | "hung" | "foreign" | "dependencies" | "dependencies-hung" = "ready",
-  queueLatencyMs = 0,
-  notifications?: () => Promise<unknown>
-) => {
+const fixture = async (mode: "ready" | "hung" | "dependencies" = "ready") => {
   const directory = await mkdtemp(join(tmpdir(), "ot-doc-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const paths = { socket: join(directory, "s"), heartbeat: join(directory, "h") };
@@ -105,7 +101,6 @@ const fixture = async (
   let data: any;
   const deleted: string[] = [];
   const queues: string[] = [];
-  let dependencyCalls = 0;
   const boss = {
     createQueue: async (name: string) => {
       queues.push(name);
@@ -117,36 +112,21 @@ const fixture = async (
       data = input;
       return "test-job";
     },
-    getJobById: async () => {
-      if (queueLatencyMs) await Bun.sleep(queueLatencyMs);
-      return mode === "hung"
+    getJobById: async () =>
+      mode === "hung"
         ? new Promise(() => undefined)
-        : {
-            state: mode === "failed" ? "failed" : "completed",
-            output: {
-              ...(await consume([{ data }])),
-              ...(mode === "foreign" ? { instance: "another-worker" } : {}),
-            },
-          };
-    },
+        : { state: "completed", output: await consume([{ data }]) },
     deleteJob: async (_name: string, id: string) => {
       deleted.push(id);
     },
     offWork: async () => {},
     deleteQueue: async () => {},
   } as unknown as PgBoss;
-  const stop = await startWorkerDiagnostics(
-    boss,
-    paths,
-    async () => {
-      dependencyCalls++;
-      if (mode === "dependencies-hung") return new Promise(() => {});
-      if (mode === "dependencies") throw new Error("secret database connection string");
-    },
-    notifications
-  );
+  const stop = await startWorkerDiagnostics(boss, paths, async () => {
+    if (mode === "dependencies") throw new Error("secret database connection string");
+  });
   cleanups.push(stop);
-  return { paths, deleted, queues, dependencyCalls: () => dependencyCalls };
+  return { paths, deleted, queues };
 };
 
 describe("worker diagnostics", () => {

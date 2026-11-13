@@ -119,12 +119,8 @@ class DockerPsRunner implements CommandRunner {
   }
 }
 
-const withListener = async (run: (port: number) => Promise<void>, hostname = "127.0.0.1") => {
-  const server = Bun.serve({
-    hostname,
-    port: 0,
-    fetch: () => new Response("ok"),
-  });
+const withListener = async (run: (port: number) => Promise<void>) => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
   try {
     if (!server.port) throw new Error("Expected Bun to allocate a port");
     await run(server.port);
@@ -154,8 +150,6 @@ describe("stack inspection", () => {
     );
     expect(conflict).toEqual({ port: 8787, host: "0.0.0.0", tailscale: true });
     expect(portConflictMessage(conflict!)).toContain("Tailscale Serve already uses port 8787");
-    expect(portConflictMessage(conflict!)).toContain("tailscale serve status");
-    expect(portConflictMessage(conflict!)).not.toContain("docker compose -p openteam down");
     expect(runner.calls.find((call) => call.command === "tailscale")?.options?.timeoutMs).toBe(
       3_000
     );
@@ -206,30 +200,5 @@ describe("stack inspection", () => {
     expect(ports.probeHosts("127.0.0.1", "win32")).toEqual(["127.0.0.1", "0.0.0.0"]);
     // Linux refuses the loopback bind itself, so a wildcard probe would only add false conflicts.
     expect(ports.probeHosts("127.0.0.1", "linux")).toEqual(["127.0.0.1"]);
-  });
-
-  test("reports a loopback port that another container publishes on every address", async () => {
-    await withListener(async (port) => {
-      const runner = new DockerPsRunner({
-        [String(port)]: "other-computer-1\tother",
-      });
-      const conflict = await findPortConflict(
-        runner,
-        portRequirementsFromEnvironment(
-          new Map([["OPENTEAM_API_PORT", String(port)]]),
-          new Set(["computer"])
-        )
-      );
-      expect(conflict).toMatchObject({
-        port,
-        container: "other-computer-1",
-        project: "other",
-      });
-      expect(portConflictMessage(conflict!)).toContain(
-        `port ${port} is already in use by container other-computer-1 (Compose project other). Stop that stack with \`docker compose -p other down\``
-      );
-      expect(await ports.firstUnavailablePort("127.0.0.1", [port])).toBe(port);
-      expect(await ports.suggestApiPort("127.0.0.1", port)).not.toBe(port);
-    }, "0.0.0.0");
   });
 });

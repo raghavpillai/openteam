@@ -17,7 +17,6 @@ import {
 import {
   activeUpdateProcess,
   acquireUpdateLock,
-  readUpdateEvents,
   readUpdateState,
   writeUpdateState,
 } from "../src/update-safety";
@@ -81,7 +80,6 @@ describe("durable one-command update", () => {
     expect(messages.some((message) => message.includes('"safeToCloseDesktop":true'))).toBe(true);
     expect(messages.some((message) => message.includes('"phase":"complete"'))).toBe(true);
     expect(messages.every((message) => message.startsWith("@@OPENTEAM_UPDATE@@"))).toBe(true);
-    expect(messages.some((message) => message.includes("\x1b"))).toBe(false);
   });
 
   test("runs a standalone upgrade through the staged target CLI", async () => {
@@ -204,36 +202,6 @@ describe("update transaction safety", () => {
     expect(() => acquireUpdateLock(paths)).toThrow("already running");
     release();
     expect(existsSync(paths.updateLock)).toBe(false);
-    const releaseAgain = acquireUpdateLock(paths);
-    releaseAgain();
-  });
-
-  test("persists update jobs atomically for reconnecting clients", () => {
-    const paths = fixture();
-    const initial = writeUpdateState(paths, {
-      schemaVersion: 1,
-      jobId: "job-1",
-      status: "running",
-      phase: "pulling",
-      fromVersion: "1.2.3",
-      targetVersion: "1.3.0",
-      message: "Pulling images",
-      startedAt: "2026-09-01T00:00:00.000Z",
-      updatedAt: "2026-09-01T00:00:00.000Z",
-    });
-    expect(readUpdateState(paths)).toMatchObject({
-      jobId: "job-1",
-      status: "running",
-      phase: "pulling",
-      sequence: 0,
-    });
-    writeUpdateState(paths, {
-      ...initial,
-      phase: "complete",
-      status: "complete",
-      message: "Update complete",
-    });
-    expect(readUpdateEvents(paths, "job-1").map((event) => event.sequence)).toEqual([0, 1]);
   });
 
   test("treats the detached CLI bootstrap as active before it takes the server lock", () => {

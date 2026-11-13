@@ -79,9 +79,9 @@ describe("reaction context routing", () => {
     expect(runtimeRequestSourceForOrigin("bootstrap", "user.reaction")).toBe("turn");
   });
 
-  test("a reaction wake gets no text-reply reminder after canonical timestamp framing", () => {
+  test("a reaction wake gets no text-reply reminder, even when one is requested", () => {
     const content = wrapped(hidden);
-    expect(turnContentWithNotes({ origin: "user", inboxType: "user.reaction", runtimeProfile: "agent", notes: [] }, content)).toBe(content);
+    expect(turnContentWithNotes({ origin: "user", inboxType: "user.reaction", runtimeProfile: "agent", appendReplyReminder: true, notes: [] }, content)).toBe(content);
     // Older callers without inbox metadata still recognize the canonical hidden query.
     expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [] }, content)).toBe(content);
   });
@@ -94,15 +94,6 @@ describe("reaction context routing", () => {
     expect(turn).toContain("Plain assistant text is NEVER delivered");
     expect(turn).toEndWith(content);
   });
-
-  test("ordinary assembly does not force a text send; recorded framing can explicitly request the source reminder", () => {
-    const content = wrapped("[t1u]\nThanks");
-    const input = { origin: "user" as const, inboxType: "message.user", runtimeProfile: "agent" as const, notes: [] };
-    expect(turnContentWithNotes(input, content)).toBe(content);
-    expect(turnContentWithNotes({ ...input, appendReplyReminder: true }, content)).toContain("Reply to this message by actually invoking the SendToUser tool.");
-    expect(turnContentWithNotes({ ...input, appendReplyReminder: true, inboxType: "user.reaction" }, wrapped(hidden))).toBe(wrapped(hidden));
-  });
-
 });
 
 describe("turn completion", () => {

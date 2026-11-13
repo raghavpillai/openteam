@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { errorMessage } from "../src/errors";
 import { cliProgram, renderCommandError } from "../src/command-ui";
 
@@ -21,12 +20,6 @@ describe("CLI presentation", () => {
 });
 
 describe("CLI name in hints", () => {
-  const directories: string[] = [];
-  afterEach(() => {
-    for (const directory of directories.splice(0))
-      rmSync(directory, { recursive: true, force: true });
-  });
-
   test("quotes paths the shell would split", () => {
     expect(
       cliProgram({

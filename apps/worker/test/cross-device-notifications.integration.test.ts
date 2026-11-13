@@ -38,10 +38,10 @@ test.skipIf(!databaseUrl)(
       },
     });
     const installationIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-    const native: Array<{headers: Record<string, string>; payload: any}> = [];
+    const native: Array<{authority: string; headers: Record<string, string>; payload: any}> = [];
     const signingKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-    const apns = new ApnsClient({ keyId: "QA", teamId: "QA", topic: "dev.openteam.mobile.swift", privateKey: signingKey }, async (_, headers, body) => {
-      native.push({headers, payload: JSON.parse(body)}); return {status: 200};
+    const apns = new ApnsClient({ keyId: "QA", teamId: "QA", topic: "dev.openteam.mobile.swift", privateKey: signingKey }, async (authority, headers, body) => {
+      native.push({authority, headers, payload: JSON.parse(body)}); return {status: 200};
     });
     const delivered: string[] = [];
     const dismissed: string[] = [];
@@ -222,6 +222,7 @@ test.skipIf(!databaseUrl)(
       await drain();
       const nativeRead = pushes("badge-sync").at(-1)!;
       expect(nativeRead.headers["apns-push-type"]).toBe("background");
+      expect(pushes("badge-sync").map((push) => push.authority)).toContain("https://api.push.apple.com");
       expect(nativeRead.payload.aps).toEqual({ "content-available": 1 });
       expect(nativeRead.payload.data).toMatchObject({
         badgeCount: initialBadgeCount,

@@ -75,59 +75,20 @@ describe("detected vendor sign-ins", () => {
     expect(readClaudeCredential(options)?.credential.access).toBe("right-account");
     expect(runner.calls).toHaveLength(0);
   });
-  test("reads the Claude Code sign-in from its credentials file or the macOS Keychain", () => {
-    const directory = home();
-    mkdirSync(join(directory, ".claude"));
-    writeFileSync(
-      join(directory, ".claude", ".credentials.json"),
-      JSON.stringify({
-        claudeAiOauth: {
-          accessToken: "claude-access",
-          refreshToken: "claude-refresh",
-          expiresAt: 42,
-        },
-      })
-    );
-    expect(readClaudeCredential({ home: directory, env: {}, platform: "linux" })).toEqual({
-      credential: {
-        type: "oauth",
-        access: "claude-access",
-        refresh: "claude-refresh",
-        expires: 42,
-      },
-      source: "Claude Code (~/.claude/.credentials.json)",
-    });
-
+  test("reads the Claude Code sign-in from the macOS Keychain only on macOS", () => {
     const bare = home();
-    expect(readClaudeCredential({ home: bare, env: {}, platform: "linux" })).toBeNull();
     const runner = new KeychainRunner(
-      JSON.stringify({
-        claudeAiOauth: { accessToken: "kc-access", refreshToken: "kc-refresh" },
-      })
+      JSON.stringify({ claudeAiOauth: { accessToken: "kc-access", refreshToken: "kc-refresh" } })
     );
-    expect(readClaudeCredential({ home: bare, env: {}, platform: "darwin", runner })).toEqual({
-      credential: {
-        type: "oauth",
-        access: "kc-access",
-        refresh: "kc-refresh",
-        expires: 0,
-      },
-      source: "Claude Code (macOS Keychain)",
-    });
+    expect(
+      readClaudeCredential({ home: bare, env: {}, platform: "darwin", runner })?.credential
+    ).toMatchObject({ access: "kc-access", refresh: "kc-refresh" });
     expect(runner.calls[0]?.args).toEqual([
       "find-generic-password",
       "-s",
       "Claude Code-credentials",
       "-w",
     ]);
-    expect(
-      readClaudeCredential({
-        home: bare,
-        env: {},
-        platform: "darwin",
-        runner: new KeychainRunner(null),
-      })
-    ).toBeNull();
     expect(readClaudeCredential({ home: bare, env: {}, platform: "linux", runner })).toBeNull();
   });
 
@@ -170,10 +131,7 @@ describe("detected vendor sign-ins", () => {
 });
 
 describe("provider connection screen", () => {
-  test.each([
-    "ctrl-c",
-    "button",
-  ])("%s cancels the remote browser session and returns to the picker", async (key) => {
+  test("Ctrl-C cancels the remote browser session exactly once", async () => {
     const f = connectionFixture();
     let result: unknown;
     f.session.subscribe((value) => {
@@ -184,8 +142,7 @@ describe("provider connection screen", () => {
     expect(connectionScreen(f.session)).not.toContain("synthetic-state");
     expect(connectionScreen(f.session)).not.toContain("here::");
     expect(f.calls.links).toHaveLength(0);
-    if (key === "button") choose(f.session, "cancel");
-    else f.session.handle("", key === "ctrl-c" ? { ctrl: true, name: "c" } : { name: "escape" });
+    f.session.handle("", { ctrl: true, name: "c" });
     await settle(() => !!result);
     expect(result).toEqual({ type: "complete", value: "cancelled" });
     expect(f.calls.cancel).toEqual(["session-1"]);

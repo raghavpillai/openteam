@@ -112,8 +112,15 @@ struct RichMessageCard: View {
       }
       .disabled(busy || store.busy.contains("/api/v0/channel-messages/\(API.segment(message.id))/widget-response"))
       .onAppear { resetDraftFields() }
+      .onChange(of: meta["draft"]) { previous, incoming in
+        if type == "external-draft" { syncDraftFields(from: previous, to: incoming) }
+      }
       .onChange(of: state) { _, value in
-        if type == "external-draft", value == "dismissed" { resetDraftFields() }
+        if type == "external-draft" {
+          if value == "dismissed" { resetDraftFields() }
+          if value != "pending" && value != "sending" { draftSending = false }
+          if value == "sent" || value == "dismissed" { failure = nil }
+        }
       }
       .onDisappear {
         secret = ""
@@ -127,6 +134,17 @@ struct RichMessageCard: View {
     to = meta["draft"]["to"].array.map(\.string).joined(separator: ", ")
     cc = meta["draft"]["cc"].array.map(\.string).joined(separator: ", ")
     fromAddress = meta["draft"]["from"].string
+  }
+  private func syncDraftFields(from previous: JSON, to incoming: JSON) {
+    if bodyText == previous["body"].string { bodyText = incoming["body"].string }
+    if subject == previous["subject"].string { subject = incoming["subject"].string }
+    if to == previous["to"].array.map(\.string).joined(separator: ", ") {
+      to = incoming["to"].array.map(\.string).joined(separator: ", ")
+    }
+    if cc == previous["cc"].array.map(\.string).joined(separator: ", ") {
+      cc = incoming["cc"].array.map(\.string).joined(separator: ", ")
+    }
+    if fromAddress == previous["from"].string { fromAddress = incoming["from"].string }
   }
   private func presentComputer() {
     if let bot = store.bots.first(where: { $0.id == message.senderBotId })
@@ -821,8 +839,14 @@ struct RichMessageCard: View {
           "/api/v0/channel-messages/\(API.segment(message.id))/\(suffix)", method: "POST",
           body: .object(payload))
         if let updated = try? result["message"].decode(Message.self) {
-          store.merge([updated], channel: updated.channelId)
-          store.persist()
+          let current = store.messages(updated.channelId).first { $0.id == updated.id }
+          let currentState = current?.metadata["cardState"].string ?? "pending"
+          let settled = !currentState.isEmpty && currentState != "pending" && currentState != "sending"
+          // A response can arrive after another device's terminal update.
+          if suffix != "external-draft" || !settled {
+            store.merge([updated], channel: updated.channelId)
+            store.persist()
+          }
         }
         // A draft reports its outcome in the returned card (sent, reopened with an error, unchanged).
         guard suffix == "external-draft" || suffix == "imessage-send"
@@ -847,8 +871,15 @@ struct RichMessageCard: View {
         }
         requestID = UUID().uuidString
       } catch {
-        NativeHaptics.failure(error, source: "rich-action.result")
-        failure = UserFacingError.message(error)
+        let current = store.messages(message.channelId).first { $0.id == message.id }
+        let confirmed = ["sent", "dismissed"].contains(current?.metadata["cardState"].string ?? "")
+        if suffix == "external-draft" && confirmed {
+          // The response may be lost after its live update already confirmed success.
+          failure = nil
+        } else {
+          NativeHaptics.failure(error, source: "rich-action.result")
+          failure = UserFacingError.message(error)
+        }
       }
     }
   }

@@ -142,6 +142,22 @@ Native Chrome checks on the actual card component confirm unreadable/wrong-tool 
 
 The [new evidence and limits](assets/draft-result-routing-2026-11-13.json) distinguish failing probes, final checks and the corrected harness. No fresh live-model/native Grokbot trial or real email/Slack/APNs delivery occurred. Earlier platform/budget failures and broad matrices remain historical and were not rerun in this server-focused pass.
 
+## Parallel independent audits — November 13
+
+At the user’s request, three subagents investigated connector results, lifecycle ordering and review-card behavior independently. They reproduced false success for JSON literals and malformed envelopes, partial SMTP acceptance counted as a complete send, lost confirmed outcomes after retirement, new queued work after retirement’s cancellation snapshot, stale review fields overwriting another device’s edits, and late Pending responses restoring controls on terminal cards. Parent probes also caught creation receipts borrowed across runs and legacy bindings trusting non-verification records.
+
+The private decoder now separates JSON parsing from recursive validation, keeps opaque/numeric/exponent-looking IDs intact, validates MCP envelopes and metadata-only responses, and requires known email success evidence. SMTP must confirm all reviewed To/Cc recipients without rejections; ambiguous or partial delivery stays unknown without replay. Managed Slack’s opaque successful records remain compatible because no real remote send schema was verified.
+
+Mutation and settlement now serialize on the existing agent lifecycle lock before card/notification locks. A known result arriving after retirement is saved without waking the archived owner. A settlement that wins first queues its wake before retirement’s cancellation snapshot. Creation recovery validates bot/run ownership; legacy account provenance requires exact, appropriate, successful verification calls rather than merely similar call IDs.
+
+Desktop and iOS follow saved remote changes to pristine fields while preserving dirty local fields. Terminal outcomes remain authoritative over delayed responses. iOS suppresses lost-response errors after confirmed Sent/Discarded. The desktop retains Check delivery if refresh still reports Sending. No conflict-resolution API, approval behavior or public tool was added.
+
+Final validation passes **754 unique automated checks**: 66 server/decoder/lifecycle, 33 adjacent contracts/client/worker/connector and 655 desktop checks. Fifteen permanent tests were added; twenty-one repeated regression executions are counted separately. One desktop environment-specific case remains skipped. The desktop files ran in fresh processes; final UI code-size cleanup also passed helper tests, component-hook assertions, typecheck and build. Server typecheck/build and architecture checks pass.
+
+Native Chrome tests on the actual card component confirm pristine remote updates, dirty-body preservation, exact synthetic send packets, and a discarded card staying read-only after a stale Pending HTTP response. Reload preserves two sent cards and one discarded card, with three unique covered outcomes. There were two synthetic connector calls and no external transport. Pauses create two progress rows as intended.
+
+Two checks remain blocked. The final desktop startup/raw limits pass at 1,330,294 and 17,867,905 bytes, but gzip fails at 4,470,492 against 4,468,300; no threshold was raised. Full iOS build fails in unchanged BarRegions.swift and SiriMessaging.swift; the modified Swift file passes syntax parsing, but no full iOS/runtime pass is claimed. [Independent findings, test accounting and limits](assets/draft-parallel-audit-2026-11-13.json) include failing reproductions and final evidence. No real email/Slack/APNs, deployment, production flag change, new live-model run or fresh native Grokbot comparison occurred.
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

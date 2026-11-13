@@ -1,0 +1,217 @@
+{
+  "testedAfterHead": "ed2cc2ca4821ff8670082b0a0bf89999fbbb6d75",
+  "sourceFileSHA256": {
+    "apps/desktop/src/renderer/components/openteam/external-draft-card.tsx": "2047161cf6da853d52b6e21853fd9bfa06f43e8e1e903b6ceda8e15834587a31",
+    "apps/ios/Sources/App/RichMessageCard.swift": "19db5a252ae6e05ec373a24c70e6233b3b79161c5ce6672237505eacbad328fc",
+    "apps/server/src/services/external-draft-service.ts": "7f9004e40adfbc7c55b149b56b13999408b3c9a03040d966f00bd7d34694793f",
+    "apps/server/test/external-draft.integration.test.ts": "9012f4e94fa4f2e8bf1ed8e0aeafb5d7a7a02fe4229ce432108706dab86f8475",
+    "packages/client-core/src/external-draft.ts": "c0754740bfec2d11aa3ac487f71d241c8a79c15108ef77e9c1136098f995430f",
+    "packages/client-core/test/external-draft.test.ts": "a93bca359a86ddbe14520882dd11bc19d70fb38d2c17c8d5271ffa057270520a",
+    "apps/server/src/services/external-draft-result.ts": "f23c03ff93848326b7fed0f5c52b08b179266affcfff720459e0c586b07ae359",
+    "apps/server/test/external-draft-result.test.ts": "a6dcdc6c77abfcfc368c8e8437fec0276066606807c2dfd056b221c4e83d536b",
+    "apps/server/test/external-draft-lifecycle.integration.test.ts": "c518d82b73713da316eddd91fe1adb7ec9f248f69a4f46166f1b4e85c2c071a5"
+  },
+  "runtime": "Repository-pinned Bun 1.4.2; separate disposable PostgreSQL databases per investigation",
+  "summary": {
+    "subagents": 3,
+    "uniqueAutomatedTestsPassed": 754,
+    "focusedChecksPassed": 99,
+    "desktopChecksPassed": 655,
+    "automatedTestsFailed": 0,
+    "desktopEnvironmentChecksSkipped": 1,
+    "newPermanentTests": 15,
+    "repeatedCaseExecutions": 21,
+    "nativeCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "investigations": [
+    {
+      "area": "Connector replies",
+      "agent": "result_decoder_audit",
+      "before": [
+        "JSON strings false/null/true fell through into plain successful IDs",
+        "Null MCP envelopes and metadata-only records could confirm a send",
+        "Partial SMTP acceptance was described as the entire reviewed message sent"
+      ],
+      "fix": [
+        "Separate JSON parsing errors from recursive decoding failures, retaining opaque/digit/exponent-like IDs",
+        "Validate MCP envelope types and reject metadata-only records",
+        "Email uses known Gmail/SMTP confirmation shapes; SMTP must accept all reviewed To/Cc recipients with no rejects",
+        "Managed Slack keeps opaque reply compatibility because its remote success schema was not verified"
+      ],
+      "checks": "Six permanent decoder tests; 27 live/recovered service scenarios in the main integration matrix; eight additional subagent diagnostic cases are not counted again."
+    },
+    {
+      "area": "Archive and outcome ordering",
+      "agent": "draft_lifecycle_audit",
+      "before": [
+        "Confirmed transport completion after retirement rolled settlement back, leaving sending",
+        "Discard could create queued work after retirement had taken its cancellation snapshot"
+      ],
+      "fix": [
+        "Settlement and mutation acquire lifecycle before card/notification locks",
+        "Known outcomes persist after retirement without waking an archived bot/channel",
+        "Settlement-first wakes are included in the retirement cancellation snapshot"
+      ],
+      "checks": "Four permanent database cases /64 assertions; archive-first, settlement-first and a discard waiting behind archive. Storage phase is simulated; no real cleanup or runtime calls."
+    },
+    {
+      "area": "Review card synchronization",
+      "agent": "review_card_audit",
+      "before": [
+        "Pending fields stayed stale after another device saved edits, and submitting silently overwrote those edits",
+        "A late Pending HTTP response restored Send/Discard after a Sent prop update",
+        "iOS source handling could retain a lost-response error beside a confirmed discard"
+      ],
+      "fix": [
+        "Merge incoming pristine fields while retaining dirty local edits",
+        "Keep terminal state/history authoritative over late replies",
+        "Suppress iOS errors after confirmed Sent/Discarded and clear stale local sending state",
+        "Keep desktop Check delivery available when a successful refresh still reports Sending"
+      ],
+      "checks": "Permanent client reconciliation/state tests, actual-component hook reproductions, native desktop smoke test; Swift syntax passes, full iOS build does not."
+    },
+    {
+      "area": "Parent receipt/provenance checks",
+      "before": [
+        "A new run reusing a call ID received an earlier run card as its own receipt",
+        "Legacy account binding accepted unrelated, send-action or failed tool receipts as verification"
+      ],
+      "fix": [
+        "Recovered creation receipts must belong to the same bot and run",
+        "Legacy binding requires exact verification call identity, appropriate tool/action, and successful verification-shaped result"
+      ],
+      "checks": "Cross-run refusal and non-verification/missing-identity scenarios; current and verified legacy routes still pass."
+    }
+  ],
+  "validation": {
+    "serverDraftDecoderLifecycle": {
+      "pass": 66,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 3289
+    },
+    "adjacentContractsClientWorkerConnectors": {
+      "pass": 33,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 333
+    },
+    "desktop": {
+      "pass": 655,
+      "fail": 0,
+      "skip": 1,
+      "assertions": 5554
+    },
+    "desktopMethod": "115 TypeScript files in fresh processes plus three TSX files; final field-setter/code-size cleanup additionally passed client tests and the actual-component hook assertions. Unchanged desktop files are not counted twice.",
+    "repeatCycles": {
+      "lifecycle": [
+        {
+          "cycle": 1,
+          "exitCode": 0,
+          "passed": 4,
+          "assertions": 64
+        },
+        {
+          "cycle": 2,
+          "exitCode": 0,
+          "passed": 4,
+          "assertions": 64
+        },
+        {
+          "cycle": 3,
+          "exitCode": 0,
+          "passed": 4,
+          "assertions": 64
+        }
+      ],
+      "parentReceiptAndConfirmation": [
+        {
+          "cycle": 1,
+          "exitCode": 0,
+          "passed": 3
+        },
+        {
+          "cycle": 2,
+          "exitCode": 0,
+          "passed": 3
+        },
+        {
+          "cycle": 3,
+          "exitCode": 0,
+          "passed": 3
+        }
+      ]
+    },
+    "serverTypecheck": "pass",
+    "serverBuild": "pass",
+    "desktopTypecheck": "pass",
+    "desktopBuild": "pass",
+    "architecture": "pass",
+    "swiftFrontendParse": "pass",
+    "hookAssertions": {
+      "pristineRemoteSubmitted": true,
+      "terminalNotReopened": true,
+      "checkDeliveryRetainedWhileSending": true
+    },
+    "uniqueCounting": "66 server/decoder/lifecycle +33 adjacent +655 desktop =754. Diagnostic reproductions and repeats are separate; earlier broad matrices are not added."
+  },
+  "computerUse": {
+    "method": "Native cua_repl Chrome actions on the actual review component, real isolated services, synthetic connector and deliberately delayed HTTP receipt.",
+    "observations": [
+      "Second card gets an unsaved local body before a remote save updates both cards",
+      "Pristine card adopts remote recipient, subject and body",
+      "Dirty card adopts remote recipient/subject while keeping Unsaved local body",
+      "A discarded third card stays read-only after its deliberately stale Pending response arrives",
+      "Two explicit synthetic sends capture the exact expected mixed fields",
+      "Read-only reopen and reload retain the correct sent/sent/discarded outcomes"
+    ],
+    "finalStates": [
+      "sent",
+      "sent",
+      "dismissed"
+    ],
+    "syntheticConnectorCalls": 2,
+    "statusRows": 2,
+    "uniqueOutcomeNotifications": 3,
+    "externalMailSendAttempts": 0,
+    "note": "The pause between discard and sends exceeds the progress idle window, so two status rows are expected. No live model runs in this native fixture."
+  },
+  "remainingValidationBlockers": [
+    {
+      "check": "Desktop gzip budget",
+      "result": "failed",
+      "workspaceStartupBytes": 1330294,
+      "workspaceStartupLimit": 1330300,
+      "rendererBytes": 17867905,
+      "rendererLimit": 17868000,
+      "rendererGzipBytes": 4470492,
+      "gzipLimit": 4468300,
+      "note": "A first version also crossed startup/raw limits. Removing duplicated setters/reconciliation allocations restores those checks. The gzip check was already failing in the preceding pass; it remains over, with thresholds unchanged."
+    },
+    {
+      "check": "Full iOS build",
+      "result": "failed",
+      "filesWithErrors": [
+        "apps/ios/Sources/App/BarRegions.swift",
+        "apps/ios/Sources/App/SiriMessaging.swift"
+      ],
+      "note": "Errors are in unchanged source files, including unavailable Siri schemas. Modified RichMessageCard.swift passes frontend syntax parsing. No complete iOS build/runtime pass claimed."
+    }
+  ],
+  "diagnosticCorrections": [
+    "The positive SMTP fixture originally omitted its reviewed Cc from accepted. The fixture now includes Cc instead of weakening complete-recipient validation.",
+    "An interim service run overlapped in-progress decoder changes. The final 66-case matrix is recorded after integration; intermediate failures are retained privately.",
+    "Native typing initially dropped its first character. Clipboard paste corrected it before remote-edit and captured-packet assertions.",
+    "Final desktop behavior is rechecked with the component hook harness after code-size cleanup, including retaining Check delivery on a still-sending result."
+  ],
+  "limits": [
+    "No finite matrix proves that every possible defect is absent.",
+    "No real email/Slack send, APNs, deployment, production flag/approval change, or new native Grokbot comparison.",
+    "Managed Slack response semantics remain opaque; only malformed envelope rejection is asserted there.",
+    "Full iOS compilation/runtime and the gzip budget are not green; one desktop environment-specific case remains skipped.",
+    "Earlier broad server/worker/computer matrices and live-model observations remain historical.",
+    "Pristine synchronization preserves local dirty fields but adds no cross-device conflict-resolution API.",
+    "No public tool, schema migration, signature control or dependency was added."
+  ]
+}

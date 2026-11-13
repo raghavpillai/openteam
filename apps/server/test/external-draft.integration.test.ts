@@ -1769,7 +1769,7 @@ test('revision highlighting survives a legacy namespace and an account rename', 
   const baseline = await service.create(f.context(run.id, 'baseline'), draft) as any;
   const old = await f.card(baseline.message_id);
   await f.prisma.channelMessage.update({ where: { id: baseline.message_id }, data: { metadata: { ...old, draft: { ...old.draft, providerIdentifier: namespace } } } });
-  await f.prisma.pluginInvocation.create({ data: { callId: 'draft-verify:baseline:send_reviewed_email', connectionId: f.connection.id, botId: f.botId, runId: run.id, toolName: 'send_reviewed_email', status: 'completed', result: { identity: 'me@example.com' } } });
+  await f.prisma.pluginInvocation.create({ data: { callId: 'draft-verify:baseline:send_reviewed_email', connectionId: f.connection.id, botId: f.botId, runId: run.id, toolName: 'send_reviewed_email', arguments: { action: 'verify' }, status: 'completed', result: { identity: 'me@example.com' } } });
   await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { alias: 'renamed' } });
   await f.prisma.channelMessage.create({ data: { channelId: f.context(run.id).channelId, sender: 'user', content: 'Change Monday to Tuesday', clientId: crypto.randomUUID() } });
   const next = await f.prisma.run.create({ data: { botId: f.botId, conversationId: run.conversationId, channelId: run.channelId, userMessageId: crypto.randomUUID(), status: 'running' } });
@@ -1790,7 +1790,7 @@ test('valid completed connector envelopes recover the reviewed recipients and co
   { id: 'synthetic-sent-id' },
   { structuredContent: { id: 'synthetic-sent-id' }, content: [{ type: 'text', text: 'Summary only' }] },
   { content: [{ type: 'text', text: JSON.stringify({ id: 'synthetic-sent-id' }) }] },
-  { accepted: ['reviewed@example.com'], rejected: [], messageId: 'synthetic-message-id' },
+  { accepted: ['reviewed@example.com', 'copied@example.com'], rejected: [], messageId: 'synthetic-message-id' },
  ];
  for (const variant of ['control', 'treatment'] as const) for (const result of replies) {
   const f = await notificationExperiment(variant);
@@ -1807,6 +1807,82 @@ test('valid completed connector envelopes recover the reviewed recipients and co
    await Promise.all(['send', 'refresh', 'cancel'].map(action => Effect.runPromise(f.service.mutate(id, { action }))));
    expect((await f.card(id)).outcomeId).toBe(recovered.outcomeId); expect(f.mailSends()).toBe(0);
    expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);
+
+test('a draft creation retry cannot borrow a card from an earlier run', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  const firstRun = await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } });
+  const draft = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Original request', body: 'Original body' };
+  const first = await f.service.create(f.context(firstRun.id, 'reused-call-id'), draft) as any;
+  await f.prisma.run.update({ where: { id: firstRun.id }, data: { status: 'completed' } });
+  const next = await f.prisma.run.create({ data: { botId: f.botId, conversationId: firstRun.conversationId, channelId: firstRun.channelId, userMessageId: crypto.randomUUID(), status: 'running' } });
+  await expect(f.service.create(f.context(next.id, 'reused-call-id'), { ...draft, to: ['different@example.com'], body: 'A different request' })).rejects.toThrow('another run');
+  expect((await f.card(first.message_id)).draft.to).toEqual(['ann@example.com']);
+  expect(await f.prisma.channelMessage.count({ where: { senderBotId: f.botId, metadata: { path: ['type'], equals: 'external-draft' } } })).toBe(1);
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
+test('legacy route recovery ignores non-verification tool receipts', async () => {
+ if (!databaseUrl) return;
+ for (const fake of ['wrong-tool', 'send-action', 'failed-verify', 'missing-identity'] as const) {
+  const f = await notificationExperiment('treatment');
+  const sends: any[] = [];
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') return { identity: 'me@example.com' };
+   sends.push(input); return { id: 'synthetic-only' };
+  } } as never);
+  try {
+   await f.prisma.pluginConnection.update({ where: { id: f.connection.id }, data: { name: `Unique legacy ${crypto.randomUUID()}` } });
+   const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'legacy-proof'), { platform: 'email', providerIdentifier: namespace, from: 'me@example.com', to: ['ann@example.com'], subject: 'Legacy proof', body: 'Do not guess the account' }) as any;
+   const stored = await f.card(card.message_id);
+   await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...stored, draft: { ...stored.draft, providerIdentifier: namespace } } } });
+   const toolName = fake === 'wrong-tool' ? 'unrelated_read' : 'send_reviewed_email';
+   await f.prisma.pluginInvocation.create({ data: { callId: `draft-verify:legacy-proof:${toolName}`, connectionId: f.connection.id, botId: f.botId, runId, toolName, arguments: { action: fake === 'send-action' ? 'send' : 'verify' }, status: 'completed', result: fake === 'failed-verify' ? { isError: true, content: [{ type: 'text', text: 'Verification failed' }] } : fake === 'missing-identity' ? { unrelated: 'not a verification result' } : { identity: 'me@example.com' } } });
+   await Effect.runPromise(service.mutate(card.message_id, { action: 'send' }));
+   expect(sends).toHaveLength(0);
+   expect((await f.card(card.message_id)).cardState).toBe('pending');
+   expect((await f.card(card.message_id)).sendError).toContain('original account');
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('live and recovered reviewed email require a complete send confirmation', async () => {
+ if (!databaseUrl) return;
+ const replies = ['false', 'null', 'true', { structuredContent: null }, { content: null }, { isError: false }, { unrelated: 'not a send receipt' },
+  { messageId: 'synthetic-partial', accepted: ['ann@example.com'], rejected: ['bob@example.com'] },
+  { messageId: 'synthetic-omitted-cc', accepted: ['ann@example.com', 'bob@example.com'], rejected: [] }];
+ for (const phase of ['review', 'automatic', 'recovery'] as const) for (const result of replies) {
+  const f = await notificationExperiment('treatment'); let attempts = 0;
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') return { identity: 'me@example.com' };
+   attempts++; return result;
+  } } as never, { treatmentPercent: '100' });
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   await f.prisma.bot.update({ where: { id: f.botId }, data: { draftingDisabled: phase === 'automatic' } });
+   const created = await service.create(f.context(runId, 'complete-confirmation'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com', 'bob@example.com'], cc: ['copied@example.com'], subject: 'Whole reviewed message', body: 'Synthetic only' }) as any;
+   const id = created.message_id;
+   if (phase === 'automatic') expect(created.delivery).toBe('unknown');
+   else if (phase === 'review') await Effect.runPromise(service.mutate(id, { action: 'send' }));
+   else {
+    const stored = await f.card(id);
+    await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...stored, cardState: 'sending', sendStartedAt: new Date().toISOString(), sendAttemptId: crypto.randomUUID() } } });
+    await f.prisma.pluginInvocation.create({ data: { callId: `draft-send:${id}:send`, connectionId: f.connection.id, botId: f.botId, runId, toolName: 'send_reviewed_email', arguments: { action: 'send' }, status: 'completed', result } });
+    await Effect.runPromise(service.mutate(id, { action: 'refresh' }));
+   }
+   const settled = await f.card(id); expect(settled.cardState).toBe('unknown');
+   expect(settled.outcomeText).toContain('may or may not have gone out');
+   await Promise.all(['send', 'refresh', 'cancel'].map(action => Effect.runPromise(service.mutate(id, { action }))));
+   expect(attempts).toBe(phase === 'recovery' ? 0 : 1);
+   expect((await f.card(id)).outcomeId).toBe(settled.outcomeId);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
   } finally { await f.cleanup(); }
  }
 }, 30_000);

@@ -9,7 +9,7 @@ import {
   type ExternalDraftApprovalMode,
   type ExternalDraftVerification,
 } from "@openteam/contracts/external-draft";
-import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
+import { externalDraftReviewEdits, externalDraftReviewFields, externalDraftReviewState, mergeExternalDraftReviewFields } from "@openteam/client-core/external-draft";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
@@ -169,16 +169,19 @@ export function ExternalDraftCard({
   const highlightedBody = useRef<HTMLDivElement>(null);
   const caret = useRef<number | null>(null);
   const metadata = record(message.metadata);
+  const terminalMessage = useRef<ChannelMessageView | null>(null);
+  if (metadata.cardState && !["pending", "sending"].includes(String(metadata.cardState))) terminalMessage.current = message;
   const verification = record(record(metadata.draft).verification) as Partial<ExternalDraftVerification>;
   const sendingAddresses = verification.sendingAddresses ?? [];
   const email = draft.platform === "email";
   const [state, setState] = useState(String(metadata.cardState ?? "pending"));
   const [resolvedDraft, setResolvedDraft] = useState<ExternalDraft | null>(null);
-  const [from, setFrom] = useState(draft.from ?? "");
-  const [text, setText] = useState(draft.body);
-  const [subject, setSubject] = useState(draft.subject ?? "");
-  const [to, setTo] = useState(draft.to?.join(", ") ?? "");
-  const [cc, setCc] = useState(draft.cc?.join(", ") ?? "");
+  const serverFields = externalDraftReviewFields(draft);
+  const previousServerFields = useRef(serverFields);
+  const [fields, setFields] = useState(serverFields);
+  const { from, body: text, subject, to, cc } = fields;
+  const setField = (key: keyof typeof fields, value: string) =>
+    setFields(current => ({ ...current, [key]: value }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -195,12 +198,17 @@ export function ExternalDraftCard({
       const range = document.createRange(); range.selectNodeContents(element); range.setEnd(selection.focusNode, selection.focusOffset);
       caret.current = range.toString().length;
     }
-    setRevisionDismissed(true); setText(element.innerText);
+    setRevisionDismissed(true); setField("body", element.innerText);
   };
   useEffect(() => {
-    setState(String(metadata.cardState ?? "pending"));
+    setState(current => externalDraftReviewState(current, String(metadata.cardState ?? "pending")));
     if (metadata.cardState === "sent" || metadata.cardState === "dismissed") setError("");
   }, [metadata.cardState]);
+  useEffect(() => {
+    const previous = previousServerFields.current;
+    previousServerFields.current = serverFields;
+    setFields(local => mergeExternalDraftReviewFields(previous, local, serverFields));
+  }, [serverFields.body, serverFields.subject, serverFields.to, serverFields.cc, serverFields.from]);
   useLayoutEffect(() => {
     const element = body.current ?? highlightedBody.current;
     if (!element) return;
@@ -217,13 +225,15 @@ export function ExternalDraftCard({
     caret.current = null;
   }, [text, revisionDismissed]);
   const sendError = typeof metadata.sendError === "string" ? metadata.sendError : "";
-  const acceptResult = (message: ChannelMessageView) => {
+  const acceptResult = (incoming: ChannelMessageView) => {
+    const incomingState = String(record(incoming.metadata).cardState ?? "pending");
+    if (!terminalMessage.current && incomingState !== "pending" && incomingState !== "sending") terminalMessage.current = incoming;
+    const message = terminalMessage.current ?? incoming;
     const next = record(message.metadata);
     setResolvedDraft(parseExternalDraft(next.draft));
-    setState(String(next.cardState ?? "pending"));
+    setState(current => externalDraftReviewState(current, String(next.cardState ?? "pending")));
     return next;
   };
-  const fields = { body: text, subject, to, cc, from };
   const run = async (work: () => Promise<void>) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -268,10 +278,9 @@ export function ExternalDraftCard({
     run(async () => {
       try {
         const checked = await api.mutateExternalDraft(message.id, "refresh");
-        acceptResult(checked.message);
-        setLost(false);
+        setLost(acceptResult(checked.message).cardState === "sending");
       } catch (failure) {
-        setError(clientErrorMessage(failure, "Couldn't check delivery. Try again."));
+        setError(clientErrorMessage(failure, "Couldn't check delivery."));
       }
     });
   const mode = externalDraftApprovalMode(
@@ -350,8 +359,8 @@ export function ExternalDraftCard({
   if (state !== "pending" && state !== "sending") {
     // Live updates can include edits submitted from another device. History
     // always shows the stored receipt, including before its push reaches us.
-    const settled = metadata.cardState && !["pending", "sending"].includes(String(metadata.cardState))
-      ? draft : resolvedDraft ?? draft;
+    const settled = terminalMessage.current
+      ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : resolvedDraft ?? draft;
     const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
     const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
     const summary =
@@ -404,7 +413,7 @@ export function ExternalDraftCard({
                     disabled={locked}
                     display={(value) => value}
                     label="From"
-                    onChange={setFrom}
+                    onChange={(value) => setField("from", value)}
                     options={sendingAddresses}
                     value={sendingAddresses.find((address) => address === from.toLowerCase()) ?? from}
                   />
@@ -423,7 +432,7 @@ export function ExternalDraftCard({
                   aria-invalid={!recipientsValid && addresses(to).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-to`}
-                  onChange={(event) => { setRevisionDismissed(true); setTo(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("to", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -439,7 +448,7 @@ export function ExternalDraftCard({
                   aria-invalid={addresses(cc).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-cc`}
-                  onChange={(event) => { setRevisionDismissed(true); setCc(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("cc", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -454,7 +463,7 @@ export function ExternalDraftCard({
                   data-revised={revision?.changedFields.includes("subject") ? "" : undefined}
                   disabled={locked}
                   id={`${message.id}-subject`}
-                  onChange={(event) => { setRevisionDismissed(true); setSubject(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("subject", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="Subject"
                   rows={1}
                   value={subject}
@@ -486,7 +495,7 @@ export function ExternalDraftCard({
           dir="auto"
           disabled={locked}
           name="body"
-          onChange={(event) => { setRevisionDismissed(true); setText(event.target.value); }}
+          onChange={(event) => { setRevisionDismissed(true); setField("body", event.target.value); }}
           placeholder="Write a message"
           ref={body}
           rows={4}

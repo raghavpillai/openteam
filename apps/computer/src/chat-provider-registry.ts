@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { type Api, type Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
@@ -9,6 +7,11 @@ import {
   type ServerInferenceSettings,
 } from "@openteam/contracts";
 import { CHAT_PROVIDER_DEFINITIONS } from "./chat-provider-definitions";
+import {
+  type ModelProviderConfig,
+  readModelsConfig as configFile,
+  updateModelsConfig,
+} from "./models-config";
 import {
   availableInferenceModels,
   replacementFor,
@@ -28,14 +31,11 @@ export type ChatModel = Model<Api> & {
   defaultReasoningLevel?: PiReasoningLevel;
   recommended?: boolean;
 };
-type CustomConfig = {
-  name?: string;
-  baseUrl?: string;
-  api?: string;
-  apiKey?: string;
-  models?: Array<Record<string, unknown>>;
+type CustomConfig = ModelProviderConfig;
+const providerSettings = (config?: CustomConfig) => {
+  const { models: _models, ...settings } = config ?? {};
+  return settings;
 };
-type Config = { providers?: Record<string, CustomConfig>; [key: string]: unknown };
 type Entry = Record<string, unknown> & { id: string };
 const object = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -155,8 +155,13 @@ export const openRouterEndpointCost = (
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
 const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
-  if (!Array.isArray(entry.input_modalities)) return undefined;
-  return entry.input_modalities.includes("image") ? ["text", "image"] : ["text"];
+  const modalities = Array.isArray(entry.input_modalities)
+    ? entry.input_modalities
+    : object(entry.modalities) && Array.isArray(entry.modalities.input)
+      ? entry.modalities.input
+      : undefined;
+  if (!modalities) return undefined;
+  return modalities.includes("image") ? ["text", "image"] : ["text"];
 };
 const advertisedReasoning = (
   entry: Entry
@@ -245,19 +250,6 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
   model.cost = openRouterCost(pricing);
 };
 
-const configFile = async (path: string): Promise<Config> => {
-  try {
-    const value: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!object(value) || (value.providers !== undefined && !object(value.providers)))
-      throw new Error("Invalid provider registry");
-    return value as Config;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new Error(
-      "The custom provider registry is invalid. Repair models.json before loading providers."
-    );
-  }
-};
 export const modelsEndpoint = (baseUrl: string, anthropic = false): URL => {
   const url = new URL(baseUrl);
   if (
@@ -546,8 +538,9 @@ export class ChatProviderRegistry {
   }
   async verify(settings: ServerInferenceSettings): Promise<void> {
     // Check retirements before making network requests, and access before accepting a saved choice.
-    if (this.runtime().getModel(settings.providerId, settings.modelId))
-      requireInferenceModel(this.runtime(), settings);
+    const existingModel = this.runtime().getModel(settings.providerId, settings.modelId);
+    if (existingModel) requireInferenceModel(this.runtime(), settings);
+    const before = (await configFile(this.modelsPath)).providers?.[settings.providerId];
     const catalog = await this.catalog(settings.providerId);
     const provider = catalog.providers.find((p) => p.id === settings.providerId);
     if (!provider)
@@ -560,11 +553,12 @@ export class ChatProviderRegistry {
         provider.modelMessage ??
           `Model ${settings.modelId} is not available from this connected provider. Refresh its model list and choose a listed chat model.`
       );
-    const { reasoningLevels: levels, defaultReasoningLevel } = reasoningCapabilities(model);
+    const { reasoningLevels: levels, defaultReasoningLevel: fallbackReasoningLevel } =
+      reasoningCapabilities(model);
     if (
       levels.length
         ? !levels.includes(settings.reasoning)
-        : settings.reasoning !== defaultReasoningLevel
+        : settings.reasoning !== fallbackReasoningLevel
     ) {
       throw new Error(
         `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${levels.length ? levels.join(", ") : "provider default"}.`
@@ -572,60 +566,112 @@ export class ChatProviderRegistry {
     }
     // Persist dynamic capability mappings so inference keeps the same request contract
     // after a restart, even before the next catalog refresh.
-    if (
-      model.reasoningLevels !== undefined ||
+    const previous = before?.models?.find((m) => m.id === settings.modelId);
+    const liveReasoning =
+      model.reasoningLevels !== undefined
+        ? {
+            reasoning: model.reasoning,
+            reasoningLevels: model.reasoningLevels,
+            defaultReasoningLevel: model.defaultReasoningLevel,
+            thinkingLevelMap: model.thinkingLevelMap,
+          }
+        : undefined;
+    const previousReasoning = previous
+      ? {
+          reasoning: previous.reasoning,
+          reasoningLevels: previous.reasoningLevels,
+          defaultReasoningLevel: previous.defaultReasoningLevel,
+          thinkingLevelMap: previous.thinkingLevelMap,
+        }
+      : undefined;
+    const persist =
+      (liveReasoning !== undefined && !isDeepStrictEqual(liveReasoning, previousReasoning)) ||
       settings.providerId === "openrouter" ||
       settings.providerId === "openai-codex" ||
-      !this.runtime().getModel(settings.providerId, settings.modelId)
-    ) {
-      const document = await configFile(this.modelsPath);
+      !existingModel ||
+      JSON.stringify(existingModel.input) !== JSON.stringify(model.input);
+    if (persist && provider.id === "openrouter") {
+      const endpoints = await this.openRouterEndpoints(model);
+      const cap = openRouterEndpointPromptCap(endpoints);
+      if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
+      if (!model.cost.tiers)
+        model.cost = openRouterEndpointCost(endpoints, model.cost) ?? model.cost;
+    }
+    const {
+      id,
+      name,
+      reasoning,
+      reasoningLevels,
+      defaultReasoningLevel,
+      thinkingLevelMap,
+      input,
+      cost,
+      contextWindow,
+      maxTokens,
+      api,
+      baseUrl,
+      compat,
+      samplingParams,
+      headers,
+    } = model;
+    const apply = (document: Awaited<ReturnType<typeof configFile>>) => {
+      const current = document.providers?.[provider.id];
+      if (
+        (before && !current) ||
+        !isDeepStrictEqual(providerSettings(before), providerSettings(current))
+      ) {
+        throw new Error("Provider settings changed. Reload the model list and retry.");
+      }
       document.providers ??= {};
       const config = (document.providers[provider.id] ??= {});
-      if (
-        config.baseUrl &&
-        config.baseUrl.replace(/\/+$/, "") !== model.baseUrl.replace(/\/+$/, "")
-      )
-        throw new Error("Provider settings changed. Reload the model list and retry.");
-      if (provider.id === "openrouter") {
-        const endpoints = await this.openRouterEndpoints(model);
-        const cap = openRouterEndpointPromptCap(endpoints);
-        if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
-        if (!model.cost.tiers)
-          model.cost = openRouterEndpointCost(endpoints, model.cost) ?? model.cost;
+      const saved = config.models?.find((m) => m.id === id);
+      if (previous && !saved) {
+        throw new Error("Model settings changed. Reload the model list and retry.");
       }
-      const {
-        id,
-        name,
-        reasoning,
-        reasoningLevels,
-        defaultReasoningLevel,
-        thinkingLevelMap,
-        input,
-        cost,
-        contextWindow,
-        maxTokens,
-        api,
-        baseUrl,
-      } = model;
-      config.models = [
-        ...(config.models ?? []).filter((m) => m.id !== id),
-        {
-          id,
-          name,
-          reasoning,
-          reasoningLevels,
-          defaultReasoningLevel,
-          thinkingLevelMap,
-          input,
-          cost,
-          contextWindow,
-          maxTokens,
-          api,
-          baseUrl,
-        },
-      ];
-      await this.save(document);
-    }
+      if (!persist) return false;
+      const dynamic = provider.id === "openrouter" || provider.id === "openai-codex";
+      // Existing custom models own their endpoint, protocol, headers, sampling
+      // and compatibility settings. Repair only the capabilities advertised live.
+      const snapshot =
+        saved && !dynamic
+          ? {
+              ...saved,
+              input,
+              ...liveReasoning,
+            }
+          : {
+              ...(saved ?? { compat, samplingParams, headers }),
+              id,
+              name,
+              reasoning,
+              reasoningLevels,
+              defaultReasoningLevel,
+              thinkingLevelMap,
+              input,
+              // Keep a pricing refresh or user edit that completed during discovery.
+              cost:
+                previous && saved && !isDeepStrictEqual(previous.cost, saved.cost)
+                  ? saved.cost
+                  : cost,
+              // A prompt-cap refresh or user edit may have lowered the window
+              // while this verification was fetching its own endpoint limits.
+              contextWindow:
+                previous && saved && previous.contextWindow !== saved.contextWindow
+                  ? Math.min(contextWindow, positive(saved.contextWindow, contextWindow))
+                  : contextWindow,
+              maxTokens,
+              api,
+              baseUrl: saved?.baseUrl ?? baseUrl,
+            };
+      if (saved && isDeepStrictEqual(saved, snapshot)) return false;
+      config.models = [...(config.models ?? []).filter((m) => m.id !== id), snapshot];
+      return true;
+    };
+    // Even a no-write verification must reject stale discovery and reload model
+    // edits. Avoid creating a write lock when the configuration is read-only.
+    if (persist) await updateModelsConfig(this.modelsPath, apply);
+    else apply(await configFile(this.modelsPath));
+    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
   }
   /**
    * Bound saved OpenRouter models by their endpoints' current prompt cap, so a model
@@ -644,43 +690,34 @@ export class ChatProviderRegistry {
       const cost = openRouterEndpointCost(endpoints, model.cost);
       if (
         (cap && cap < positive(model.contextWindow, Infinity)) ||
-        (cost && JSON.stringify(cost) !== JSON.stringify(model.cost))
+        (cost && !isDeepStrictEqual(cost, model.cost))
       ) {
         updates.set(model.id, { baseUrl: model.baseUrl, oldCost: model.cost, cap, cost });
       }
     }
     if (!updates.size) return;
-    // Re-read so a selection saved during the lookups isn't overwritten.
-    const document = await configFile(this.modelsPath);
-    let changed = false;
-    for (const model of document.providers?.openrouter?.models ?? []) {
-      const update = updates.get(String(model.id));
-      if (!update || model.baseUrl !== update.baseUrl) continue;
-      if (update.cap && update.cap < positive(model.contextWindow, Infinity)) {
-        model.contextWindow = update.cap;
-        changed = true;
+    const changed = await updateModelsConfig(this.modelsPath, (document) => {
+      let changed = false;
+      for (const model of document.providers?.openrouter?.models ?? []) {
+        const update = updates.get(String(model.id));
+        if (!update || model.baseUrl !== update.baseUrl) continue;
+        if (update.cap && update.cap < positive(model.contextWindow, Infinity)) {
+          model.contextWindow = update.cap;
+          changed = true;
+        }
+        if (
+          update.cost &&
+          isDeepStrictEqual(model.cost, update.oldCost) &&
+          !isDeepStrictEqual(model.cost, update.cost)
+        ) {
+          model.cost = update.cost;
+          changed = true;
+        }
       }
-      if (
-        update.cost &&
-        JSON.stringify(model.cost) === JSON.stringify(update.oldCost) &&
-        JSON.stringify(model.cost) !== JSON.stringify(update.cost)
-      ) {
-        model.cost = update.cost;
-        changed = true;
-      }
-    }
-    if (changed) await this.save(document);
-  }
-  private async save(document: Config): Promise<void> {
-    await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
-    const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
-      await rename(temp, this.modelsPath);
-    } finally {
-      await rm(temp, { force: true });
-    }
-    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+      return changed;
+    });
+    if (changed)
+      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
   }
   /** Endpoint metadata is shared by prompt-cap and pricing refreshes. */
   private async openRouterEndpoints(model: Pick<ChatModel, "id" | "baseUrl">): Promise<unknown> {

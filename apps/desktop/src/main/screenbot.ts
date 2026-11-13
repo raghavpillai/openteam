@@ -31,6 +31,8 @@ const INTRO_MS = 1_650;
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 /** Matches the voice note limit the server accepts. */
 const MAX_DICTATION_BYTES = 25 * 1024 * 1024;
+// More than the maximum 300 ms retakes during a five-minute recording; IDs only.
+const MAX_DICTATION_SHOTS = 1024;
 
 export interface ScreenBotShot {
   id: string;
@@ -114,6 +116,8 @@ export class DesktopScreenBot {
   private capture: Capture | null = null;
   private accountScope: string | null = null;
   private accountEpoch = 0;
+  /** Retakes keep dictation in this open composer; close/auth reset revokes it. */
+  private readonly dictationShots = new Set<string>();
   private capturing = false;
   private lastPressAt = -Infinity;
   private shownAt = -Infinity;
@@ -186,6 +190,7 @@ export class DesktopScreenBot {
 
   /** Lets the app quit once its main window closes on Windows and Linux. */
   closeOverlay() {
+    this.dictationShots.clear();
     if (this.releaseTimer) clearTimeout(this.releaseTimer);
     this.releaseTimer = null;
     this.awaitingReveal = false;
@@ -283,6 +288,8 @@ export class DesktopScreenBot {
       }
       this.dropCapture();
       this.capture = { id: randomUUID(), accountEpoch: epoch, display, image, png: null, encoding: new AbortController(), sending: false };
+      this.dictationShots.add(this.capture.id);
+      if (this.dictationShots.size > MAX_DICTATION_SHOTS) this.dictationShots.delete(this.dictationShots.values().next().value!);
       this.draftShotId = this.capture.id;
       const overlay = await overlayReady;
       if (!current() || !this.capture) return;
@@ -461,6 +468,7 @@ export class DesktopScreenBot {
   }
 
   private hideOverlay() {
+    this.dictationShots.clear();
     const overlay = this.overlay;
     this.awaitingReveal = false;
     this.dropCapture();
@@ -479,6 +487,7 @@ export class DesktopScreenBot {
     const overlay = this.overlay;
     if (!overlay || overlay.isVisible()) return;
     this.dropCapture();
+    this.dictationShots.clear();
     this.armRelease(overlay);
   }
 
@@ -584,7 +593,7 @@ export class DesktopScreenBot {
     const mimeType = text(value.mimeType, 100) ?? "audio/webm";
     if (!mimeType.startsWith("audio/")) return { ok: false, error: "That recording couldn’t be used. Try again." };
     // Only from a composer that's on screen with dictation on, and one at a time.
-    if (!this.overlay?.isVisible() || !this.capture || value.shotId !== this.capture.id || value.accountScope !== this.accountScope || !this.roster.dictation) return { ok: false, error: "Dictation isn’t available right now." };
+    if (!this.overlay?.isVisible() || !this.capture || (typeof value.shotId !== "string" || !this.dictationShots.has(value.shotId)) || value.accountScope !== this.accountScope || !this.roster.dictation) return { ok: false, error: "Dictation isn’t available right now." };
     if (this.transcribing) return { ok: false, error: "Still transcribing the last recording." };
     const mainWindow = this.options.mainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: "Open OpenTeam to use dictation." };

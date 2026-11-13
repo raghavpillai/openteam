@@ -357,3 +357,61 @@ test("reload abandons requests and releases account images; dispose removes list
   expect(ipc.listenerCount("openteam:screenbot:roster")).toBe(0);
   expect(ipc.handles.size).toBe(0);
 });
+
+// Exercise the actual renderer callback, including its await before IPC.
+const rendererSource = await Bun.file(new URL("../../src/renderer/screenbot/screenbot-app.tsx", import.meta.url)).text();
+const transcriberStart = rendererSource.indexOf("  const transcribeViaApp = ");
+const transcriberEnd = rendererSource.indexOf("  const sendAfterDictation", transcriberStart);
+if (transcriberStart < 0 || transcriberEnd < 0) throw new Error("ScreenBot transcriber not found");
+const transcriberBody = rendererSource.slice(transcriberStart, transcriberEnd).trim().replace(/^const transcribeViaApp = /, "return ");
+const makeTranscriber = new Function("useCallback", "accountScope", "accountEpoch", "shotRef", "bridge",
+  new Bun.Transpiler({ loader: "ts" }).transformSync(transcriberBody));
+const respondToAudio = () => {
+  const originalSend = main.webContents.send;
+  main.webContents.send = (channel: string, payload: any) => {
+    originalSend(channel, payload);
+    if (channel === "openteam:screenbot:transcribe") queueMicrotask(() =>
+      ipc.emit("openteam:screenbot:delivered", event(main), { requestId: payload.requestId, ok: true, text: "Retained words" }));
+  };
+};
+const transcribeAudio = (audio: Uint8Array, mimeType: string, shotId: string, accountScope: string) =>
+  ipc.handles.get("screenbot:transcribe")!(event(overlay()), { audio, mimeType, shotId, accountScope });
+
+test("pending dictation conversion survives same-account retakes", async () => {
+  const first = await take();
+  const bytes = deferred<ArrayBuffer>();
+  const shot = { current: { id: first.id } };
+  respondToAudio();
+  const transcribe = makeTranscriber((fn: any) => fn, { current: "A" }, { current: 1 }, shot, () => ({ transcribe: transcribeAudio }));
+  const pending = transcribe({ type: "audio/webm", arrayBuffer: () => bytes.promise }, new AbortController().signal);
+  await take();
+  const latest = await take();
+  shot.current = { id: latest.id };
+  bytes.resolve(new Uint8Array([1]).buffer);
+  expect(await pending).toEqual({ text: "Retained words" });
+});
+
+test("pending dictation conversion cancels across account replacement before IPC", async () => {
+  const first = await take(), bytes = deferred<ArrayBuffer>();
+  const epoch = { current: 1 }, scope = { current: "A" };
+  let calls = 0;
+  const transcribe = makeTranscriber((fn: any) => fn, scope, epoch, { current: { id: first.id } }, () => ({
+    transcribe: () => { calls++; return Promise.resolve({ ok: true, text: "Forbidden" }); },
+  }));
+  const pending = transcribe({ type: "audio/webm", arrayBuffer: () => bytes.promise }, new AbortController().signal)
+    .then(() => "unexpected success", (error: Error) => error.name);
+  roster("B"); epoch.current++; scope.current = "B";
+  bytes.resolve(new Uint8Array([1]).buffer);
+  expect(await pending).toBe("AbortError");
+  expect(calls).toBe(0);
+});
+
+test("closed composers and unknown shot ids cannot submit old recordings", async () => {
+  const first = await take();
+  subject.hideOverlay();
+  await take();
+  for (const shotId of [first.id, "unknown-shot"]) {
+    expect((await transcribeAudio(new Uint8Array([1]), "audio/webm", shotId, "A")).ok).toBe(false);
+  }
+  expect(traffic.filter(item => item.channel === "openteam:screenbot:transcribe")).toHaveLength(0);
+});

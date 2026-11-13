@@ -1371,3 +1371,267 @@ test('seeded draft state machine preserves reviewed content, terminal outcomes a
   } finally { await f.cleanup(); }
  }
 }, 30_000);
+
+test('a verification failure arriving after sending times out cannot reopen the terminal card', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  let release = () => {}, entered = () => {}, verifies = 0, sends = 0;
+  const gate = new Promise<void>(r => release = r), waiting = new Promise<void>(r => entered = r);
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') {
+    if (++verifies > 1) { entered(); await gate; throw new Error('Late verification outage'); }
+    return { identity: 'me@example.com' };
+   }
+   sends++; return { id: 'synthetic-only' };
+  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  let sending: Promise<unknown> | undefined;
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'timeout-failure'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Late verification failure', body: 'Synthetic timeout' }) as any;
+   sending = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })); await waiting;
+   const stored = await f.card(card.message_id);
+   await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...stored, sendStartedAt: new Date(Date.now() - 181_000).toISOString() } } });
+   await Effect.runPromise(service.mutate(card.message_id, { action: 'refresh' }));
+   const terminal = await f.card(card.message_id); expect(terminal.cardState).toBe('unknown');
+   release(); await sending;
+   expect(await f.card(card.message_id)).toMatchObject({ cardState: 'unknown', outcomeId: terminal.outcomeId });
+   expect((await f.card(card.message_id)).sendError).toBeUndefined();
+   expect(sends).toBe(0);
+   await Effect.runPromise(service.mutate(card.message_id, { action: 'send' }));
+   expect(verifies).toBe(2); expect(sends).toBe(0);
+  } finally { release(); await sending?.catch(() => {}); await f.cleanup(); }
+ }
+});
+
+test('verification finishing after a sending timeout cannot start a new external send', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ let release = () => {}, entered = () => {}, verifies = 0, sends = 0;
+ const gate = new Promise<void>(r => release = r), waiting = new Promise<void>(r => entered = r);
+ const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+  if (input.arguments.action === 'verify') { if (++verifies > 1) { entered(); await gate; } return { identity: 'me@example.com' }; }
+  sends++; return { id: 'synthetic-only' };
+ } } as never, { treatmentPercent: '100' });
+ let sending: Promise<unknown> | undefined;
+ try {
+  const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+  const card = await service.create(f.context(runId, 'timeout-success'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Late verification', body: 'Synthetic timeout' }) as any;
+  sending = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })); await waiting;
+  const stored = await f.card(card.message_id);
+  await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...stored, sendStartedAt: new Date(Date.now() - 181_000).toISOString() } } });
+  await Effect.runPromise(service.mutate(card.message_id, { action: 'refresh' }));
+  const terminal = await f.card(card.message_id); expect(terminal.cardState).toBe('unknown');
+  release(); await sending;
+  expect(sends).toBe(0);
+  expect(await f.card(card.message_id)).toMatchObject({ cardState: 'unknown', outcomeId: terminal.outcomeId });
+ } finally { release(); await sending?.catch(() => {}); await f.cleanup(); }
+});
+
+test('a delayed refresh cannot settle a reopened card or a later send attempt', async () => {
+ if (!databaseUrl) return;
+ for (const retry of [false, true]) {
+  const f = await notificationExperiment('treatment');
+  let releaseVerify = () => {}, enteredVerify = () => {}, releaseRead = () => {}, enteredRead = () => {}, verifies = 0, sends = 0;
+  const verifyGate = new Promise<void>(r => releaseVerify = r), verifying = new Promise<void>(r => enteredVerify = r);
+  const readGate = new Promise<void>(r => releaseRead = r), reading = new Promise<void>(r => enteredRead = r);
+  let releaseRetry = () => {}, enteredRetry = () => {};
+  const retryGate = new Promise<void>(r => releaseRetry = r), retrying = new Promise<void>(r => enteredRetry = r);
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') {
+    verifies++;
+    if (verifies === 2) { enteredVerify(); await verifyGate; throw new Error('First attempt verification failed'); }
+    if (verifies === 3) { enteredRetry(); await retryGate; }
+    return { identity: 'me@example.com' };
+   }
+   sends++; return { id: 'synthetic-retry' };
+  } } as never, { treatmentPercent: '100' });
+  const lookup = f.prisma.pluginInvocation.findUnique.bind(f.prisma.pluginInvocation);
+  let sending: Promise<unknown> | undefined, refresh: Promise<unknown> | undefined, second: Promise<unknown> | undefined;
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'stale-refresh'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Stale refresh', body: 'Synthetic retry' }) as any;
+   sending = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })); await verifying;
+   const firstStartedAt = new Date(Date.now() - 181_000).toISOString();
+   await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...await f.card(card.message_id), sendStartedAt: firstStartedAt } } });
+   f.prisma.pluginInvocation.findUnique = (async (...args: Parameters<typeof lookup>) => { enteredRead(); await readGate; return lookup(...args); }) as unknown as typeof lookup;
+   refresh = Effect.runPromise(service.mutate(card.message_id, { action: 'refresh' })); await reading;
+   releaseVerify(); await sending; expect((await f.card(card.message_id)).cardState).toBe('pending');
+   if (retry) {
+    second = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })); await retrying;
+    // A repeated wall-clock value must not make two attempts indistinguishable.
+    const current = await f.card(card.message_id);
+    await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...current, sendStartedAt: firstStartedAt } } });
+   }
+   releaseRead(); await refresh;
+   expect((await f.card(card.message_id)).cardState).toBe(retry ? 'sending' : 'pending');
+   expect((await f.card(card.message_id)).outcomeId).toBeUndefined();
+   releaseRetry(); await second;
+   expect(sends).toBe(retry ? 1 : 0);
+   expect((await f.card(card.message_id)).cardState).toBe(retry ? 'sent' : 'pending');
+  } finally {
+   releaseRead(); releaseVerify(); releaseRetry(); await Promise.allSettled([sending, refresh, second].filter(Boolean) as Promise<unknown>[]);
+   f.prisma.pluginInvocation.findUnique = lookup; await f.cleanup();
+  }
+ }
+});
+
+test('timeout fencing covers email and Slack, review and automatic sends, and both variants', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) for (const platform of ['email', 'slack'] as const)
+ for (const automatic of [false, true]) for (const response of ['success', 'outage', 'account-change'] as const) {
+  const f = await notificationExperiment(variant);
+  let release = () => {}, entered = () => {}, verifies = 0, sends = 0;
+  const gate = new Promise<void>(r => release = r), waiting = new Promise<void>(r => entered = r);
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify' || input.toolName === 'slack_read_channel') {
+    if (++verifies > 1) { entered(); await gate; if (response === 'outage') throw new Error('Late synthetic outage'); }
+    return platform === 'email' ? { identity: verifies > 1 && response === 'account-change' ? 'other@example.com' : 'me@example.com', sendingAddresses: ['me@example.com'] } : { messages: 'Channel: general (C12345678)' };
+   }
+   if (input.toolName === 'slack_read_user_profile') return { result: `Organization Name: Fixture\nEmail: ${verifies > 1 && response === 'account-change' ? 'other' : 'me'}@example.com` };
+   sends++; return { id: 'synthetic-only' };
+  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  let operation: Promise<any> | undefined;
+  try {
+   await f.prisma.bot.update({ where: { id: f.botId }, data: { draftingDisabled: automatic } });
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const draft = { platform, providerIdentifier: f.connection.id, body: 'Synthetic timeout matrix', ...(platform === 'email' ? { from: 'me@example.com', to: ['ann@example.com'], subject: 'Timeout matrix' } : { target: 'general', channelId: 'C12345678' }) };
+   const creating = service.create(f.context(runId, 'timeout-matrix'), draft);
+   let id: string;
+   if (automatic) {
+    operation = creating; await waiting;
+    id = (await f.prisma.channelMessage.findFirstOrThrow({ where: { senderBotId: f.botId, metadata: { path: ['type'], equals: 'external-draft' } } })).id;
+   } else {
+    id = String((await creating as any).message_id); operation = Effect.runPromise(service.mutate(id, { action: 'send' })); await waiting;
+   }
+   await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...await f.card(id), sendStartedAt: new Date(Date.now() - 181_000).toISOString() } } });
+   await Effect.runPromise(service.mutate(id, { action: 'refresh' }));
+   const terminal = await f.card(id); expect(terminal.cardState).toBe('unknown');
+   release(); const result = await operation;
+   if (automatic) expect(result.delivery).toBe('unknown');
+   else expect(result.message.metadata.cardState).toBe('unknown');
+   for (const action of ['send', 'cancel', 'save', 'refresh']) await Effect.runPromise(service.mutate(id, { action, ...(action === 'save' ? { edits: { body: 'Must not replace terminal content' } } : {}) }));
+   expect(await f.card(id)).toMatchObject({ cardState: 'unknown', outcomeId: terminal.outcomeId, draft: { body: draft.body } });
+   expect((await f.card(id)).sendError).toBeUndefined(); expect(sends).toBe(0); expect(verifies).toBe(2);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+  } finally { release(); await operation?.catch(() => {}); await f.cleanup(); }
+ }
+}, 30_000);
+
+test('a confirmed plugin send survives outcome queue rollback and recovers without another transport call', async () => {
+ if (!databaseUrl) return;
+ const { PluginInvocations } = await import('../src/services/plugin/invocations');
+ for (const variant of ['control', 'treatment'] as const) for (const legacy of [false, true]) {
+  const f = await notificationExperiment(variant);
+  const enqueue = f.messaging.enqueueDraftOutcome.bind(f.messaging);
+  let sends = 0;
+  const plugins = new PluginInvocations(f.prisma, async (callId) => {
+   const call = await f.prisma.pluginInvocation.findUniqueOrThrow({ where: { callId } });
+   const result = (call.arguments as any).action === 'verify' ? { identity: 'me@example.com' } : { id: `synthetic-${++sends}` };
+   await f.prisma.pluginInvocation.update({ where: { callId }, data: { status: 'completed', result, completedAt: new Date() } });
+   return result;
+  });
+  const service = new ExternalDraftService(f.prisma, f.messaging, plugins as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'confirmed-queue-failure'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Confirmed synthetic send', body: 'No real transport' }) as any;
+   f.messaging.enqueueDraftOutcome = async (...args: Parameters<typeof enqueue>) => { await enqueue(...args); throw new Error('Synthetic post-send queue rollback'); };
+   await expect(Effect.runPromise(service.mutate(card.message_id, { action: 'send' }))).rejects.toThrow('Synthetic post-send queue rollback');
+   expect(await f.card(card.message_id)).toMatchObject({ cardState: 'sending' });
+   expect((await f.card(card.message_id)).outcomeId).toBeUndefined();
+   expect(sends).toBe(1);
+   expect(await f.prisma.pluginInvocation.findUniqueOrThrow({ where: { callId: `draft-send:${card.message_id}:send` } })).toMatchObject({ status: 'completed', result: { id: 'synthetic-1' } });
+   if (legacy) {
+    const { sendAttemptId: _attempt, ...stored } = await f.card(card.message_id);
+    await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: stored } });
+   }
+   f.messaging.enqueueDraftOutcome = enqueue;
+   const restarted = new ExternalDraftService(f.prisma, f.messaging, plugins as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+   await Promise.all(['refresh', 'send', 'refresh'].map(action => Effect.runPromise(restarted.mutate(card.message_id, { action }))));
+   expect(await f.card(card.message_id)).toMatchObject({ cardState: 'sent', outcomeId: expect.any(String) });
+   expect(sends).toBe(1);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+  } finally { f.messaging.enqueueDraftOutcome = enqueue; await f.cleanup(); }
+ }
+});
+
+test('a transport already entered before timeout is never repeated after its late result', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) for (const fails of [false, true]) {
+  const f = await notificationExperiment(variant);
+  let release = () => {}, entered = () => {}, sends = 0;
+  const gate = new Promise<void>(r => release = r), waiting = new Promise<void>(r => entered = r);
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') return { identity: 'me@example.com' };
+   sends++; entered(); await gate; if (fails) throw new Error('Synthetic late response loss'); return { id: 'synthetic-late-success' };
+  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  let sending: Promise<unknown> | undefined;
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'late-transport'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Late transport response', body: 'Synthetic bytes' }) as any;
+   sending = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })); await waiting;
+   await f.prisma.channelMessage.update({ where: { id: card.message_id }, data: { metadata: { ...await f.card(card.message_id), sendStartedAt: new Date(Date.now() - 181_000).toISOString() } } });
+   await Effect.runPromise(service.mutate(card.message_id, { action: 'refresh' }));
+   const outcome = (await f.card(card.message_id)).outcomeId;
+   release(); await sending;
+   await Promise.all(['send', 'send', 'cancel', 'refresh'].map(action => Effect.runPromise(service.mutate(card.message_id, { action }))));
+   expect(await f.card(card.message_id)).toMatchObject({ cardState: 'unknown', outcomeId: outcome });
+   expect(sends).toBe(1);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+  } finally { release(); await sending?.catch(() => {}); await f.cleanup(); }
+ }
+});
+
+test('archiving the channel or deleting the card during verification prevents dispatch', async () => {
+ if (!databaseUrl) return;
+ for (const removal of ['archive', 'delete'] as const) {
+  const f = await notificationExperiment('treatment');
+  let release = () => {}, entered = () => {}, verifies = 0, sends = 0;
+  const gate = new Promise<void>(r => release = r), waiting = new Promise<void>(r => entered = r);
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+   if (input.arguments.action === 'verify') { if (++verifies > 1) { entered(); await gate; } return { identity: 'me@example.com' }; }
+   sends++; return { id: 'synthetic-only' };
+  } } as never);
+  let sending: Promise<unknown> | undefined;
+  try {
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const card = await service.create(f.context(runId, 'removed-before-dispatch'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Removed card', body: 'Synthetic only' }) as any;
+   sending = Effect.runPromise(service.mutate(card.message_id, { action: 'send' })).then(value => ({ value }), error => ({ error })); await waiting;
+   if (removal === 'archive') await f.prisma.channel.update({ where: { id: f.context(runId).channelId }, data: { archivedAt: new Date() } });
+   else await f.prisma.channelMessage.delete({ where: { id: card.message_id } });
+   release(); await sending;
+   expect(sends).toBe(0);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+   if (removal === 'delete') expect(await f.prisma.channelMessage.findUnique({ where: { id: card.message_id } })).toBeNull();
+  } finally { release(); await sending?.catch(() => {}); await f.cleanup(); }
+ }
+});
+
+test('attachment preparation finishing after timeout cannot send or reopen the settled card', async () => {
+ if (!databaseUrl) return;
+ for (const missing of [false, true]) {
+  const f = await notificationExperiment('treatment');
+  const path = join((await f.prisma.bot.findUniqueOrThrow({ where: { id: f.botId } })).defaultDirectory, 'delayed.txt');
+  const normalize = f.messaging.assets.normalizeRefs.bind(f.messaging.assets);
+  let release = () => {}, entered = () => {};
+  const gate = new Promise<void>(r => release = r), preparing = new Promise<void>(r => entered = r);
+  let sending: Promise<unknown> | undefined;
+  try {
+   await Bun.write(path, 'Immutable synthetic attachment.');
+   const runId = (await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id;
+   const created = await f.service.create(f.context(runId, 'slow-attachment'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Delayed attachment', body: 'Synthetic only', attachments: [path] }) as any;
+   const id = created.message_id;
+   f.messaging.assets.normalizeRefs = async (...args: Parameters<typeof normalize>) => { entered(); await gate; return normalize(...args); };
+   sending = Effect.runPromise(f.service.mutate(id, { action: 'send' })); await preparing;
+   const original = await f.card(id);
+   await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...original, sendStartedAt: new Date(Date.now() - 181_000).toISOString() } } });
+   await Effect.runPromise(f.service.mutate(id, { action: 'refresh' }));
+   const outcome = (await f.card(id)).outcomeId;
+   if (missing) await rm(f.messaging.assets.contentPath(original.draft.verification.attachments[0].assetId));
+   release(); await sending;
+   expect(await f.card(id)).toMatchObject({ cardState: 'unknown', outcomeId: outcome, draft: { body: 'Synthetic only' } });
+   expect((await f.card(id)).sendError).toBeUndefined();
+   expect(f.mailSends()).toBe(0);
+  } finally { release(); await sending?.catch(() => {}); f.messaging.assets.normalizeRefs = normalize; await f.cleanup(); }
+ }
+});

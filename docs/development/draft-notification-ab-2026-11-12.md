@@ -118,6 +118,18 @@ Ten live-model scenarios used twenty synthetic cards: four initial terminal-rece
 
 Server, worker, computer and desktop typechecks/builds and architecture checks pass. **Two validation blockers remain:** the full iOS build fails in unchanged Siri code requiring iOS 27 APIs absent from this machine’s iOS 26.5 SDK; the modified Swift file passes syntax parsing. The desktop renderer gzip budget also fails at 4,470,256 bytes against 4,468,300. Rebuilding with the previous card source still measures 4,470,248, so the label change adds eight bytes. The budget was not raised. These failures prevent calling the entire branch fully green. [Latest evidence, accounting and limits](assets/draft-mixed-recovery-2026-11-12.json) supersede earlier numerical matrices.
 
+## Timeout and late-completion testing — November 13
+
+The next pass reproduced three more ordering bugs. A verification failure arriving after the sending timeout reopened an unconfirmed card. A successful verification could start transport after an unknown outcome had already committed. A refresh that paused during invocation lookup could settle a card that had reopened or moved to another send attempt.
+
+Reopen now preserves terminal state. The dispatch decision rechecks the card under its existing mutation lock after verification and attachment preparation, before calling the connector. Refresh settlement checks the current state and the attempt it read. New sends use a private random attempt ID so identical wall-clock timestamps cannot confuse retries; legacy sending receipts still recover. These changes use existing card metadata and locks, with no migration, public tool or approval change. Connector execution remains outside the database lock. An operation already claimed or entered before timeout can still complete later; unknown is not a cancellation or recall.
+
+All **47 draft integration cases and 31 adjacent cases pass** in this focused pass. Eight new tests contain 41 controlled fixture trials. The 24-case timeout matrix covers email and Slack, reviewed and automatic sends, both variants and late success/outage/account change. Further checks cover equal timestamps, late transport success/loss, delayed attachment preparation, missing bytes, archived/deleted cards and durable plugin invocation recovery after outcome-queue rollback. The latter uses the actual invocation claim/result storage with a fake transport; both current and legacy receipts recover one confirmed send without a second call. Three additional cycles passed all 24 repeated test executions; repetitions are not additional unique tests.
+
+Native Chrome checks of the actual desktop component held two sends in verification, expired them, then released success/failure responses. Both remained read-only and unconfirmed with zero transport entries. The untouched third card discarded normally, producing one acknowledgement that correctly counted the two unconfirmed cards. Reload preserved all outcomes. The test used synthetic transport and aged stored timestamps, rather than waiting three real minutes.
+
+Server typecheck/build and architecture checks pass. An initial full run timed out in two tests during heavy host load; the final full run passed without extending timeouts. The preceding 3,753-test broad matrix was not rerun. Its environment skips and iOS/desktop-budget failures remain recorded and were not revalidated here. No fresh live-model or native Grokbot comparison, real email/Slack send, APNs, deployment or production flag change occurred. [Evidence and explicit limits](assets/draft-timeout-recovery-2026-11-13.json).
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

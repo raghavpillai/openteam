@@ -1,5 +1,7 @@
 # Email draft notification fan-out — November 12, 2026
 
+The latest merge-readiness pass also makes durable status receipts the default baseline in both arms. See the [current validation report](assets/draft-merge-readiness-2026-11-13.json); older measurements below describe their recorded source revisions.
+
 ## Finding
 
 The repeated messages in Compute Boss came from one bot continuation per settled email card. The inspected batch has 24 completed send actions, 24 distinct recipients and 24 distinct Gmail results; there is no evidence of duplicate email sends in this batch.
@@ -50,3 +52,7 @@ Two fresh model/worker replays of the busy-foreground, 24-distinct-send backlog 
 ## Full startup recovery follow-up
 
 A subsequent server-restart probe found that host recovery lost the draft event type and treatment receipt metadata. Those now survive recovery, so the resumed worker reuses published acknowledgements while retaining useful follow-up work. Recovery also no longer queues a new draft continuation for an archived chat. Five new permanent regressions and five repeat cycles cover these boundaries; the final server/messaging/adjacent-worker pass has 495 unique passing tests. Saved confirmed and unresolved send results do not replay transport. [Evidence and remaining limits](assets/draft-server-restart-2026-11-13.json) distinguish these synthetic checks from live production guarantees; treatment remains default-off and nothing was deployed.
+
+## Merge-readiness result
+
+The final common baseline also closes the newly managed default/control lost-acknowledgement and replay gaps. Both fresh model/worker replays produce one completion for 24 unique synthetic sends, and fault-injected replay/silence keeps one canonical receipt in either arm. Final isolated validation passes 1,283 unique tests, 30 repeated reliability-case executions, all relevant typechecks/builds, the full Xcode 27.1 simulator build and current desktop budgets. One desktop environment-specific test remains skipped. The [final report](assets/draft-merge-readiness-2026-11-13.json) records the fixes, host-contention reruns and remaining practical limits. Historical untagged turns keep their existing behavior; roll out matching server/worker versions together. No manual production deployment or configuration change occurred.

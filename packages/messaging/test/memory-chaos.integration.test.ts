@@ -305,3 +305,40 @@ dbTest("rebasing a learner correction cannot swallow a concurrent peer shared co
     await prisma.bot.deleteMany({ where: { id: peerId } });
   }
 }), 15_000);
+
+dbTest("eight shared-memory writers preserve every invalidation under sustained concurrent corrections", () => fixture(async ({ prisma, botId, root, store }) => {
+  const ids = [botId, ...Array.from({ length: 7 }, () => crypto.randomUUID())];
+  await prisma.bot.createMany({ data: ids.slice(1).map(id => ({ id, name: "Concurrent shared writer", status: "active", defaultDirectory: root })) });
+  try {
+    const contexts = await Promise.all(ids.map(id => prisma.contextSession.create({ data: { botId: id, scope: "home", scopeId: id,
+      promptSnapshot: { create: { promptSections: { memory: { render: "old shared memory", compactionEpoch: 0 } } } },
+    } })));
+    const before = (await prisma.memoryRevision.findUnique({ where: { scope: "user" } }))?.revision ?? 0;
+    let active = await Promise.all(ids.map(id => store.writeMemory(id.toUpperCase(), {
+      scope: "user", tier: "profile", fact: "Concurrent shared calibration stage 0.",
+    })));
+    for (let round = 1; round <= 8; round++) {
+      const next = await Promise.all(ids.map((id, index) => store.replaceMemory(id, {
+        scope: "user", tier: round % 2 ? "log" : "profile", id: active[index]!.id!.toUpperCase(), fact: `Concurrent shared calibration stage ${round}.`,
+      })));
+      expect((await prisma.memoryRevision.findUniqueOrThrow({ where: { scope: "user" } })).revision).toBe(before + round * ids.length);
+      const current = await prisma.memoryFact.findMany({ where: { writtenByBotId: { in: ids }, supersededAt: null } });
+      expect(current).toHaveLength(ids.length);
+      expect(new Set(current.map(row => row.fact))).toEqual(new Set([`Concurrent shared calibration stage ${round}.`]));
+      expect(new Set(current.map(row => row.tier))).toEqual(new Set([round % 2 ? "log" : "profile"]));
+      for (const [index, previous] of active.entries()) {
+        expect((await prisma.memoryFact.findUniqueOrThrow({ where: { id: previous.id } })).supersededById).toBe(next[index]!.id);
+      }
+      active = next;
+    }
+    expect(await prisma.memoryFact.count({ where: { writtenByBotId: { in: ids } } })).toBe(72);
+    expect((await prisma.bot.findMany({ where: { id: { in: ids } }, select: { memoryRevision: true } })).every(bot => bot.memoryRevision === 0)).toBe(true);
+    for (const context of contexts) expect((await prisma.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId: context.id } })).promptSections).not.toHaveProperty("memory");
+    const recalled = await store.recallMemory(botId, { query: "Concurrent shared calibration" });
+    expect(recalled).toContain("stage 8.");
+    expect(recalled).not.toContain("stage 7.");
+  } finally {
+    await prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: ids.slice(1) } } });
+    await prisma.bot.deleteMany({ where: { id: { in: ids.slice(1) } } });
+  }
+}), 20_000);

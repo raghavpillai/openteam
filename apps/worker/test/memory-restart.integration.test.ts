@@ -16,9 +16,11 @@ interface TurnInput {
   contextSessionId: string;
   sessionPath: string | null;
 }
-for (const crashAt of ["before-memory", "inference", "before-publication", "before-ack"] as const) databaseTest(
+for (const crashAt of ["before-memory", "inference", "inference-natural-expiry", "before-publication", "before-ack"] as const) databaseTest(
   `a worker killed at ${crashAt} recovers the settled exchange without another turn`,
   async () => {
+    const inferenceCrash = crashAt === "inference" || crashAt === "inference-natural-expiry";
+    const expectedExtractions = inferenceCrash ? 2 : 1;
     const root = await mkdtemp(join(tmpdir(), "worker-memory-restart-"));
     let app: AppService | undefined,
       worker: { start(): Promise<void>; stop(): Promise<void>; crash(): Promise<void> } | undefined;
@@ -46,7 +48,7 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
           if (body.kind !== "extraction") return Response.json({ text: "NONE" });
           extractions.push(body.prompt);
           // The first review never answers: the worker is killed while it waits.
-          if (crashAt === "inference" && extractions.length === 1) return new Promise<Response>(() => {});
+          if (inferenceCrash && extractions.length === 1) return new Promise<Response>(() => {});
           return Response.json({
             text: "profile: The user lives in Lyon.",
           });
@@ -141,7 +143,7 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
                 ...process.env,
                 MEMORY_WORKER_READY: ready,
                 MEMORY_WORKER_PAUSED: join(root, "worker-paused"),
-                ...(starts++ === 0 && crashAt !== "inference" ? { MEMORY_WORKER_PAUSE_AT: crashAt } : {}),
+                ...(starts++ === 0 && !inferenceCrash ? { MEMORY_WORKER_PAUSE_AT: crashAt } : {}),
               },
               stdout: Bun.file(join(root, "worker-out.log")),
               stderr: Bun.file(join(root, "worker-error.log")),
@@ -185,7 +187,7 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
       } else {
         await Effect.runPromise(app.sendMessage(bot.conversationId, { content, clientId: crypto.randomUUID() }));
       }
-      if (crashAt === "inference") await until(async () => extractions.length === 1);
+      if (inferenceCrash) await until(async () => extractions.length === 1);
       else await until(async () => Bun.file(join(root, "worker-paused")).exists());
       const pending = await app.prisma.run.findFirstOrThrow({
         where: { botId, memoryReviewPending: true },
@@ -199,7 +201,7 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
         expect(await app.prisma.channelMessage.count({ where: { sourceRunId: pending.id } })).toBe(0);
       }
       const held = (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges;
-      if (crashAt === "inference" || crashAt === "before-ack") expect(held).toMatchObject([{ user: content, agent: "Noted." }]);
+      if (inferenceCrash || crashAt === "before-ack") expect(held).toMatchObject([{ user: content, agent: "Noted." }]);
       else expect(held).toEqual([]);
       const committed = crashAt === "before-ack"
         ? await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, supersededAt: null } })
@@ -216,13 +218,36 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
       if (committed) await app.agentData.replaceMemory(bot.id, {
         scope: "agent", tier: "profile", id: committed.id, fact: "The user lives in Paris.",
       }, { source: "tool", turnId: "post-crash-correction" });
+      let naturalLease: { ownerId: string; expiresAt: Date; remainingMs: number } | undefined;
+      if (crashAt === "inference-natural-expiry") {
+        [naturalLease] = await app.prisma.$queryRaw<Array<NonNullable<typeof naturalLease>>>`
+          SELECT "ownerId", "expiresAt",
+            (EXTRACT(EPOCH FROM ("expiresAt" - clock_timestamp())) * 1000)::float8 AS "remainingMs"
+          FROM "MemoryReviewLease" WHERE "botId" = ${bot.id}::uuid`;
+        expect(naturalLease).toBeDefined();
+        expect(naturalLease!.remainingMs).toBeGreaterThan(10_000);
+      }
+      const recoveryStartedAt = Date.now();
       await worker.start();
       expect(workerPids[0]).not.toBe(workerPids[1]);
+      if (naturalLease) {
+        // The replacement must respect the dead owner's still-live lease. No test
+        // updates it: startup and the safety timer must wait for PostgreSQL expiry.
+        await Bun.sleep(5_000);
+        expect(extractions).toHaveLength(1);
+        expect(await app.prisma.memoryReviewLease.findUniqueOrThrow({ where: { botId: bot.id } }))
+          .toMatchObject({ ownerId: naturalLease.ownerId, expiresAt: naturalLease.expiresAt });
+        expect((await app.prisma.run.findUniqueOrThrow({ where: { id: pending.id } })).memoryReviewPending).toBe(true);
+      }
       await until(async () =>
         (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, supersededAt: null } })) === 1 &&
         (await app!.prisma.run.count({ where: { id: pending.id, memoryReviewPending: false } })) === 1
       );
-      expect(extractions).toHaveLength(crashAt === "inference" ? 2 : 1);
+      if (naturalLease) {
+        expect(Date.now() - recoveryStartedAt).toBeGreaterThanOrEqual(naturalLease.remainingMs - 1_000);
+        expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(1);
+      }
+      expect(extractions).toHaveLength(expectedExtractions);
       const recovered = extractions.at(-1)!;
       expect(recovered).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);
       expect(recovered).toContain(`User: ${content}`);
@@ -238,13 +263,14 @@ for (const crashAt of ["before-memory", "inference", "before-publication", "befo
         expect((await app.prisma.memoryFact.findUniqueOrThrow({ where: { id: committed.id } })).supersededAt).not.toBeNull();
       }
       expect((await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
+      expect(await app.prisma.memoryReviewLease.count({ where: { botId: bot.id } })).toBe(0);
       if (crashAt === "before-publication") {
         expect(await app.prisma.channelMessage.count({ where: { sourceRunId: pending.id, content: "Noted." } })).toBe(1);
         expect((await app.prisma.channelDelivery.findUniqueOrThrow({ where: { id: pending.deliveryId! } })).status).toBe("completed");
       }
       await worker.stop();
       await worker.start();
-      expect(extractions).toHaveLength(crashAt === "inference" ? 2 : 1);
+      expect(extractions).toHaveLength(expectedExtractions);
     } finally {
       await worker?.stop();
       if (app) {

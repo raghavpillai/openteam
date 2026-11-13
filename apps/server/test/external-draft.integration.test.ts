@@ -226,7 +226,7 @@ async function notificationExperiment(variant: 'control' | 'treatment') {
   return { id: `mock-mail-${++mailSends}` };
  } } as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
  const { WakeWorker } = await import('../../worker/src/worker');
- const worker = () => Object.assign(Object.create(WakeWorker.prototype), { prisma: f.prisma, messaging: f.messaging, workspaceRoot: f.messaging.agentData.workspaceRoot }) as any;
+ const worker = () => Object.assign(Object.create(WakeWorker.prototype), { prisma: f.prisma, messaging: f.messaging, workspaceRoot: f.messaging.agentData.workspaceRoot, memoryReviews: new Map() }) as any;
  const ids: string[] = [];
  const create = async (number: number) => {
   const result = await service.create(f.context(`create-${number}`), { platform: 'email', providerIdentifier: f.connection.id,
@@ -328,7 +328,7 @@ test('draft discard executes through worker dispatch and projection without a fo
    for (let i = 0; i < 3; i++) await f.settle(await f.create(i), 'cancel');
    await f.ready();
    const worker = Object.assign(f.worker(), { agentData: f.messaging.agentData, computerUrl: computer.url.origin,
-    controlToken: 'synthetic-draft-test', memoryReviews: new Map(), projection: new Projection(f.prisma, f.messaging.agentData),
+    controlToken: 'synthetic-draft-test', projection: new Projection(f.prisma, f.messaging.agentData),
     pushNotifications: { drain: async () => {} } });
    const originalFail = worker.fail.bind(worker);
    worker.fail = async (...args: any[]) => { failures.push(args[1]); return originalFail(...args); };

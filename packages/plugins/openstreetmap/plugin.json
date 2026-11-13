@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "key": "openstreetmap",
+  "version": "1.0.0",
+  "name": "OpenStreetMap",
+  "description": "Free place search, nearby places with hours, and walking, cycling and driving routes from OpenStreetMap. Bots show them on maps in chat. No account or key needed.",
+  "publisher": "OpenTeam",
+  "category": "Productivity",
+  "featured": true,
+  "components": ["mcp", "skills"],
+  "homepageUrl": "https://www.openstreetmap.org",
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install this plugin from the marketplace.",
+    "Choose Connect. There is nothing to sign in to.",
+    "Ask a Bot for places, such as the best Thai food near a landmark, or a walking route between stops."
+  ],
+  "setup": {
+    "kind": "none",
+    "connectionKey": "openstreetmap",
+    "title": "Connect OpenStreetMap",
+    "description": "Uses OpenStreetMap's free public services: Photon for place search, Nominatim for nearby places and Valhalla for routes. No account or key is needed.",
+    "documentationUrl": "https://operations.osmfoundation.org/policies/nominatim/",
+    "steps": [
+      "Choose Connect. Every Bot can then look up places and routes.",
+      "Place names, search areas and route stops are sent to these public services. They don't receive your name or messages.",
+      "OpenStreetMap has hours, websites and phone numbers for many places, but no ratings, reviews or photos."
+    ],
+    "fields": [],
+    "requiredScopes": []
+  },
+  "connections": [
+    {
+      "key": "openstreetmap",
+      "name": "OpenStreetMap",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "",
+      "tools": [],
+      "configuration": {
+        "command": "bun",
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"]
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "openstreetmap-places",
+      "description": "When the user asks about real places: what is near somewhere, the best place of a kind, opening hours, or directions and routes between stops.",
+      "path": "skills/openstreetmap-places"
+    }
+  ]
+}

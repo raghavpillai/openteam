@@ -37,7 +37,11 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
 } from "react";
+import { MessageResponse, MessageRendererBoundary } from "../ai-elements/message";
+const PresentationMessage = lazy(() => import("./presentation/presentation-message"));
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
@@ -637,6 +641,13 @@ function ComputerHandoffCard({
 
 export function RichMessage({ message, bot }: { message: ChannelMessageView; bot?: BotView }) {
   const metadata = record(message.metadata);
+  if (metadata.type === "presentation") return (
+    <MessageRendererBoundary content={message.content}>
+      <Suspense fallback={<MessageResponse>{message.content}</MessageResponse>}>
+        <PresentationMessage value={metadata.presentation} fallback={message.content}/>
+      </Suspense>
+    </MessageRendererBoundary>
+  );
   if (metadata.type === "bot-template" && metadata.template && typeof metadata.template === "object")
     return <SharedTemplateCard message={message} />;
   if (metadata.type === "external-draft") {

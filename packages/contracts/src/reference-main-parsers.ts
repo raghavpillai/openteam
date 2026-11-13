@@ -6,6 +6,7 @@ import { parseToolArguments } from "./tool-arguments";
 import { normalizeSendMessageTextContent } from "./send-text";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { applyComputerActionAliases } from "./computer-action-aliases";
+import { PresentationSendSchema } from "./presentation";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
@@ -1978,6 +1979,7 @@ const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
   attachments: external_exports.array(external_exports.string().min(1)).max(10).optional(),
 }).superRefine(refineDraftExternalMessage).superRefine(refineDraftBody);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
+  if (name === "SendToUser" && raw && typeof raw === "object" && raw.type === "presentation") return parseToolArguments(PresentationSendSchema, raw);
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = {...raw};
     if (typeof value.block_until_ms === "string" && value.block_until_ms.trim()) {

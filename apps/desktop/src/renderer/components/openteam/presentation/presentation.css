@@ -1,0 +1,1469 @@
+/*
+ * Rich presentations: glass surfaces floating over a live map.
+ * Springs are damped-spring curves from motion.ts (stiffness, damping):
+ * gooey 520/30, settle 620/44, soft 420/34, press 1000/56 (see motion.ts for the WAAPI springs).
+ */
+.presentation {
+  --spring-gooey: linear(0, 0.0322, 0.1137, 0.2248, 0.3498, 0.4771, 0.5982, 0.7075, 0.802, 0.8803, 0.9426, 0.9897, 1.0234, 1.0456, 1.0584, 1.0638, 1.0637, 1.0598, 1.0534, 1.0457, 1.0375, 1.0294, 1.022, 1.0155, 1.0099, 1.0054, 1.002, 0.9994, 0.9977, 0.9966, 0.996, 0.9959, 0.996, 0.9964, 0.9968, 0.9973, 0.9979, 1);
+  --spring-gooey-duration: 438ms;
+  --spring-settle: linear(0, 0.0377, 0.1265, 0.2392, 0.3583, 0.4728, 0.5767, 0.6672, 0.7435, 0.8062, 0.8566, 0.8961, 0.9266, 0.9496, 0.9667, 0.979, 0.9878, 0.9937, 0.9977, 1.0002, 1.0016, 1.0024, 1.0026, 1.0026, 1.0024, 1.0021, 1.0018, 1);
+  --spring-settle-duration: 326ms;
+  --spring-soft: linear(0, 0.0259, 0.0906, 0.1779, 0.2761, 0.3768, 0.4744, 0.565, 0.6466, 0.7183, 0.7798, 0.8316, 0.8743, 0.9089, 0.9365, 0.958, 0.9743, 0.9865, 0.9953, 1.0014, 1.0054, 1.0078, 1.009, 1.0094, 1.0092, 1.0086, 1.0078, 1.0069, 1.0059, 1.005, 1.0042, 1.0034, 1.0027, 1.0021, 1);
+  --spring-soft-duration: 405ms;
+  --spring-press: linear(0, 0.046, 0.1514, 0.2808, 0.4126, 0.5347, 0.6411, 0.73, 0.8018, 0.8581, 0.9011, 0.9331, 0.9564, 0.973, 0.9844, 0.992, 0.9969, 0.9998, 1.0015, 1.0023, 1.0025, 1.0024, 1.0022, 1.0019, 1);
+  --spring-press-duration: 255ms;
+
+  --place-accent: #0a7cff;
+  --place-muted: #5f6368;
+  --place-border: rgb(0 0 0 / 0.07);
+  --place-map: #e6e8ed;
+  --glass-fill: rgb(255 255 255 / 0.72);
+  --glass-fill-hover: rgb(255 255 255 / 0.78);
+  --glass-sheen: rgb(255 255 255 / 0.42);
+  --glass-rim: rgb(255 255 255 / 0.95);
+  --glass-rim-low: rgb(255 255 255 / 0.28);
+  --glass-edge: rgb(15 23 42 / 0.09);
+  --glass-blur: blur(50px) saturate(100%) brightness(1.03);
+  --glass-shadow:
+    0 1px 2px rgb(15 23 42 / 0.06), 0 10px 28px -8px rgb(15 23 42 / 0.24),
+    0 28px 56px -28px rgb(15 23 42 / 0.28);
+  --glass-control: rgb(255 255 255 / 0.62);
+  --place-scrim: linear-gradient(to top, rgb(15 23 42 / 0.14), rgb(15 23 42 / 0) 70%);
+  --place-box: rgb(255 255 255 / 0.9);
+  --place-tile: rgb(0 0 0 / 0.06);
+  --place-tile-label: var(--place-accent);
+  --place-caption: #8e8e93;
+  --place-star: #ff9100;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  width: 100%;
+  color: var(--foreground);
+}
+.dark .presentation {
+  --place-accent: #0a84ff;
+  --place-muted: #a5a8b0;
+  --place-border: rgb(255 255 255 / 0.09);
+  --place-map: #2b2e40;
+  --glass-fill: rgb(28 28 30 / 0.6);
+  --glass-fill-hover: rgb(40 40 44 / 0.68);
+  --glass-sheen: rgb(255 255 255 / 0.07);
+  --glass-rim: rgb(255 255 255 / 0.26);
+  --glass-rim-low: rgb(255 255 255 / 0.05);
+  --glass-edge: rgb(0 0 0 / 0.4);
+  --glass-blur: blur(50px) saturate(100%) brightness(0.92);
+  --glass-shadow:
+    0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -8px rgb(0 0 0 / 0.55),
+    0 30px 60px -30px rgb(0 0 0 / 0.6);
+  --glass-control: rgb(30 32 39 / 0.55);
+  --place-scrim: linear-gradient(to top, rgb(8 10 14 / 0.5), rgb(8 10 14 / 0.06) 75%);
+  --place-box: rgb(0 0 0 / 0.28);
+  --place-tile: rgb(255 255 255 / 0.08);
+  --place-tile-label: #fff;
+}
+
+/* Glass: translucent fill, specular sheen, gradient rim and a hairline edge. */
+.place-glass {
+  background:
+    linear-gradient(180deg, var(--glass-sheen), transparent 46%),
+    var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 0 0 0.5px var(--glass-edge),
+    var(--glass-shadow);
+}
+.place-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    165deg,
+    var(--glass-rim),
+    var(--glass-rim-low) 38%,
+    var(--glass-rim-low) 72%,
+    color-mix(in srgb, var(--glass-rim) 55%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+.message-bubble.presentation-chat-bubble {
+  padding: 12px;
+  border-radius: 20px;
+}
+.presentation-chat-bubble .presentation {
+  gap: 16px;
+}
+.presentation-chat-bubble .presentation-prose {
+  font-size: 14px;
+  line-height: 21px;
+}
+.presentation-chat-bubble .presentation h3:not(.place-detail-section h3) {
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+.presentation h3 {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 0 0 16px;
+  letter-spacing: -0.2px;
+}
+.presentation-prose {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+/* Inline map */
+.place-map-block {
+  min-width: 0;
+}
+.place-map-inline {
+  position: relative;
+  height: 400px;
+  /* clip, not hidden: the lane extends below the frame, and a hidden
+     overflow could still be scrolled into view by focus or find-in-page. */
+  overflow: clip;
+  border-radius: 18px;
+  isolation: isolate;
+  background: var(--place-map);
+  box-shadow: 0 0 0 0.5px var(--glass-edge);
+}
+.place-map-surface,
+.place-map-canvas-host,
+.place-map-renderer {
+  position: absolute;
+  inset: 0;
+}
+.place-map-loading {
+  position: absolute;
+  inset: 0 0 144px;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  pointer-events: none;
+  font-size: 13px;
+  color: var(--place-muted);
+}
+.place-map-no-cards .place-map-loading {
+  bottom: 0;
+}
+.place-map-surface:not([data-ready="true"]) .place-pin,
+.place-map-surface:not([data-ready="true"]) canvas {
+  opacity: 0;
+}
+.place-map-surface .place-pin,
+.place-map-surface canvas {
+  transition: opacity 200ms ease;
+}
+.place-map-loading-pulse {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--place-accent);
+  animation: place-loading 1.4s ease-in-out infinite;
+}
+@keyframes place-loading {
+  0%,
+  100% {
+    transform: scale(0.7);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--place-accent) 40%, transparent);
+  }
+  50% {
+    transform: scale(1);
+    box-shadow: 0 0 0 12px transparent;
+  }
+}
+.place-map-error {
+  position: absolute;
+  left: 12px;
+  right: 62px;
+  top: 12px;
+  z-index: 4;
+  min-height: 38px;
+  border-radius: 12px;
+  padding: 0 12px;
+  font-size: 13px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.place-map-error button {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--place-accent);
+  cursor: pointer;
+}
+
+/* Glass controls: squircles on the map (as in Apple Maps), a circle in sheets. */
+.place-map-expand,
+.place-fullscreen-close,
+.place-detail-close {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, var(--glass-sheen), transparent 60%),
+    var(--glass-control);
+  color: var(--foreground);
+  cursor: pointer;
+  transition:
+    transform var(--spring-press-duration) var(--spring-press),
+    background 160ms ease;
+}
+.place-detail-close::before {
+  display: none;
+}
+.dark .place-detail-close {
+  color: #d1d1d6;
+  background: rgb(255 255 255 / 0.14);
+}
+.place-map-expand:hover,
+.place-fullscreen-close:hover,
+.place-detail-close:hover {
+  transform: scale(1.05);
+  background:
+    linear-gradient(180deg, var(--glass-sheen), transparent 60%),
+    var(--glass-fill-hover);
+}
+.place-map-expand:active,
+.place-fullscreen-close:active,
+.place-detail-close:active {
+  transform: scale(0.9);
+  transition-duration: 90ms;
+  transition-timing-function: ease-out;
+}
+.place-map-expand {
+  right: 12px;
+  top: 12px;
+  z-index: 6;
+}
+.place-expand-icon {
+  display: block;
+  opacity: 0.9;
+}
+
+/* Carousel: native scrolling plus a spring snap (useWeightedCarousel). */
+.place-map-carousel {
+  --lean: 0deg;
+  --overscroll: 0px;
+  position: absolute;
+  /* A horizontal scroller clips vertically too, so the lane extends past the
+     map's bottom edge: card shadows fade out instead of being cut by the lane,
+     and only the map's own rounded edge bounds them. */
+  bottom: -28px;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* 24px above the cards holds their shadow (and the hover lift) inside the
+     lane, so no hard line appears where the lane begins. */
+  padding: 24px 16px 40px;
+  scrollbar-width: none;
+  z-index: 2;
+  /* The lane is a full-width strip; only the cards take input, so pins and
+     map drags in the gaps reach the map. */
+  pointer-events: none;
+}
+.place-map-carousel .place-card {
+  pointer-events: auto;
+  cursor: grab;
+}
+.place-map-carousel[data-dragging="true"] .place-card {
+  cursor: grabbing;
+}
+.place-map-carousel[data-dragging="true"] .place-card * {
+  pointer-events: none;
+}
+.place-map-carousel::-webkit-scrollbar {
+  display: none;
+}
+.place-card {
+  --lift: 1;
+  --press: 1;
+  position: relative;
+  flex: 0 0 min(316px, calc(100% - 40px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  height: 120px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 22px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  /* Rubber-band stretch follows the finger exactly; lean and press spring. */
+  translate: var(--overscroll) 0;
+  transform: scale(var(--lift)) scale(var(--press)) skewX(var(--lean));
+  transition:
+    transform 140ms ease-out,
+    opacity 200ms ease,
+    filter 220ms ease,
+    background 140ms ease,
+    box-shadow 160ms ease;
+}
+/* Cards near the lane's edges recede slightly, so a moving card has depth. */
+@supports (animation-timeline: view()) {
+  .place-card {
+    animation: place-card-depth linear both;
+    animation-timeline: view(inline);
+  }
+  @keyframes place-card-depth {
+    0% {
+      scale: 0.96;
+    }
+    12%,
+    88% {
+      scale: 1;
+    }
+    100% {
+      scale: 0.96;
+    }
+  }
+}
+.place-card:hover {
+  --lift: 1.01;
+  background:
+    linear-gradient(180deg, var(--glass-sheen), transparent 46%),
+    var(--glass-fill-hover);
+}
+.place-card:active {
+  --press: 0.96;
+  --lift: 1;
+  transition:
+    transform 90ms ease-out,
+    background 180ms ease;
+}
+/* Keyboard focus thickens the selection ring instead of adding a second one. */
+.presentation .place-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--place-accent),
+    0 0 0 6px color-mix(in srgb, var(--place-accent) 28%, transparent),
+    var(--glass-shadow);
+}
+.place-card[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 1.5px var(--place-accent),
+    0 0 0 5px color-mix(in srgb, var(--place-accent) 16%, transparent),
+    var(--glass-shadow);
+}
+/* While a preview is open the source card is the preview; its neighbours sink
+   away. On close the real card fades in as the panel lands on it. */
+.place-card[data-source="true"] {
+  visibility: hidden;
+}
+.place-card[data-source="closing"] {
+  animation: place-card-handoff var(--spring-settle-duration) linear both;
+}
+@keyframes place-card-handoff {
+  0%,
+  70% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.place-map-inline[data-preview="true"] .place-card:not([data-source="true"]) {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(26px) scale(0.9);
+  transition:
+    transform 260ms cubic-bezier(0.3, 0, 0.2, 1) calc(var(--stagger, 0ms) * 0.4),
+    opacity 160ms ease calc(var(--stagger, 0ms) * 0.4),
+    filter 180ms ease calc(var(--stagger, 0ms) * 0.4);
+}
+/* Returning cards bounce back in, nearest first. */
+.place-map-inline[data-returning="true"] .place-card {
+  transition:
+    transform var(--spring-gooey-duration) var(--spring-gooey) calc(var(--stagger, 0ms) + 30ms),
+    opacity 200ms ease calc(var(--stagger, 0ms) + 30ms),
+    filter 220ms ease calc(var(--stagger, 0ms) + 30ms);
+}
+.place-card .place-thumbnail {
+  width: 72px;
+  height: 72px;
+  flex-basis: 72px;
+  border-radius: 15px;
+  align-self: center;
+}
+.place-card .place-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.place-card .place-stop-label,
+.place-card .place-open,
+.place-card .place-closed {
+  font-size: 12px;
+  line-height: 18px;
+}
+.place-card-body,
+.place-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.place-card-body {
+  transform-origin: left center;
+  align-self: stretch;
+  justify-content: center;
+}
+
+.place-thumbnail {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--place-muted) 14%, transparent);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+.place-thumbnail-empty {
+  display: grid;
+  place-items: center;
+  color: var(--place-muted);
+}
+.place-thumbnail-glyph {
+  font-size: 30px;
+  line-height: 1;
+}
+.place-card .place-stop-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-name {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 20px;
+  color: color-mix(in srgb, var(--foreground) 78%, transparent);
+}
+.place-provider {
+  font-size: 10.5px;
+  max-width: 76px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--place-muted);
+}
+.place-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.place-rating svg {
+  color: #f5a623;
+}
+.place-meta > span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.place-open,
+.place-closed {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.place-open {
+  color: #0a8a43;
+}
+.place-closed {
+  color: #e23b44;
+}
+.dark .place-open {
+  color: #5ad48a;
+}
+.dark .place-closed {
+  color: #ff6b6b;
+}
+.place-stop-label {
+  font-size: 13px;
+  color: var(--place-muted);
+  line-height: 20px;
+  margin: 0 0 1px;
+}
+
+/* Pins, after Apple Maps landmarks: the place photo in a white ring with a
+   tail dot. The marker element is positioned by MapLibre; the face animates. */
+/* MapLibre positions markers absolutely; overriding that stacks every pin
+   below the previous one. */
+.place-pin {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  padding: 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.place-pin-face {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: white;
+  box-shadow:
+    0 0 0 2.5px white,
+    0 3px 10px rgb(15 23 42 / 0.32);
+  transition:
+    transform var(--spring-press-duration) var(--spring-press),
+    box-shadow 200ms ease;
+}
+.place-pin-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.place-pin-solid {
+  width: 36px;
+  height: 36px;
+  color: white;
+  font: 650 13px / 1 var(--font-sans);
+  background: var(--place-accent);
+}
+.place-pin-dot::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: white;
+}
+.place-pin-tail {
+  width: 5px;
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--place-accent) 80%, transparent);
+  transition: transform var(--spring-press-duration) var(--spring-press);
+}
+.place-pin-badge {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: white;
+  font: 700 10px / 1 var(--font-sans);
+  background: var(--place-accent);
+  box-shadow: 0 0 0 1.5px white;
+  z-index: 1;
+}
+.place-pin:hover .place-pin-face {
+  transform: translateY(-2px) scale(1.08);
+}
+.place-pin:active .place-pin-face {
+  transform: scale(0.9, 0.86);
+  transition-duration: 90ms;
+}
+.place-pin[aria-pressed="true"] {
+  z-index: 2;
+}
+.presentation .place-pin:focus-visible,
+.place-fullscreen .place-pin:focus-visible {
+  outline: none;
+}
+.place-pin:focus-visible .place-pin-face {
+  box-shadow:
+    0 0 0 2.5px white,
+    0 0 0 5px var(--place-accent),
+    0 3px 10px rgb(15 23 42 / 0.32);
+}
+.place-pin[aria-pressed="true"] .place-pin-face {
+  transform: translateY(-6px) scale(1.42);
+  box-shadow:
+    0 0 0 2.5px white,
+    0 10px 22px rgb(15 23 42 / 0.36);
+  animation: place-pin-jelly 300ms linear;
+}
+.place-pin[aria-pressed="true"] .place-pin-tail {
+  transform: scale(1.3);
+}
+/* A selected pin lands like jelly: stretch up, squash, settle. */
+@keyframes place-pin-jelly {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-8px) scale(1.34, 1.58);
+  }
+  60% {
+    transform: translateY(-5px) scale(1.5, 1.36);
+  }
+  80% {
+    transform: translateY(-6.5px) scale(1.4, 1.46);
+  }
+  100% {
+    transform: translateY(-6px) scale(1.42);
+  }
+}
+
+.place-map-attribution {
+  position: absolute;
+  left: 12px;
+  top: 21px;
+  max-width: calc(100% - 70px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--place-muted);
+  font-size: 9px;
+  background: color-mix(in srgb, var(--glass-control) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.place-map-attribution a {
+  text-decoration: none;
+  color: inherit;
+}
+.place-fullscreen-map .place-map-attribution {
+  top: auto;
+  bottom: 10px;
+  left: auto;
+  right: 60px;
+}
+
+/* Contained place preview */
+.place-map-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--place-scrim);
+  animation: place-fade-in 200ms ease backwards;
+  transition: opacity 180ms ease;
+}
+.place-map-scrim[data-closing="true"] {
+  opacity: 0;
+}
+.place-detail {
+  position: absolute;
+  inset: auto 16px 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 120px);
+  border-radius: 26px;
+  overflow: hidden;
+  outline: none;
+  color: var(--foreground);
+}
+.place-detail-inner {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--place-border) transparent;
+  /* Only the bottom padding fades, so the last line stays crisp at the end. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+}
+.place-detail[data-morphing="true"] .place-detail-inner {
+  overflow: hidden;
+}
+/* The title flies over the growing photo, never under it. */
+.place-detail[data-morphing="true"] .place-detail-heading {
+  position: relative;
+  z-index: 1;
+}
+.place-detail[data-closing="true"] {
+  pointer-events: none;
+}
+/* Panel layout follows Apple Maps' place card: title, action tiles, a stats
+   row, a large photo, then About and Details. */
+.place-detail-inner {
+  padding: 18px 18px 20px;
+}
+.place-detail-heading {
+  min-width: 0;
+  padding-right: 44px;
+  overflow-wrap: anywhere;
+  transform-origin: top left;
+}
+.place-detail-heading h2 {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0;
+}
+.place-detail-subtitle {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+/* A flat circle, as on maps.apple.com's place card (no glass, no shadow). */
+.place-detail-close {
+  right: 12px;
+  top: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  z-index: 2;
+  color: #808085;
+  background: rgb(143 143 146 / 0.14);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.place-detail-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.place-tile {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  flex: 0 0 72px;
+  min-width: 0;
+  height: 52px;
+  padding: 0 4px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-decoration: none;
+  color: var(--place-tile-label);
+  background: var(--place-tile);
+  cursor: pointer;
+  transition:
+    transform var(--spring-press-duration) var(--spring-press),
+    filter 140ms ease,
+    background 140ms ease;
+}
+.place-tile span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-tile-primary {
+  color: white;
+  background: var(--place-accent);
+}
+.place-tile:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.place-tile:active {
+  transform: scale(0.94, 0.9);
+  transition-duration: 90ms;
+}
+.place-detail-stats {
+  display: flex;
+  margin: 14px 0 0;
+  padding: 10px 0;
+  border-block: 0.5px solid var(--place-border);
+}
+.place-detail-stats > div {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+}
+.place-detail-stats > div:first-child {
+  padding-left: 0;
+}
+.place-detail-stats > div + div {
+  border-left: 0.5px solid var(--place-border);
+}
+.place-detail-stats dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.44px;
+  text-transform: uppercase;
+  color: var(--place-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-detail-stats dd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.place-detail-stats dd > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.place-stat-rating svg {
+  color: var(--place-star);
+  flex: none;
+}
+.place-detail-stats .place-stat-rating {
+  color: var(--place-star);
+}
+.place-detail-photo {
+  height: 168px;
+  margin-top: 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  transform-origin: top left;
+  clip-path: inset(0 round 16px);
+}
+.place-detail-photo .place-thumbnail {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.place-detail-section h3 {
+  margin: 18px 0 8px;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.place-detail-box {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  background: var(--place-box);
+}
+.place-detail-facts {
+  padding: 0;
+}
+.place-detail-row {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.45;
+  padding: 10px 14px;
+}
+.place-detail-row + .place-detail-row {
+  border-top: 0.5px solid var(--place-border);
+}
+.place-detail-row svg {
+  flex: none;
+  margin-top: 20px;
+  color: var(--place-muted);
+}
+.place-detail-row span {
+  display: block;
+  font-size: 12px;
+  color: var(--place-muted);
+}
+.place-detail-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 12px;
+}
+.place-detail-footer .place-source {
+  color: var(--place-accent);
+}
+.place-detail-footer .place-data-attribution {
+  padding: 0;
+}
+@keyframes place-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Fullscreen: the map grows out of the inline frame. */
+.place-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: color-mix(in srgb, var(--background) 55%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+.place-fullscreen-overlay[data-state="open"] {
+  animation: place-fade-in 220ms ease both;
+}
+.place-fullscreen-overlay[data-state="closed"] {
+  animation: place-fade-out 200ms ease both;
+}
+.place-fullscreen {
+  position: fixed;
+  inset: 8px;
+  width: auto;
+  height: auto;
+  z-index: 81;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--place-map);
+  outline: none;
+  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.35);
+}
+.place-fullscreen[data-state="open"] {
+  animation: place-fullscreen-grow 230ms
+    linear(0, 0.0779, 0.2416, 0.4246, 0.5932, 0.7316, 0.8355, 0.9077, 0.9541, 0.9815, 0.9963, 1.0032, 1.0055, 1.0053, 1.004, 1.0026, 1.0014, 1.0006, 1)
+    backwards;
+}
+.place-fullscreen[data-state="closed"] {
+  animation: place-fullscreen-shrink var(--spring-settle-duration) var(--spring-settle) both;
+}
+@keyframes place-fullscreen-grow {
+  from {
+    clip-path: inset(var(--fullscreen-from) round 18px);
+  }
+  to {
+    clip-path: inset(0 round 20px);
+  }
+}
+@keyframes place-fullscreen-shrink {
+  from {
+    clip-path: inset(0 round 20px);
+  }
+  to {
+    clip-path: inset(var(--fullscreen-from) round 18px);
+  }
+}
+@keyframes place-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.place-fullscreen-map {
+  position: absolute;
+  inset: 0;
+}
+.place-fullscreen-close {
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+}
+.place-map-navigation {
+  position: absolute;
+  right: 14px;
+  bottom: 30px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: 38px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.place-map-navigation button {
+  display: grid;
+  place-items: center;
+  height: 38px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.place-map-navigation button:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.place-map-navigation > span {
+  height: 0.5px;
+  margin: 0 9px;
+  background: var(--place-border);
+}
+/* In fullscreen the place card takes the list panel's slot, like Apple Maps. */
+.place-fullscreen .place-detail {
+  inset: 14px auto auto 14px;
+  width: 352px;
+  max-height: calc(100% - 28px);
+}
+.place-itinerary {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: 352px;
+  max-height: calc(100% - 28px);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 26px;
+  animation: place-panel-in 230ms
+    linear(0, 0.0779, 0.2416, 0.4246, 0.5932, 0.7316, 0.8355, 0.9077, 0.9541, 0.9815, 0.9963, 1.0032, 1.0055, 1.0053, 1.004, 1.0026, 1.0014, 1.0006, 1)
+    both;
+}
+.place-itinerary-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--place-border) transparent;
+  /* Content fades under the glass's top and bottom edges as it scrolls. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 16px), transparent);
+}
+/* After a place card has shown, the list comes back by fading in place. */
+.place-fullscreen[data-revisited="true"] .place-itinerary {
+  animation: place-fade-in 160ms ease both;
+}
+.place-fullscreen[data-state="closed"] .place-itinerary {
+  animation: place-panel-out 140ms ease-in both;
+}
+.place-fullscreen .place-map-error {
+  left: 380px;
+}
+/* A place card takes the list's slot; the list springs back when it closes. */
+.place-fullscreen[data-detail="true"] .place-itinerary,
+.place-fullscreen[data-revisited="true"][data-detail="true"] .place-itinerary {
+  pointer-events: none;
+  animation: place-panel-away 160ms ease-in both;
+}
+@keyframes place-panel-away {
+  to {
+    opacity: 0;
+    transform: translateX(-24px) scale(0.96);
+    filter: blur(4px);
+  }
+}
+@keyframes place-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes place-panel-out {
+  to {
+    opacity: 0;
+    transform: translateX(-32px) scale(0.97);
+  }
+}
+.place-itinerary header {
+  padding: 22px 22px 18px;
+}
+.place-itinerary-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--place-muted);
+}
+.place-itinerary h2 {
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 650;
+  margin: 8px 0 14px;
+  letter-spacing: -0.4px;
+}
+.place-route-summary {
+  display: grid;
+  gap: 2px;
+}
+.place-route-summary span {
+  font-size: 15px;
+  color: var(--place-muted);
+}
+.place-route-summary strong {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+}
+.place-itinerary-stops {
+  list-style: none;
+  margin: 0;
+  padding: 4px 22px 8px;
+}
+.place-itinerary-stop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 18px;
+  animation: place-stop-in var(--spring-soft-duration) var(--spring-soft) both;
+  animation-delay: calc(30ms + min(var(--i), 6) * 18ms);
+}
+/* The route line threads through each stop's marker. */
+.place-itinerary-stop:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 30px;
+  bottom: 4px;
+  border-left: 2px dotted color-mix(in srgb, var(--place-accent) 45%, transparent);
+}
+@keyframes place-stop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+.place-stop-marker {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--place-accent);
+  background: color-mix(in srgb, var(--place-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--place-accent);
+}
+.place-stop-marker:empty::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.place-stop-content {
+  min-width: 0;
+}
+.place-stop-content > .place-stop-label {
+  font-size: 12px;
+  line-height: 24px;
+  margin: 0 0 4px;
+}
+.place-itinerary-place {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  padding: 8px;
+  border-radius: 16px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform var(--spring-press-duration) var(--spring-press);
+}
+.place-itinerary-place:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.place-itinerary-place:active {
+  transform: scale(0.98);
+  transition-duration: 90ms;
+}
+.place-itinerary-place[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--place-accent) 12%, transparent);
+}
+.place-itinerary-place .place-name {
+  white-space: normal;
+}
+.place-stop-note,
+.place-address {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--place-muted);
+  margin: 8px 0;
+}
+.place-source {
+  display: inline;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--place-muted);
+  text-decoration: none;
+  transition: color 140ms ease;
+}
+.place-source svg {
+  display: inline;
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+.place-source:hover {
+  color: var(--foreground);
+}
+.place-travel-separator {
+  display: flex;
+  width: fit-content;
+  margin-top: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--place-muted);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.place-data-attribution {
+  font-size: 10px;
+  padding: 0 22px 20px;
+  color: var(--place-muted);
+}
+
+/* Ranked media */
+.ranked-media-list ol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: 0 -8px;
+  list-style: none;
+}
+.ranked-media-list li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 8px;
+  border-radius: 26px;
+  transition:
+    background 200ms ease,
+    transform var(--spring-press-duration) var(--spring-press);
+}
+.ranked-media-list li[data-linked="true"]:hover {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.ranked-media-list li[data-linked="true"]:active {
+  transform: scale(0.985);
+  transition-duration: 100ms;
+}
+.ranked-media-art {
+  position: relative;
+  flex: 0 0 104px;
+  height: 104px;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.ranked-media-art .place-thumbnail {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  transition: transform var(--spring-soft-duration) var(--spring-soft);
+}
+.ranked-media-list li[data-linked="true"]:hover .ranked-media-art .place-thumbnail {
+  transform: scale(1.06);
+}
+.ranked-media-rank {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: white;
+  background: rgb(20 22 28 / 0.32);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(180%);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 2px 8px rgb(0 0 0 / 0.2);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+.ranked-media-rank[data-photo="false"] {
+  color: white;
+  background: var(--place-accent);
+  text-shadow: none;
+}
+.ranked-media-copy {
+  min-width: 0;
+  flex: 1;
+  padding-top: 2px;
+}
+.ranked-media-list h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.15px;
+}
+.ranked-media-link {
+  color: inherit;
+  text-decoration: none;
+}
+/* The whole row opens the item; the source link stays independently clickable. */
+.ranked-media-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.ranked-media-list p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground) 82%, transparent);
+}
+.ranked-media-source {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 550;
+  text-decoration: none;
+  color: var(--place-muted);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+.ranked-media-source:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.presentation button:focus-visible,
+.presentation a:focus-visible {
+  outline: 2px solid var(--place-accent);
+  outline-offset: 3px;
+}
+.ranked-media-link:focus-visible {
+  outline: none;
+}
+.ranked-media-link:focus-visible::after {
+  outline: 2px solid var(--place-accent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 650px) {
+  .place-fullscreen {
+    inset: 0;
+    border-radius: 0;
+  }
+  .place-fullscreen[data-state="open"] {
+    animation-name: place-fullscreen-grow-square;
+  }
+  @keyframes place-fullscreen-grow-square {
+    from {
+      clip-path: inset(var(--fullscreen-from) round 18px);
+    }
+    to {
+      clip-path: inset(0 round 0);
+    }
+  }
+  /* A bottom sheet that hugs its content up to 46% of the screen. */
+  .place-itinerary {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 46%;
+    animation-name: place-sheet-in;
+  }
+  /* The sheet covers the bottom, so the map's attribution moves to the top. */
+  .place-fullscreen-map .place-map-attribution {
+    top: 20px;
+    bottom: auto;
+    left: 14px;
+    right: auto;
+    max-width: calc(100% - 80px);
+  }
+  /* One close control at a time: the card's, while a place is open. */
+  .place-fullscreen[data-detail="true"] .place-fullscreen-close {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @keyframes place-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(60px) scale(0.97);
+    }
+  }
+  /* Beside the close control, above the itinerary sheet; pinch replaces zoom. */
+  .place-fullscreen .place-detail {
+    inset: auto 12px 12px;
+    width: auto;
+    max-height: calc(60% - 24px);
+  }
+  .place-map-navigation {
+    display: none;
+  }
+  .place-card {
+    flex-basis: min(300px, calc(100% - 40px));
+  }
+  .place-map-inline {
+    height: 380px;
+  }
+  .ranked-media-art {
+    flex-basis: 88px;
+    height: 88px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .place-fullscreen[data-state],
+  .place-fullscreen-overlay[data-state],
+  .place-itinerary,
+  .place-itinerary-stop,
+  .place-map-scrim,
+  .place-pin[aria-pressed="true"] .place-pin-face,
+  .place-card,
+  .place-map-loading-pulse {
+    animation: none !important;
+  }
+  .place-card,
+  .place-pin-face,
+  .place-pin-tail,
+  .place-tile,
+  .place-map-expand,
+  .place-fullscreen-close,
+  .place-detail-close,
+  .ranked-media-list li,
+  .ranked-media-art .place-thumbnail,
+  .place-map-inline[data-preview="true"] .place-card:not([data-source="true"]),
+  .place-map-inline[data-returning="true"] .place-card {
+    transition: none !important;
+  }
+  .place-card {
+    transform: none;
+  }
+}

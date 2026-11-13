@@ -441,6 +441,8 @@ const readLazyClosures = async () => {
       a2aExchange: ["src/renderer/components/openteam/a2a-exchange-sheet.tsx"],
       asyncTasks: ["src/renderer/components/openteam/async-tasks-panel.tsx"],
       desktopDialogs: ["src/renderer/components/openteam/desktop-dialogs.tsx"],
+      richPresentation: ["src/renderer/components/openteam/presentation/presentation-message.tsx"],
+      mapRenderer: ["node_modules/maplibre-gl/dist/maplibre-gl.js"],
       inspector: ["src/renderer/components/openteam/inspector.tsx"],
       channelLibrary: ["src/renderer/components/openteam/channel-library.tsx"],
       avatarPicker: ["src/renderer/components/openteam/avatar-picker.tsx"],

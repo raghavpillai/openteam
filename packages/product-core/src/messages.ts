@@ -223,6 +223,7 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
   const attachments = messageAssets(message);
   const stagedAttachments = messageStagedAttachments(message);
   const richMessage =
+    metadata.type === "presentation" ||
     metadata.type === "bot-template" ||
     metadata.type === "user-form" ||
     metadata.type === "external-draft" ||

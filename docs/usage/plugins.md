@@ -19,6 +19,7 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Linear | Find, create, and update issues, projects, and comments |
 | Notion | Work with pages for documents, research, meetings, and tasks |
 | Granola | Use meeting notes, decisions, and action items |
+| OpenStreetMap | Find places and nearby spots with opening hours, plan routes, and show them on maps. Free, with no account |
 | Plaid | Connect banks with your own Plaid keys and query balances, transactions, investments, and loans |
 | Signal | Read collected messages and contacts, and send text through a linked Signal account |
 | WhatsApp | Search messages, send messages and files, and manage chats through a linked WhatsApp account |

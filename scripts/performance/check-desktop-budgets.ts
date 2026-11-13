@@ -132,7 +132,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // The "microphone still starting" message for a hold released too early: 1,298,850.
 // Main at f17447de (#315 file previews) measures 1,322,729, over its own limit; with this
 // branch, 1,328,296.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_329_000);
+// Main at 02abba39 with the rich map presentations (the lazy presentation hook in rich
+// messages; the map renderer itself stays on demand): 1,329,632.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_330_300);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -173,6 +175,8 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // attachment previews measure 16,523,942 after the capabilities import fix.
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
+// Native presentation widgets + MapLibre add 1,089,152 bytes on demand. The
+// signed-in startup increases only 689 bytes; retain its existing ceiling.
 // Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
 // v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
 // ScreenBot' overlay page (capture motion, mascot, composer, its styles) and lazy bridge:
@@ -194,7 +198,9 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
 // Main at f17447de: 16,720,649 B; with this branch, 16,733,081 B; 16,734,520 B with ScreenBot's
 // "Sent" check matching the file preview's and dictation inside a preview.
-atMost("renderer bytes", result.renderer.bytes, 16_735_200);
+// Main at 02abba39 with the native presentation widgets and MapLibre (lazy), the OpenStreetMap
+// plugin move and the presentation polish: 17,867,243 B.
+atMost("renderer bytes", result.renderer.bytes, 17_868_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -210,6 +216,7 @@ atMost("renderer bytes", result.renderer.bytes, 16_735_200);
 // Resource ownership and background lifecycle controls measure 4,118,074 gzip
 // bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
 // The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
+// The same presentation/MapLibre payload adds 276,742 gzip bytes.
 // Same feature baseline: 4,125,698 gzip bytes.
 // Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
 // With the screenbot overlay page and bridge: 4,146,316 gzip bytes; with dictation and the
@@ -222,7 +229,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_735_200);
 // Both together on main at 3f91add4: 4,165,193.
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_179_500);
+// Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_468_300);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -276,6 +284,13 @@ const lazyBudgets: Record<string, number> = {
   a2aExchange: 5_000,
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
+  // forms.tsx no longer has a caller or manifest entry in the baseline build.
+  // Lazy: loads only with a map or ranked-list message. Glass surfaces, spring
+  // curves, the card-to-preview morph, photo pins and the weighted carousel
+  // measured 207,406 B with MapLibre's CSS; the round-2 review fixes brought
+  // it to 214,168 B.
+  richPresentation: 219_000,
+  mapRenderer: 925_000,
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.
   // Main at f17447de (#315): 6,725, unchanged by this branch.
@@ -325,8 +340,9 @@ const lazyBudgets: Record<string, number> = {
   // sign-in-or-key step for ChatGPT and Claude, checked keys, and the model select (a
   // select-style trigger with a filtered list, also on "You're already connected");
   // 152,506 with the web search step (a recommended provider, its key and a real check);
-  // 153,026 with the Settings cleanup.
-  onboarding: 153_400,
+  // 153,026 with the Settings cleanup; 153,503 on main at 02abba39 with the presentation
+  // contracts export.
+  onboarding: 153_600,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'

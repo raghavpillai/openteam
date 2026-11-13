@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./external-draft-revision": "./src/external-draft-revision.ts",
+    "./presentation": "./src/presentation.ts",
     "./agent-file-access": "./src/agent-file-access.ts",
     "./app-deep-links": "./src/app-deep-links.ts",
     ".": "./src/index.ts",

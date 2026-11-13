@@ -693,7 +693,8 @@ struct MessageRow: View {
               onOpen: onReplyContext.map { action in { action(reply) } })
           }
           // Draft and approval cards show their own title; their text is only the chat-list preview.
-          if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
+          if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string),
+            !(message.metadata["type"].string == "presentation" && PresentationPayload.parse(message.metadata["presentation"]) != nil) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
                 RichMarkdownView(source: message.displayContent, forceDark: message.isUser,

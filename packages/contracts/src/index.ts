@@ -3,6 +3,7 @@ export { stillWorking, updateBusyMessage, isUpdateBusyMessage } from "./server-u
 import type { NotificationRouting } from "./notification-presence";
 export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
+export * from "./presentation";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
@@ -450,7 +451,8 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "imessage-send", "bot-template"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "imessage-send", "bot-template", "presentation"),
+  presentation: Schema.optional(Schema.Unknown),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
   imessage: Schema.optional(Schema.Unknown),

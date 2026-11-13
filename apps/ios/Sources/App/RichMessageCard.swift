@@ -49,7 +49,11 @@ struct RichMessageCard: View {
     ].contains(type)
   }
   var body: some View {
-    if supported {
+    if type == "presentation", let presentation = PresentationPayload.parse(meta["presentation"]) {
+      PresentationMessageView(presentation: presentation, stateKey: message.id)
+        .padding(12)
+        .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 22))
+    } else if supported {
       VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : isDraftLike ? 10 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {

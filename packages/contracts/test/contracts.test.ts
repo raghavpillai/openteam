@@ -460,7 +460,7 @@ describe("API contracts", () => {
     expect(sendToUser?.description).not.toContain('ListCredentials');
     expect(sendToUser?.description).not.toContain('cursor-agent');
     const schema = sendToUser!.inputSchema as any;
-    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request']);
+    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request','presentation']);
     expect(schema.properties.secret.properties).toHaveProperty('name');
     expect(schema.properties.secret.properties).toHaveProperty('connector');
     expect(schema.properties).not.toHaveProperty('credential');
@@ -536,7 +536,10 @@ describe("API contracts", () => {
     ];
 
     const actual = referenceTool("SendToUser");
-    expect(actual.description).toBe(expected.description);
+    expect(actual.description).toStartWith(expected.description + " Use type:presentation");
+    expect(actual.description).toContain("only include ratings, hours and photos actually supplied by a source");
+    properties.type.enum.push("presentation");
+    properties.presentation = (NATIVE_TOOLS.find(tool => tool.name === "SendToUser")!.inputSchema as any).properties.presentation;
     expect(actual.inputSchema).toEqual(expected.inputSchema);
   });
 

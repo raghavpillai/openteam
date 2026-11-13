@@ -1,0 +1,374 @@
+{
+  "version": 1,
+  "places": [
+    {
+      "id": "map-widget-point-f078aff04d9bd814",
+      "name": "Empire State Building",
+      "latitude": 40.7484405,
+      "longitude": -73.9856644,
+      "address": "20 W 34th St, New York, NY 10001, USA",
+      "category": "Observation deck",
+      "icon": "\ud83c\udfd9\ufe0f",
+      "sourceUrl": "https://www.esbnyc.com/",
+      "notes": "Start at the iconic skyscraper"
+    },
+    {
+      "id": "map-widget-point-be6b049d927a6df2",
+      "name": "New York Public Library",
+      "latitude": 40.7531823,
+      "longitude": -73.9822534,
+      "address": "476 Fifth Avenue, New York, NY 10018, USA",
+      "category": "Library",
+      "icon": "\ud83d\udcda",
+      "sourceUrl": "https://www.nypl.org/locations/schwarzman",
+      "notes": "Visit the main library building"
+    },
+    {
+      "id": "map-widget-point-8a1b2d2832f05b71",
+      "name": "Bryant Park",
+      "latitude": 40.7535367,
+      "longitude": -73.9829529,
+      "address": "Bryant Park, New York, NY 10018, USA",
+      "category": "Park",
+      "icon": "\ud83c\udf33",
+      "sourceUrl": "https://bryantpark.org/",
+      "notes": "Finish at the park"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "place_map",
+      "title": "Midtown Manhattan walking route",
+      "placeIds": [
+        "map-widget-point-f078aff04d9bd814",
+        "map-widget-point-be6b049d927a6df2",
+        "map-widget-point-8a1b2d2832f05b71"
+      ],
+      "carousel": "auto",
+      "route": {
+        "mode": "walking",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [
+              -73.985847,
+              40.748191
+            ],
+            [
+              -73.985129,
+              40.74789
+            ],
+            [
+              -73.984755,
+              40.748411
+            ],
+            [
+              -73.984737,
+              40.748437
+            ],
+            [
+              -73.984679,
+              40.748508
+            ],
+            [
+              -73.984633,
+              40.748569
+            ],
+            [
+              -73.98462,
+              40.748586
+            ],
+            [
+              -73.984236,
+              40.7491
+            ],
+            [
+              -73.984213,
+              40.749103
+            ],
+            [
+              -73.984187,
+              40.749154
+            ],
+            [
+              -73.984168,
+              40.749192
+            ],
+            [
+              -73.984153,
+              40.749215
+            ],
+            [
+              -73.983802,
+              40.749721
+            ],
+            [
+              -73.983786,
+              40.749742
+            ],
+            [
+              -73.983755,
+              40.749786
+            ],
+            [
+              -73.983722,
+              40.749832
+            ],
+            [
+              -73.983713,
+              40.749845
+            ],
+            [
+              -73.983355,
+              40.750324
+            ],
+            [
+              -73.983335,
+              40.75035
+            ],
+            [
+              -73.983303,
+              40.750395
+            ],
+            [
+              -73.983265,
+              40.750447
+            ],
+            [
+              -73.98325,
+              40.750467
+            ],
+            [
+              -73.983245,
+              40.750474
+            ],
+            [
+              -73.982892,
+              40.750947
+            ],
+            [
+              -73.982875,
+              40.750969
+            ],
+            [
+              -73.982844,
+              40.751009
+            ],
+            [
+              -73.982803,
+              40.751064
+            ],
+            [
+              -73.982789,
+              40.751082
+            ],
+            [
+              -73.982442,
+              40.75158
+            ],
+            [
+              -73.982432,
+              40.751593
+            ],
+            [
+              -73.982402,
+              40.751635
+            ],
+            [
+              -73.982367,
+              40.751683
+            ],
+            [
+              -73.982352,
+              40.751702
+            ],
+            [
+              -73.981997,
+              40.752197
+            ],
+            [
+              -73.981981,
+              40.752218
+            ],
+            [
+              -73.981951,
+              40.752259
+            ],
+            [
+              -73.981922,
+              40.752298
+            ],
+            [
+              -73.98191,
+              40.752314
+            ],
+            [
+              -73.981905,
+              40.752321
+            ],
+            [
+              -73.981535,
+              40.752822
+            ],
+            [
+              -73.981578,
+              40.752843
+            ],
+            [
+              -73.981525,
+              40.752915
+            ],
+            [
+              -73.981531,
+              40.752917
+            ],
+            [
+              -73.981545,
+              40.752922
+            ],
+            [
+              -73.981552,
+              40.752925
+            ],
+            [
+              -73.981559,
+              40.752928
+            ],
+            [
+              -73.981698,
+              40.752985
+            ],
+            [
+              -73.981723,
+              40.752995
+            ],
+            [
+              -73.981746,
+              40.753005
+            ],
+            [
+              -73.981769,
+              40.753014
+            ],
+            [
+              -73.981746,
+              40.753005
+            ],
+            [
+              -73.981723,
+              40.752995
+            ],
+            [
+              -73.981698,
+              40.752985
+            ],
+            [
+              -73.981559,
+              40.752928
+            ],
+            [
+              -73.981552,
+              40.752925
+            ],
+            [
+              -73.981545,
+              40.752922
+            ],
+            [
+              -73.981531,
+              40.752917
+            ],
+            [
+              -73.981525,
+              40.752915
+            ],
+            [
+              -73.981578,
+              40.752843
+            ],
+            [
+              -73.981535,
+              40.752822
+            ],
+            [
+              -73.981905,
+              40.752321
+            ],
+            [
+              -73.981944,
+              40.752335
+            ],
+            [
+              -73.983302,
+              40.752908
+            ],
+            [
+              -73.98328,
+              40.752939
+            ],
+            [
+              -73.98325,
+              40.752982
+            ],
+            [
+              -73.983184,
+              40.753073
+            ],
+            [
+              -73.983013,
+              40.75331
+            ],
+            [
+              -73.982885,
+              40.753488
+            ],
+            [
+              -73.983007,
+              40.753538
+            ]
+          ]
+        },
+        "distanceMeters": 1054.749,
+        "durationSeconds": 779.89,
+        "legs": [
+          {
+            "fromPlaceId": "map-widget-point-f078aff04d9bd814",
+            "toPlaceId": "map-widget-point-be6b049d927a6df2",
+            "distanceMeters": 734.062,
+            "durationSeconds": 554.055
+          },
+          {
+            "fromPlaceId": "map-widget-point-be6b049d927a6df2",
+            "toPlaceId": "map-widget-point-8a1b2d2832f05b71",
+            "distanceMeters": 320.686,
+            "durationSeconds": 225.836
+          }
+        ]
+      }
+    },
+    {
+      "type": "ranked_media_list",
+      "title": "Places worth a visit",
+      "items": [
+        {
+          "id": "rank-1",
+          "title": "New York Public Library",
+          "description": "Historic research library on Fifth Avenue with a grand reading room and iconic Beaux-Arts architecture.",
+          "placeId": "map-widget-point-be6b049d927a6df2"
+        },
+        {
+          "id": "rank-2",
+          "title": "Bryant Park",
+          "description": "Public park in Midtown Manhattan, known for its lawn, seasonal activities, and surrounding skyscrapers.",
+          "placeId": "map-widget-point-8a1b2d2832f05b71"
+        },
+        {
+          "id": "rank-3",
+          "title": "Empire State Building",
+          "description": "Landmark skyscraper with observation decks overlooking New York City.",
+          "placeId": "map-widget-point-f078aff04d9bd814"
+        }
+      ]
+    }
+  ]
+}

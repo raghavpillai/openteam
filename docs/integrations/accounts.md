@@ -7,6 +7,7 @@ Each plugin signs in to its service in one of a few ways. This page explains wha
 | Plugin | How it signs in |
 | --- | --- |
 | Linear, Notion, Granola | Browser sign-in. Nothing to set up first. |
+| OpenStreetMap | Nothing. Choose **Connect**; it uses free public OpenStreetMap services. |
 | Ramp | Browser sign-in. Choose read-only or full access when you approve; your Ramp role still applies. If Ramp rejects the callback URL, ask Ramp to allowlist the exact URL OpenTeam shows. |
 | GitHub | A fine-grained personal access token |
 | Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides | Your own Google OAuth app. See [Google](google.md). |

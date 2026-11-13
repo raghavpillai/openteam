@@ -1,6 +1,9 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
+import { dictateHowTo } from "../../hooks/dictate-gesture";
+import { useShortcutBindings, isMac } from "../../hooks/use-shortcut-bindings";
+import { shortcutText } from "../../lib/keyboard-shortcuts";
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
@@ -170,6 +173,7 @@ export function PromptInput({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const dictateBinding = useShortcutBindings().dictate;
   const sendAfterVoice = useRef(false);
   const [voiceReadyToSend, setVoiceReadyToSend] = useState(false);
   const trailingRef = useRef<HTMLDivElement>(null);
@@ -535,6 +539,8 @@ export function PromptInput({
     available: voice.available && !disabled && !submitting && !staging,
     active: voice.active,
     state: voice.state,
+    elapsedMs: voice.elapsedMs,
+    fail: voice.fail,
     start: startVoice,
     stop: stopVoice,
     cancel: cancelVoice,
@@ -1064,7 +1070,7 @@ export function PromptInput({
                         }
                         title={
                           voice.available
-                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            ? `Click to dictate. ${dictateHowTo(shortcutText(dictateBinding, isMac()))}`
                             : "Set up transcription in Voice notes settings"
                         }
                         className={cn("composer-dictation-action", VOICE_ACTION_CLASS)}
@@ -1091,7 +1097,7 @@ export function PromptInput({
                         !hasPayload && !voice.available
                           ? "Set up transcription in Voice notes settings"
                           : !hasPayload
-                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            ? `Click to dictate. ${dictateHowTo(shortcutText(dictateBinding, isMac()))}`
                             : undefined
                       }
                       className={cn(
@@ -1141,6 +1147,7 @@ export function PromptInput({
               onDiscard={cancelVoice}
               onSend={sendVoice}
               radius={VOICE_SURFACE.radius}
+              starting={voice.state === "requesting"}
               stream={voice.stream}
             />
           </Suspense>

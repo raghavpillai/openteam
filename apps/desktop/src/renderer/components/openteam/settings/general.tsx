@@ -20,7 +20,6 @@ import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select"
 import type { MicrophoneControlProps } from "./microphone";
 import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow, settingsSelect, settingsSecondaryButton } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
-const AppshotShortcutSettings = lazy(() => import("./appshot-shortcut").then(module => ({ default: module.AppshotShortcutSettings })));
 
 
 // Reuse the selector already loaded for Theme; device discovery stays lazy.
@@ -138,7 +137,6 @@ export default function GeneralSettings() {
 
       <Suspense fallback={null}><MicrophoneSettings renderControl={renderMicrophoneControl} /></Suspense>
 
-      {window.openteam?.appshot && <Suspense fallback={null}><AppshotShortcutSettings /></Suspense>}
 
     </>
   );

@@ -698,3 +698,22 @@
     transition: opacity 80ms linear;
   }
 }
+
+/* The microphone is still opening: the timer waits, dimmed and pulsing, until it's live. */
+.vm-chip-starting {
+  animation: vm-chip-starting 900ms ease-in-out infinite alternate;
+}
+@keyframes vm-chip-starting {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 0.6;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vm-chip-starting {
+    animation: none;
+    opacity: 0.4;
+  }
+}

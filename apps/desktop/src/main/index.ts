@@ -1,4 +1,6 @@
 import { TailscaleManager } from "./tailscale-manager";
+import { KeyboardShortcutStore } from "./keyboard-shortcuts";
+import { FN_KEY } from "../renderer/lib/keyboard-shortcuts";
 import type { DesktopBrowserNetwork } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
@@ -32,8 +34,8 @@ import {
 } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { applicationMenuTemplate } from "./application-menu";
-import { DesktopAppshot } from "./appshot";
-import { AppshotShortcutController, requestInputMonitoring } from "./appshot-shortcut";
+import { DesktopScreenBot } from "./screenbot";
+import { ScreenBotShortcutController, requestInputMonitoring } from "./screenbot-shortcut";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { downloadAssetRequests } from "./asset-downloads";
 import { createOpenTeamClient } from "@openteam/client-core";
@@ -998,21 +1000,24 @@ const createWindow = async () => {
       mainWindow?.hide();
     }
   });
-  // A reload or crash mid-recording in Settings must not leave the appshot shortcut paused.
-  // ...and nothing an appshot asked of the old page (a send, a transcription) will be answered.
-  mainWindow.webContents.on("did-start-loading", () => appshotShortcut.setRecording(false));
+  // A reload or crash mid-recording in Settings must not leave the screenbot shortcut paused.
+  // ...and nothing a ScreenBot asked of the old page (a send, a transcription) will be answered.
+  mainWindow.webContents.on("did-start-loading", () => {
+    screenBotShortcut.setRecording(false);
+    if (recordingFn) { recordingFn = false; syncFnWatch(); }
+  });
   // Only a new document: subframe loads and in-page navigation keep the page (and its answers).
   mainWindow.webContents.on("did-start-navigation", (details) => {
-    if (details.isMainFrame && !details.isSameDocument) appshot.abandonRequests();
+    if (details.isMainFrame && !details.isSameDocument) screenbot.abandonRequests();
   });
   mainWindow.webContents.on("render-process-gone", () => {
-    appshotShortcut.setRecording(false);
-    appshot.abandonRequests();
+    screenBotShortcut.setRecording(false);
+    screenbot.abandonRequests();
   });
   mainWindow.once("closed", () => {
     disposeWindowActivity();
-    appshotShortcut.setRecording(false);
-    appshot.closeOverlay();
+    screenBotShortcut.setRecording(false);
+    screenbot.closeOverlay();
     pluginOAuth.closeAll();
     mainWindow = null;
   });
@@ -1050,12 +1055,12 @@ const createWindow = async () => {
 
 // Development retains explicit remote/Tailscale renderer support, as for the main window.
 const devRendererUrl = () => (app.isPackaged ? undefined : process.env.OPENTEAM_RENDERER_URL);
-const appshot = new DesktopAppshot({
-  preloadPath: join(import.meta.dirname, "appshot-preload.cjs"),
+const screenbot = new DesktopScreenBot({
+  preloadPath: join(import.meta.dirname, "screenbot-preload.cjs"),
   loadPage: async (window) => {
     const rendererUrl = devRendererUrl();
-    if (rendererUrl) await window.loadURL(new URL("appshot.html", rendererUrl.endsWith("/") ? rendererUrl : `${rendererUrl}/`).href);
-    else await window.loadFile(join(import.meta.dirname, "..", "dist", "appshot.html"));
+    if (rendererUrl) await window.loadURL(new URL("screenbot.html", rendererUrl.endsWith("/") ? rendererUrl : `${rendererUrl}/`).href);
+    else await window.loadFile(join(import.meta.dirname, "..", "dist", "screenbot.html"));
   },
   mainWindow: () => mainWindow,
   focusMainWindow: () => focusMainWindow(),
@@ -1063,12 +1068,12 @@ const appshot = new DesktopAppshot({
   discardDelivery: (stagingId) => discardDeliveryFiles(deliveryStageDirectory(), [stagingId]),
 });
 
-const installApplicationMenu = (appshotAccelerator: string | null) => {
+const installApplicationMenu = (screenBotAccelerator: string | null, settingsAccelerator = keyboardShortcuts.get("settings")) => {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
       applicationMenuTemplate(process.platform, (action) => {
-        if (action === "appshot") {
-          void appshot.take();
+        if (action === "screenbot") {
+          void screenbot.take();
           return;
         }
         focusMainWindow();
@@ -1085,53 +1090,108 @@ const installApplicationMenu = (appshotAccelerator: string | null) => {
         if (!computerClipboardActive || window !== mainWindow) return false;
         mainWindow?.webContents.send("openteam:computer-clipboard", action);
         return true;
-      }, appshotAccelerator)
+      }, screenBotAccelerator, settingsAccelerator)
     )
   );
 };
+const currentScreenBotAccelerator = () => {
+  const shortcut = screenBotShortcut.status().shortcut;
+  return shortcut.kind === "accelerator" ? shortcut.accelerator : null;
+};
+
+// Rebindable app shortcuts (Settings › Keyboard). Every window follows them; the menu shows
+// Settings', and dictation on Fn needs the native helper, which only main runs.
+const keyboardShortcuts = new KeyboardShortcutStore({
+  path: join(app.getPath("userData"), "keyboard-shortcuts.json"),
+  platform: process.platform,
+  screenBotAccelerator: () => currentScreenBotAccelerator(),
+  onChange: (view) => {
+    syncFnWatch(view.bindings.dictate);
+    if (app.isReady()) installApplicationMenu(currentScreenBotAccelerator(), view.bindings.settings);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send("openteam:shortcuts-changed", view);
+    }
+  },
+});
+// Fn is watched while dictation is bound to it, or while Settings records Dictate's shortcut
+// (a page never sees Fn on its own, so main hears it and passes it on).
+let recordingFn = false;
+const syncFnWatch = (dictate = keyboardShortcuts.get("dictate")) =>
+  screenBotShortcut.setWatchFn(dictate === FN_KEY || recordingFn);
+ipcMain.handle("openteam:shortcuts:record-fn", (event, recording: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Shortcuts are unavailable");
+  recordingFn = recording === true;
+  syncFnWatch();
+});
+const isOwnWindowSender = (event: Electron.IpcMainInvokeEvent) =>
+  BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents === event.sender);
+ipcMain.handle("openteam:shortcuts:get", (event) => {
+  if (!isOwnWindowSender(event)) throw new Error("Shortcuts are unavailable");
+  return keyboardShortcuts.view();
+});
+ipcMain.handle("openteam:shortcuts:set", (event, action: unknown, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Shortcuts are unavailable");
+  return keyboardShortcuts.set(action, value);
+});
+
+/** Fn on its own ("fn-down", "fn-up", or "fn-cancel" when it turned into Fn+key): to the
+ * window in front. Its composer dictates while Fn is held (or after a double press), and
+ * Settings records it. */
+const dictateFromFn = (event: string) => {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (!focused || focused.isDestroyed()) return;
+  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "screenbot:shortcut", event);
+};
 
 // The macOS helper that detects both-key chords; packaged apps run it from app.asar.unpacked.
-const appshotHelperPath = process.platform === "darwin"
-  ? join(import.meta.dirname.replace(/app\.asar(?=[\\/]|$)/, "app.asar.unpacked"), "appshot-keys")
+const screenBotHelperPath = process.platform === "darwin"
+  ? join(import.meta.dirname.replace(/app\.asar(?=[\\/]|$)/, "app.asar.unpacked"), "screenbot-keys")
   : null;
 let lastShortcutMenu: string | null | undefined;
-const appshotShortcut = new AppshotShortcutController({
+const screenBotShortcut = new ScreenBotShortcutController({
   platform: process.platform,
-  settingsPath: join(app.getPath("userData"), "appshot-settings.json"),
-  helperPath: appshotHelperPath,
+  settingsPath: join(app.getPath("userData"), "screenbot-settings.json"),
+  helperPath: screenBotHelperPath,
   registerAccelerator: (accelerator, onPress) => globalShortcut.register(accelerator, onPress),
   unregisterAccelerator: (accelerator) => globalShortcut.unregister(accelerator),
-  onTrigger: () => void appshot.take(),
+  onTrigger: () => void screenbot.take(),
+  onFn: (event) => dictateFromFn(event),
   onStatus: (status) => {
     const menuAccelerator = status.shortcut.kind === "accelerator" ? status.shortcut.accelerator : null;
     if (app.isReady() && menuAccelerator !== lastShortcutMenu) {
       lastShortcutMenu = menuAccelerator;
       installApplicationMenu(menuAccelerator);
     }
-    mainWindow?.webContents.send("openteam:appshot:shortcut-changed", status);
+    mainWindow?.webContents.send("openteam:screenbot:shortcut-changed", status);
   },
 });
 const requireShortcutSender = (event: Electron.IpcMainInvokeEvent) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Appshot settings are unavailable");
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("ScreenBot settings are unavailable");
 };
-ipcMain.handle("openteam:appshot:shortcut:get", (event) => {
+ipcMain.handle("openteam:screenbot:shortcut:get", (event) => {
   requireShortcutSender(event);
-  return { ...appshotShortcut.status(), platform: process.platform };
+  return { ...screenBotShortcut.status(), platform: process.platform };
 });
-ipcMain.handle("openteam:appshot:shortcut:set", async (event, value: unknown) => {
+ipcMain.handle("openteam:screenbot:shortcut:set", async (event, value: unknown) => {
   requireShortcutSender(event);
-  return { ...(await appshotShortcut.set(value)), platform: process.platform };
+  // A global shortcut takes the key from the app too: not one of the app's own.
+  const accelerator = (value as { kind?: unknown; accelerator?: unknown } | null)?.accelerator;
+  if (typeof accelerator === "string") {
+    const taken = keyboardShortcuts.conflictWith(accelerator);
+    if (taken) throw new Error(taken);
+  }
+  return { ...(await screenBotShortcut.set(value)), platform: process.platform };
 });
-ipcMain.handle("openteam:appshot:shortcut:recording", (event, recording: unknown) => {
+ipcMain.handle("openteam:screenbot:shortcut:recording", (event, recording: unknown) => {
   requireShortcutSender(event);
-  appshotShortcut.setRecording(recording === true);
+  screenBotShortcut.setRecording(recording === true);
 });
-ipcMain.handle("openteam:appshot:shortcut:request-access", async (event) => {
+ipcMain.handle("openteam:screenbot:shortcut:request-access", async (event) => {
   requireShortcutSender(event);
-  if (!appshotHelperPath) return false;
-  const granted = await requestInputMonitoring(appshotHelperPath);
+  if (!screenBotHelperPath) return false;
+  const granted = await requestInputMonitoring(screenBotHelperPath);
   // The helper picks tap or polling when it starts, so a grant needs a fresh one.
-  if (granted) appshotShortcut.restartHelper();
+  if (granted) screenBotShortcut.restartHelper();
   return granted;
 });
 
@@ -1139,10 +1199,10 @@ ipcMain.handle("openteam:appshot:shortcut:request-access", async (event) => {
 // Settings. When they come back to the app, look again and move to the idle event tap.
 let lastAccessCheck = 0;
 app.on("browser-window-focus", () => {
-  if (!appshotHelperPath || appshotShortcut.status().mode !== "poll" || Date.now() - lastAccessCheck < 5_000) return;
+  if (!screenBotHelperPath || screenBotShortcut.status().mode !== "poll" || Date.now() - lastAccessCheck < 5_000) return;
   lastAccessCheck = Date.now();
-  void requestInputMonitoring(appshotHelperPath, true).then((granted) => {
-    if (granted && appshotShortcut.status().mode === "poll") appshotShortcut.restartHelper();
+  void requestInputMonitoring(screenBotHelperPath, true).then((granted) => {
+    if (granted && screenBotShortcut.status().mode === "poll") screenBotShortcut.restartHelper();
   });
 });
 
@@ -1259,7 +1319,8 @@ if (!hasSingleInstanceLock) {
         },
       });
       await Promise.all([createWindow(), authStorageWarmup]);
-      await appshotShortcut.start();
+      await screenBotShortcut.start();
+      await keyboardShortcuts.start();
       // Screenshots and attachments half-written when the app last stopped can't be sent.
       void sweepIncompleteDeliveryStages(deliveryStageDirectory()).catch(() => undefined);
       scheduleDesktopUpdateChecks();
@@ -1331,8 +1392,8 @@ if (!hasSingleInstanceLock) {
 
 app.on("before-quit", () => {
   pluginOAuth.closeAll();
-  appshotShortcut.dispose();
-  appshot.dispose();
+  screenBotShortcut.dispose();
+  screenbot.dispose();
   isQuitting = true;
   mainWindow?.webContents.send("openteam:notifications:activity-changed");
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);

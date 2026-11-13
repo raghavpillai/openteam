@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
-type Shortcut = AppshotShortcutView;
-type Status = AppshotShortcutStatusView;
+type Shortcut = ScreenBotShortcutView;
+type Status = ScreenBotShortcutStatusView;
 
 const mac = () => window.openteam?.platform === "darwin";
 
@@ -51,7 +51,18 @@ export const describeShortcut = (shortcut: Shortcut): string =>
     ? `Both ${MODIFIER_NAME[shortcut.modifier]} keys`
     : shortcutKeycaps(shortcut).join(mac() ? "" : "+");
 
-function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
+/** While a shortcut is recorded: the keys held so far as keycaps, or a keycap-sized prompt. */
+export function RecordingKeys({ keys }: { keys: string[] }) {
+  return keys.length ? (
+    <Keycaps keys={keys} chord={false} />
+  ) : (
+    <span className="inline-flex h-[22px] items-center rounded-[6px] border border-dashed border-[var(--control-accent)] px-2 text-[12px] leading-none text-[var(--control-accent)]">
+      Type shortcut
+    </span>
+  );
+}
+
+export function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   return (
     <span className="inline-flex items-center gap-1" aria-hidden="true">
       {keys.map((key, index) => (
@@ -66,9 +77,9 @@ function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   );
 }
 
-/** Settings › General › Appshots: the shortcut, with Change and Reset. */
-export function AppshotShortcutSettings() {
-  const bridge = window.openteam?.appshot?.shortcut;
+/** Settings › Keyboard › ScreenBot: the shortcut, with Change and Reset. */
+export function ScreenBotShortcutSettings() {
+  const bridge = window.openteam?.screenbot?.shortcut;
   const [status, setStatus] = useState<Status | null>(null);
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState<string[]>([]);
@@ -164,7 +175,7 @@ export function AppshotShortcutSettings() {
 
   return (
     <>
-      <SectionLabel>Appshots</SectionLabel>
+      <SectionLabel>ScreenBot</SectionLabel>
       <SettingsGroup>
         <SettingsRow
           title="Shortcut"
@@ -180,10 +191,10 @@ export function AppshotShortcutSettings() {
               <span
                 aria-live="polite"
                 aria-label={recording ? "Recording a shortcut" : `Current shortcut: ${describeShortcut(status.shortcut)}`}
-                className={recording ? "rounded-[8px] px-1.5 py-1 ring-2 ring-[var(--control-accent)]" : "px-1.5 py-1"}
+                className="px-1.5 py-1"
               >
                 {recording ? (
-                  preview.length ? <Keycaps keys={preview} chord={false} /> : <span className="text-[12px] text-foreground-secondary">Recording…</span>
+                  <RecordingKeys keys={preview} />
                 ) : (
                   <Keycaps keys={shortcutKeycaps(status.shortcut)} chord={chord} />
                 )}

@@ -106,8 +106,8 @@ export default defineConfig({
     // Shared plugin primitives must not pull their parent screens into a detail
     // chunk. These modules declare components/functions without startup effects.
     rolldownOptions: {
-      // The floating appshot composer is its own small page (src/renderer/appshot).
-      input: { index: "index.html", appshot: "appshot.html" },
+      // The floating screenbot composer is its own small page (src/renderer/screenbot).
+      input: { index: "index.html", screenbot: "screenbot.html" },
       output: { codeSplitting: { groups: [{
       name: "plugin-common",
       test: /(?:plugins\/(?:plugin-ui|plugin-mark|plugin-authorization)|product-core\/src\/plugin-authorization|renderer\/lib\/plugin-settings-scale)\.(?:ts|tsx)$/,

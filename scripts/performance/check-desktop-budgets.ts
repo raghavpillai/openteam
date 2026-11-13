@@ -118,14 +118,21 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Automatic lifecycle chunking avoids a React initialization cycle in built entries.
 // Grok Bot conversation chrome, attachment stages and opt-in message colors:
 // 1,278,577 bytes after integrating main's in-app links. Library stays lazy (6,201 B).
-// Main at 4bb02542 measures 1,279,660. Appshots add no startup code (the bridge is lazy),
+// Main at 4bb02542 measures 1,279,660. ScreenBot add no startup code (the bridge is lazy),
 // but a second page shares React DOM and delivery modules: chunk glue measures 1,280,840;
 // the voice recorder taking its transcriber as a parameter (for dictation), 1,281,496;
 // the theme helper taking an explicit preference (the overlay's own storage), 1,281,509.
-// Main at 2090e228 measures 1,287,125 (over its own 1,280,000); with Appshots, 1,288,966.
+// Main at 2090e228 measures 1,287,125 (over its own 1,280,000); with ScreenBot, 1,288,966.
 // Email review forwarding, revision highlights, validation and read-only history:
 // 1,293,288 B on this baseline. File previews reuse the lazy attachment viewer.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_294_500);
+// Rebindable shortcuts: windows match key presses against the saved bindings and show them in
+// hints (the rules and labels load with Settings): 1,292,846.
+// Both together on main at 3f91add4 (#309 email review + rebindable shortcuts): 1,297,183.
+// Hold-to-dictate and double-press gestures for the Dictate shortcut: 1,298,156.
+// The "microphone still starting" message for a hold released too early: 1,298,850.
+// Main at f17447de (#315 file previews) measures 1,322,729, over its own limit; with this
+// branch, 1,328,296.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_329_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -135,8 +142,9 @@ const startupCssBytes = result.renderer.startup.files
 // v0.0.13 adds sidebar, pending-message and settings styles: 181,253 bytes.
 // v0.0.14 delivery/loading styles and background animation controls: 183,131.
 // The matching chat/details/media styling brings the measured stylesheet to 200,278 B.
-// Main at 2090e228: 201,404 B; Appshots' settings row adds 450 (201,854).
-atMost("startup CSS bytes", startupCssBytes, 202_000);
+// Main at 2090e228: 201,404 B; ScreenBot' settings row adds 450 (201,854).
+// Main at f17447de (#315 file previews): 220,564 B; with this branch, 220,625.
+atMost("startup CSS bytes", startupCssBytes, 221_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -167,9 +175,9 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
 // Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
 // v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
-// Appshots' overlay page (capture motion, mascot, composer, its styles) and lazy bridge:
+// ScreenBot' overlay page (capture motion, mascot, composer, its styles) and lazy bridge:
 // 16,633,150 B with frame-accurate motion (soft limits, handovers, animated line growth);
-// 16,647,600 B with dictation in the composer and Settings › Appshots (shortcut recorder);
+// 16,647,600 B with dictation in the composer and Settings › ScreenBot (shortcut recorder);
 // 16,649,756 B after the overlay's performance review (off-thread thumbnail and texture,
 // bounded goo mask, released images, race fixes);
 // 16,650,624 B with dictation on the chat's voice-note bar (the custom strip removed) and
@@ -178,9 +186,15 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // 16,652,343 B with Esc leaving early (mid-intro fade, dismissing the sent pill).
 // Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B; 16,662,762 B with
 // the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
-// Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with Appshots, 16,669,264 B.
+// Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with ScreenBot, 16,669,264 B.
 // Email review parity on this baseline: 16,673,564 B.
-atMost("renderer bytes", result.renderer.bytes, 16_675_000);
+// Settings › Keyboard and rebindable shortcuts: 16,678,696 B.
+// Both together on main at 3f91add4: 16,683,510 B.
+// With the Dictate hold/double-press gestures: 16,685,425 B; dictation from anywhere in the
+// conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
+// Main at f17447de: 16,720,649 B; with this branch, 16,733,081 B; 16,734,520 B with ScreenBot's
+// "Sent" check matching the file preview's and dictation inside a preview.
+atMost("renderer bytes", result.renderer.bytes, 16_735_200);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -198,13 +212,17 @@ atMost("renderer bytes", result.renderer.bytes, 16_675_000);
 // The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
 // Same feature baseline: 4,125,698 gzip bytes.
 // Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
-// With the appshot overlay page and bridge: 4,146,316 gzip bytes; with dictation and the
+// With the screenbot overlay page and bridge: 4,146,316 gzip bytes; with dictation and the
 // shortcut settings: 4,152,175; after the review fixes, the chat's voice bar in the composer
 // and one continuous card shadow: 4,153,604; with Esc leaving early: 4,153,714.
 // Rebased on main at 2090e228 (4,133,729 on its own): 4,157,884.
-// Main at 521b9f32: 4,135,795; with Appshots, 4,160,418.
+// Main at 521b9f32: 4,135,795; with ScreenBot, 4,160,418.
 // Same email review feature build: 4,161,640 B gzip.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_162_500);
+// Settings › Keyboard and rebindable shortcuts: 4,163,937.
+// Both together on main at 3f91add4: 4,165,193.
+// With the dictate gestures and microphone indication: 4,166,041.
+// Main at f17447de: 4,174,402; with this branch, 4,178,761.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_179_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -242,7 +260,7 @@ const lazyBudgets: Record<string, number> = {
   // The Settings cleanup's shared Select (#187) adds about 21.6 KB to each plugin closure:
   // 73,336, 46,419, 40,512 and 36,231.
   // The Library API method adds shared client code: measured 73,850 bytes.
-  // Main at 2090e228 measures 75,627 (unchanged by Appshots).
+  // Main at 2090e228 measures 75,627 (unchanged by ScreenBot).
   pluginDetail: 75_700,
   pluginConnection: 46_800,
   pluginStudio: 40_900,
@@ -260,17 +278,20 @@ const lazyBudgets: Record<string, number> = {
   desktopDialogs: 25_000,
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.
-  channelLibrary: 6_500,
+  // Main at f17447de (#315): 6,725, unchanged by this branch.
+  channelLibrary: 6_800,
   avatarPicker: 20_000,
-  // The main window's half of appshots: Bot list and durable delivery for the overlay.
-  appshotBridge: 3_500,
-  // Settings › Appshots: the shortcut recorder with Change and Reset.
-  appshotShortcutSettings: 10_000,
+  // The main window's half of ScreenBots: Bot list and durable delivery for the overlay.
+  screenBotBridge: 3_500,
+  // Settings › Keyboard: the screenbot trigger and the app's rebindable shortcuts, each with a
+  // recorder, Change and Reset.
+  keyboardSettings: 16_000,
   // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
   // This closure stays dynamic; noVNC retains its separate lazy boundary.
   botScreen: 28_000,
   vncProtocol: 280_000,
-  fileAttachment: 20_000,
+  // Main at f17447de (#315 gooey preview composer): 32,418, unchanged by this branch.
+  fileAttachment: 32_500,
   pdfPreview: 1_500_000,
   docxPreview: 550_000,
   spreadsheetPreview: 550_000,
@@ -280,8 +301,9 @@ const lazyBudgets: Record<string, number> = {
   // Main's compact voice glow and recording bar measure 59,665 bytes; still lazy.
   // v0.0.13 glow smoothing and transition state add 4,479 bytes: 64,144 total.
   // Suspending the shared AudioContext when the last bar unmounts, and the level callback
-  // appshot dictation uses: 64,520.
-  voiceMemo: 64_600,
+  // screenbot dictation uses: 64,520.
+  // The dimmed, pulsing timer while the microphone opens: 64,801.
+  voiceMemo: 64_900,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and
@@ -328,7 +350,8 @@ const lazyBudgets: Record<string, number> = {
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
   // v0.0.13 shared control styles: 13,550, without the ~21 KB Select dependency.
   // Shared controls/client code with message-color settings: 13,966 bytes.
-  settingsShell: 14_200,
+  // The Keyboard entry and its icon: 14,714.
+  settingsShell: 14_900,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,

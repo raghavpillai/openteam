@@ -125,8 +125,8 @@ export const Mascot = memo(forwardRef<MascotHandle, { size: number; className?: 
   }, []);
 
   return (
-    <div ref={root} className={`appshot-mascot ${className ?? ""}`} style={{ width: size, height: size }} aria-hidden="true">
-      <div className="appshot-mascot-body">
+    <div ref={root} className={`screenbot-mascot ${className ?? ""}`} style={{ width: size, height: size }} aria-hidden="true">
+      <div className="screenbot-mascot-body">
         <svg viewBox="0 0 100 100" width={size} height={size} overflow="visible">
           <defs>
             <linearGradient id={`${id}-body`} x1="0" y1="0" x2="0" y2="1">
@@ -154,15 +154,15 @@ export const Mascot = memo(forwardRef<MascotHandle, { size: number; className?: 
           <rect x="14" y="22" width="72" height="62" rx="14" fill={`url(#${id}-body)`} />
           <rect x="14" y="22" width="72" height="62" rx="14" fill={`url(#${id}-shine)`} />
           <rect x="14.5" y="22.5" width="71" height="61" rx="13.5" fill="none" stroke="#fff" strokeOpacity="0.28" />
-          <g ref={visor} className="appshot-mascot-visor">
+          <g ref={visor} className="screenbot-mascot-visor">
             <g transform="translate(52 0) scale(0.9703 1) translate(-50 0)">
               <rect x="24" y="36" width="52" height="20" rx="10" fill={`url(#${id}-face)`} />
-              <g ref={eyes} className="appshot-mascot-gaze">
-                <g ref={eyeShapes} className="appshot-mascot-eyes">
+              <g ref={eyes} className="screenbot-mascot-gaze">
+                <g ref={eyeShapes} className="screenbot-mascot-eyes">
                   <circle cx="40.5" cy="46" r="4" fill={`url(#${id}-eye)`} />
                   <circle cx="64.5" cy="46" r="4" fill={`url(#${id}-eye)`} />
                 </g>
-                <g ref={happyEyes} className="appshot-mascot-happy" fill="none" stroke={`url(#${id}-eye)`} strokeWidth="2.8" strokeLinecap="round">
+                <g ref={happyEyes} className="screenbot-mascot-happy" fill="none" stroke={`url(#${id}-eye)`} strokeWidth="2.8" strokeLinecap="round">
                   <path d="M36.2 47.6 Q40.5 42 44.8 47.6" />
                   <path d="M60.2 47.6 Q64.5 42 68.8 47.6" />
                 </g>

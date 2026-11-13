@@ -78,7 +78,7 @@ test("development supervisor builds, reloads every entry and lazy chunk, and shu
     await put("src/main/index.ts", 'console.log("initial main");');
     await put("src/main/host/utility.ts", 'console.log("initial utility");');
     await put("src/preload/index.ts", 'console.log("initial preload");');
-    await put("src/preload/appshot.ts", 'console.log("initial appshot preload");');
+    await put("src/preload/screenbot.ts", 'console.log("initial screenbot preload");');
     await put("../cli/src/main.ts", 'console.log("initial updater");');
 
     child = Bun.spawn([process.execPath, "scripts/dev-electron.ts"], {
@@ -94,7 +94,7 @@ test("development supervisor builds, reloads every entry and lazy chunk, and shu
       ["../cli/src/main.ts", "openteam-cli.js", "updated updater"],
       ["src/main/host/utility.ts", "host-utility.js", "updated utility"],
       ["src/preload/index.ts", "preload.cjs", "updated preload"],
-      ["src/preload/appshot.ts", "appshot-preload.cjs", "updated appshot preload"],
+      ["src/preload/screenbot.ts", "screenbot-preload.cjs", "updated screenbot preload"],
     ]) {
       const before = starts();
       await put(source!, `console.log(${JSON.stringify(marker)});`);

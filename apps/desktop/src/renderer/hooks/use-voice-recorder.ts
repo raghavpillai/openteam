@@ -16,7 +16,7 @@ export type Transcriber = (audio: Blob, signal: AbortSignal) => Promise<Pick<Tra
 
 /**
  * Records from the chosen microphone and turns the recording into text. The caller supplies
- * the transcriber: the chat composer calls the API directly, and the appshot overlay (which
+ * the transcriber: the chat composer calls the API directly, and the screenbot overlay (which
  * holds no account token) asks the signed-in main window to.
  */
 export function useVoiceRecorder(
@@ -209,6 +209,12 @@ export function useVoiceRecorder(
       }
     },
     cancel,
+    /** Ends it with a message instead of a recording (say, released before the mic was live). */
+    fail: (message: string) => {
+      cancel();
+      setState("error");
+      setError(message);
+    },
     retry: () => {
       if (pendingAudio.current && state === "error")
         void processAudio(pendingAudio.current, generation.current);

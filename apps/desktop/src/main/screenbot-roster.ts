@@ -1,4 +1,4 @@
-export interface AppshotBot {
+export interface ScreenBotBot {
   id: string;
   name: string;
   title: string;
@@ -9,8 +9,8 @@ export interface AppshotBot {
   avatarDataUrl?: string;
 }
 
-export interface AppshotRoster {
-  bots: AppshotBot[];
+export interface ScreenBotRoster {
+  bots: ScreenBotBot[];
   /** The server has transcription set up, so the composer can offer dictation. */
   dictation: boolean;
   /** The app's appearance setting; the overlay has its own storage and can't read it. */
@@ -24,10 +24,10 @@ export const text = (value: unknown, max: number): string | null =>
   typeof value === "string" && value.length <= max ? value : null;
 
 /** Copy only the fields the overlay renders. The main window's renderer is trusted, but its
- * roster still crosses into another page and is stored for later appshots. */
-export const parseAppshotRoster = (value: unknown): AppshotRoster | null => {
+ * roster still crosses into another page and is stored for later ScreenBots. */
+export const parseScreenBotRoster = (value: unknown): ScreenBotRoster | null => {
   if (!isRecord(value) || !Array.isArray(value.bots) || value.bots.length > 500) return null;
-  const bots: AppshotBot[] = [];
+  const bots: ScreenBotBot[] = [];
   for (const candidate of value.bots) {
     if (!isRecord(candidate)) return null;
     const id = text(candidate.id, 200);

@@ -2,11 +2,11 @@ import { normalizeRobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BotAvatarGlyph } from "../components/openteam/avatar-picker-icons";
-import type { AppshotBot } from "./types";
+import type { ScreenBotBot } from "./types";
 
-export function AppshotBotAvatar({ bot, size }: { bot: AppshotBot; size: number }) {
+export function ScreenBotBotAvatar({ bot, size }: { bot: ScreenBotBot; size: number }) {
   if (bot.avatarDataUrl) {
-    return <img alt="" className="appshot-avatar-image" src={bot.avatarDataUrl} style={{ width: size, height: size }} />;
+    return <img alt="" className="screenbot-avatar-image" src={bot.avatarDataUrl} style={{ width: size, height: size }} />;
   }
   return (
     <BotAvatarGlyph
@@ -23,7 +23,7 @@ const LIST_MAX = 296;
 const EDGE = 12;
 const GAP = 8;
 
-/** The one choice an appshot offers: which Bot it goes to. */
+/** The one choice a ScreenBot offers: which Bot it goes to. */
 export function BotPicker({
   bots,
   selected,
@@ -31,11 +31,11 @@ export function BotPicker({
   onOpenChange,
   onSelect,
 }: {
-  bots: AppshotBot[];
-  selected: AppshotBot;
+  bots: ScreenBotBot[];
+  selected: ScreenBotBot;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (bot: AppshotBot) => void;
+  onSelect: (bot: ScreenBotBot) => void;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -112,7 +112,7 @@ export function BotPicker({
     listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const choose = (bot: AppshotBot | undefined) => {
+  const choose = (bot: ScreenBotBot | undefined) => {
     if (!bot) return;
     onSelect(bot);
     onOpenChange(false);
@@ -141,11 +141,11 @@ export function BotPicker({
   };
 
   return (
-    <div className="appshot-picker">
+    <div className="screenbot-picker">
       <button
         ref={chipRef}
         type="button"
-        className="appshot-chip"
+        className="screenbot-chip"
         data-open={open || undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -158,17 +158,17 @@ export function BotPicker({
           }
         }}
       >
-        <AppshotBotAvatar bot={selected} size={18} />
-        <span className="appshot-chip-name">{selected.name}</span>
+        <ScreenBotBotAvatar bot={selected} size={18} />
+        <span className="screenbot-chip-name">{selected.name}</span>
         <ChevronsUpDown aria-hidden="true" size={12} strokeWidth={2.2} />
       </button>
       {open && (
-        <div ref={menuRef} className="appshot-menu" data-hit="" data-side="above" onKeyDown={onKeyDown}>
-          <div className="appshot-menu-glass" data-glass="" aria-hidden="true" />
+        <div ref={menuRef} className="screenbot-menu" data-hit="" data-side="above" onKeyDown={onKeyDown}>
+          <div className="screenbot-menu-glass" data-glass="" aria-hidden="true" />
           {searchable && (
             <input
               ref={searchRef}
-              className="appshot-menu-search"
+              className="screenbot-menu-search"
               placeholder="Search Bots"
               value={query}
               spellCheck={false}
@@ -183,23 +183,23 @@ export function BotPicker({
           )}
           <div
             ref={listRef}
-            className="appshot-menu-list"
+            className="screenbot-menu-list"
             role="listbox"
             tabIndex={-1}
             aria-label="Send to"
-            aria-activedescendant={visible[active] ? `appshot-bot-${visible[active].id}` : undefined}
+            aria-activedescendant={visible[active] ? `screenbot-bot-${visible[active].id}` : undefined}
             onScroll={markOverflow}
           >
-            {!searchable && <div className="appshot-menu-heading">Send to</div>}
+            {!searchable && <div className="screenbot-menu-heading">Send to</div>}
             {visible.map((bot, index) => {
               const shortcut = bots.indexOf(bot);
               return (
                 <div
                   key={bot.id}
-                  id={`appshot-bot-${bot.id}`}
+                  id={`screenbot-bot-${bot.id}`}
                   role="option"
                   aria-selected={bot.id === selected.id}
-                  className="appshot-menu-item"
+                  className="screenbot-menu-item"
                   data-active={index === active || undefined}
                   data-index={index}
                   onPointerMove={() => {
@@ -209,19 +209,19 @@ export function BotPicker({
                   }}
                   onClick={() => choose(bot)}
                 >
-                  <span className="appshot-menu-check" aria-hidden="true">
+                  <span className="screenbot-menu-check" aria-hidden="true">
                     {bot.id === selected.id && <Check size={12} strokeWidth={2.6} />}
                   </span>
-                  <AppshotBotAvatar bot={bot} size={20} />
-                  <span className="appshot-menu-text">
-                    <span className="appshot-menu-name">{bot.name}</span>
-                    {bot.title && <span className="appshot-menu-title">{bot.title}</span>}
+                  <ScreenBotBotAvatar bot={bot} size={20} />
+                  <span className="screenbot-menu-text">
+                    <span className="screenbot-menu-name">{bot.name}</span>
+                    {bot.title && <span className="screenbot-menu-title">{bot.title}</span>}
                   </span>
-                  {shortcut < 9 && <kbd className="appshot-menu-key">⌘{shortcut + 1}</kbd>}
+                  {shortcut < 9 && <kbd className="screenbot-menu-key">⌘{shortcut + 1}</kbd>}
                 </div>
               );
             })}
-            {visible.length === 0 && <div className="appshot-menu-empty">No Bots match</div>}
+            {visible.length === 0 && <div className="screenbot-menu-empty">No Bots match</div>}
           </div>
         </div>
       )}

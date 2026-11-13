@@ -1,4 +1,5 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
+import { isShortcut } from "../../hooks/use-shortcut-bindings";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
 import {
   DragDropProvider,
@@ -1022,6 +1023,8 @@ function VirtualizedChannelRows({
       data-virtual-sidebar-count={rows.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const channelElement = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-channel-id]"
         );
@@ -1303,6 +1306,7 @@ function VirtualizedPinnedTiles({
         ) {
           return;
         }
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-pinned-channel-id]");
         const currentId = tile?.dataset.pinnedChannelId;
         const index = currentId ? rows.findIndex((row) => row.channel.id === currentId) : -1;
@@ -1752,6 +1756,8 @@ function VirtualizedSections({
       data-virtual-sidebar-sections={sections.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const sectionHeader = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-section-id]"
         );
@@ -1964,6 +1970,8 @@ function VirtualizedCompactChannels({
       data-virtual-compact-sidebar-count={entries.length}
       onKeyDownCapture={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         const tile = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-compact-channel-id]"
         );
@@ -2369,6 +2377,13 @@ export const Sidebar = memo(function Sidebar({
       }))
       .filter((group) => group.rows.length > 0);
   }, [groups, preferences.sections]);
+  // For the next/previous Bot shortcuts, which read these from a long-lived key handler.
+  const channelOrderRef = useRef<string[]>([]);
+  channelOrderRef.current = compactGroups.flatMap((group) => group.rows.map((row) => row.channel.id));
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
   const storedCompact = sidebarWidth === COMPACT_SIDEBAR_WIDTH;
   const targetCompact = forcedCompact || storedCompact;
   const [compact, setCompact] = useState(targetCompact);
@@ -2642,10 +2657,22 @@ export const Sidebar = memo(function Sidebar({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "b") return;
+      if (isShortcut(event, "toggleSidebar")) {
+        event.preventDefault();
+        toggleCompactSidebar();
+        return;
+      }
+      // Next and previous Bot: the conversation below or above, in the sidebar's own order
+      // (pinned, then each section, then the rest), wrapping at the ends.
+      const step = isShortcut(event, "nextBot") ? 1 : isShortcut(event, "previousBot") ? -1 : 0;
+      // Not from inside a dialog (Search, Settings): those keys are theirs.
+      if (!step || event.defaultPrevented || (event.target as Element | null)?.closest?.("[role=dialog]")) return;
+      const order = channelOrderRef.current;
+      if (order.length === 0) return;
       event.preventDefault();
-      toggleCompactSidebar();
+      const index = order.indexOf(selectedIdRef.current ?? "");
+      const next = order[index < 0 ? (step > 0 ? 0 : order.length - 1) : (index + step + order.length) % order.length];
+      if (next) onSelectRef.current(next);
     };
     const handleResize = () => {
       const next = normalizeSidebarWidth(sidebarWidthRef.current);
@@ -2799,6 +2826,8 @@ export const Sidebar = memo(function Sidebar({
         // Virtualized lists handle their own offscreen navigation in capture.
         if (event.defaultPrevented || dragSourceChannelId || dragSourceSectionId) return;
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        // Plain keys move between rows; with ⌘/Ctrl/⌥ they're a shortcut (⌘↓ is Next Bot).
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (!(event.target instanceof HTMLElement) || event.target.closest("input, textarea, [contenteditable=true]")) return;
         const selector = "[data-channel-id] button, [data-pinned-channel-id] button, button[data-compact-channel-id]";
         const current = event.target.closest("button");

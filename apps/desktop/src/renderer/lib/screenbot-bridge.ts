@@ -5,7 +5,7 @@ import { API_BASE } from "../client/http";
 import { authHeaders } from "../client/auth";
 import { desktopDurableSendController, discardDesktopDeliveryStages } from "./durable-sends";
 
-type Bridge = NonNullable<NonNullable<Window["openteam"]>["appshot"]>;
+type Bridge = NonNullable<NonNullable<Window["openteam"]>["screenbot"]>;
 
 const avatarCache = new Map<string, Promise<string | undefined>>();
 
@@ -69,13 +69,13 @@ const rosterFor = (bots: BotView[], dictation: boolean, avatars: Array<string | 
 });
 
 /**
- * The main window's half of appshots: it keeps the floating composer's Bot list current and
- * delivers what it captures. Delivery uses the chat composer's durable path, so an appshot
+ * The main window's half of ScreenBots: it keeps the floating composer's Bot list current and
+ * delivers what it captures. Delivery uses the chat composer's durable path, so a ScreenBot
  * shows up in the conversation at once and survives going offline like any other message.
  * Loaded after the workspace, so it costs signed-in startup nothing.
  */
-export function startAppshotBridge(): () => void {
-  const bridge: Bridge | undefined = window.openteam?.appshot;
+export function startScreenBotBridge(): () => void {
+  const bridge: Bridge | undefined = window.openteam?.screenbot;
   if (!bridge) return () => {};
   let bots: BotView[] = [];
   let refreshing: Promise<void> | null = null;
@@ -93,7 +93,7 @@ export function startAppshotBridge(): () => void {
   window.addEventListener(THEME_CHANGE_EVENT, onTheme);
 
   let refreshedAt = 0;
-  /** A full refresh at most every 30 s: each appshot asks, and spamming it must stay cheap. */
+  /** A full refresh at most every 30 s: each screenbot asks, and spamming it must stay cheap. */
   const refreshIfStale = () => {
     if (Date.now() - refreshedAt > 30_000) void refresh();
   };

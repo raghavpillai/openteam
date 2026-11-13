@@ -4,19 +4,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  AppshotShortcutController,
-  defaultAppshotShortcut,
+  ScreenBotShortcutController,
+  defaultScreenBotShortcut,
   isValidAccelerator,
-  parseAppshotShortcut,
+  parseScreenBotShortcut,
   reservedShortcutReason,
-  type AppshotShortcutStatus,
-} from "../src/main/appshot-shortcut";
-import { insertDictation } from "../src/renderer/appshot/dictation";
+  type ScreenBotShortcutStatus,
+} from "../src/main/screenbot-shortcut";
+import { insertDictation } from "../src/renderer/screenbot/dictation";
 
-describe("appshot shortcuts", () => {
+describe("screenbot shortcuts", () => {
   test("defaults to both Command keys on macOS", () => {
-    expect(defaultAppshotShortcut("darwin")).toEqual({ kind: "chord", modifier: "command" });
-    expect(defaultAppshotShortcut("win32")).toEqual({ kind: "accelerator", accelerator: "CommandOrControl+Shift+2" });
+    expect(defaultScreenBotShortcut("darwin")).toEqual({ kind: "chord", modifier: "command" });
+    expect(defaultScreenBotShortcut("win32")).toEqual({ kind: "accelerator", accelerator: "CommandOrControl+Shift+2" });
   });
 
   test("accepts real shortcuts and both-key chords, and rejects the rest", () => {
@@ -26,16 +26,16 @@ describe("appshot shortcuts", () => {
     expect(isValidAccelerator("A")).toBe(false);
     expect(isValidAccelerator("Command+Command+A")).toBe(false);
     expect(isValidAccelerator("Command+Bogus")).toBe(false);
-    expect(parseAppshotShortcut({ kind: "chord", modifier: "option" }, "darwin")).toEqual({ kind: "chord", modifier: "option" });
-    expect(parseAppshotShortcut({ kind: "chord", modifier: "option" }, "win32")).toBeNull();
-    expect(parseAppshotShortcut({ kind: "chord", modifier: "fn" }, "darwin")).toBeNull();
-    expect(parseAppshotShortcut({ kind: "accelerator", accelerator: "Shift+2" }, "darwin")).toBeNull();
+    expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "darwin")).toEqual({ kind: "chord", modifier: "option" });
+    expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "win32")).toBeNull();
+    expect(parseScreenBotShortcut({ kind: "chord", modifier: "fn" }, "darwin")).toBeNull();
+    expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: "Shift+2" }, "darwin")).toBeNull();
   });
 
   test("refuses shortcuts every app relies on, however they're spelled", () => {
     for (const taken of ["Command+C", "CmdOrCtrl+w", "Command+Q", "CommandOrControl+,", "Shift+Command+4", "Command+Tab", "Command+Space"]) {
       expect(reservedShortcutReason(taken, "darwin")).not.toBeNull();
-      expect(parseAppshotShortcut({ kind: "accelerator", accelerator: taken }, "darwin")).toBeNull();
+      expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: taken }, "darwin")).toBeNull();
     }
     expect(reservedShortcutReason("Command+Shift+2", "darwin")).toBeNull();
     expect(reservedShortcutReason("Control+C", "win32")).not.toBeNull();
@@ -45,10 +45,10 @@ describe("appshot shortcuts", () => {
   });
 
   test("saves a new shortcut, resets to the default, and pauses while recording", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "appshot-shortcut-"));
-    const settingsPath = join(directory, "appshot-settings.json");
+    const directory = await mkdtemp(join(tmpdir(), "screenbot-shortcut-"));
+    const settingsPath = join(directory, "screenbot-settings.json");
     const registered = new Set<string>();
-    const statuses: AppshotShortcutStatus[] = [];
+    const statuses: ScreenBotShortcutStatus[] = [];
     let triggers = 0;
     const options = {
       platform: "win32" as const,
@@ -62,10 +62,10 @@ describe("appshot shortcuts", () => {
       },
       unregisterAccelerator: (accelerator: string) => void registered.delete(accelerator),
       onTrigger: () => { triggers += 1; },
-      onStatus: (status: AppshotShortcutStatus) => void statuses.push(status),
+      onStatus: (status: ScreenBotShortcutStatus) => void statuses.push(status),
     };
     try {
-      const controller = new AppshotShortcutController(options);
+      const controller = new ScreenBotShortcutController(options);
       await controller.start();
       expect([...registered]).toEqual(["CommandOrControl+Shift+2"]);
       expect(controller.status()).toMatchObject({ isDefault: true, active: true, mode: "shortcut" });
@@ -91,7 +91,7 @@ describe("appshot shortcuts", () => {
       await controller.set({ kind: "accelerator", accelerator: "Control+Shift+K" });
       controller.dispose();
       expect(registered.size).toBe(0);
-      const restarted = new AppshotShortcutController(options);
+      const restarted = new ScreenBotShortcutController(options);
       await restarted.start();
       expect(restarted.status().shortcut).toEqual({ kind: "accelerator", accelerator: "Control+Shift+K" });
       restarted.dispose();
@@ -102,7 +102,7 @@ describe("appshot shortcuts", () => {
     }
   });
 
-  const helper = resolve(import.meta.dir, "../dist-electron/appshot-keys");
+  const helper = resolve(import.meta.dir, "../dist-electron/screenbot-keys");
   test.if(process.platform === "darwin" && existsSync(helper))("the native chord detector passes its self-test", async () => {
     const child = Bun.spawn([helper, "--self-test"], { stdout: "pipe" });
     expect((await new Response(child.stdout).text()).trim()).toBe("ok");

@@ -592,7 +592,7 @@ describe("API contracts", () => {
       "UpdateChannel",
       "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel",
       "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "CreateBotShareJson",
-      "WakeParent", "SearchPlaces", "RoutePlaces",
+      "WakeParent",
     ]);
     for (const tool of CURSOR_TOOLS) {
       expect(tool.description).toEqual(referenceTool(tool.tool).description);

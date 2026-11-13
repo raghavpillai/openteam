@@ -20,6 +20,7 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 | [Granola](granola/README.md) | Remote MCP, OAuth | Use meeting notes, decisions, and action items |
 | [Linear](linear/README.md) | Remote MCP, OAuth | Find, create, and update issues, projects, and comments |
 | [Notion](notion/README.md) | Remote MCP, OAuth | Work with documents, research, meetings, and tasks |
+| [OpenStreetMap](openstreetmap/README.md) | Packaged MCP, no account | Find places and nearby spots with hours, plan walking, cycling and driving routes, and show them on maps |
 | [Plaid](plaid/README.md) | Skills using the Plaid CLI | Query balances, transactions, recurring payments, investments, and loans |
 | [Ramp](ramp/README.md) | Remote MCP, OAuth | Analyze spend, manage expenses and approvals, and run finance workflows |
 | [T3 Code](t3-code/README.md) | Remote MCP, OAuth and bundled skills | Start coding work in T3 worktrees, follow results, and continue existing threads |

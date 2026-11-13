@@ -38,7 +38,6 @@ import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
 import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
-import { searchPlaces, routePlaces } from "./place-data";
 
 export class InternalToolService {
   constructor(
@@ -100,8 +99,6 @@ export class InternalToolService {
         throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
-      if (request.tool === "SearchPlaces") return searchPlaces(request.arguments, fetch, signal);
-      if (request.tool === "RoutePlaces") return routePlaces(request.arguments, fetch, signal);
       if (request.tool === "ReportRequestProgress") {
         if (childIdentity || run.origin === "routine") throw new ApiError(403, "request_progress_unavailable", "Only the user-facing parent may track a request");
         const result = await reportRequestProgress(this.prisma, context, Schema.decodeUnknownSync(RequestProgressInput)(request.arguments));

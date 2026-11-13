@@ -282,7 +282,11 @@ const lazyBudgets: Record<string, number> = {
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
   // forms.tsx no longer has a caller or manifest entry in the baseline build.
-  richPresentation: 180_000,
+  // Lazy: loads only with a map or ranked-list message. Glass surfaces, spring
+  // curves, the card-to-preview morph, photo pins and the weighted carousel
+  // measured 207,406 B with MapLibre's CSS; the round-2 review fixes brought
+  // it to 214,168 B.
+  richPresentation: 219_000,
   mapRenderer: 925_000,
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.

@@ -25,7 +25,11 @@ export const PlaceSchema = z.object({
   reviewCount: z.number().int().nonnegative().optional(),
   isOpen: z.boolean().optional(),
   hours: text.optional(),
-  provider: z.string().max(200).optional(),
+  // A blank provider is treated as absent rather than shown as an empty label.
+  provider: z.preprocess(
+    (value) => (typeof value === "string" && !value.trim() ? undefined : value),
+    z.string().trim().max(200).optional()
+  ),
   sourceUrl: url.optional(),
   attribution: text.optional(),
 });
@@ -91,7 +95,7 @@ export const PresentationSchema = z
     blocks: z
       .array(
         z.discriminatedUnion("type", [
-          z.object({ type: z.literal("markdown"), text: z.string().max(20000) }),
+          z.object({ type: z.literal("markdown"), text: z.string().trim().min(1).max(20000) }),
           mapBlock,
           listBlock,
         ])
@@ -361,36 +365,3 @@ export const presentationInputJsonSchema = {
   required: ["version", "blocks"],
   additionalProperties: false,
 };
-
-export const placeToolContracts = [
-  {
-    tool: "SearchPlaces",
-    description:
-      "Find real places/POIs and geocode names or addresses using OpenStreetMap (Photon). Include city/address to disambiguate. Returns provider ids, verified latitude/longitude and source links; no ratings or photos are invented. Use these places in SendToUser type:presentation. Query text and optional bias coordinates are sent to the configured geocoder.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", minLength: 2, maxLength: 500 },
-        limit: { type: "integer", minimum: 1, maximum: 10 },
-        latitude: { type: "number", minimum: -90, maximum: 90 },
-        longitude: { type: "number", minimum: -180, maximum: 180 },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    },
-  },
-  {
-    tool: "RoutePlaces",
-    description:
-      "Compute a real walking, cycling or driving itinerary through ordered verified places with Valhalla/OSM. Returns GeoJSON [longitude,latitude] geometry, per-leg distances, duration and instructions. Never draw straight lines and label them walking directions. Coordinates are sent to the configured routing service. Use the returned route unchanged in a place_map presentation.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        places: { type: "array", minItems: 2, maxItems: 10, items: placeInputJsonSchema },
-        mode: { type: "string", enum: ["walking", "driving", "cycling"] },
-      },
-      required: ["places", "mode"],
-      additionalProperties: false,
-    },
-  },
-];

@@ -21,8 +21,7 @@
     "better-auth": "1.7.2",
     "effect": "3.22.1",
     "pg": "8.23.0",
-    "pg-boss": "12.28.0",
-    "zod": "3.25.76"
+    "pg-boss": "12.28.0"
   },
   "devDependencies": {
     "@types/pg": "8.15.5",

@@ -15,7 +15,6 @@ test("the agent's schema and send parser accept the same native presentation as 
     -73.985847, 40.748191,
   ]);
   expect(presentationFallback(parsed.presentation)).toContain("New York Public Library");
-  expect(CURSOR_TOOLS.map((tool) => tool.tool)).toContain("SearchPlaces");
 });
 
 test("ChatGPT POI envelopes preserve coordinates and source metadata without inventing missing fields", () => {

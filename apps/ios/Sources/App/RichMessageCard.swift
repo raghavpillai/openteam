@@ -50,7 +50,7 @@ struct RichMessageCard: View {
   }
   var body: some View {
     if type == "presentation", let presentation = PresentationPayload.parse(meta["presentation"]) {
-      PresentationMessageView(presentation: presentation)
+      PresentationMessageView(presentation: presentation, stateKey: message.id)
         .padding(12)
         .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 22))
     } else if supported {

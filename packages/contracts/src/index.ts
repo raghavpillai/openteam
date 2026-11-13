@@ -3,7 +3,6 @@ export { stillWorking, updateBusyMessage, isUpdateBusyMessage } from "./server-u
 import type { NotificationRouting } from "./notification-presence";
 export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
-import { placeToolContracts } from "./presentation";
 export * from "./presentation";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
@@ -62,7 +61,7 @@ export interface CursorToolDefinition {
 }
 
 /** The explicitly supported Cursor-compatible subset; no other Cursor tools are exposed. */
-export const CURSOR_TOOLS = [...(cursorToolsDocument.cursor as CursorToolDefinition[]), ...placeToolContracts].map(t => { const c = withReferenceContract({ ...t, name: t.tool }); return { ...t, description: c.description, inputSchema: c.inputSchema }; });
+export const CURSOR_TOOLS = (cursorToolsDocument.cursor as CursorToolDefinition[]).map(t => { const c = withReferenceContract({ ...t, name: t.tool }); return { ...t, description: c.description, inputSchema: c.inputSchema }; });
 export const CURSOR_TOOL_NAMES = CURSOR_TOOLS.map(({ tool }) => tool);
 
 const cursorTool = <const Name extends string>(name: Name) => {

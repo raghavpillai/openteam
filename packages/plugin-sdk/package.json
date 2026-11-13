@@ -19,6 +19,7 @@
     "./browser-network/mux": "./src/browser-network/mux.ts",
     "./browser-network/client": "./src/browser-network/client.ts",
     "./browser-network/socks": "./src/browser-network/socks.ts",
+    "./browser-network/diagnostics": "./src/browser-network/diagnostics.ts",
     "./email-body": "./src/email-body.ts",
     "./public-http": "./src/public-http.ts"
   },

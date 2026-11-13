@@ -4,6 +4,7 @@ import { networkInterfaces } from "node:os";
 import { BrowserNetworkClient } from "@openteam/plugin-sdk/browser-network/client";
 import type { DesktopEnrollmentConnection } from "./host/machine-enrollment";
 import type { NetworkSharingStatus } from "@openteam/contracts/browser-network";
+import { createNetworkDiagnostics } from "@openteam/plugin-sdk/browser-network/diagnostics";
 export class NetworkConsentStore {
   private writes: Promise<unknown> = Promise.resolve();
   constructor(private readonly path: string) {}
@@ -70,6 +71,7 @@ export function networkFingerprint(interfaces = networkInterfaces()) {
 
 /** Only main-process enrollment and locally validated IPC may reach this controller. */
 export class DesktopBrowserNetwork {
+  private readonly diagnostic = createNetworkDiagnostics("desktop");
   private connection: DesktopEnrollmentConnection | null = null;
   private client?: BrowserNetworkClient;
   private deploymentId: string | null = null;
@@ -180,6 +182,7 @@ export class DesktopBrowserNetwork {
       url: url.href,
       headers: this.headers(connection),
       role: "device",
+      diagnostic: this.diagnostic,
       machineId: this.machineId,
       deploymentId: this.deploymentId,
     });

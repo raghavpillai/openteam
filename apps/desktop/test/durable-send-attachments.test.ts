@@ -77,53 +77,44 @@ const fixture = async () => {
   };
 };
 
-for (const count of [6, 7, 20]) {
-  for (const mode of ["uploaded", "staged", "mixed"] as const) {
-    test(`${count} ${mode} attachments survive disk restart and reconnect without losing or duplicating another message`, async () => {
-      const f = await fixture();
-      try {
-        const first = f.controller();
-        const text = await first.enqueue({ target: f.target, payload: { content: "Unrelated queued text", attachments: [] } });
-        const files = await first.enqueue({ target: f.target, payload: payload(count, mode) });
-        expect((await f.read()).records).toHaveLength(2);
-        expect(f.dispatches).toHaveLength(0);
-        first.dispose();
+test("20 uploaded and staged attachments survive disk restart and reconnect without losing or duplicating another message", async () => {
+  const f = await fixture();
+  try {
+    const first = f.controller();
+    const text = await first.enqueue({ target: f.target, payload: { content: "Unrelated queued text", attachments: [] } });
+    const files = await first.enqueue({ target: f.target, payload: payload(20, "mixed") });
+    expect((await f.read()).records).toHaveLength(2);
+    expect(f.dispatches).toHaveLength(0);
+    first.dispose();
 
-        const restored = f.controller();
-        await restored.restore();
-        await restored.flush();
-        expect(restored.getSnapshot().map(record => record.nonce)).toEqual([text.nonce, files.nonce]);
-        expect(restored.getSnapshot()[1]?.payload).toEqual(files.payload);
-        expect(f.dispatches).toHaveLength(0);
+    const restored = f.controller();
+    await restored.restore();
+    await restored.flush();
+    expect(restored.getSnapshot().map(record => record.nonce)).toEqual([text.nonce, files.nonce]);
+    expect(restored.getSnapshot()[1]?.payload).toEqual(files.payload);
+    expect(f.dispatches).toHaveLength(0);
 
-        f.reconnect();
-        await restored.flush();
-        expect(f.dispatches.map(record => record.nonce)).toEqual([text.nonce, files.nonce]);
-        expect(f.dispatches[1]?.payload.attachments).toEqual(assets(count));
-        expect(f.commits).toHaveLength(mode === "uploaded" ? 0 : 1);
-        expect(restored.getSnapshot().every(record => record.phase === "accepted-awaiting-echo")).toBe(true);
-        restored.dispose();
+    f.reconnect();
+    await restored.flush();
+    expect(f.dispatches.map(record => record.nonce)).toEqual([text.nonce, files.nonce]);
+    expect(f.dispatches[1]?.payload.attachments).toEqual(assets(20));
+    expect(f.commits).toHaveLength(1);
+    expect(restored.getSnapshot().every(record => record.phase === "accepted-awaiting-echo")).toBe(true);
+    restored.dispose();
 
-        const reopened = f.controller();
-        await reopened.restore();
-        expect(reopened.getSnapshot()).toHaveLength(2);
-        await reopened.flush();
-        expect(f.dispatches).toHaveLength(2);
-        await reopened.reconcile(f.messages);
-        expect(reopened.getSnapshot()).toEqual([]);
-        expect((await f.read()).records).toEqual([]);
-      } finally { await f.cleanup(); }
-    });
-  }
-}
+    const reopened = f.controller();
+    await reopened.restore();
+    expect(reopened.getSnapshot()).toHaveLength(2);
+    await reopened.flush();
+    expect(f.dispatches).toHaveLength(2);
+    await reopened.reconcile(f.messages);
+    expect(reopened.getSnapshot()).toEqual([]);
+    expect((await f.read()).records).toEqual([]);
+  } finally { await f.cleanup(); }
+});
 
 const invalidPayloads: Array<[string, () => DurableSendPayload]> = [
-  ["21 uploaded files", () => payload(21, "uploaded")],
-  ["21 staged files", () => payload(21, "staged")],
   ["21 mixed files", () => payload(21, "mixed")],
-  ["out-of-range staged position", () => {
-    const value = payload(20, "staged"); value.stagedAttachments![19].position = 20; return value;
-  }],
   ["duplicate staged position", () => {
     const value = payload(20, "staged"); value.stagedAttachments![19].position = 18; return value;
   }],

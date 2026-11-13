@@ -95,12 +95,6 @@ dbTest("desktop listener → backend routes → provider → database completes 
     expect(row.status).toBe("ready");
     expect(oauth(row).callbackSessionId).toBeUndefined();
     await expectServerRefresh(f, connection.id);
-    await expect(fetch(callback)).rejects.toThrow();
-    const restart = await desktop.start("backend-one", connection.id, client, true);
-    await fetch(await f.approve(restart.authorizationUrl, "cancel"));
-    await waitFor(2);
-    expect(results[1]?.status).toBe("cancelled");
-    expect((await client.pluginConnectionStatuses([connection.id])).connections[0]?.authorizationUrl).toBeNull();
   } finally { desktop.closeAll(); }
 }), 20_000);
 

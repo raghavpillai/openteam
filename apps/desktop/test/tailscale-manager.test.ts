@@ -43,6 +43,7 @@ test("only loopback or this installation's configured Tailscale URL is manageabl
   expect(canManageTailscale(f.status.publicUrl, installation)).toBe(true);
   for (const url of [
     "http://127.0.0.1:9000",
+    "https://127.0.0.1:8787",
     "https://other.tail123.ts.net:14443",
     "https://bot.tail123.ts.net",
     "https://example.com",

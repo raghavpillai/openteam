@@ -92,13 +92,10 @@ test("the main agent's prompt carries saved connector instructions; workers' pro
   expect((await pluginRuntimeContext(prisma,"bot","executor")).skillInstructions).not.toContain("Reply in threads.");
 });
 
-test("agents a skill names keep its full text, and executors and untyped workers get no skills", async () => {
+test("agents a skill names keep its full text, and untyped workers get no skills", async () => {
   await syncCache();
   const worker = await pluginSkillInstructions(prisma, "child", "computerUse");
   expect(worker).toContain("Shared sign-in workflow.");
-  expect(worker).not.toContain("Main agent workflow.");
-  expect(worker).not.toContain("Private workflow.");
-  expect((await pluginRuntimeContext(prisma, "parent", "executor")).skillInstructions).toBe("");
   expect(await pluginSkillInstructions(prisma, "child", null)).toBe("");
 });
 

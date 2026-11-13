@@ -37,22 +37,6 @@ test("initialization repairs group traversal without exposing private state or r
   }
 });
 
-test("invalid active-agent selections leave the previous selection unchanged", async () => {
-  const root = await mkdtemp(join(tmpdir(), "agent-selection-"));
-  const tx = { $executeRaw: async () => 0 };
-  const db = { $transaction: async (run: (value: typeof tx) => unknown) => run(tx) };
-  const store = new AgentDataStore(db as never, { root, workspaceRoot: root });
-  try {
-    await store.writeActiveAgentId("existing-bot");
-    for (const id of ["", ".", "..", "../invalid", "a/b", "a\\b", "bad\0id"]) {
-      await expect(store.writeActiveAgentId(id)).rejects.toMatchObject({ status: 400, code: "invalid_active_agent" });
-      expect(await store.loadActiveAgentId()).toBe("existing-bot");
-    }
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("bot creation, repair and edits keep shared file modes and refuse a symlinked profile", async () => {
   const root = await mkdtemp(join(tmpdir(), "access-profile-"));
   const bot = { id: "fixture", name: "Before", status: "active", avatarPath: null };

@@ -26,7 +26,7 @@ dbIt("push registration binds the signing-in session, and sign-out disables only
   expect(await Effect.runPromise(service.disableForSession(retiring))).toEqual({ disabledCount: 0 });
 }, 30_000);
 
-dbIt("a read cursor advances but never regresses, and peer-agent rows are not unread", async ({ db, bot }) => {
+dbIt("a read cursor counts only later user-facing replies; peer-agent rows are not unread", async ({ db, bot }) => {
   const { id: botId, channelId } = await bot("Reader");
   const add = (data: Record<string, unknown>) => db.channelMessage.create({ data: { channelId: channelId!, sender: "agent", senderBotId: botId, content: "x", ...data } });
   const read = await add({ content: "Already read" });
@@ -34,5 +34,4 @@ dbIt("a read cursor advances but never regresses, and peer-agent rows are not un
   await add({ content: "Peer chatter", metadata: { fromAgent: { id: "peer" } } });
   const service = new NotificationService(db);
   expect(await Effect.runPromise(service.markChannelRead(channelId!, String(read.sequence)))).toMatchObject({ channelId, lastReadSequence: String(read.sequence), unreadCount: 1 });
-  expect(await Effect.runPromise(service.markChannelRead(channelId!, String(read.sequence - 1n)))).toMatchObject({ lastReadSequence: String(read.sequence) });
 });

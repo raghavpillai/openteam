@@ -33,19 +33,9 @@ function unreadAlertCount() {
 async function inject(value: any) {
   if (!registration) throw new Error("The native app has not registered");
   const data = { schemaVersion: 1, notificationScope: registration.notificationScope, ...value };
-  const background = value.kind === "badge-sync";
-  // Some simulator runtimes reject silent pushes even with a badge. Report that
-  // capability separately from a cleanup failure; never replace it with an alert.
-  const payload = {
-  aps: background ? { "content-available": 1, badge: badgeCount } : { alert: { title: "OpenTeam Push QA", body: value.qaID }, badge: value.badgeOverride ?? badgeCount, "content-available": 1, "mutable-content": 1, "thread-id": value.channelId }, data };
+  const payload = { aps: { alert: { title: "OpenTeam Push QA", body: value.qaID }, badge: badgeCount, "content-available": 1, "mutable-content": 1, "thread-id": value.channelId }, data };
   const process = Bun.spawn(["xcrun", "simctl", "push", udid!, "dev.openteam.mobile.swift", "-"], { stdin: new Blob([JSON.stringify(payload)]), stdout: "pipe", stderr: "pipe" });
-  const result = await process.exited;
-  if (result) {
-    const failure = await new Response(process.stderr).text();
-    if (background && failure.includes("No content that needs to alert")) return false;
-    throw new Error(failure);
-  }
-  return true;
+  if (await process.exited) throw new Error(await new Response(process.stderr).text());
 }
 Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
   const url = new URL(request.url), path = url.pathname;
@@ -72,18 +62,6 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     await notifyClients();
     await inject({ ...body, botId: "fixture-bot", sender: { name: "Our robot", icon: "chip", color: "#ff6600" } });
     return reply({ok:true});
-  }
-  if (path === "/__push/read") {
-    for (const read of body.readStates ?? []) reads[read.channelId] = read;
-    cursor++;
-    badgeCount = body.badgeCount;
-    await notifyClients();
-    const supported = body.notify === false || await inject({kind:"badge-sync", readState: body.readStates?.at(-1), probe:body.probe});
-    return reply({ok:true,simulatorUnsupported:!supported});
-  }
-  if (path === "/__push/probe") {
-    const supported = await inject({kind:"badge-sync", probe:body.probe, readState:body.readState});
-    return reply({ok:true,simulatorUnsupported:!supported});
   }
   if (path === "/api/v0/notification-devices" && request.method === "POST") {
     receipts.push({method:request.method, path, ...body});

@@ -61,11 +61,8 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
     await Promise.all(Array.from({ length: 5 }, () => store.startWatching()));
     // Simulate the observed failure: native monitoring stays open but delivers no events.
     (store as unknown as { watcher: { removeAllListeners(event: string): void } }).watcher.removeAllListeners("all");
-    // Sidebar hiding was removed. Exercise the supported notification setting,
-    // and retain coverage that legacy hiding cannot hide a top-level Bot.
-    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false, hiddenFromSidebar: true }));
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));
     await observe(false);
-    expect((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar).toBe(false);
     await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: true }));
     await observe(true);
     await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));

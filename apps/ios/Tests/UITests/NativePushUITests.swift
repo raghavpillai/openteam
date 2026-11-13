@@ -26,9 +26,6 @@ import XCTest
     let (data, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     let value = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    if value["simulatorUnsupported"] as? Bool == true {
-      throw XCTSkip("This simulator rejects silent notification pushes. Device APNs delivery requires a signed-device check.")
-    }
     return value
   }
   func launch(coldSession: Bool = false) async throws -> XCUIApplication {
@@ -77,24 +74,12 @@ import XCTest
     }
     XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)
   }
-  func read(_ channel: String, _ message: String, _ activity: String) -> [String: Any] {
-    ["channelId": channel, "lastReadSequence": message, "lastReadNotificationSequence": activity]
-  }
-  func observe(
-    _ probe: String, expected: Set<String>, badge: Int? = nil, backgroundCapability: Bool = false,
-    after observationCount: Int = 0
-  ) async throws {
-    for attempt in 0..<50 {
-      if probe != "delivered", attempt % 6 == 0 {
-        _ = try await request("/__push/probe", ["probe": probe])
-      }
+  func observe(expected: Set<String>, badge: Int) async throws {
+    for _ in 0..<50 {
       let state = try await request("/__push/state")
-      let observations = state["observations"] as? [[String: Any]] ?? []
-      if let observation = observations.dropFirst(observationCount).last(where: {
-        $0["probe"] as? String == probe || probe == "delivered"
-      }),
+      if let observation = (state["observations"] as? [[String: Any]])?.last,
         Set(observation["delivered"] as? [String] ?? []) == expected,
-        badge == nil || observation["badge"] as? Int == badge
+        observation["badge"] as? Int == badge
       {
         return
       }
@@ -104,75 +89,19 @@ import XCTest
     let evidence = try JSONSerialization.data(
       withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
     let attachment = XCTAttachment(data: evidence, uniformTypeIdentifier: "public.json")
-    attachment.name = "push-" + probe
+    attachment.name = "push-delivered"
     attachment.lifetime = .keepAlways
     add(attachment)
-    if backgroundCapability {
-      throw XCTSkip(
-        "This simulator did not execute the background callback. A signed-device APNs test remains required; see attached delivery evidence."
-      )
-    }
-    let lastObservation = (state["observations"] as? [[String: Any]])?.last
     XCTFail(
-      "Real notification center did not reach \(expected), badge \(String(describing: badge)) for \(probe). "
-        + "Last observation \(String(describing: lastObservation)), reads \(String(describing: state["reads"]))"
+      "Real notification center did not reach \(expected), badge \(badge). "
+        + "Last observation \(String(describing: (state["observations"] as? [[String: Any]])?.last))"
     )
-  }
-  func testDesktopReadsClearOnlyAcknowledgedNotificationsInBackground() async throws {
-    let app = try await launch()
-    let registration = try await waitRegistered()
-    XCTAssertEqual(registration["provider"] as? String, "apns")
-    XCTAssertEqual(registration["apnsEnvironment"] as? String, "development")
-    XCTAssertEqual(registration["apnsTopic"] as? String, "dev.openteam.mobile.swift")
-    let bootstrap = try await request("/api/v0/client-bootstrap")
-    let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
-    let c1 = try XCTUnwrap(channels.first?["id"] as? String)
-    let c2 = try XCTUnwrap(channels.last?["id"] as? String)
-    XCTAssertNotEqual(c1, c2)
-    try background(app)
-    for (id, kind, channel, message, activity) in [
-      ("old-message", "message", c1, "10", "100"), ("new-message", "message", c1, "11", "101"),
-      ("new-reaction", "reaction", c1, "1", "102"), ("other-chat", "message", c2, "50", "200"),
-    ] {
-      _ = try await request(
-        "/__push/deliver",
-        [
-          "qaID": id, "kind": kind, "channelId": channel, "messageSequence": message,
-          "notificationSequence": activity,
-        ])
-    }
-    try await observe(
-      "delivered", expected: ["old-message", "new-message", "new-reaction", "other-chat"], badge: 4,
-      backgroundCapability: true)
-    _ = try await request(
-      "/__push/read", ["readStates": [read(c1, "10", "100")], "badgeCount": 3, "probe": "partial"])
-    try await observe(
-      "partial", expected: ["new-message", "new-reaction", "other-chat"], badge: 3,
-      backgroundCapability: true)
-    _ = try await request("/__push/probe", ["probe": "stale", "readState": read(c1, "1", "0")])
-    try await observe(
-      "stale", expected: ["new-message", "new-reaction", "other-chat"], badge: 3,
-      backgroundCapability: true)
-    // APNs may coalesce two read events into one. Only c2 is in the wake payload;
-    // the production snapshot endpoint supplies both channels' latest cursors.
-    _ = try await request(
-      "/__push/read",
-      [
-        "readStates": [read(c1, "11", "102"), read(c2, "50", "200")], "badgeCount": 0,
-        "probe": "all-read",
-      ])
-    try await observe("all-read", expected: [], badge: 0, backgroundCapability: true)
-    app.activate()
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = "push-after-desktop-read"
-    attachment.lifetime = .keepAlways
-    add(attachment)
   }
   func testOpeningBotClearsItsNotificationsAndPreservesOtherChats() async throws {
     let (app, channel, sequence) = try await notifiedBot()
     app.buttons["channel-" + channel].tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
-    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    try await observe(expected: ["other-chat"], badge: 1)
     let receipts = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
     XCTAssertTrue(receipts.contains {
       $0["path"] as? String == "/api/v0/channels/" + channel + "/read"
@@ -204,7 +133,7 @@ import XCTest
       ])
     }
     app.activate()
-    try await observe("delivered", expected: ["bot-message", "bot-reaction", "other-chat"], badge: 3)
+    try await observe(expected: ["bot-message", "bot-reaction", "other-chat"], badge: 3)
     let conversation = app.buttons["channel-" + channel]
     XCTAssertTrue(conversation.waitForExistence(timeout: 10))
     return (app, channel, sequence)

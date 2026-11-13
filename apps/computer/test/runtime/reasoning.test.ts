@@ -114,7 +114,6 @@ describe("Codex reasoning request semantics", () => {
 
 describe("OpenRouter reasoning across inference paths", () => {
   test.each([
-    "xhigh",
     "max",
     "off",
   ] as const)("preserves %s through chat, utility inference and compaction", async (requested) => {

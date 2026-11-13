@@ -7,20 +7,15 @@ import {
   channelNotificationStates,
   publishMessageNotification,
   unreadBadgeCount,
-  unreadChannelCount,
 } from "@openteam/messaging";
 import { Effect } from "effect";
 import { NotificationService } from "../../server/src/services/notification-service";
-import {
-  DesktopNotificationManager,
-  NOTIFICATION_DELIVERY_DELAY_MS,
-} from "../../desktop/src/main/notifications";
 import { PushNotificationDispatcher } from "../src/push-notifications";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test.skipIf(!databaseUrl)(
-  "messages and old-message reactions fan out, synchronize reads, and cancel stale alerts",
+  "messages and old-message reactions fan out to every device, synchronize reads, and send badge-sync wakes",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     // Other integration files may leave durable unread channels in this test DB.
@@ -43,28 +38,11 @@ test.skipIf(!databaseUrl)(
     const apns = new ApnsClient({ keyId: "QA", teamId: "QA", topic: "dev.openteam.mobile.swift", privateKey: signingKey }, async (authority, headers, body) => {
       native.push({authority, headers, payload: JSON.parse(body)}); return {status: 200};
     });
-    const delivered: string[] = [];
-    const dismissed: string[] = [];
-    const manager = new DesktopNotificationManager({
-      isFocused: () => false,
-      isSupported: () => true,
-      deliver: (notification) => delivered.push(notification.notificationId!),
-      dismiss: (id) => dismissed.push(id),
-      setBadge: () => {},
-    });
     const service = new NotificationService(prisma, "disabled");
     const dispatcher = new PushNotificationDispatcher(prisma, "disabled", apns);
     const pushes = (kind: string) => native.filter((push) => push.payload.data.kind === kind);
     const state = async () =>
       (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
-    const sync = async () => {
-      const current = await state();
-      const unreadCount =
-        (await unreadChannelCount(prisma, channel.id, BigInt(current.lastReadSequence))) +
-        current.activityUnreadCount;
-      manager.sync({ channels: [{ ...current, unreadCount }] });
-      return current;
-    };
     const drain = async () => {
       await prisma.outboxDelivery.updateMany({
         where: { topic: "push.notification", status: "pending" },
@@ -95,7 +73,6 @@ test.skipIf(!databaseUrl)(
           )
         );
       }
-      await sync();
       const userMessage = await prisma.channelMessage.create({
         data: {
           channelId: channel.id,
@@ -138,14 +115,11 @@ test.skipIf(!databaseUrl)(
         },
       });
       await prisma.$transaction((tx) => publishMessageNotification(tx, first)); // Completion must not double-alert.
-      const firstState = await sync();
+      const firstState = await state();
       expect(firstState.notifications[0]).toMatchObject({
         title: "Notification QA",
         sender: { name: "Notification QA", icon: "pod", color: "#ff6600" },
       });
-      expect(delivered).toHaveLength(0);
-      await Bun.sleep(NOTIFICATION_DELIVERY_DELAY_MS + 25);
-      expect(delivered).toHaveLength(1);
       expect(await prisma.channelNotification.count({ where: { channelId: channel.id } })).toBe(1);
       expect(await prisma.outboxDelivery.count({ where: { topic: "push.notification" } })).toBe(3);
 
@@ -163,8 +137,7 @@ test.skipIf(!databaseUrl)(
           firstState.notificationCursor
         )
       );
-      const secondState = await sync();
-      expect(dismissed).toEqual([delivered[0]!]);
+      const secondState = await state();
       expect(secondState.notifications.map((n) => n.messageSequence)).toEqual([
         second.sequence.toString(),
       ]);
@@ -182,8 +155,6 @@ test.skipIf(!databaseUrl)(
           secondState.notificationCursor
         )
       );
-      await sync();
-      expect(dismissed).toEqual(delivered);
       const reactionContext = { ...context, callId: crypto.randomUUID() };
       await messaging.reactToMessage(reactionContext, {
         message_address: "t0u",
@@ -193,7 +164,7 @@ test.skipIf(!databaseUrl)(
         message_address: "t0u",
         emoji: "👍",
       });
-      const reactionState = await sync();
+      const reactionState = await state();
       expect(reactionState.activityUnreadCount).toBe(1);
       expect(reactionState.notifications[0]?.kind).toBe("reaction");
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount + 1);
@@ -213,12 +184,11 @@ test.skipIf(!databaseUrl)(
           firstState.notificationCursor
         )
       );
-      const read = await sync();
+      const read = await state();
       expect(read.lastReadSequence).toBe(second.sequence.toString());
       expect(read.lastReadNotificationSequence).toBe(reactionState.notificationCursor);
       expect(read.notifications).toEqual([]);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
-      expect(dismissed).toEqual(delivered);
       await drain();
       const nativeRead = pushes("badge-sync").at(-1)!;
       expect(nativeRead.headers["apns-push-type"]).toBe("background");
@@ -247,7 +217,6 @@ test.skipIf(!databaseUrl)(
       expect(pushes("reaction")).toHaveLength(3);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
     } finally {
-      manager.clear();
       const devices = await prisma.pushDevice.findMany({
         where: { installationId: { in: installationIds } },
       });

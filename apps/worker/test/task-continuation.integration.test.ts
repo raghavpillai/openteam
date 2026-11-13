@@ -7,8 +7,6 @@ const final = (input: Turn, text: string) => ({ events: [{ type: "item.completed
 const replies: Array<[string, string]> = [
   ["EXPORT_FINISHED", "Export workflow finished."],
   ["DOCUMENT_FINISHED", "Document workflow finished."],
-  ["PARTIAL_FINISHED", "Partial work resolved."],
-  ["PARTIAL_PENDING", "Partial work stays owned."],
   ["UNRELATED", "Unrelated question answered."],
 ];
 
@@ -24,12 +22,6 @@ test.skipIf(!databaseUrl)("real queue preserves delayed work across host recreat
       await call("ReportTaskProgress", { key: "export-confirmed", state: "complete", summary: "Export receipt independently verified", evidence: ["/exports/receipt"], remaining: [] });
       return final(input, "Status: done\nEXPORT_FINISHED: service receipt verified; no duplicate submission.");
     }
-    if (input.content.includes("PARTIAL_RESOLVED")) {
-      await call("ReportTaskProgress", { key: "outside-decision-verified", state: "complete", summary: "The authorized outside decision is verified", evidence: ["/requests/decision"], remaining: [] });
-      return final(input, "Status: done\nPARTIAL_FINISHED: the outside decision is verified.");
-    }
-    if (input.content.includes("PARTIAL_WORKFLOW"))
-      return final(input, "Status: partial\nPARTIAL_PENDING: an outside decision remains pending. Inspect it when its result is supplied.");
     if (!input.content.includes("DOCUMENT_WORKFLOW")) return;
     if (!documentReady) {
       documentActions++;
@@ -58,12 +50,6 @@ test.skipIf(!databaseUrl)("real queue preserves delayed work across host recreat
         return void (await task("Export reconciliation", "executor", "EXPORT_WORKFLOW: Generate the approved export once. Verify its receipt; do not publish it elsewhere or incur fees."));
       if (input.content.includes("START_DOCUMENT"))
         return void (await task("Document acceptance", "executor", "DOCUMENT_WORKFLOW: Finish the approved request, including its later document question. Do not accept any additional fee."));
-      if (input.content.includes("START_PARTIAL"))
-        return void (await task("Unfinished request", "computerUse", "PARTIAL_WORKFLOW: Complete the approved request and its outside decision without adding fees."));
-      if (input.content.includes("RESOLVE_PARTIAL")) {
-        const pending = await stack.app.prisma.subagent.findFirstOrThrow({ where: { parentBotId: parentId, description: "Unfinished request" } });
-        return void (await task("Verify the supplied decision", "computerUse", "PARTIAL_RESOLVED: The user supplied the new outside decision. Verify it within the original scope; do not add fees.", `sand-subagent-${pending.id}`));
-      }
       const reply = replies.find(([marker]) => input.content.includes(marker))?.[1] ?? "Fixture ready.";
       await call("SendToUser", { content: reply, end_turn: true });
     },
@@ -104,20 +90,6 @@ test.skipIf(!databaseUrl)("real queue preserves delayed work across host recreat
     expect(document.status).toBe("completed");
     expect(await db().subagentAttempt.count({ where: { subagentId: document.id } })).toBe(2);
 
-    await send("START_PARTIAL");
-    await replied("Partial work stays owned.");
-    const partial = await task("Unfinished request");
-    expect(partial).toMatchObject({ status: "waiting", nextCheckAt: null, progress: { state: "blocked", blockSource: "runtime" } });
-    expect(partial.result).toStartWith("Status: partial");
-    expect((partial.progress as any).remaining.length).toBeGreaterThan(0);
-    expect(await continuations()).toBe(0);
-    await lateCompletion(partial);
-    expect(await db().subagentAttempt.count({ where: { subagentId: partial.id } })).toBe(1);
-    await send("RESOLVE_PARTIAL with new information");
-    await replied("Partial work resolved.");
-    expect((await db().subagent.findUniqueOrThrow({ where: { id: partial.id } })).status).toBe("completed");
-    expect(await db().subagentAttempt.count({ where: { subagentId: partial.id } })).toBe(2);
-    expect(await db().channelMessage.count({ where: { senderBotId: parentId, content: "Partial work stays owned." } })).toBe(1);
     expect(stack.errors).toEqual([]);
   } finally {
     await stack.close();

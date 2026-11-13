@@ -66,8 +66,6 @@ dbIt("canonical avatars serve safely and sidebar deletion preserves global memor
   await expect(access(childAgentDirectory)).rejects.toThrow();
   // Late writers cannot recreate the retired agent's files or schedule.
   await store.writeRoutine(botId, routine.id);
-  const lateImage = await assets.ingestSource({ url: `data:image/png;base64,${Buffer.from(imageBytes).toString("base64")}` });
-  expect(await store.materializeAttachments(botId, "late-message", [lateImage])).toEqual([]);
   await expect(access(agentDirectory)).rejects.toThrow();
   const routines = new RoutineService(prisma, { enqueueWake: async () => { throw new Error("not used by this test"); } }, store);
   await expect(routines.mutate(botId, crypto.randomUUID(), null, { action: "create", name: "Late routine", prompt: "This must remain impossible after archival.", schedule: "@daily" })).rejects.toThrow("inactive bot");

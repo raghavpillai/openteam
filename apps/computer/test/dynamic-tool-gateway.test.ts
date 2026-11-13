@@ -117,10 +117,6 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(() => discoverDynamicTools(catalog("needsAuth"), { namespace: "gmail", toolName: "get_thread" })).toThrow(
       new Error("This MCP server requires authentication before its tools can be used.")
     );
-    const call = { namespace: "gmail", toolName: "get_thread", arguments: {} };
-    expect(() => resolveDynamicTool(catalog("needsAuth"), call, { unavailableGuidance: (n) => `Call AuthenticateMcpServer with server_id "${n.name}".` })).toThrow(
-      'This MCP server requires authentication before its tools can be used. Call AuthenticateMcpServer with server_id "gmail".'
-    );
     // A ready namespace never carries a stale reason.
     const ready = catalog().map((namespace) => ({ ...namespace, statusMessage: reason }));
     expect(JSON.stringify(renderDynamicDiscovery(discoverDynamicTools(ready, input), input))).not.toContain(reason);

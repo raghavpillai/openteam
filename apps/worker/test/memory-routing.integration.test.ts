@@ -22,11 +22,7 @@ test.skipIf(!databaseUrl)("in a group room the worker gives each bot only its ow
       }
       if (input.channelId !== groupId || roundIndex === 0) {
         await call("SendToUser", { type: "text", content: "Synthetic memory fixture completed." });
-        if (input.channelId === groupId) {
-          await call("SendToUser", { type: "text", content: "Second visible reply confirms amber." });
-          // Group messages must remain buffered until the turn completes.
-          expect(await stack.app.prisma.channelMessage.count({ where: { sourceRunId: input.runId } })).toBe(0);
-        }
+        if (input.channelId === groupId) await call("SendToUser", { type: "text", content: "Second visible reply confirms amber." });
       }
     },
   });

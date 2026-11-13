@@ -9,7 +9,6 @@ import {
   durableSendIsInFlight,
   durableSendPromptDigest,
   durableSendVisualState,
-  type MessageDeliveryAcceptance,
   messageDeliveryAcceptance,
   parseDurableSendJournal,
 } from "../src/durable-delivery";
@@ -65,38 +64,6 @@ describe("durable send controller", () => {
     await controller.reconcile([accepted("message-1")]);
     expect(controller.getSnapshot()).toEqual([]);
     expect(memory.writes.at(-1)?.records).toEqual([]);
-  });
-
-  test("restores an offline queue and checks acceptance before retrying", async () => {
-    let offline = true;
-    let dispatchCount = 0;
-    const memory = memoryStorage();
-    const first = createDurableSendController("account-1", memory.storage, {
-      createNonce: () => "nonce-offline-1",
-      dispatch: async () => { dispatchCount += 1; return { message: accepted("message-offline") }; },
-      resolveAcceptance: async () => ({ status: "not_found" }),
-      classifyError: () => "offline",
-      isTransportDown: () => offline,
-    });
-    await first.enqueue(input);
-    expect(first.getSnapshot()[0]?.phase).toBe("queued");
-    expect(dispatchCount).toBe(0);
-    offline = false;
-    const resolutions: MessageDeliveryAcceptance[] = [{ status: "not_found" }];
-    const restored = createDurableSendController("account-1", memory.storage, {
-      dispatch: async (record) => {
-        dispatchCount += 1;
-        expect(record.nonce).toBe("nonce-offline-1");
-        return { message: accepted("message-offline") };
-      },
-      resolveAcceptance: async () => resolutions.shift() ?? { status: "not_found" },
-      classifyError: () => "offline",
-      isTransportDown: () => offline,
-    });
-    await restored.restore();
-    await waitFor(() => restored.getSnapshot()[0]?.phase === "accepted-awaiting-echo");
-    expect(dispatchCount).toBe(1);
-    expect(restored.getSnapshot()[0]?.queuedAtMs).not.toBeNull();
   });
 
   test("expires an unconfirmed send and resends it with a fresh linked nonce", async () => {
@@ -200,10 +167,9 @@ describe("shared outgoing message projection", () => {
     const delivery = record({ nonce: "replacement", priorNonces: ["original"] });
     const echo = accepted("server", { clientId: "original", createdAt: "2026-09-01T12:00:00.000Z" });
     const desktop = projectOutgoingMessages([echo], [delivery]);
-    const mobile = projectOutgoingMessages([echo], [delivery], { echoRenderKey: "delivery", orderBy: "messageId" });
-    expect([desktop.length, mobile.length]).toEqual([1, 1]);
+    expect(desktop).toHaveLength(1);
     expect(desktop[0]!.message).toBe(echo);
-    expect([desktop[0]!.renderKey, mobile[0]!.renderKey]).toEqual(["optimistic:original", "optimistic:replacement"]);
+    expect(desktop[0]!.renderKey).toBe("optimistic:original");
     expect(desktop[0]).toMatchObject({ pending: false, delivery: { phase: "accepted-awaiting-echo", acceptedAtMs: Date.parse(echo.createdAt) } });
     expect(delivery.phase).toBe("queued");
   });

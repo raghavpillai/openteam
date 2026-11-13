@@ -5,6 +5,7 @@ import {
   type ServerUpdateSnapshot,
 } from "../src/renderer/lib/server-update-cache";
 
+// Saving, restoring after a reopen and clearing on completion run in the `updates` fixture suite.
 const server = "https://server.example";
 const snapshot = {
   status: {
@@ -33,21 +34,11 @@ function storage() {
     },
   };
 }
-test("active progress survives a fresh reader, stays server-scoped and clears when finished", () => {
+test("another server, expired, future, corrupt and unavailable storage cannot invent active progress", () => {
   const disk = storage();
   saveServerUpdateSnapshot(server, snapshot, disk);
   expect(readServerUpdateSnapshot(server, disk, 2000)).toEqual(snapshot);
   expect(readServerUpdateSnapshot("https://other.example", disk, 2000)).toBeNull();
-  saveServerUpdateSnapshot(
-    server,
-    { ...snapshot, status: { ...snapshot.status, status: "updated" } },
-    disk
-  );
-  expect(readServerUpdateSnapshot(server, disk, 2000)).toBeNull();
-});
-test("expired, future, corrupt and unavailable storage cannot invent active progress", () => {
-  const disk = storage();
-  saveServerUpdateSnapshot(server, snapshot, disk);
   expect(readServerUpdateSnapshot(server, disk, 1000 + 86400001)).toBeNull();
   expect(readServerUpdateSnapshot(server, disk, 999)).toBeNull();
   disk.setItem("openteam:server-update:" + server, "{");

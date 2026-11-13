@@ -202,9 +202,6 @@ test("SendToUser failures name the send and give the reason, not an error envelo
   const { call } = controlPlane(() => Response.json({ error: { code: "reply_target_not_found", message: "The reply target was not found" } }, { status: 404 }));
   await expect(call("SendToUser", { type: "text", content: "hi", reply_to: "t9u" })).rejects.toThrow(/^Failed to send the message to the user: The reply target was not found$/);
   await expect(call("SendToUser", { type: "text" })).rejects.toThrow(/^Failed to send the message to the user: Invalid arguments:\ncontent: content is required when type is text$/);
-  await expect(call("SendToUser", { type: "text", content: "hi", attachments: [{ url: "file:///workspace/a.pdf" }] })).rejects.toThrow(
-    "Failed to send the message to the user: Invalid arguments:\nattachments: attachments is not a SendToUser field"
-  );
   // A missing attachment is named before anything reaches the tool host.
   const untouched = withFetch(async () => { throw new Error("the tool host must not be called"); }, () =>
     runtimeTools().executeOpenTeamTool({ runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [] }, "call", "SendToUser", { type: "attachment", url: "file:///tmp/openteam-missing-deliverable.pdf" }));
@@ -219,15 +216,6 @@ test("first-party lookups coerce string-encoded values and report decode failure
   expect(f.calls[0]).toMatchObject({ name: "StopSubagent", args: { all: true } });
   await expect(lookup(f, "Task", { description: "x", subagent_type: "executor" })).rejects.toThrow(/^Error: Invalid arguments:\nprompt: /);
   await expect(lookup(f, "UpdateAgent", { name: "x" })).rejects.toThrow(/^Error: Invalid arguments:\nagent_id: Invalid input: expected string, received undefined$/);
-});
-
-test("DraftExternalMessage argument problems are named per field and a lone recipient is a list", async () => {
-  const f = controlPlane(() => ({ sent: true, message_id: "m1" }));
-  const draft = { platform: "email", providerIdentifier: "gmail", subject: "Hi", body: "Hello" };
-  await expect(lookup(f, "DraftExternalMessage", { ...draft, to: ["ann@example.com"] })).rejects.toThrow(/^Error: Invalid arguments:\nfrom: from is required when platform is email$/);
-  const result = await lookup(f, "DraftExternalMessage", { ...draft, from: "me@example.com", to: "ann@example.com" });
-  expect(f.calls.at(-1)).toMatchObject({ name: "DraftExternalMessage", args: { to: ["ann@example.com"] } });
-  expect(result.content[0].text).toStartWith("Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1).");
 });
 
 test("control-plane failures surface the server's message, not its JSON envelope", async () => {

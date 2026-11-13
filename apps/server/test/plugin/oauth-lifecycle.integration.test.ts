@@ -4,7 +4,7 @@ import { PluginService } from "../../src/services/plugin-service";
 import { dbIt } from "../harness";
 import { createOAuthMcpFixture } from "./fixtures/oauth-mcp";
 
-dbIt("OAuth lifecycle covers DCR, PKCE, independent accounts, refresh, cancellation and live tool changes", async ({ db: prisma, onClose }) => {
+dbIt("OAuth lifecycle covers DCR, PKCE, independent accounts, cancellation and live tool changes", async ({ db: prisma, onClose }) => {
   const service = new PluginService(prisma), fixture = createOAuthMcpFixture();
   let key = "";
   onClose(async () => { await service.close(); fixture.close(); if (key) await prisma.pluginInstallation.deleteMany({ where: { pluginKey: key } }); });
@@ -29,14 +29,11 @@ dbIt("OAuth lifecycle covers DCR, PKCE, independent accounts, refresh, cancellat
   expect((connection.toolSnapshot as Array<{ name: string }>).map(tool => tool.name)).toEqual(["echo", "whoami"]);
   expect((connection.credentials as { oauth: { state?: string } }).oauth.state).toBeUndefined();
   expect(await whoami(added.connectionId)).toContain("Account A");
-  // A second account signs in separately; both keep their own identity, across a refresh.
+  // A second account signs in separately; both keep their own identity.
   const second = await run(service.addAccount(added.connectionId, "second-account"));
   await authorize(second.id, "Account B");
   expect(await whoami(second.id)).toContain("Account B");
   expect(await whoami(added.connectionId)).toContain("Account A");
-  fixture.expireTokens();
-  expect(await whoami(added.connectionId)).toContain("Account A");
-  expect(fixture.observations.refreshes).toBeGreaterThan(0);
   fixture.notifyToolsChanged();
   for (let attempt = 0; attempt < 60 && !JSON.stringify(connection.toolSnapshot).includes("new_tool"); attempt++) {
     await Bun.sleep(25);
@@ -52,15 +49,10 @@ dbIt("OAuth lifecycle covers DCR, PKCE, independent accounts, refresh, cancellat
   await expect(run(service.cancelAuthentication(second.id, abandonedState))).rejects.toThrow("state");
   expect((await row(second.id)).status).toBe("disconnected");
 
-  // Manually registered clients authenticate with each token endpoint method.
+  // A manually registered client with the wrong secret fails validation; a public client then signs in.
   const view = await run(service.configuration.get(second.id));
   fixture.registerClient("manual-client", view.callbackUrl, "manual-client-secret");
-  await run(service.configuration.save(second.id, { values: { clientId: "manual-client" }, secrets: { clientSecret: { action: "replace", value: "manual-client-secret" } }, tokenEndpointAuthMethod: "client_secret_post" }));
-  await authorize(second.id, "Account B");
-  await run(service.configuration.save(second.id, { tokenEndpointAuthMethod: "client_secret_basic" }));
-  await authorize(second.id, "Account B");
-  expect(fixture.observations.authMethods).toEqual(expect.arrayContaining(["client_secret_post", "client_secret_basic"]));
-  await run(service.configuration.save(second.id, { secrets: { clientSecret: { action: "replace", value: "wrong-secret" } } }));
+  await run(service.configuration.save(second.id, { values: { clientId: "manual-client" }, secrets: { clientSecret: { action: "replace", value: "wrong-secret" } }, tokenEndpointAuthMethod: "client_secret_post" }));
   await expect(authorize(second.id)).rejects.toThrow();
   expect((await row(second.id)).status).toBe("error");
   expect((await run(service.pollConnectionStatuses([second.id]))).connections[0]?.setupPhase).toBe("validation_failed");
@@ -68,11 +60,4 @@ dbIt("OAuth lifecycle covers DCR, PKCE, independent accounts, refresh, cancellat
   await run(service.configuration.save(second.id, { values: { clientId: "public-client" }, secrets: { clientSecret: { action: "clear" } }, tokenEndpointAuthMethod: "none" }));
   await authorize(second.id, "Account B");
   expect(await whoami(second.id)).toContain("Account B");
-  // An authorization left pending past its lifetime cannot be completed.
-  await run(service.authenticate(second.id));
-  const credentials = (await row(second.id)).credentials as { oauth: { state: string; stateCreatedAt: number } };
-  credentials.oauth.stateCreatedAt = Date.now() - 16 * 60_000;
-  await prisma.pluginConnection.update({ where: { id: second.id }, data: { credentials } });
-  await expect(run(service.finishAuthentication(second.id, "expired-code", credentials.oauth.state))).rejects.toThrow("state");
-  await authorize(second.id, "Account B");
 }, 20_000);

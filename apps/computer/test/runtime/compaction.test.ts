@@ -41,9 +41,11 @@ const toolHost = (name: string, text: string, onRun: () => void) => ({
 });
 const status = (events: any[]) => events.filter((event) => event.type === "turn.completed").at(-1)?.status;
 
-test.each(["ReportTaskProgress", "ReportRequestProgress"].flatMap((tool) =>
-  [false, true].flatMap((ready) => [false, true].map((parked) => ({ tool, ready, parked })))
-))("progress updates preserve an in-flight summary but changed authority restarts it %j", async ({ tool, ready, parked }) => {
+// One case per tool; between them they cover in-flight and ready, unparked and parked.
+test.each([
+  { tool: "ReportTaskProgress", ready: false, parked: false },
+  { tool: "ReportRequestProgress", ready: true, parked: true },
+])("progress updates preserve an in-flight summary but changed authority restarts it %j", async ({ tool, ready, parked }) => {
   const root = await tempDir("progress-compaction-");
   const coordinator = new BotCompactionCoordinator(new BotCompactionArchiveStore(root), 0);
   const snapshot = (revision: number, base = "Original authority") => replaceTaskProgressContext(base,

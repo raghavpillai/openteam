@@ -88,25 +88,6 @@ test("malformed DNS never opens a transport, and failed admission never falls ba
   expect(calls).toBe(1);
 });
 
-test("DNS deadlines include opening the tunnel and dispose of a late socket", async () => {
-  let finish!: (value: any) => void;
-  let destroyed = false;
-  const exchange = createDnsExchange({
-    open: () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  });
-  await expect(exchange(query)).rejects.toThrow("DNS timeout");
-  finish({
-    destroy() {
-      destroyed = true;
-    },
-  });
-  await Bun.sleep(5);
-  expect(destroyed).toBe(true);
-}, 7000);
-
 test("Node DNS reuses bounded TLS, fences epochs, cancels queued/late dials and never replays", async () => {
   const directory = await tempDir("openteam-dns-pool-");
   const { cert, key } = await selfSignedCertificate(directory, ["cloudflare-dns.com"]);

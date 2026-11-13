@@ -70,31 +70,13 @@ describe("specialized subagent tool surfaces", () => {
     expect(toolNames("computerUse")).toEqual(["Shell", "Read", "ReportTaskProgress", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
   });
 
-  test("StopSubagent decodes exactly one target and routes through the control plane", async () => {
-    const runtime = runtimeTools() as any;
-    const calls: Array<{ tool: string; args: unknown }> = [];
-    runtime.callControlPlaneTool = async (_active: unknown, _callId: string, tool: string, args: unknown) => {
-      calls.push({ tool, args });
-      return { content: [], details: {} };
-    };
-    const stop = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
-      .find((namespace: any) => namespace.name === "cursor").tools.find((tool: any) => tool.name === "StopSubagent");
-    expect(stop.decodeArguments({ subagent_id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
-    for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
-      expect(() => stop.decodeArguments(invalid), JSON.stringify(invalid)).toThrow();
-    await stop.execute({}, "call-stop", stop.decodeArguments({ all: true }));
-    expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
-  });
-
-  test("DraftExternalMessage refuses HTML email bodies and sends the server an unwrapped body", () => {
+  // Field rules live in the contracts parser; this pins that tool decoding applies its one-time email unwrap.
+  test("DraftExternalMessage decoding sends the server an unwrapped email body", () => {
     const draft = (runtimeTools() as any).dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
       .find((namespace: any) => namespace.name === "cursor").tools.find((tool: any) => tool.name === "DraftExternalMessage");
     const email = { platform: "email", providerIdentifier: "p", from: "me@example.com", to: ["ann@example.com"], subject: "Hi" };
     expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
       .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
-    expect(() => draft.decodeArguments({ ...email, body: "Hello<br>See you" })).toThrow("body is plain text, so <br> would reach the recipient as literal text. Nothing was drafted.");
-    expect(draft.decodeArguments({ ...email, body: "Please review.", forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] }))
-      .toMatchObject({ forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] });
   });
 
 });
@@ -139,9 +121,6 @@ describe("durable state tools", () => {
     const active = { ...workerTurn(null), runId: "run-1" };
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
-    await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
-      "UpdateMemory only writes, replaces or forgets memory"
-    );
     const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
     const namespaced: Array<[string, Record<string, unknown>]> = [
       ["UpdateSkill", { action: "delete", id: "standup" }],
@@ -153,7 +132,6 @@ describe("durable state tools", () => {
       const tool = cursor.tools.find((candidate: any) => candidate.name === name);
       await tool.execute(active, name, tool.decodeArguments({ ...args, target: "skill" }));
     }
-    expect(() => cursor.tools.find((tool: any) => tool.name === "UpdateProfile").decodeArguments({ avatar_shape: "triangle" })).toThrow();
     expect(calls).toEqual([
       { tool: "UpdateMemory", args: { action: "write", fact: "Prefers tea.", type: "profile" } },
       { tool: "UpdateRoutine", args: { action: "pause", id: "brief" } },

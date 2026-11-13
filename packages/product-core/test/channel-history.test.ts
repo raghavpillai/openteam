@@ -4,8 +4,8 @@ import type {
   ChannelMessageContextView,
   ChannelMessageView,
 } from "@openteam/contracts";
-import { emptyLoadedChannelHistory } from "@openteam/product-core/history";
-import { messageRetainedByteSize } from "@openteam/product-core/message-window";
+import { emptyLoadedChannelHistory } from "../src/history";
+import { messageRetainedByteSize } from "../src/message-window";
 import {
   applyPrimaryHistoryPage,
   clearMessageContext,
@@ -20,7 +20,7 @@ import {
   retainedMessageWindowStats,
   setContextLoading,
   visibleChannelHistoryMessages,
-} from "../../src/renderer/lib/message-history-window";
+} from "../src/channel-history";
 
 const message = (sequence: number, content = `message ${sequence}`): ChannelMessageView => ({
   id: `message-${sequence}`,
@@ -91,7 +91,7 @@ const load = (
     ...extra,
   });
 
-describe("desktop bounded message-history windows", () => {
+describe("bounded message-history windows", () => {
   test("keeps five pages unchanged, then reserves the cached latest tail and bounds every lane to 500", () => {
     let transition = load(undefined, historyPage(501, 100), "replace");
     for (const start of [401, 301, 201, 101]) transition = load(transition, historyPage(start, 100), "older");

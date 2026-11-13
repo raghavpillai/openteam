@@ -24,6 +24,10 @@ The Google Maps tools return real places with Google ratings, review counts, pri
 3. When the choice is about taste, also check critics or guides with web search. Google ratings measure popularity and consistency, not distinctiveness.
 4. Rank with your reasons. Quote or paraphrase reviews with the reviewer's name and Google Maps as the source. Google returns at most five reviews, so treat them as a sample.
 
+## Photos
+
+Photos make the map cards and lists. Keep `photos` on (the default) for every search whose places you will show, and for GetPlaceDetails of a pick. Pass `photos: false` only for a wide shortlist you won't display.
+
 ## Routes
 
 Pass the chosen places to RoutePlaces in visit order. Put its `route` in the place_map unchanged. Never draw straight lines and call them directions.

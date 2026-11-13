@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { getPlaceDetails, resetGoogleState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../google";
-import { callTool, tools } from "../server";
+import { checkKey, explainGoogleError, getPlaceDetails, resetGoogleState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../google";
+import { callTool, listTools, resetKeyVerification, tools } from "../server";
 
 const KEY = "AIza-test-key-never-shown";
 beforeEach(() => {
   resetGoogleState();
+  resetKeyVerification();
   process.env.GOOGLE_MAPS_API_KEY = KEY;
 });
 afterEach(() => delete process.env.GOOGLE_MAPS_API_KEY);
@@ -31,8 +32,8 @@ const place = (id: string, name: string, latitude: number, extra: Record<string,
 });
 const NOW = new Date("2026-11-12T20:00:00Z"); // Thursday 15:00 in New York
 
-test("Bots get four read-only tools with bounded inputs", () => {
-  expect(tools.map((tool) => tool.name)).toEqual(["SearchPlaces", "SearchNearbyPlaces", "GetPlaceDetails", "RoutePlaces"]);
+test("Bots get five read-only tools with bounded inputs", () => {
+  expect(tools.map((tool) => tool.name)).toEqual(["SearchPlaces", "SearchNearbyPlaces", "GetPlaceDetails", "CheckGoogleMapsKey", "RoutePlaces"]);
   for (const tool of tools) expect(tool.annotations.readOnlyHint).toBe(true);
   const valid = (name: string, args: unknown) => createToolValidator(tools.find((tool) => tool.name === name)!.inputSchema)(args).valid;
   expect(valid("SearchNearbyPlaces", { query: "thai", latitude: 40.75, longitude: -73.99, rankBy: "distance", minRating: 4.5 })).toBe(true);
@@ -166,8 +167,83 @@ test("Google errors come back as tool errors with Google's reason and without th
   ));
   const result = await callTool("SearchPlaces", { query: "Louvre" }, fetcher);
   expect(result.isError).toBe(true);
-  expect(result.content[0]!.text).toContain("Google Maps returned 403: Places API (New) has not been used");
+  expect(result.content[0]!.text).toContain("Google Maps (Places API (New)) returned 403: Places API (New) has not been used");
   expect(result.content[0]!.text).not.toContain(KEY);
   const invalid = await callTool("SearchNearbyPlaces", { query: "thai" }, fetcher);
   expect(invalid.content[0]!.text).toContain("Invalid tool arguments");
+});
+
+const googleError = (status: number, reason: string, service: string, extra: Record<string, unknown> = {}) =>
+  Response.json({ error: { code: status, message: `${reason} from Google`, status: "X", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, domain: "googleapis.com", metadata: { service, ...extra } }] } }, { status });
+
+test("each Google error reason becomes a specific fix, and only configuration errors are definitive", () => {
+  const explain = (status: number, reason: string, extra = {}) => {
+    const error = explainGoogleError(status, { error: { message: "x", details: [{ reason, metadata: extra }] } }, "Routes API", KEY);
+    return [error.message, error.definitive] as const;
+  };
+  expect(explain(400, "API_KEY_INVALID")[0]).toContain("API key isn't valid");
+  expect(explain(403, "SERVICE_DISABLED", { activationUrl: "https://console.developers.google.com/apis/api/routes.googleapis.com/overview?project=1" })[0])
+    .toBe("Routes API isn't enabled for this key's Google Cloud project. Enable it at https://console.developers.google.com/apis/api/routes.googleapis.com/overview?project=1, wait a few minutes, then reconnect.");
+  expect(explain(403, "SERVICE_DISABLED")[0]).toContain("https://console.cloud.google.com/apis/library/routes.googleapis.com");
+  expect(explain(403, "API_KEY_SERVICE_BLOCKED")[0]).toContain("API restrictions don't include Routes API");
+  expect(explain(403, "ACCESS_DENIED")[0]).toContain("can't use Routes API");
+  expect(explain(403, "BILLING_DISABLED")[0]).toContain("Billing isn't enabled");
+  expect(explain(403, "API_KEY_HTTP_REFERRER_BLOCKED")[0]).toContain("website referrers");
+  expect(explain(403, "API_KEY_IP_ADDRESS_BLOCKED")[0]).toContain("IP address restriction");
+  for (const reason of ["API_KEY_INVALID", "SERVICE_DISABLED", "ACCESS_DENIED", "BILLING_DISABLED"]) expect(explain(403, reason)[1]).toBe(true);
+  expect(explain(429, "RATE_LIMIT_EXCEEDED")[1]).toBe(false);
+  const quota = explainGoogleError(429, null, "Places API (New)");
+  expect([quota.reason, quota.definitive]).toEqual(["HTTP_429", false]);
+  const unknown = explainGoogleError(500, { error: { message: `boom ${KEY}` } }, "Places API (New)", KEY);
+  expect(unknown.message).toBe("Google Maps (Places API (New)) returned 500: boom [key]");
+  expect(unknown.definitive).toBe(false);
+});
+
+test("checkKey proves both APIs with the cheapest requests and reports each one separately", async () => {
+  const both = recorder((call) => (call.url.includes("routes.googleapis.com") ? { routes: [{ distanceMeters: 984 }] } : { places: [{ id: "ChIJeiffel000" }] }));
+  expect(await checkKey(both.fetcher)).toEqual({
+    ok: true,
+    places: { ok: true, message: "Places API (New) works with this key." },
+    routes: { ok: true, message: "Routes API works with this key." },
+  });
+  const masks = both.calls.map((call) => (call.init.headers as Record<string, string>)["X-Goog-FieldMask"]).sort();
+  expect(masks).toEqual(["places.id", "routes.distanceMeters"]);
+  const noRoutes = recorder((call) => (call.url.includes("routes.googleapis.com") ? googleError(403, "ACCESS_DENIED", "routes.googleapis.com") : { places: [{ id: "x" }] }));
+  const partial = await checkKey(noRoutes.fetcher);
+  expect(partial.ok).toBe(false);
+  expect(partial.places.ok).toBe(true);
+  expect(partial.routes).toMatchObject({ ok: false, reason: "ACCESS_DENIED", definitive: true });
+  const offline = (async () => { throw new TypeError("fetch failed"); }) as unknown as Fetcher;
+  const down = await checkKey(offline);
+  expect(down.places).toMatchObject({ ok: false, reason: "UNREACHABLE", definitive: false });
+  delete process.env.GOOGLE_MAPS_API_KEY;
+  await expect(checkKey(both.fetcher)).rejects.toThrow("No Google Maps API key");
+  process.env.GOOGLE_MAPS_API_KEY = "${GOOGLE_MAPS_API_KEY}";
+  await expect(checkKey(both.fetcher)).rejects.toThrow("No Google Maps API key");
+});
+
+test("connecting fails with the fix when the key or an API is misconfigured, but not when Google is unreachable", async () => {
+  const invalid = recorder((call) => googleError(400, "API_KEY_INVALID", call.url.includes("routes") ? "routes.googleapis.com" : "places.googleapis.com"));
+  const message = await listTools(invalid.fetcher).then(() => "", (error: Error) => error.message);
+  expect(message).toBe("The Google Maps API key isn't valid. Check it, or create a new one, in this plugin's account settings.");
+  const disabled = recorder((call) =>
+    call.url.includes("routes") ? googleError(403, "SERVICE_DISABLED", "routes.googleapis.com", { activationUrl: "https://console.developers.google.com/apis/api/routes.googleapis.com/overview?project=7" }) : { places: [{ id: "x" }] }
+  );
+  await expect(listTools(disabled.fetcher)).rejects.toThrow("Routes API isn't enabled");
+  const offline = (async () => { throw new TypeError("fetch failed"); }) as unknown as Fetcher;
+  expect((await listTools(offline)).map((tool) => tool.name)).toContain("SearchPlaces");
+  const good = recorder((call) => (call.url.includes("routes") ? { routes: [{ distanceMeters: 1 }] } : { places: [{ id: "x" }] }));
+  resetKeyVerification();
+  const t0 = Date.now();
+  await listTools(good.fetcher, t0);
+  await listTools(good.fetcher, t0 + 60_000);
+  expect(good.calls).toHaveLength(2); // verified once (both APIs), then reused for 30 minutes
+  await listTools(good.fetcher, t0 + 31 * 60_000);
+  expect(good.calls).toHaveLength(4);
+});
+
+test("the check tool is callable like any other tool", async () => {
+  const good = recorder((call) => (call.url.includes("routes") ? { routes: [{ distanceMeters: 1 }] } : { places: [{ id: "x" }] }));
+  const result = await callTool("CheckGoogleMapsKey", {}, good.fetcher);
+  expect(JSON.parse(result.content[0]!.text).ok).toBe(true);
 });

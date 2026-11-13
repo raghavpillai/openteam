@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { getPlaceDetails, routePlaces, searchNearbyPlaces, searchPlaces, type Fetcher } from "./google";
+import { checkKey, getPlaceDetails, routePlaces, searchNearbyPlaces, searchPlaces, type Fetcher } from "./google";
 
 type Schema = { type: "object"; properties: Record<string, any>; required?: string[]; additionalProperties?: boolean };
 export type Tool = {
@@ -16,7 +16,7 @@ export type Tool = {
 const latitude = { type: "number", minimum: -90, maximum: 90 };
 const longitude = { type: "number", minimum: -180, maximum: 180 };
 const minRating = { type: "number", minimum: 0, maximum: 5, description: "Only places rated at least this (0.5 steps)." };
-const photos = { type: "boolean", description: "Include one photo per place (default true)." };
+const photos = { type: "boolean", description: "Include one photo per place for map cards (default true). Turn off only for shortlists you won't show." };
 const read = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
 
 export const tools: Tool[] = [
@@ -79,6 +79,14 @@ export const tools: Tool[] = [
     run: (args, fetcher, signal) => getPlaceDetails(args, fetcher, signal),
   },
   {
+    name: "CheckGoogleMapsKey",
+    description:
+      "Check whether this account's Google Maps API key works for both Places API (New) and Routes API. Returns each API's status and, when one fails, exactly what to fix in Google Cloud (key invalid, API not enabled, key restrictions, billing). Use it when a Google Maps tool fails with a key or permission error.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: read,
+    run: (_args, fetcher, signal) => checkKey(fetcher, signal),
+  },
+  {
     name: "RoutePlaces",
     description:
       "Compute a real walking, cycling or driving route through 2–25 places in visit order with Google Maps. Driving uses live traffic. Returns the route for a SendToUser place_map unchanged: GeoJSON [longitude, latitude] geometry, total and per-leg distance and duration, and turn instructions.",
@@ -125,11 +133,27 @@ export async function callTool(name: string, args: unknown, fetcher: Fetcher = f
   }
 }
 
+let verifiedAt = 0;
+/** Connecting lists tools: prove the key works for both APIs first, so a bad key, a disabled API
+ * or a restriction shows up on the account with its fix instead of failing later in chat. Only
+ * definitive configuration errors block; an unreachable Google does not. */
+export async function listTools(fetcher: Fetcher = fetch, now = Date.now()) {
+  if (now - verifiedAt > 30 * 60_000) {
+    const check = await checkKey(fetcher);
+    const blocking = [check.places, check.routes].filter((entry) => !entry.ok && entry.definitive);
+    // An invalid key fails both APIs with the same fix; say it once.
+    if (blocking.length) throw new Error([...new Set(blocking.map((entry) => entry.message))].join(" "));
+    if (check.ok) verifiedAt = now;
+  }
+  return tools.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations }));
+}
+export const resetKeyVerification = () => {
+  verifiedAt = 0;
+};
+
 export async function serveGoogleMaps() {
   const server = new Server({ name: "openteam-google-maps", version: "1.0.0" }, { capabilities: { tools: {} } });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await listTools() }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
     callTool(request.params.name, request.params.arguments, fetch, extra.signal)
   );

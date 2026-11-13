@@ -44,8 +44,9 @@ const DETAIL_FIELDS = [...SEARCH_FIELDS, "reviews", "reviewSummary", "generative
 
 export function apiKey(): string {
   const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
-  if (!key)
-    throw new Error("No Google Maps API key is set. Add one in this plugin's account settings; never ask the user to paste it in chat.");
+  // An account saved without a key can arrive as the unexpanded "${GOOGLE_MAPS_API_KEY}".
+  if (!key || /^\$\{[A-Z_]+\}$/.test(key))
+    throw new GoogleMapsError("No Google Maps API key is set. Add one in this plugin's account settings; never ask the user to paste it in chat.", "API_KEY_MISSING", true);
   return key;
 }
 
@@ -62,7 +63,50 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   return value;
 }
 
-/** One Google request; errors carry Google's own message, never the key. */
+export type GoogleApi = "Places API (New)" | "Routes API";
+const LIBRARY: Record<GoogleApi, string> = {
+  "Places API (New)": "https://console.cloud.google.com/apis/library/places.googleapis.com",
+  "Routes API": "https://console.cloud.google.com/apis/library/routes.googleapis.com",
+};
+const apiFor = (url: string): GoogleApi => (url.startsWith("https://routes.googleapis.com") ? "Routes API" : "Places API (New)");
+
+/** A Google failure with a fix the user can act on. `definitive` means the key or project is
+ * misconfigured (retrying won't help), as opposed to a network hiccup or a Google outage. */
+export class GoogleMapsError extends Error {
+  constructor(message: string, readonly reason: string, readonly definitive: boolean) {
+    super(message);
+  }
+}
+
+/** Turns Google's error body (google.rpc.ErrorInfo reasons) into a specific fix. */
+export function explainGoogleError(status: number, body: any, api: GoogleApi, key = ""): GoogleMapsError {
+  const info = (Array.isArray(body?.error?.details) ? body.error.details : []).find((d: any) => typeof d?.reason === "string");
+  const reason: string = info?.reason ?? body?.error?.status ?? `HTTP_${status}`;
+  const raw = String(body?.error?.message ?? `HTTP ${status}`);
+  const google = (key ? raw.replaceAll(key, "[key]") : raw).slice(0, 400);
+  const enable = info?.metadata?.activationUrl ?? LIBRARY[api];
+  const fix: Record<string, [string, boolean]> = {
+    API_KEY_INVALID: ["The Google Maps API key isn't valid. Check it, or create a new one, in this plugin's account settings.", true],
+    SERVICE_DISABLED: [`${api} isn't enabled for this key's Google Cloud project. Enable it at ${enable}, wait a few minutes, then reconnect.`, true],
+    API_KEY_SERVICE_BLOCKED: [`This key's API restrictions don't include ${api}. In Google Cloud → Credentials, add ${api} to the key's allowed APIs.`, true],
+    ACCESS_DENIED: [`This key can't use ${api}. Enable it for the key's project (${LIBRARY[api]}) and allow it in the key's API restrictions under Google Cloud → Credentials.`, true],
+    BILLING_DISABLED: ["Billing isn't enabled for this key's Google Cloud project. Link a billing account at https://console.cloud.google.com/billing; usage within Google's monthly free allowance still costs nothing.", true],
+    API_KEY_HTTP_REFERRER_BLOCKED: ["This key only allows website referrers, which blocks server requests. Set its application restriction to None, or to IP addresses that include your server.", true],
+    API_KEY_IP_ADDRESS_BLOCKED: ["This key's IP address restriction doesn't include your server's address. Add it, or set the application restriction to None.", true],
+    API_KEY_ANDROID_APP_BLOCKED: ["This key only allows Android apps, which blocks server requests. Set its application restriction to None or to IP addresses.", true],
+    API_KEY_IOS_APP_BLOCKED: ["This key only allows iOS apps, which blocks server requests. Set its application restriction to None or to IP addresses.", true],
+    RATE_LIMIT_EXCEEDED: [`Google's request limit for ${api} was reached. Wait a minute and retry, or raise the quota in Google Cloud.`, false],
+    RESOURCE_EXHAUSTED: [`The quota for ${api} is used up for now. Retry later, or raise the quota in Google Cloud → Quotas.`, false],
+  };
+  const [message, definitive] =
+    fix[reason] ??
+    (status === 429
+      ? fix.RESOURCE_EXHAUSTED!
+      : [`Google Maps (${api}) returned ${status}: ${google}`, status === 401 || status === 403]);
+  return new GoogleMapsError(message, reason, definitive);
+}
+
+/** One Google request; errors carry a specific fix and never the key. */
 async function google(
   url: string,
   init: { method?: string; body?: unknown; fields?: string },
@@ -83,18 +127,54 @@ async function google(
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     });
   } catch (error) {
-    throw new Error(`Google Maps could not be reached${error instanceof Error && error.name === "TimeoutError" ? " (timed out)" : ""}. Nothing was made up; retry shortly.`);
+    throw new GoogleMapsError(
+      `Google Maps could not be reached${error instanceof Error && error.name === "TimeoutError" ? " (timed out)" : ""}. Nothing was made up; retry shortly.`,
+      "UNREACHABLE",
+      false
+    );
   }
   const text = await response.text();
   let body: any = null;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {}
-  if (!response.ok) {
-    const message = String(body?.error?.message ?? `HTTP ${response.status}`).replaceAll(key, "[key]").slice(0, 600);
-    throw new Error(`Google Maps returned ${response.status}: ${message}`);
-  }
+  if (!response.ok) throw explainGoogleError(response.status, body, apiFor(url), key);
   return body;
+}
+
+export type ApiCheck = { ok: boolean; message: string; reason?: string; definitive?: boolean };
+/** Proves the key can call both APIs with the cheapest real requests: an IDs-only text search
+ * (no charge) and a short walking route (Routes' basic tier). */
+export async function checkKey(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<{ ok: boolean; places: ApiCheck; routes: ApiCheck }> {
+  apiKey();
+  const run = async (api: GoogleApi, request: () => Promise<boolean>): Promise<ApiCheck> => {
+    try {
+      return (await request())
+        ? { ok: true, message: `${api} works with this key.` }
+        : { ok: false, message: `${api} answered without a result; retry shortly.`, definitive: false };
+    } catch (error) {
+      const failure = error instanceof GoogleMapsError ? error : new GoogleMapsError(String(error), "UNKNOWN", false);
+      return { ok: false, message: failure.message, reason: failure.reason, definitive: failure.definitive };
+    }
+  };
+  const [places, routes] = await Promise.all([
+    run("Places API (New)", async () => {
+      const result = await google(`${PLACES}/places:searchText`, { body: { textQuery: "Eiffel Tower", pageSize: 1 }, fields: "places.id" }, fetcher, signal);
+      return Array.isArray(result?.places) && result.places.length > 0;
+    }),
+    run("Routes API", async () => {
+      const result = await google(ROUTES, {
+        body: {
+          origin: { location: { latLng: { latitude: 48.8606, longitude: 2.3376 } } },
+          destination: { location: { latLng: { latitude: 48.86, longitude: 2.3266 } } },
+          travelMode: "WALK",
+        },
+        fields: "routes.distanceMeters",
+      }, fetcher, signal);
+      return typeof result?.routes?.[0]?.distanceMeters === "number";
+    }),
+  ]);
+  return { ok: places.ok && routes.ok, places, routes };
 }
 
 const clean = (value: unknown, max = 2000) =>

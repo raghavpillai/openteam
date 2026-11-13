@@ -240,8 +240,11 @@ model Bot {
   draftingDisabled Boolean      @default(false)
   /// Lowercased addresses this Bot may email without a review card.
   draftAllowedRecipients String[] @default([])
-  /// Exchanges whose memory extraction has not finished; one left after a restart is reviewed with the next turn.
+  /// Exchanges awaiting extraction; completed user/group runs resume review after restart.
   pendingMemoryExchanges Json     @default("[]")
+  // Changes only when a correction or deletion invalidates pinned memory.
+  memoryRevision         Int      @default(0)
+  memoryReviewLease      MemoryReviewLease?
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)
@@ -366,6 +369,22 @@ model SubagentAttempt {
   @@index([subagentId, status, createdAt])
 }
 
+// Shared invalidation must not lock every Bot row (retirement owns those rows).
+model MemoryRevision {
+  scope    String @id
+  revision Int    @default(0)
+}
+
+// One reviewer per bot across worker processes, including inference time.
+model MemoryReviewLease {
+  botId     String   @id @db.Uuid
+  bot       Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  ownerId   String   @db.Uuid
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
 model MemoryFact {
   id             String      @id @default(uuid()) @db.Uuid
   namespace      String
@@ -374,6 +393,9 @@ model MemoryFact {
   fact           String
   factHash       String
   logicalId      String      @default("")
+  // Retired facts remain available only through explicit historical recall.
+  supersededAt   DateTime?
+  supersededById String?     @db.Uuid
   // Insertion order within the namespace; breaks createdAt ties.
   sourceOrdinal  Int         @default(0)
   importance     Float       @default(1)
@@ -386,6 +408,7 @@ model MemoryFact {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  @@index([namespace, supersededAt, createdAt])
   @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
@@ -778,6 +801,8 @@ model Run {
   error          Json?
   inputDeliveredAt DateTime?
   startedAt      DateTime?
+  memoryReviewPending Boolean @default(false)
+  memoryReviewRevision Int?
   completedAt    DateTime?
   messages       Message[]    @relation("RunMessages")
   visibleMessages ChannelMessage[] @relation("VisibleRunMessage")
@@ -790,6 +815,7 @@ model Run {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  @@index([memoryReviewPending, completedAt])
   @@index([botId, status])
   @@index([conversationId, createdAt])
   @@index([channelId, createdAt])

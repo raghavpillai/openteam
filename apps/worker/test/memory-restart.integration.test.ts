@@ -16,8 +16,8 @@ interface TurnInput {
   contextSessionId: string;
   sessionPath: string | null;
 }
-databaseTest(
-  "an exchange whose extraction a worker crash interrupted is reviewed with the next turn",
+for (const crashAt of ["before-memory", "inference", "before-publication", "before-ack"] as const) databaseTest(
+  `a worker killed at ${crashAt} recovers the settled exchange without another turn`,
   async () => {
     const root = await mkdtemp(join(tmpdir(), "worker-memory-restart-"));
     let app: AppService | undefined,
@@ -26,6 +26,8 @@ databaseTest(
     const workerPids: number[] = [];
     const extractions: string[] = [];
     let botId: string | undefined;
+    let groupId: string | undefined;
+    let starts = 0;
     const fake = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -44,9 +46,9 @@ databaseTest(
           if (body.kind !== "extraction") return Response.json({ text: "NONE" });
           extractions.push(body.prompt);
           // The first review never answers: the worker is killed while it waits.
-          if (extractions.length === 1) return new Promise<Response>(() => {});
+          if (crashAt === "inference" && extractions.length === 1) return new Promise<Response>(() => {});
           return Response.json({
-            text: "profile: The user lives in Lyon.\nprofile: The user starts at Acme on Monday.",
+            text: "profile: The user lives in Lyon.",
           });
         }
         if (path === "/v1/directories") {
@@ -114,7 +116,7 @@ databaseTest(
         if (await check()) return;
         await Bun.sleep(50);
       }
-      throw new Error("Memory worker fixture timed out");
+      throw new Error(`Memory worker fixture timed out:\n${await Bun.file(join(root, "worker-error.log")).text().catch(() => "")}`);
     };
     try {
       Object.assign(process.env, {
@@ -135,17 +137,27 @@ databaseTest(
           child = Bun.spawn(
             ["bun", join(import.meta.dir, "fixtures", "memory-restart-worker.ts")],
             {
-              env: { ...process.env, MEMORY_WORKER_READY: ready },
+              env: {
+                ...process.env,
+                MEMORY_WORKER_READY: ready,
+                MEMORY_WORKER_PAUSED: join(root, "worker-paused"),
+                ...(starts++ === 0 && crashAt !== "inference" ? { MEMORY_WORKER_PAUSE_AT: crashAt } : {}),
+              },
               stdout: Bun.file(join(root, "worker-out.log")),
               stderr: Bun.file(join(root, "worker-error.log")),
             }
           );
-          await until(async () => await Bun.file(ready).exists());
+          await until(async () => {
+            if (child!.exitCode !== null) throw new Error(`Memory worker exited: ${await Bun.file(join(root, "worker-error.log")).text()}`);
+            return Bun.file(ready).exists();
+          });
           workerPids.push(child.pid);
         },
         async stop() {
           if (child && child.exitCode === null) {
             child.kill("SIGTERM");
+            await Promise.race([child.exited, Bun.sleep(5_000)]);
+            if (child.exitCode === null) child.kill("SIGKILL");
             await child.exited;
           }
         },
@@ -165,59 +177,80 @@ databaseTest(
         async () => (await app!.prisma.bot.count({ where: { id: botId, status: "active" } })) === 1
       );
       await app.prisma.bot.update({ where: { id: botId }, data: { onboardingStatus: "completed" } });
-      await Effect.runPromise(
-        app.sendMessage(bot.conversationId, {
-          content: "I moved to Lyon last month, so plan around that.",
-          clientId: crypto.randomUUID(),
-        })
-      );
-      await until(async () => extractions.length === 1);
-      const held = await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-      expect(held.pendingMemoryExchanges).toMatchObject([
-        { user: "I moved to Lyon last month, so plan around that.", agent: "Noted." },
-      ]);
+      const content = "I moved to Lyon last month, so plan around that.";
+      if (crashAt === "before-publication") {
+        const group = await Effect.runPromise(app.createGroup({ name: "Memory recovery", botIds: [bot.id] }));
+        groupId = group.id;
+        await Effect.runPromise(app.sendChannelMessage(group.id, { content, clientId: crypto.randomUUID() }));
+      } else {
+        await Effect.runPromise(app.sendMessage(bot.conversationId, { content, clientId: crypto.randomUUID() }));
+      }
+      if (crashAt === "inference") await until(async () => extractions.length === 1);
+      else await until(async () => Bun.file(join(root, "worker-paused")).exists());
+      const pending = await app.prisma.run.findFirstOrThrow({
+        where: { botId, memoryReviewPending: true },
+        include: { inboxEvents: true, delivery: true },
+      });
+      expect(pending.status).toBe("completed");
+      expect(pending.inboxEvents[0]?.status).toBe("completed");
+      expect(await app.prisma.botRunLease.count({ where: { runId: pending.id } })).toBe(0);
+      if (crashAt === "before-publication") {
+        expect(pending.delivery?.status).toBe("processing");
+        expect(await app.prisma.channelMessage.count({ where: { sourceRunId: pending.id } })).toBe(0);
+      }
+      const held = (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges;
+      if (crashAt === "inference" || crashAt === "before-ack") expect(held).toMatchObject([{ user: content, agent: "Noted." }]);
+      else expect(held).toEqual([]);
+      const committed = crashAt === "before-ack"
+        ? await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, supersededAt: null } })
+        : null;
+      if (committed) {
+        expect(committed).toMatchObject({ fact: "The user lives in Lyon.", origin: "extract", turnId: pending.id });
+        expect(pending.memoryReviewRevision).toBeNumber();
+      }
       await worker.crash();
+      if (crashAt === "inference" || crashAt === "before-ack") {
+        // Expire only the dead owner's lease; recovery need not wait for the TTL.
+        expect((await app.prisma.memoryReviewLease.updateMany({ where: { botId }, data: { expiresAt: new Date(0) } })).count).toBe(1);
+      }
+      if (committed) await app.agentData.replaceMemory(bot.id, {
+        scope: "agent", tier: "profile", id: committed.id, fact: "The user lives in Paris.",
+      }, { source: "tool", turnId: "post-crash-correction" });
       await worker.start();
       expect(workerPids[0]).not.toBe(workerPids[1]);
-
-      const second = (await Effect.runPromise(
-        app.sendMessage(bot.conversationId, {
-          content: "I also start at Acme on Monday.",
-          clientId: crypto.randomUUID(),
-        })
-      )) as { run: { id: string } };
-      await until(
-        async () => (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })) === 2
+      await until(async () =>
+        (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, supersededAt: null } })) === 1 &&
+        (await app!.prisma.run.count({ where: { id: pending.id, memoryReviewPending: false } })) === 1
       );
-      expect(extractions).toHaveLength(2);
-      expect(extractions[1]).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);
-      expect(extractions[1]).toContain(
-        [
-          "Earlier exchange (not yet reviewed):",
-          "User: I moved to Lyon last month, so plan around that.",
-          "Assistant: Noted.",
-          "",
-          "Latest exchange:",
-          "User: I also start at Acme on Monday.",
-          "Assistant: Noted.",
-        ].join("\n")
-      );
-      expect(
-        await app.prisma.memoryFact.findMany({
-          where: { namespace: `agent:${botId}` },
-          orderBy: { sourceOrdinal: "asc" },
-          select: { fact: true, tier: true, origin: true, turnId: true },
-        })
-      ).toEqual([
-        { fact: "The user lives in Lyon.", tier: "profile", origin: "extract", turnId: second.run.id },
-        { fact: "The user starts at Acme on Monday.", tier: "profile", origin: "extract", turnId: second.run.id },
-      ]);
+      expect(extractions).toHaveLength(crashAt === "inference" ? 2 : 1);
+      const recovered = extractions.at(-1)!;
+      expect(recovered).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);
+      expect(recovered).toContain(`User: ${content}`);
+      expect(recovered).toContain("Assistant: Noted.");
+      expect(await app.prisma.memoryFact.findMany({
+        where: { namespace: `agent:${botId}`, supersededAt: null },
+        select: { fact: true, tier: true, origin: true, turnId: true },
+      })).toEqual([committed
+        ? { fact: "The user lives in Paris.", tier: "profile", origin: "tool", turnId: "post-crash-correction" }
+        : { fact: "The user lives in Lyon.", tier: "profile", origin: "extract", turnId: pending.id }]);
+      if (committed) {
+        expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(2);
+        expect((await app.prisma.memoryFact.findUniqueOrThrow({ where: { id: committed.id } })).supersededAt).not.toBeNull();
+      }
       expect((await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
+      if (crashAt === "before-publication") {
+        expect(await app.prisma.channelMessage.count({ where: { sourceRunId: pending.id, content: "Noted." } })).toBe(1);
+        expect((await app.prisma.channelDelivery.findUniqueOrThrow({ where: { id: pending.deliveryId! } })).status).toBe("completed");
+      }
+      await worker.stop();
+      await worker.start();
+      expect(extractions).toHaveLength(crashAt === "inference" ? 2 : 1);
     } finally {
       await worker?.stop();
       if (app) {
         if (botId) {
           await app.prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });
+          if (groupId) await app.prisma.channel.deleteMany({ where: { id: groupId } });
           await app.prisma.channel.deleteMany({ where: { directKey: `bot:${botId}` } });
           await app.prisma.bot.deleteMany({ where: { id: botId } });
         }

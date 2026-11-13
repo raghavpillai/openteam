@@ -12,6 +12,7 @@ const TRIVIAL_EXCHANGES = new Set(
 export interface ExtractedMemories {
   additions: Array<{ content: string; kind: "profile" | "log" }>;
   removals: string[];
+  replacements?: Array<{ old: string; fact: string }>;
 }
 
 const memoryKey = (content: string): string => normalizeMemoryContent(content).toLowerCase();
@@ -79,6 +80,8 @@ export interface MemoryExchange {
 /** An exchange held until its extraction finishes; one left over was interrupted. */
 export interface HeldMemoryExchange extends MemoryExchange {
   id: string;
+  occurredAt?: number;
+  memoryRevision?: number;
 }
 
 const MAX_HELD_EXCHANGE_SIDE_CHARS = 8_000;
@@ -95,6 +98,8 @@ export const holdMemoryExchange = (exchange: HeldMemoryExchange): HeldMemoryExch
   id: exchange.id,
   user: boundExchangeText(exchange.user),
   agent: boundExchangeText(exchange.agent),
+  ...(exchange.occurredAt !== undefined ? { occurredAt: exchange.occurredAt } : {}),
+  ...(exchange.memoryRevision !== undefined ? { memoryRevision: exchange.memoryRevision } : {}),
 });
 
 export const parseHeldMemoryExchanges = (value: unknown): HeldMemoryExchange[] =>
@@ -102,7 +107,10 @@ export const parseHeldMemoryExchanges = (value: unknown): HeldMemoryExchange[] =
     ? value.flatMap((entry) => {
         const held = entry as Partial<HeldMemoryExchange> | null;
         return held && typeof held.id === "string" && typeof held.user === "string" && typeof held.agent === "string"
-          ? [{ id: held.id, user: held.user, agent: held.agent }]
+          ? [{ id: held.id, user: held.user, agent: held.agent,
+            ...(typeof held.occurredAt === "number" && Number.isFinite(held.occurredAt) ? { occurredAt: held.occurredAt } : {}),
+            ...(typeof held.memoryRevision === "number" && Number.isSafeInteger(held.memoryRevision) && held.memoryRevision >= 0 ? { memoryRevision: held.memoryRevision } : {}),
+          }]
           : [];
       })
     : [];
@@ -151,20 +159,43 @@ export const parseExtractedMemories = (
   raw: string,
   existingMemories: readonly string[]
 ): ExtractedMemories => {
-  const result: ExtractedMemories = { additions: [], removals: [] };
-  const trimmed = raw.trim();
+  const reject = (): ExtractedMemories => ({ additions: [], removals: [] });
+  const result = reject();
+  let trimmed = raw.trim();
   if (!trimmed || trimmed.toUpperCase() === "NONE") return result;
-  const seen = new Set(existingMemories.map(memoryKey));
+  if (trimmed.startsWith("```")) {
+    const wrapped = /^```[a-z]*[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(trimmed);
+    if (!wrapped) return reject();
+    trimmed = wrapped[1]!.trim();
+  }
+  const existing = new Set(existingMemories.map(memoryKey));
+  const seen = new Set(existing);
   for (const line of trimmed.split("\n")) {
-    const stripped = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "");
+    const stripped = line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, "");
+    if (stripped.startsWith("```")) return reject();
+    if (/^replace\s*:/i.test(stripped)) {
+      // A malformed/unknown correction invalidates the whole response. Salvaging
+      // nearby additions could append the new value while keeping its old one.
+      try {
+        const value = JSON.parse(stripped.replace(/^replace\s*:\s*/i, ""));
+        if (typeof value.old !== "string" || typeof value.fact !== "string") return reject();
+        const old = normalizeMemoryContent(value.old);
+        const fact = normalizeMemoryContent(value.fact);
+        if (!old || !fact || !existing.has(memoryKey(old))) return reject();
+        (result.replacements ??= []).push({ old, fact });
+      } catch { return reject(); }
+      continue;
+    }
+    if (/^(profile|log|note|remove)\s*:\s*$/i.test(stripped)) return reject();
     const category = /^(profile|log|note|remove)\s*:\s*(.+)$/i.exec(stripped);
     const tag = category?.[1]?.toLowerCase();
     const bare = normalizeMemoryContent(category ? (category[2] ?? "") : stripped);
-    if (!bare || bare.toUpperCase() === "NONE") continue;
     if (tag === "remove") {
+      if (!bare || !existing.has(memoryKey(bare))) return reject();
       result.removals.push(bare);
       continue;
     }
+    if (!bare || bare.toUpperCase() === "NONE") continue;
     const content = tag === "note" ? normalizeMemoryContent(`[note] ${bare}`) : bare;
     const key = memoryKey(content);
     if (seen.has(key)) continue;

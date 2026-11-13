@@ -320,7 +320,7 @@ test('draft discard executes through worker dispatch and projection without a fo
    for (let i = 0; i < 3; i++) await f.settle(await f.create(i), 'cancel');
    await f.ready();
    const worker = Object.assign(f.worker(), { agentData: f.messaging.agentData, computerUrl: computer.url.origin,
-    controlToken: 'synthetic-draft-test', projection: new Projection(f.prisma, f.messaging.agentData),
+    controlToken: 'synthetic-draft-test', memoryReviews: new Map(), projection: new Projection(f.prisma, f.messaging.agentData),
     pushNotifications: { drain: async () => {} } });
    const originalFail = worker.fail.bind(worker);
    worker.fail = async (...args: any[]) => { failures.push(args[1]); return originalFail(...args); };

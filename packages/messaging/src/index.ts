@@ -1,5 +1,5 @@
 export { lockAgentLifecycle } from "./agent-lifecycle";
-import { lockAgentLifecycle } from "./agent-lifecycle";
+import { canonicalAgentId, lockAgentLifecycle } from "./agent-lifecycle";
 export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-agent-cleanup";
 export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed, requestIsStopped } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
@@ -2311,7 +2311,7 @@ export class AgentMessaging {
     const result = await this.prisma.$transaction(async (tx) => {
       // Peer sends touch two owners. A fixed order prevents reciprocal sends from deadlocking
       // and makes retirement include the accepted wake before taking its cancellation snapshot.
-      for (const id of [...new Set([context.botId, input.target_id])].sort()) await lockAgentLifecycle(tx, id);
+      for (const id of [...new Set([context.botId, input.target_id].map(canonicalAgentId))].sort()) await lockAgentLifecycle(tx, id);
       await assertBackgroundRequestDeliveryAllowed(tx, context);
       await lockGroupExecution(tx, input.target_id);
       const source = await tx.bot.findUnique({

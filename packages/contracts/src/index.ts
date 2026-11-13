@@ -1134,6 +1134,7 @@ export const UpdateStateInput = Schema.Struct({
   action: Schema.Literal(
     "write",
     "forget",
+    "replace",
     "create",
     "get",
     "update",
@@ -1167,7 +1168,8 @@ export type UpdateStateInput = typeof UpdateStateInput.Type;
 const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
 
 export const UpdateMemoryToolInput = Schema.Struct({
-  action: Schema.Literal("write", "forget"),
+  action: Schema.Literal("write", "forget", "replace"),
+  id: Schema.optional(Schema.UUID),
   fact: Schema.String.pipe(Schema.minLength(1)),
   type: MemoryType,
 });

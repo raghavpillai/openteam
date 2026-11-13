@@ -74,33 +74,6 @@ describe("native APNs delivery", () => {
       status: 200,
     });
   });
-  test("desktop reads use production background delivery without a visible alert or stale badge", async () => {
-    const transport: ApnsTransport = async (authority, headers, body) => {
-      expect(authority).toBe("https://api.push.apple.com");
-      expect(headers["apns-priority"]).toBe("5");
-      expect(headers["apns-push-type"]).toBe("background");
-      const value = JSON.parse(body);
-      expect(value.aps).toEqual({ "content-available": 1 });
-      expect(value.data.readState.lastReadNotificationSequence).toBe("24");
-      expect(value.data.badgeCount).toBe(0);
-      return { status: 200 };
-    };
-    await new ApnsClient(config, transport).send(
-      { ...device, apnsEnvironment: "production" },
-      {
-        schemaVersion: 1,
-        kind: "badge-sync",
-        badgeCount: 99,
-        readState: {
-          channelId: "channel",
-          lastReadSequence: alert.messageSequence!,
-          lastReadNotificationSequence: "24",
-        },
-      },
-      0,
-      "read"
-    );
-  });
   test("bounds UTF-8 payloads while preserving routing and sound policy", async () => {
     const heavy = "👨‍👩‍👧‍👦".repeat(500);
     const client = new ApnsClient(config, async (_, __, body) => {

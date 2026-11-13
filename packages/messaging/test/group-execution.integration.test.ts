@@ -11,91 +11,36 @@ afterAll(() => db?.$disconnect());
 describe.skipIf(!db)("durable group execution", () => {
   async function fixture(count = 2) {
     const channelId = randomUUID();
-    const bots = await Promise.all(
-      Array.from({ length: count }, (_, i) =>
-        db!.bot.create({
-          data: {
-            name: `Group QA ${i}`,
-            status: "active",
-            defaultDirectory: "/tmp/group-test",
-            notificationsEnabled: false,
-            conversation: { create: {} },
-          },
-          include: { conversation: true },
-        })
-      )
-    );
-    await db!.channel.create({
-      data: {
-        id: channelId,
-        kind: "group",
-        name: "Disposable group execution QA",
-        members: { create: bots.map((bot, ordinal) => ({ botId: bot.id, ordinal })) },
-      },
-    });
-    const messaging = new AgentMessaging(
-      db!,
-      { send: async () => null, sendDebounced: async () => null } as never,
-      new AgentDataStore(db!, { root: `/tmp/group-qa-${channelId}`, workspaceRoot: "/tmp" })
-    );
-    const active = () =>
-      db!.run.findFirst({
-        where: { channelId, delivery: { status: { in: ["queued", "processing"] } } },
-        orderBy: { createdAt: "asc" },
-      });
-    const context = (
-      run: NonNullable<Awaited<ReturnType<typeof active>>>,
-      callId: string = randomUUID()
-    ): ToolContext => ({
-      runId: run.id,
-      botId: run.botId,
-      conversationId: run.conversationId,
-      channelId,
-      deliveryId: run.deliveryId,
-      origin: run.origin,
-      callId,
-      isFork: false,
-      replyToMessageId: null,
+    const bots = await Promise.all(Array.from({ length: count }, (_, i) => db!.bot.create({
+      data: { name: `Group QA ${i}`, status: "active", defaultDirectory: "/tmp/group-test", notificationsEnabled: false, conversation: { create: {} } },
+    })));
+    await db!.channel.create({ data: {
+      id: channelId, kind: "group", name: "Disposable group execution QA",
+      members: { create: bots.map((bot, ordinal) => ({ botId: bot.id, ordinal })) },
+    } });
+    const messaging = new AgentMessaging(db!, { send: async () => null, sendDebounced: async () => null } as never,
+      new AgentDataStore(db!, { root: `/tmp/group-qa-${channelId}`, workspaceRoot: "/tmp" }));
+    const active = () => db!.run.findFirst({ where: { channelId, delivery: { status: { in: ["queued", "processing"] } } }, orderBy: { createdAt: "asc" } });
+    type Run = NonNullable<Awaited<ReturnType<typeof active>>>;
+    const context = (run: Run, callId: string = randomUUID()): ToolContext => ({
+      runId: run.id, botId: run.botId, conversationId: run.conversationId, channelId, deliveryId: run.deliveryId,
+      origin: run.origin, callId, isFork: false, replyToMessageId: null,
     });
     const start = async (content: string) => {
-      const root = await db!.channelMessage.create({
-        data: { channelId, sender: "user", content, clientId: randomUUID() },
-      });
-      const round = await db!.$transaction((tx) =>
-        messaging.createGroupRound(tx, {
-          channelId,
-          triggerMessageId: root.id,
-          initiatorBotId: null,
-        })
-      );
+      const root = await db!.channelMessage.create({ data: { channelId, sender: "user", content, clientId: randomUUID() } });
+      const round = await db!.$transaction((tx) => messaging.createGroupRound(tx, { channelId, triggerMessageId: root.id, initiatorBotId: null }));
       await messaging.advanceRound(round.id);
       return { root, round };
     };
-    const send = (
-      run: NonNullable<Awaited<ReturnType<typeof active>>>,
-      content: string,
-      callId?: string
-    ) => messaging.sendVisible(context(run, callId), { type: "text", content });
-    const finish = async (
-      run: NonNullable<Awaited<ReturnType<typeof active>>>,
-      status: "completed" | "failed" = "completed"
-    ) => {
+    const send = (run: Run, content: string, callId?: string) => messaging.sendVisible(context(run, callId), { type: "text", content });
+    const finish = async (run: Run, status: "completed" | "failed" = "completed") => {
       await db!.run.update({ where: { id: run.id }, data: { status, completedAt: new Date() } });
       await messaging.completeDelivery(run.deliveryId!, status, undefined, run.id);
     };
-    const rows = () =>
-      db!.channelMessage.findMany({
-        where: { channelId, sender: "agent" },
-        orderBy: { sequence: "asc" },
-      });
+    const rows = () => db!.channelMessage.findMany({ where: { channelId, sender: "agent" }, orderBy: { sequence: "asc" } });
     const cleanup = async () => {
-      const deliveries = await db!.channelDelivery.findMany({
-        where: { round: { channelId } },
-        select: { id: true },
-      });
-      await db!.idempotencyRecord.deleteMany({
-        where: { OR: deliveries.map((d) => ({ scope: { startsWith: `group-outbox:${d.id}:` } })) },
-      });
+      const deliveries = await db!.channelDelivery.findMany({ where: { round: { channelId } }, select: { id: true } });
+      await db!.idempotencyRecord.deleteMany({ where: { OR: deliveries.map((d) => ({ scope: { startsWith: `group-outbox:${d.id}:` } })) } });
       await db!.channel.delete({ where: { id: channelId } });
       await db!.bot.deleteMany({ where: { id: { in: bots.map((b) => b.id) } } });
     };
@@ -170,42 +115,23 @@ describe.skipIf(!db)("durable group execution", () => {
     }
   });
 
-  test("DM interruption delivers an already prepared reply without replaying the work; cancellation discards it", async () => {
-    for (const cancel of [false, true]) {
-      const f = await fixture(1);
-      try {
-        await f.start("Prepared interruption");
-        const run = (await f.active())!;
-        await f.send(run, "Already prepared");
-        await db!.run.update({
-          where: { id: run.id },
-          data: { status: cancel ? "cancelled" : "interrupted" },
-        });
-        if (cancel)
-          await f.messaging.completeDelivery(run.deliveryId!, "failed", undefined, run.id);
-        else await f.messaging.retryInterruptedGroupDelivery(run.deliveryId!, run.id);
-        expect(await f.active()).toBeNull();
-        expect(await db!.run.count({ where: { channelId: f.channelId } })).toBe(1);
-        expect((await f.rows()).map((m) => m.content)).toEqual(cancel ? [] : ["Already prepared"]);
-      } finally {
-        await f.cleanup();
-      }
-    }
-  });
-
-  test("recovery publishes a completed turn once after a worker crash", async () => {
+  test.each([
+    ["an interrupted DM turn delivers its already prepared reply without replaying the work", "interrupted", ["Already prepared"]],
+    ["a cancelled turn discards its prepared reply", "cancelled", []],
+    ["recovery publishes a completed turn once after a worker crash", "completed", ["Already prepared"]],
+  ] as const)("%s", async (_name, status, published) => {
     const f = await fixture(1);
     try {
-      await f.start("Recovery fixture");
+      await f.start("Prepared interruption");
       const run = (await f.active())!;
-      await f.send(run, "Durable reply");
-      await db!.run.update({
-        where: { id: run.id },
-        data: { status: "completed", completedAt: new Date() },
-      });
-      await f.messaging.recoverRounds();
-      await f.messaging.recoverRounds();
-      expect((await f.rows()).map((m) => m.content)).toEqual(["Durable reply"]);
+      await f.send(run, "Already prepared");
+      await db!.run.update({ where: { id: run.id }, data: { status, completedAt: new Date() } });
+      if (status === "cancelled") await f.messaging.completeDelivery(run.deliveryId!, "failed", undefined, run.id);
+      if (status === "interrupted") await f.messaging.retryInterruptedGroupDelivery(run.deliveryId!, run.id);
+      if (status === "completed") for (let i = 0; i < 2; i++) await f.messaging.recoverRounds();
+      expect(await f.active()).toBeNull();
+      expect(await db!.run.count({ where: { channelId: f.channelId } })).toBe(1);
+      expect((await f.rows()).map((m) => m.content)).toEqual([...published]);
     } finally {
       await f.cleanup();
     }

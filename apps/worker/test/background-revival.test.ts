@@ -2,93 +2,45 @@ import { expect, test } from "bun:test";
 import { renderRevivalBatchPrompt } from "@openteam/messaging";
 import { revivalBatch, WakeWorker } from "../src/worker";
 
-test("background subagent completion revives the parent with Bot's dedicated source", async () => {
-  const calls: unknown[] = [];
-  const worker = Object.create(WakeWorker.prototype) as {
-    notifySubagentParent: (...args: unknown[]) => Promise<void>;
-  };
-  Object.assign(worker, {
-    prisma: {
-      bot: {
-        findUnique: async () => ({ id: "parent", status: "active" }),
-      },
-    },
-    messaging: {
-      enqueueWake: async (_tx: unknown, input: unknown) => {
-        calls.push(input);
-        return {};
-      },
-    },
-  });
-
+/** Notify a parent whose run has the given origin, capturing the wake it enqueues. */
+async function revive(origin: "user" | "routine", prompt: string, subagentType: string, result: string) {
+  const calls: any[] = [];
+  const worker = Object.create(WakeWorker.prototype) as any;
+  worker.messaging = { enqueueWake: async (_tx: unknown, input: unknown) => (calls.push(input), {}) };
+  const parentRunId = "22222222-2222-4222-8222-222222222222";
   await worker.notifySubagentParent(
     {
-      run: {
-        findFirst: async () => ({ origin: "user" }),
-        findUnique: async () => ({ inboxEvents: [] }),
-      },
+      run: { findFirst: async () => ({ id: parentRunId, origin, inboxEvents: [{ payload: {} }] }), findUnique: async () => ({ inboxEvents: [] }) },
+      automationResult: { findUnique: async () => null },
+      routineExecution: { findUnique: async ({ where }: any) => (where.runId === parentRunId ? { routine: { name: "Price watch", slug: "price-watch" } } : null) },
       channel: { findUnique: async () => ({ kind: "direct", name: "Parent" }) },
-      bot: {
-        findUnique: async () => ({ id: "parent", status: "active" }),
-      },
-    } as never,
-    {
-      id: "subagent-1",
-      parentBotId: "parent",
-      parentRunId: "11111111-1111-4111-8111-111111111111",
-      parentChannelId: "channel-1",
-      description: "Check release",
-      prompt: "Check that the release checklist passes on main and report any failing step.",
-      subagentType: "executor",
-      currentRunId: "child-run-1",
-      outputPath: "/tmp/result.jsonl",
+      bot: { findUnique: async () => ({ id: "parent", status: "active" }) },
     },
+    { id: "subagent-1", parentBotId: "parent", parentRunId, parentChannelId: "channel-1", description: "Check", prompt, subagentType, currentRunId: "child-run-1", outputPath: "/tmp/r.jsonl" },
     "completed",
-    "Release checks passed."
+    result
   );
-
   expect(calls).toHaveLength(1);
-  expect(calls[0]).toMatchObject({
-    botId: "parent",
-    channelId: "channel-1",
-    origin: "background_revival",
-    type: "subagent.completed",
-    priority: 260,
-    revival: { block: 'Background task "Check that the release checklist passes on main and report any failing step." (executor) finished:\nRelease checks passed.', subagentType: "executor" },
-  });
-  expect((calls[0] as { content: string }).content).toContain(
-    'Background task "Check that the release checklist passes on main and report any failing step." (executor) finished:\nRelease checks passed.'
-  );
+  return calls[0];
+}
+
+test("background subagent completion revives the parent with Bot's dedicated source", async () => {
+  const block = 'Background task "Check that the release checklist passes on main." (executor) finished:\nRelease checks passed.';
+  const wake = await revive("user", "Check that the release checklist passes on main.", "executor", "Release checks passed.");
+  expect(wake).toMatchObject({ botId: "parent", channelId: "channel-1", origin: "background_revival", type: "subagent.completed", priority: 260, revival: { block, subagentType: "executor" } });
   // Like any turn, the revival is timestamped and wrapped in <user_query> as a hidden wake.
-  expect(calls[0]).not.toHaveProperty("wrapUserContent");
-  expect((calls[0] as { content: string }).content).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] ");
+  expect(wake).not.toHaveProperty("wrapUserContent");
+  expect(wake.content).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] ");
+  expect(wake.content).toContain(block);
 });
 
 test("a task a routine started reports back to the routine as quiet work nobody is waiting on", async () => {
-  const calls: Array<{ origin: string; content: string }> = [];
-  const worker = Object.create(WakeWorker.prototype) as { notifySubagentParent: (...args: unknown[]) => Promise<void> };
-  Object.assign(worker, { messaging: { enqueueWake: async (_tx: unknown, input: { origin: string; content: string }) => { calls.push(input); return {}; } } });
-  await worker.notifySubagentParent(
-    {
-      run: {
-        findFirst: async () => ({ id: "22222222-2222-4222-8222-222222222222", origin: "routine", inboxEvents: [{ payload: {} }] }),
-        findUnique: async () => ({ inboxEvents: [] }),
-      },
-      automationResult: { findUnique: async () => null },
-      routineExecution: { findUnique: async ({ where }: any) => (where.runId === "22222222-2222-4222-8222-222222222222" ? { routine: { name: "Price watch", slug: "price-watch" } } : null) },
-      channel: { findUnique: async () => ({ kind: "direct", name: "Parent" }) },
-      bot: { findUnique: async () => ({ id: "parent", status: "active" }) },
-    } as never,
-    { id: "subagent-1", parentBotId: "parent", parentRunId: "22222222-2222-4222-8222-222222222222", parentChannelId: "channel-1", description: "Check price",
-      prompt: "Check the price of the blue kettle", subagentType: "computerUse", currentRunId: "child-run-1", outputPath: "/tmp/r.jsonl" },
-    "completed",
-    "Status: done\nStill $49."
-  );
-  expect(calls[0]!.origin).toBe("routine");
-  expect((calls[0] as unknown as { revival: { block: string } }).revival.block).toBe(
+  const wake = await revive("routine", "Check the price of the blue kettle", "computerUse", "Status: done\nStill $49.");
+  expect(wake.origin).toBe("routine");
+  expect(wake.revival.block).toBe(
     'Background task "Check the price of the blue kettle" (computerUse) finished:\nStatus: done\nStill $49.\n(You started this during your routine "Price watch" (folder price-watch), and nobody is waiting on it.)'
   );
-  expect(calls[0]!.content).toBe(
+  expect(wake.content).toBe(
     [
       "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
       "",

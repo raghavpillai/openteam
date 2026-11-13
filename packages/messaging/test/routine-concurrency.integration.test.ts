@@ -11,59 +11,36 @@ afterAll(async () => {
 
 describe.skipIf(!db)("routine database concurrency and dispatch isolation", () => {
   async function fixture(onWake?: (input: any) => Promise<void>) {
-    const botId = randomUUID(),
-      channelId = randomUUID(),
-      conversationId = randomUUID();
-    await db!.channel.create({
-      data: { id: channelId, kind: "group", name: "Disposable routine QA" },
-    });
-    await db!.bot.create({
-      data: {
-        id: botId,
-        name: "Disposable routine QA",
-        status: "active",
-        defaultDirectory: "/tmp/routine-qa",
-        conversation: { create: { id: conversationId } },
-        channelMemberships: { create: { channelId, ordinal: 0 } },
-      },
-    });
+    const botId = randomUUID(), channelId = randomUUID();
+    await db!.channel.create({ data: { id: channelId, kind: "group", name: "Disposable routine QA" } });
+    await db!.bot.create({ data: {
+      id: botId, name: "Disposable routine QA", status: "active", defaultDirectory: "/tmp/routine-qa",
+      conversation: { create: {} }, channelMemberships: { create: { channelId, ordinal: 0 } },
+    } });
     const owner = { kind: "group" as const, id: channelId };
     const wakes: any[] = [];
     const service = new RoutineService(db!, {
-      enqueueWake: async () => {
-        throw new Error("Group routines must enter the room");
-      },
+      enqueueWake: async () => { throw new Error("Group routines must enter the room"); },
       createGroupRound: async (tx, input) => {
-        const seed = await tx.channelMessage.findUniqueOrThrow({
-          where: { id: input.triggerMessageId },
-        });
+        const seed = await tx.channelMessage.findUniqueOrThrow({ where: { id: input.triggerMessageId } });
         wakes.push(seed);
         await onWake?.(seed);
-        return tx.channelRound.create({
-          data: { channelId, triggerMessageId: seed.id, rootMessageId: seed.id },
-        });
+        return tx.channelRound.create({ data: { channelId, triggerMessageId: seed.id, rootMessageId: seed.id } });
       },
       advanceRound: async () => {},
     });
     const routine = await service.mutateOwner(owner, randomUUID(), null, {
-      action: "create",
-      name: "QA routine",
-      prompt: "QA exact body Café 日本語 🙂",
-      schedule: "@every 5m",
-      enabled: false,
-      source: "ui",
+      action: "create", name: "QA routine", prompt: "QA exact body Café 日本語 🙂", schedule: "@every 5m", enabled: false, source: "ui",
     });
-    const due = async (at: Date) =>
-      db!.routine.update({
-        where: { id: String(routine.id) },
-        data: { enabled: true, nextRunAt: at },
-      });
+    const id = String(routine.id);
+    const due = (at: Date) => db!.routine.update({ where: { id }, data: { enabled: true, nextRunAt: at } });
+    const executions = () => db!.routineExecution.findMany({ where: { routineId: id } });
     const cleanup = async () => {
       await db!.routine.deleteMany({ where: { channelId } });
       await db!.bot.delete({ where: { id: botId } });
       await db!.channel.delete({ where: { id: channelId } });
     };
-    return { botId, channelId, owner, service, routine, wakes, due, cleanup };
+    return { botId, channelId, owner, service, id, wakes, due, executions, cleanup };
   }
 
   test("manual and scheduled launches cannot overlap", async () => {
@@ -77,15 +54,13 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     try {
       const now = new Date();
       await f.due(now);
-      const manual = f.service.runNowOwner(f.owner, String(f.routine.id), randomUUID());
+      const manual = f.service.runNowOwner(f.owner, f.id, randomUUID());
       await first;
       const scheduled = f.service.dispatchDue(now);
       await Bun.sleep(150);
       release();
       await Promise.all([manual, scheduled]);
-      const executions = await db!.routineExecution.findMany({
-        where: { routineId: String(f.routine.id) },
-      });
+      const executions = await f.executions();
       expect(f.wakes).toHaveLength(1);
       expect(executions.filter((x) => x.status === "queued")).toHaveLength(1);
       expect(
@@ -102,7 +77,7 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     try {
       await f.service.mutateOwner(f.owner, randomUUID(), null, {
         action: "update",
-        id: String(f.routine.id),
+        id: f.id,
         schedule: "*/5 * * * *",
       });
       const now = new Date("2026-09-24T10:02:30Z");
@@ -111,11 +86,9 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
       expect(await f.service.dispatchDue(now)).toBe(1);
       expect(f.wakes).toHaveLength(1);
       expect(
-        (await db!.routine.findUniqueOrThrow({ where: { id: String(f.routine.id) } })).nextRunAt
+        (await db!.routine.findUniqueOrThrow({ where: { id: f.id } })).nextRunAt
       ).toEqual(new Date("2026-09-24T10:05:00Z"));
-      expect(
-        await db!.routineExecution.findMany({ where: { routineId: String(f.routine.id) } })
-      ).toMatchObject([{ status: "queued", scheduledFor: missed }]);
+      expect(await f.executions()).toMatchObject([{ status: "queued", scheduledFor: missed }]);
     } finally {
       await f.cleanup();
     }
@@ -132,13 +105,13 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
       await expect(good.service.dispatchDue(now)).resolves.toBe(1);
       expect(good.wakes).toHaveLength(1);
       const failure = await db!.routineExecution.findFirst({
-        where: { routineId: String(bad.routine.id) },
+        where: { routineId: bad.id },
       });
       expect(failure?.status).toBe("failed");
       expect((failure?.error as any)?.code).toBe("routine_executor_unavailable");
       expect(
         (
-          await db!.routine.findUniqueOrThrow({ where: { id: String(bad.routine.id) } })
+          await db!.routine.findUniqueOrThrow({ where: { id: bad.id } })
         ).nextRunAt!.getTime()
       ).toBeGreaterThan(now.getTime());
     } finally {
@@ -151,8 +124,8 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     const f = await fixture();
     try {
       const request = randomUUID();
-      const first = await f.service.runNowOwner(f.owner, String(f.routine.id), request);
-      expect(await f.service.runNowOwner(f.owner, String(f.routine.id), request)).toEqual(first);
+      const first = await f.service.runNowOwner(f.owner, f.id, request);
+      expect(await f.service.runNowOwner(f.owner, f.id, request)).toEqual(first);
       expect(f.wakes).toHaveLength(1);
       expect(f.wakes[0].content).toContain("QA exact body Café 日本語 🙂");
       await db!.routineExecution.update({
@@ -161,14 +134,14 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
       });
       const edited = await f.service.mutateOwner(f.owner, randomUUID(), null, {
         action: "update",
-        id: String(f.routine.id),
+        id: f.id,
         prompt: "Second exact body",
         expectedRevision: 1,
       });
       await expect(
         f.service.mutateOwner(f.owner, randomUUID(), null, {
           action: "update",
-          id: String(f.routine.id),
+          id: f.id,
           prompt: "Stale body",
           expectedRevision: 1,
         })
@@ -180,24 +153,24 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
       expect(old.routineRevision.prompt).toBe("QA exact body Café 日本語 🙂");
       const resumed = await f.service.mutateOwner(f.owner, randomUUID(), null, {
         action: "resume",
-        id: String(f.routine.id),
+        id: f.id,
         expectedRevision: Number(edited.revision),
       });
       expect(resumed.next_run_at).toBeString();
       const paused = await f.service.mutateOwner(f.owner, randomUUID(), null, {
         action: "pause",
-        id: String(f.routine.id),
+        id: f.id,
         expectedRevision: Number(resumed.revision),
       });
       expect(paused.next_run_at).toBeNull();
       expect(await f.service.dispatchDue(new Date(Date.now() + 3600000))).toBe(0);
       await f.service.mutateOwner(f.owner, randomUUID(), null, {
         action: "delete",
-        id: String(f.routine.id),
+        id: f.id,
         expectedRevision: Number(paused.revision),
       });
       await expect(
-        f.service.runNowOwner(f.owner, String(f.routine.id), randomUUID())
+        f.service.runNowOwner(f.owner, f.id, randomUUID())
       ).rejects.toThrow("not found");
     } finally {
       await f.cleanup();

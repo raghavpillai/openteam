@@ -1,90 +1,17 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createPrismaClient } from "@openteam/db";
-import { AgentMessaging } from "../src/index";
-import { followUserTimeZone, RoutineService } from "../src/routines";
+import { followUserTimeZone } from "../src/routines";
+import { createRoutineHarness } from "./fixtures/routines";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
-
+let harness: Awaited<ReturnType<typeof createRoutineHarness>>;
+beforeAll(async () => {
+  if (url) harness = await createRoutineHarness();
+});
+afterAll(() => harness?.close());
 async function fixture() {
-  const db = createPrismaClient(url!);
-  const botId = randomUUID(),
-    channelId = randomUUID(),
-    conversationId = randomUUID(),
-    roomId = randomUUID();
-  const root = await mkdtemp(join(tmpdir(), "routine-scheduler-fix-"));
-  const previousZone = await db.userTimeZoneSettings.findUnique({ where: { id: "global" } });
-  await db.userTimeZoneSettings.upsert({
-    where: { id: "global" },
-    create: { id: "global", detected: "UTC" },
-    update: { detected: "UTC", override: null },
-  });
-  await db.bot.create({
-    data: {
-      id: botId,
-      name: "Scheduler regressions",
-      defaultDirectory: root,
-      status: "active",
-      conversation: { create: { id: conversationId } },
-    },
-  });
-  await db.channel.create({
-    data: {
-      id: channelId,
-      name: "Scheduler direct",
-      kind: "bot_dm",
-      directKey: `bot:${botId}`,
-      members: { create: { botId, ordinal: 0 } },
-    },
-  });
-  await db.channel.create({
-    data: {
-      id: roomId,
-      kind: "group",
-      name: "Scheduler regressions",
-      members: { create: { botId, ordinal: 0 } },
-    },
-  });
-  const messaging = new AgentMessaging(db, {
-    send: async () => "job",
-    sendDebounced: async () => "job",
-  } as never);
-  messaging.isTimelineSessionActive = async () => false;
-  const service = new RoutineService(db, messaging);
-  const owner = { kind: "group" as const, id: roomId };
-  const create = async (trigger: unknown, useBot = false) =>
-    String(
-      (
-        await service.mutateOwner(useBot ? { kind: "bot", id: botId } : owner, randomUUID(), null, {
-          action: "create",
-          name: "Test cadence",
-          prompt: "Saved instructions",
-          trigger,
-        })
-      ).id
-    );
-  return {
-    db,
-    botId,
-    channelId,
-    roomId,
-    messaging,
-    service,
-    owner,
-    create,
-    close: async () => {
-      await db.bot.delete({ where: { id: botId } });
-      await db.channel.deleteMany({ where: { id: { in: [channelId, roomId] } } });
-      if (previousZone)
-        await db.userTimeZoneSettings.update({ where: { id: "global" }, data: previousZone });
-      else await db.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
-      await db.$disconnect();
-      await rm(root, { recursive: true, force: true });
-    },
-  };
+  const f = await harness.fixture(null);
+  return { ...f, db: harness.db, close: f.cleanup };
 }
 
 test.skipIf(!url)(
@@ -92,7 +19,7 @@ test.skipIf(!url)(
   async () => {
     const f = await fixture();
     try {
-      const id = await f.create({ type: "cron", schedule: "@every 15m" });
+      const { owner, routineId: id } = await f.group({ type: "cron", schedule: "@every 15m" });
       const presentation = {
         version: 2,
         kind: "bot-time-routines",
@@ -100,7 +27,7 @@ test.skipIf(!url)(
       };
       await f.db.routine.update({ where: { id }, data: { triggerPresentation: presentation } });
       const before = await f.db.routine.findUniqueOrThrow({ where: { id } });
-      await f.service.mutateOwner(f.owner, randomUUID(), null, {
+      await f.service.mutateOwner(owner, randomUUID(), null, {
         action: "update",
         id,
         name: "Renamed",
@@ -110,7 +37,7 @@ test.skipIf(!url)(
       expect(after.nextRunAt).toEqual(before.nextRunAt);
       expect(after.scheduleAnchorAt).toEqual(before.scheduleAnchorAt);
       expect(after.triggerPresentation).toEqual(presentation);
-      await f.service.runNowOwner(f.owner, id, randomUUID());
+      await f.service.runNowOwner(owner, id, randomUUID());
       const manual = await f.db.routine.findUniqueOrThrow({ where: { id } });
       expect(manual.nextRunAt).toEqual(before.nextRunAt);
       expect(manual.scheduleAnchorAt).toEqual(before.scheduleAnchorAt);
@@ -125,7 +52,7 @@ test.skipIf(!url)(
   async () => {
     const f = await fixture();
     try {
-      const id = await f.create({
+      const { routineId: id } = await f.group({
         type: "group",
         listeners: [
           { type: "cron", schedule: "@every 24h" },
@@ -153,8 +80,8 @@ test.skipIf(!url)(
   async () => {
     const f = await fixture();
     try {
-      await f.create({ type: "webhook" }, true);
-      const healthy = await f.create({ type: "webhook" });
+      await f.create({ trigger: { type: "webhook" } });
+      const { routineId: healthy } = await f.group({ type: "webhook" });
       await f.db.channel.update({ where: { id: f.channelId }, data: { archivedAt: new Date() } });
       const event = { id: randomUUID(), source: "webhook", kind: "webhook", text: "payload" };
       await expect(f.service.dispatchEventToAll(event)).rejects.toMatchObject({

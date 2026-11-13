@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { createServer, request as httpsRequest } from "node:https";
 import type { lookup } from "node:dns/promises";
 import { createPublicHttpFetch } from "@openteam/plugin-sdk/public-http";
@@ -13,9 +14,9 @@ const key = readFileSync(new URL("../../../packages/plugin-sdk/test/fixtures/pub
 const resolver = (addresses: string[]) => (async () => addresses.map(address => ({ address, family: address.includes(":") ? 6 : 4 }))) as unknown as typeof lookup;
 const request = (source = "https://photo.example.com/photo", signal?: AbortSignal) => new Request(`http://selected-server.test/api/v0/presentation-image?${new URLSearchParams({ url: source })}`, { signal, headers: { authorization: "Bearer selected-server-secret", cookie: "private=session", referer: "https://private-referrer.test/" } });
 
-async function fixture(run: (tools: { load: ReturnType<typeof createPresentationImages>; source: (path: string, host?: string) => string; seen: any[]; connections: () => number }) => Promise<void>, resolve = resolver(["8.8.8.8"])) {
+async function fixture(run: (tools: { load: ReturnType<typeof createPresentationImages>; source: (path: string, host?: string) => string; seen: any[]; connections: () => number; attempts: () => number; reached: (path: string) => Promise<void> }) => Promise<void>, resolve = resolver(["8.8.8.8"])) {
   const seen: any[] = [];
-  let connections = 0;
+  let connections = 0, attempts = 0;
   const server = createServer({ key, cert: ca }, (req, res) => {
     seen.push({ url: req.url, headers: req.headers, sni: (req.socket as any).servername });
     if (req.url === "/redirect-slow") { res.writeHead(302, { location: "/slow" }); res.end(); }
@@ -37,7 +38,12 @@ async function fixture(run: (tools: { load: ReturnType<typeof createPresentation
   // Test-only adapter maps *already approved* public answers to this owned TLS
   // fixture. The production resolver/validator and Node TLS/SNI remain active.
   const transport = createPublicHttpFetch({ resolve, httpsOnly: true, byteLimit: () => IMAGE_BYTE_LIMIT,
-    request: ((url: any, options: any, incoming: any) => httpsRequest(url, { ...options, ca, lookup(host: any, hints: any, callback: any) {
+    request: ((url: any, options: any, incoming: any) => {
+      attempts++;
+      // Even a broken production literal guard cannot dial a LAN/metadata IP
+      // from this regression suite. Tests additionally require zero attempts.
+      if (isIP(new URL(url).hostname.replace(/^\[|\]$/g, ""))) throw new Error("Fixture forbids literal sockets");
+      return httpsRequest(url, { ...options, ca, lookup(host: any, hints: any, callback: any) {
       options.lookup(host, hints, (error: any, answers: any, family: any) => {
         if (error) { callback(error); return; }
         const values = Array.isArray(answers) ? answers.map((a: any) => a.address) : [answers];
@@ -45,8 +51,18 @@ async function fixture(run: (tools: { load: ReturnType<typeof createPresentation
         if (hints.all) callback(null, [{ address: "127.0.0.1", family: 4 }]);
         else callback(null, "127.0.0.1", 4);
       });
-    } }, incoming)) as typeof httpsRequest });
-  try { await run({ load: createPresentationImages({ fetch: transport, deadlineMs: 1500 }), source: (path, host = "photo.example.com") => `https://${host}:${port}${path}`, seen, connections: () => connections }); }
+    } }, incoming); }) as typeof httpsRequest });
+  try { await run({ load: createPresentationImages({ fetch: transport, deadlineMs: 1500 }), source: (path, host = "photo.example.com") => `https://${host}:${port}${path}`, seen, connections: () => connections, attempts: () => attempts,
+    reached: (path) => new Promise<void>((done, reject) => {
+      if (seen.some(entry => entry.url === path)) { done(); return; }
+      const arrived = (req: { url?: string }) => {
+        if (req.url !== path) return;
+        clearTimeout(timer); server.off("request", arrived); done();
+      };
+      const timer = setTimeout(() => { server.off("request", arrived); reject(new Error("Fixture hop not reached")); }, 1000);
+      server.on("request", arrived);
+    }),
+  }); }
   finally { server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
 }
 
@@ -71,9 +87,10 @@ for (const address of ["127.0.0.1", "::1", "192.168.1.1", "169.254.169.254", "::
     expect((await load(request(source("/photo")), "a")).status).toBe(422);
     expect(connections()).toBe(0);
   }, resolver(["8.8.8.8", address])));
-  test(`no private socket for literal ${address}`, () => fixture(async ({ load, source, connections }) => {
+  test(`no private socket for literal ${address}`, () => fixture(async ({ load, source, connections, attempts }) => {
     expect((await load(request(source("/photo", address.includes(":") ? `[${address}]` : address)), "a")).status).toBe(422);
     expect(connections()).toBe(0);
+    expect(attempts()).toBe(0);
   }));
 }
 for (const path of ["/private", "/http", "/loop", "/html", "/large", "/chunked-large"]) test(`reject ${path} without following an unsafe hop`, () => fixture(async ({ load, source, seen }) => {
@@ -90,10 +107,10 @@ test("redirect hop re-resolves and refuses rebinding before the second socket", 
   }, (async () => [{ address: ++calls === 1 ? "8.8.8.8" : "127.0.0.1", family: 4 }]) as unknown as typeof lookup);
 });
 
-test("caller abort and deadline stop incomplete reads; no partial cache", () => fixture(async ({ load, source, seen }) => {
+test("caller abort and deadline stop incomplete reads; no partial cache", () => fixture(async ({ load, source, seen, reached }) => {
   const controller = new AbortController();
   const pending = load(request(source("/slow"), controller.signal), "a");
-  await new Promise(done => setTimeout(done, 50)); controller.abort();
+  await reached("/slow"); controller.abort();
   expect((await pending).status).toBe(422);
   expect((await load(request(source("/photo")), "a")).status).toBe(200);
   expect((await load(request(source("/slow")), "a")).status).toBe(422);
@@ -176,10 +193,10 @@ test("more than four legitimate photos queue and finish without being dropped", 
   expect(peak).toBe(4);
 });
 
-test("caller cancellation remains active after a public redirect", () => fixture(async ({ load, source, seen }) => {
+test("caller cancellation remains active after a public redirect", () => fixture(async ({ load, source, seen, reached }) => {
   const controller = new AbortController();
   const pending = load(request(source("/redirect-slow"), controller.signal), "a");
-  await new Promise(done => setTimeout(done, 50)); controller.abort();
+  await reached("/slow"); controller.abort();
   expect((await pending).status).toBe(422);
   expect(seen.map(r => r.url)).toEqual(["/redirect-slow", "/slow"]);
 }));

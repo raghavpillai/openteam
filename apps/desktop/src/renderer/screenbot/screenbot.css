@@ -373,27 +373,9 @@ body {
   margin-top: 10px;
 }
 
-.screenbot-hint {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--ink-tertiary);
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.screenbot-card:hover .screenbot-hint,
-.screenbot-card:focus-within .screenbot-hint {
-  opacity: 1;
-}
-
-.screenbot-hint kbd {
-  font: inherit;
-  color: var(--ink-secondary);
-}
-
-.screenbot-hint-dot {
-  margin: 0 2px;
+/* Pushes the mic and Send to the right. */
+.screenbot-footer-space {
+  flex: 1;
 }
 
 .screenbot-send {

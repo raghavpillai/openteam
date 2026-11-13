@@ -209,6 +209,12 @@ export function useVoiceRecorder(
       }
     },
     cancel,
+    /** Ends it with a message instead of a recording (say, released before the mic was live). */
+    fail: (message: string) => {
+      cancel();
+      setState("error");
+      setError(message);
+    },
     retry: () => {
       if (pendingAudio.current && state === "error")
         void processAudio(pendingAudio.current, generation.current);

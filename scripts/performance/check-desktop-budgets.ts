@@ -129,7 +129,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // hints (the rules and labels load with Settings): 1,292,846.
 // Both together on main at 3f91add4 (#309 email review + rebindable shortcuts): 1,297,183.
 // Hold-to-dictate and double-press gestures for the Dictate shortcut: 1,298,156.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_298_800);
+// The "microphone still starting" message for a hold released too early: 1,298,850.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_299_300);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -214,7 +215,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_686_800);
 // Same email review feature build: 4,161,640 B gzip.
 // Settings › Keyboard and rebindable shortcuts: 4,163,937.
 // Both together on main at 3f91add4: 4,165,193.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_166_000);
+// With the dictate gestures and microphone indication: 4,166,041.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_166_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -292,7 +294,8 @@ const lazyBudgets: Record<string, number> = {
   // v0.0.13 glow smoothing and transition state add 4,479 bytes: 64,144 total.
   // Suspending the shared AudioContext when the last bar unmounts, and the level callback
   // screenbot dictation uses: 64,520.
-  voiceMemo: 64_600,
+  // The dimmed, pulsing timer while the microphone opens: 64,801.
+  voiceMemo: 64_900,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and

@@ -540,6 +540,7 @@ export function PromptInput({
     active: voice.active,
     state: voice.state,
     elapsedMs: voice.elapsedMs,
+    fail: voice.fail,
     start: startVoice,
     stop: stopVoice,
     cancel: cancelVoice,
@@ -1146,6 +1147,7 @@ export function PromptInput({
               onDiscard={cancelVoice}
               onSend={sendVoice}
               radius={VOICE_SURFACE.radius}
+              starting={voice.state === "requesting"}
               stream={voice.stream}
             />
           </Suspense>

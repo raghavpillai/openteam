@@ -1,5 +1,5 @@
 import { ArrowUp, X } from "lucide-react";
-import { createDictateGesture, releasesDictate } from "../hooks/dictate-gesture";
+import { createDictateGesture, MIC_STILL_STARTING, releasesDictate } from "../hooks/dictate-gesture";
 import { isMac, isShortcut, shortcutBinding, useShortcutBindings } from "../hooks/use-shortcut-bindings";
 import { FN_KEY, shortcutText } from "../lib/keyboard-shortcuts";
 import {
@@ -1338,6 +1338,7 @@ export function ScreenBotApp() {
     stop: () => voiceRef.current.stop(),
     cancel: () => voiceRef.current.cancel(),
     elapsedMs: () => voiceRef.current.elapsedMs,
+    tooEarly: () => voiceRef.current.fail(MIC_STILL_STARTING),
   });
 
   const toggleDictation = useCallback(() => {
@@ -1622,10 +1623,7 @@ export function ScreenBotApp() {
                 }}
               />
             )}
-            <span className="screenbot-hint" aria-hidden="true">
-              <kbd>↩</kbd> send <span className="screenbot-hint-dot">·</span> <kbd>⇧↩</kbd> new line
-              {voice.available && <><span className="screenbot-hint-dot">·</span> hold <kbd>{dictateText}</kbd> to dictate</>}
-            </span>
+            <span className="screenbot-footer-space" aria-hidden="true" />
             {voice.available && (
               <DictationButton
                 state={voice.state}
@@ -1663,6 +1661,7 @@ export function ScreenBotApp() {
                   else void send();
                 }}
                 radius={VOICE_RADIUS}
+                starting={voice.state === "requesting"}
                 stream={voice.stream}
               />
             </Suspense>

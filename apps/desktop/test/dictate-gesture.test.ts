@@ -95,4 +95,22 @@ describe("dictate shortcut gesture", () => {
     gesture.press();
     expect(calls).toEqual(["start", "stop", "start"]);
   });
+
+  test("let go before the microphone is live: says so instead of vanishing", async () => {
+    const calls: string[] = [];
+    let state = "idle";
+    const gesture = createDictateGesture({
+      state: () => state,
+      active: () => state === "requesting",
+      start: () => { calls.push("start"); state = "requesting"; },
+      stop: () => calls.push("stop"),
+      cancel: () => calls.push("cancel"),
+      elapsedMs: () => 0,
+      tooEarly: () => calls.push("tooEarly"),
+    });
+    gesture.press();
+    await wait(DICTATE_TAP_MS + 50);
+    gesture.release();
+    expect(calls).toEqual(["start", "tooEarly"]);
+  });
 });

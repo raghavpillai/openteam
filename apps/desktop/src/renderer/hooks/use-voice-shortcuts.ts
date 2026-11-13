@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { FN_KEY } from "../lib/keyboard-shortcuts";
-import { createDictateGesture, releasesDictate } from "./dictate-gesture";
+import { createDictateGesture, MIC_STILL_STARTING, releasesDictate } from "./dictate-gesture";
 import { isShortcut, shortcutBinding } from "./use-shortcut-bindings";
 
 /**
@@ -23,6 +23,7 @@ export function useVoiceShortcuts(options: {
   start: () => void;
   stop: () => void;
   cancel: () => void;
+  fail: (message: string) => void;
   sendWhenReady: () => void;
 }) {
   const latest = useRef(options);
@@ -36,6 +37,7 @@ export function useVoiceShortcuts(options: {
       stop: () => latest.current.stop(),
       cancel: () => latest.current.cancel(),
       elapsedMs: () => latest.current.elapsedMs,
+      tooEarly: () => latest.current.fail(MIC_STILL_STARTING),
     });
     const release = () => gesture.release();
     const down = (event: KeyboardEvent) => {

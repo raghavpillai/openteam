@@ -28,6 +28,8 @@ export interface VoiceMemoLayerProps {
   onCancelProcessing: () => void;
   /** The voice's level each time the wave takes a sample (0–1), for anything listening along. */
   onLevel?: (level: number) => void;
+  /** The microphone is still opening: nothing is being recorded yet. */
+  starting?: boolean;
 }
 
 const WAVE_SAMPLE_MS = 50;
@@ -184,10 +186,12 @@ function TimeChip({
   elapsedMs,
   gooId,
   processing,
+  starting,
 }: {
   elapsedMs: number;
   gooId: string;
   processing: boolean;
+  starting: boolean;
 }) {
   return (
     <span className="vm-chip">
@@ -209,7 +213,8 @@ function TimeChip({
         <BotPlusIcon className="size-3.5" />
       </span>
       <span aria-hidden={processing} className="vm-chip-time">
-        {formatDuration(elapsedMs)}
+        {/* Dimmed and pulsing until the microphone is live: the timer starts with the recording. */}
+        <span className={starting ? "vm-chip-starting" : undefined}>{formatDuration(elapsedMs)}</span>
       </span>
       <span aria-hidden="true" className="vm-chip-orb">
         {processing ? <LoadingOrb label="Transcribing" size={20} state="listening" /> : null}
@@ -229,6 +234,7 @@ export default function VoiceMemoLayer({
   onSend,
   onCancelProcessing,
   onLevel,
+  starting = false,
 }: VoiceMemoLayerProps) {
   const dark = useDocumentDark();
   const reducedMotion = useReducedMotion();
@@ -270,7 +276,7 @@ export default function VoiceMemoLayer({
       </div>
 
       <div className="vm-bar">
-        <TimeChip elapsedMs={elapsedMs} gooId={gooId} processing={mode === "processing"} />
+        <TimeChip elapsedMs={elapsedMs} gooId={gooId} processing={mode === "processing"} starting={starting && mode === "recording"} />
         <span className="vm-body">
           <span className="vm-wave-slot">
             <VoiceWave onLevel={onLevel} stream={stream} />
@@ -331,7 +337,9 @@ export default function VoiceMemoLayer({
         {exiting
           ? ""
           : mode === "recording"
-            ? "Recording voice note. Send or discard when you're done."
+            ? starting
+              ? "Starting the microphone…"
+              : "Recording voice note. Send or discard when you're done."
             : "Transcribing voice note…"}
       </span>
     </div>

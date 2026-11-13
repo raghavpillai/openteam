@@ -15,7 +15,11 @@ export interface DictateTarget {
   stop(): void;
   cancel(): void;
   elapsedMs(): number;
+  /** Released from a hold before the microphone was live: nothing was recorded. */
+  tooEarly?(): void;
 }
+
+export const MIC_STILL_STARTING = "The microphone was still starting. Hold until the timer starts.";
 
 /**
  * The Dictate shortcut, whatever it's bound to (⌘D, Fn, a combination…), the same in the chat
@@ -75,7 +79,10 @@ export function createDictateGesture(target: DictateTarget) {
         // A deliberate hold always ends as a recording: if it came out too short (say, the
         // microphone was slow to start), the recorder says so rather than it vanishing.
         mode = "idle";
-        target.stop();
+        if (target.state() === "requesting") {
+          if (target.tooEarly) target.tooEarly();
+          else target.cancel();
+        } else target.stop();
         return;
       }
       mode = "waiting";

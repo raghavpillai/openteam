@@ -1,4 +1,5 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
 import type { InferenceModelView } from "@openteam/contracts/inference";
 import { Check, ChevronDown, Search } from "lucide-react";
 import {
@@ -11,6 +12,7 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverAnchor, PopoverContent } from "../../ui/popover";
+import { cn } from "../../../lib/cn";
 import "./model-picker.css";
 
 // Model makers as OpenRouter names them in model ids ("anthropic/claude-…").
@@ -185,13 +187,17 @@ export function ModelPicker({
   };
   const activeId = open && shown[active] ? `${listId}-${active}` : undefined;
 
+  // The shared Button and Input primitives; model-picker.css gives them the picker's look.
   const triggerButton = (
-    <ButtonPrimitive
+    <Button
       aria-controls={open ? listId : undefined}
       aria-expanded={open}
       aria-haspopup="listbox"
       aria-label="Model"
-      className={variant === "setup" ? "setup-input setup-picker-trigger" : "setup-picker-trigger"}
+      className={cn(
+        variant === "setup" ? "setup-input setup-picker-trigger" : "setup-picker-trigger",
+        "justify-start font-normal shadow-none"
+      )}
       disabled={disabled}
       onClick={() => (open ? close() : openList())}
       onKeyDown={(event) => {
@@ -207,21 +213,26 @@ export function ModelPicker({
       }}
       ref={trigger}
       role="combobox"
+      size="xs"
       type="button"
+      variant="outline"
     >
-      <span className="setup-picker-value">{selected?.name ?? (value || "No models available")}</span>
+      <span className="setup-picker-value">
+        {selected?.name ?? (value || "No models available")}
+      </span>
       {selected && selected.modelId === recommended ? <em>Recommended</em> : null}
       {selected && selected.maker !== providerName ? <small>{selected.maker}</small> : null}
       <ChevronDown aria-hidden="true" className="setup-picker-chevron" />
-    </ButtonPrimitive>
+    </Button>
   );
   const menu = (
     <>
       {filterable ? (
         <div className="setup-picker-filter">
           <Search aria-hidden="true" className="setup-picker-search" />
-          <input
+          <Input
             aria-activedescendant={activeId}
+            className="h-auto rounded-none p-0 shadow-none focus-visible:ring-0"
             aria-controls={listId}
             aria-label="Filter models"
             autoComplete="off"

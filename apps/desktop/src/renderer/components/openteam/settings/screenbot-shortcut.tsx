@@ -1,5 +1,15 @@
+import { Button } from "../../ui/button";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SettingsRow,
+  SkeletonBar,
+  SkeletonControl,
+  SkeletonText,
+  settingsSecondaryButton,
+} from "./ui";
 
 type Shortcut = ScreenBotShortcutView;
 type Status = ScreenBotShortcutStatusView;
@@ -13,13 +23,38 @@ const MODIFIER_CODES = {
   control: ["ControlLeft", "ControlRight"],
 } as const;
 const MODIFIER_SYMBOL = { command: "⌘", option: "⌥", shift: "⇧", control: "⌃" } as const;
-const MODIFIER_NAME = { command: "Command", option: "Option", shift: "Shift", control: "Control" } as const;
+const MODIFIER_NAME = {
+  command: "Command",
+  option: "Option",
+  shift: "Shift",
+  control: "Control",
+} as const;
 
 const KEY_NAMES: Record<string, string> = {
-  Space: "Space", Tab: "Tab", Backspace: "Backspace", Delete: "Delete", Enter: "Return",
-  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End",
-  PageUp: "PageUp", PageDown: "PageDown", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
-  Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backslash: "\\", Backquote: "`",
+  Space: "Space",
+  Tab: "Tab",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Enter: "Return",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Backslash: "\\",
+  Backquote: "`",
 };
 
 /** The Electron accelerator key for a physical key, independent of layout and Option. */
@@ -31,8 +66,20 @@ const acceleratorKey = (code: string): string | null => {
 };
 
 const KEYCAP: Record<string, string> = {
-  Command: "⌘", Control: "⌃", Alt: "⌥", Shift: "⇧", Return: "↩", Backspace: "⌫", Delete: "⌦",
-  Up: "↑", Down: "↓", Left: "←", Right: "→", Tab: "⇥", Space: "Space", Escape: "⎋",
+  Command: "⌘",
+  Control: "⌃",
+  Alt: "⌥",
+  Shift: "⇧",
+  Return: "↩",
+  Backspace: "⌫",
+  Delete: "⌦",
+  Up: "↑",
+  Down: "↓",
+  Left: "←",
+  Right: "→",
+  Tab: "⇥",
+  Space: "Space",
+  Escape: "⎋",
 };
 
 const keycap = (part: string) => {
@@ -77,37 +124,64 @@ export function Keycaps({ keys, chord }: { keys: string[]; chord: boolean }) {
   );
 }
 
+// Asked for as soon as this code loads (Settings preloads it on open) and kept between
+// visits, so the section renders complete instead of growing a row after it appears.
+let lastStatus: Status | null = null;
+void window.openteam?.screenbot?.shortcut
+  ?.get()
+  .then((next) => {
+    lastStatus ??= next;
+  })
+  .catch(() => undefined);
+
 /** Settings › Keyboard › ScreenBot: the shortcut, with Change and Reset. */
 export function ScreenBotShortcutSettings() {
   const bridge = window.openteam?.screenbot?.shortcut;
-  const [status, setStatus] = useState<Status | null>(null);
+  const [status, setStatus] = useState<Status | null>(() => lastStatus);
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const pressed = useRef(new Set<string>());
+  useEffect(() => {
+    if (status) lastStatus = status;
+  }, [status]);
 
   useEffect(() => {
     if (!bridge) return;
     let active = true;
-    void bridge.get().then((next) => { if (active) setStatus(next); });
-    const stop = bridge.onChange((next) => setStatus((current) => (current ? { ...current, ...next } : next)));
-    return () => { active = false; stop(); };
+    void bridge.get().then((next) => {
+      if (active) setStatus(next);
+    });
+    const stop = bridge.onChange((next) =>
+      setStatus((current) => (current ? { ...current, ...next } : next))
+    );
+    return () => {
+      active = false;
+      stop();
+    };
   }, [bridge]);
 
-  const finish = useCallback(async (shortcut: Shortcut | null) => {
-    pressed.current.clear();
-    setHeld([]);
-    setRecording(false);
-    await bridge?.setRecording(false);
-    if (!shortcut || !bridge) return;
-    try {
-      setStatus(await bridge.set(shortcut));
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : "That shortcut can’t be used.");
-    }
-  }, [bridge]);
+  const finish = useCallback(
+    async (shortcut: Shortcut | null) => {
+      pressed.current.clear();
+      setHeld([]);
+      setRecording(false);
+      await bridge?.setRecording(false);
+      if (!shortcut || !bridge) return;
+      try {
+        setStatus(await bridge.set(shortcut));
+        setError(null);
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "")
+            : "That shortcut can’t be used."
+        );
+      }
+    },
+    [bridge]
+  );
 
   useEffect(() => {
     if (!recording) return;
@@ -141,18 +215,22 @@ export function ScreenBotShortcutSettings() {
       if (modifiers.some((part) => part !== "Shift")) {
         void finish({ kind: "accelerator", accelerator: [...modifiers, key].join("+") });
       } else {
-        setError(mac() ? "Include ⌘, ⌃ or ⌥, or press both keys of one modifier." : "Include Ctrl or Alt.");
+        setError(
+          mac() ? "Include ⌘, ⌃ or ⌥, or press both keys of one modifier." : "Include Ctrl or Alt."
+        );
       }
     };
     const onUp = (event: KeyboardEvent) => {
       event.preventDefault();
       pressed.current.delete(event.code);
-      setHeld([
-        event.metaKey && (mac() ? "Command" : "Super"),
-        event.ctrlKey && (mac() ? "Control" : "CommandOrControl"),
-        event.altKey && "Alt",
-        event.shiftKey && "Shift",
-      ].filter(Boolean) as string[]);
+      setHeld(
+        [
+          event.metaKey && (mac() ? "Command" : "Super"),
+          event.ctrlKey && (mac() ? "Control" : "CommandOrControl"),
+          event.altKey && "Alt",
+          event.shiftKey && "Shift",
+        ].filter(Boolean) as string[]
+      );
     };
     const cancel = () => void finish(null);
     window.addEventListener("keydown", onDown, true);
@@ -166,9 +244,41 @@ export function ScreenBotShortcutSettings() {
   }, [finish, recording]);
 
   // Leaving Settings mid-recording must not leave the shortcut paused.
-  useEffect(() => () => { void bridge?.setRecording(false); }, [bridge]);
+  useEffect(
+    () => () => {
+      void bridge?.setRecording(false);
+    },
+    [bridge]
+  );
 
-  if (!bridge || !status) return null;
+  if (!bridge) return null;
+  if (!status) {
+    return (
+      <>
+        <SectionLabel>ScreenBot</SectionLabel>
+        <SettingsGroup>
+          <SettingsRow
+            title="Shortcut"
+            description={<SkeletonText width={318} />}
+            control={
+              <div
+                aria-label="Loading the ScreenBot shortcut"
+                className="flex items-center gap-2"
+                role="status"
+              >
+                <span className="flex gap-1 px-1.5 py-1">
+                  <SkeletonBar className="h-[22px] w-[22px] rounded-[6px]" />
+                  <SkeletonBar className="h-[22px] w-[22px] rounded-[6px]" />
+                </span>
+                <SkeletonControl width={67} />
+                <SkeletonControl width={52} />
+              </div>
+            }
+          />
+        </SettingsGroup>
+      </>
+    );
+  }
   const chord = status.shortcut.kind === "chord";
   const preview = held.map(keycap);
   const needsAccess = chord && status.mode === "poll";
@@ -180,17 +290,25 @@ export function ScreenBotShortcutSettings() {
         <SettingsRow
           title="Shortcut"
           description={
-            recording
-              ? mac()
-                ? "Press a shortcut, or both keys of one modifier, like both ⌘ keys. Esc cancels."
-                : "Press a shortcut. Esc cancels."
-              : `Press ${describeShortcut(status.shortcut).replace(/^Both/, "both")} to capture your screen and send it to a Bot.`
+            recording ? (
+              mac() ? (
+                "Press a shortcut, or both keys of one modifier, like both ⌘ keys. Esc cancels."
+              ) : (
+                "Press a shortcut. Esc cancels."
+              )
+            ) : (
+              <SettingsReveal>{`Press ${describeShortcut(status.shortcut).replace(/^Both/, "both")} to capture your screen and send it to a Bot.`}</SettingsReveal>
+            )
           }
           control={
             <div className="flex items-center gap-2">
               <span
                 aria-live="polite"
-                aria-label={recording ? "Recording a shortcut" : `Current shortcut: ${describeShortcut(status.shortcut)}`}
+                aria-label={
+                  recording
+                    ? "Recording a shortcut"
+                    : `Current shortcut: ${describeShortcut(status.shortcut)}`
+                }
                 className="px-1.5 py-1"
               >
                 {recording ? (
@@ -199,7 +317,9 @@ export function ScreenBotShortcutSettings() {
                   <Keycaps keys={shortcutKeycaps(status.shortcut)} chord={chord} />
                 )}
               </span>
-              <button
+              <Button
+                size="xs"
+                variant="secondary"
                 type="button"
                 className={settingsSecondaryButton}
                 onClick={() => {
@@ -213,26 +333,37 @@ export function ScreenBotShortcutSettings() {
                 }}
               >
                 {recording ? "Cancel" : "Change…"}
-              </button>
-              <button
+              </Button>
+              <Button
+                size="xs"
+                variant="secondary"
                 type="button"
                 className={settingsSecondaryButton}
                 disabled={status.isDefault || recording}
                 title="Reset to both ⌘ keys"
-                onClick={() => void bridge.reset().then((next) => { setStatus(next); setError(null); })}
+                onClick={() =>
+                  void bridge.reset().then((next) => {
+                    setStatus(next);
+                    setError(null);
+                  })
+                }
               >
                 Reset
-              </button>
+              </Button>
             </div>
           }
         />
         {(error || status.error || needsAccess) && (
           <div className="flex items-center gap-3 border-t border-black/[0.065] py-2.5 text-[12px] leading-4 text-foreground-secondary dark:border-white/[0.07]">
             <span className={error || status.error ? "text-[#d70015] dark:text-[#ff6961]" : ""}>
-              {error ?? status.error ?? "If pressing both keys does nothing, allow OpenTeam in Input Monitoring."}
+              {error ??
+                status.error ??
+                "If pressing both keys does nothing, allow OpenTeam in Input Monitoring."}
             </span>
             {!error && !status.error && needsAccess && (
-              <button
+              <Button
+                size="xs"
+                variant="secondary"
                 type="button"
                 className={`${settingsSecondaryButton} ml-auto`}
                 disabled={asking}
@@ -242,7 +373,7 @@ export function ScreenBotShortcutSettings() {
                 }}
               >
                 Allow…
-              </button>
+              </Button>
             )}
           </div>
         )}

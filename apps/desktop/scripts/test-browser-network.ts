@@ -161,7 +161,7 @@ try {
     await page.getByLabel("Estimated upload 9.2 megabits per second").isVisible(),
     "manual exit test shows upload estimate"
   );
-  await page.getByRole("checkbox", { name: "Share this computer’s connection" }).check();
+  await page.getByRole("switch", { name: "Share this computer’s connection" }).click();
   await page.locator('[data-network-source="home"]').waitFor();
   assert(
     await page
@@ -200,7 +200,7 @@ try {
     (await page.getByText("203.0.113.10", { exact: true }).getAttribute("aria-hidden")) === "true",
     "new route IP hidden"
   );
-  await page.getByRole("checkbox").uncheck();
+  await page.getByRole("switch", { name: "Share this computer’s connection" }).click();
   await status("Using Mac mini");
   assert((await sources())[0] === "home", "stopping sharing retains rank");
   assert(
@@ -225,7 +225,7 @@ try {
   await keyboardMove("Server connection", "ArrowUp");
   assert((await sources())[0] === "server", "keyboard reorders server first");
   await apply();
-  await page.getByRole("checkbox").check();
+  await page.getByRole("switch", { name: "Share this computer’s connection" }).click();
   await status("Using the server connection");
   assert(
     (await sources()).filter((id) => id === "home").length === 1,

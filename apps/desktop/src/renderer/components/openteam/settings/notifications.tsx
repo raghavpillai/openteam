@@ -1,4 +1,4 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 
 export interface NotificationSettingsProps {
@@ -29,13 +29,15 @@ export function NotificationSettings({ permission, onEnable }: NotificationSetti
                 {allowed ? "Allowed" : "Blocked"}
               </span>
               {!allowed ? (
-                <ButtonPrimitive
+                <Button
+                  variant="outline"
+                  size="xs"
                   className="inline-flex h-7 items-center rounded-[8px] border border-black/[0.055] bg-black/[0.035] px-2.5 text-[12px] hover:bg-black/[0.065] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:border-white/[0.07] dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
                   onClick={onEnable}
                   type="button"
                 >
                   Enable notifications
-                </ButtonPrimitive>
+                </Button>
               ) : null}
             </div>
           }

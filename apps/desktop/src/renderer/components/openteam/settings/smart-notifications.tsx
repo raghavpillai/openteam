@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
-import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import {
+  InteractiveSwitch,
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SettingsRow,
+  SkeletonSwitch,
+} from "./ui";
+
+const TITLE = "Pause iPhone alerts while using this Mac";
+const DESCRIPTION =
+  "Alerts resume after 5 minutes of inactivity or when you open OpenTeam on Mobile.";
 
 export function SmartNotificationSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const lastResponse = useRef(-1);
   const apply = (value: { serverTime: number; smartEnabled: boolean }) => {
     if (value.serverTime < lastResponse.current) return;
@@ -21,7 +33,8 @@ export function SmartNotificationSettings() {
           if (active) apply(value);
         })
         .catch(() => {
-          /* The section stays hidden until the setting loads. */
+          // The section is left out when the setting can't load; a later change event retries.
+          if (active) setUnavailable(true);
         });
     };
     refresh();
@@ -31,29 +44,35 @@ export function SmartNotificationSettings() {
       window.removeEventListener("openteam:notification-preferences-changed", refresh);
     };
   }, []);
-  if (enabled === null) return null;
+  if (enabled === null && unavailable) return null;
   return (
     <>
       <SectionLabel>Notifications</SectionLabel>
       <SettingsGroup>
         <SettingsRow
-          title="Pause iPhone alerts while using this Mac"
-          description="Alerts resume after 5 minutes of inactivity or when you open OpenTeam on Mobile."
+          title={TITLE}
+          description={DESCRIPTION}
           control={
-            <InteractiveSwitch
-              label="Pause iPhone alerts while using this Mac"
-              checked={enabled}
-              disabled={saving}
-              onChange={(value) => {
-                setSaving(true);
-                setError(null);
-                void api
-                  .updateNotificationPreferences(value)
-                  .then(apply)
-                  .catch(() => setError("Couldn’t save notification settings. Try again."))
-                  .finally(() => setSaving(false));
-              }}
-            />
+            enabled === null ? (
+              <SkeletonSwitch />
+            ) : (
+              <SettingsReveal className="flex">
+                <InteractiveSwitch
+                  label={TITLE}
+                  checked={enabled}
+                  disabled={saving}
+                  onChange={(value) => {
+                    setSaving(true);
+                    setError(null);
+                    void api
+                      .updateNotificationPreferences(value)
+                      .then(apply)
+                      .catch(() => setError("Couldn’t save notification settings. Try again."))
+                      .finally(() => setSaving(false));
+                  }}
+                />
+              </SettingsReveal>
+            )
           }
         />
         {error && (

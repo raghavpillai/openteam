@@ -64,7 +64,7 @@ import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./ru
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
-import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
+import { prepareDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { pinUserInfo } from "./runtime/user-info-snapshot";
 import { DiskPressureMonitor, reminderStepPersisted } from "./runtime/disk-pressure";
 import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
@@ -400,7 +400,7 @@ export class ComputerRuntime {
         // Workers do not receive a server-side epoch; use the durable local one
         // so their opening snapshot also refreshes after a summary.
         const userInfoEpoch = request.userInfoEpoch ?? contextState.epoch;
-        const pinned = pinDynamicToolCatalog(session.sessionManager, userInfoEpoch, this.tools.contextCatalog(active));
+        const pinned = prepareDynamicToolCatalog(session.sessionManager, userInfoEpoch, this.tools.contextCatalog(active));
         const userInfo = pinUserInfo(
           session.sessionManager,
           userInfoEpoch,
@@ -422,6 +422,7 @@ export class ComputerRuntime {
         if (pinned.update) await session.sendCustomMessage({
           customType: "openteam-catalog-update", content: pinned.update, display: false, details: { origin: "host" },
         }, { triggerTurn: false });
+        pinned.acknowledge();
       }
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
       const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));

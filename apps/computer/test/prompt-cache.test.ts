@@ -379,6 +379,8 @@ const scenarios: Array<[string, (f: ReturnType<typeof fixture>) => void, boolean
   ["revert roster", (f) => f.recent.push({ id: "temporary", name: "Temporary Teammate" }), true],
   ["catalog and roster", (f) => f.recent.push({ id: "new", name: "New Teammate" }), true],
   ["failed update append", (f) => (f.state.skills = "new installed skills"), true],
+  ["failed combined append", (f) => (f.state.skills = "new installed skills"), true],
+  ["failed tool append", (f) => (f.state.skills = "new installed skills"), true],
   [
     "new epoch refresh",
     (f) => {
@@ -482,7 +484,9 @@ for (const [change, mutate, hasUpdate] of scenarios)
       runtime.tools = {
         customTools: () => [],
         contextCatalog: () =>
-          change === "catalog and roster"
+          change === "catalog and roster" ||
+          change === "failed combined append" ||
+          change === "failed tool append"
             ? [{ name: "cursor", tools: [{ name: turn >= 2 ? "NewTool" : "OldTool" }] }]
             : [],
         recoverFormOutcomes: async () => {},
@@ -491,13 +495,18 @@ for (const [change, mutate, hasUpdate] of scenarios)
         cancelApprovals() {},
         userForms: { beginTurn: async () => {}, endTurn: async () => {} },
       };
-      if (change === "failed update append" && turn === 2) {
+      if (change.startsWith("failed ") && turn === 2) {
         const createSession = runtime.createSession.bind(runtime);
         runtime.createSession = async (...args: any[]) => {
           const session = await createSession(...args);
           const sendCustomMessage = session.sendCustomMessage.bind(session);
           session.sendCustomMessage = (message: any, options: any) => {
-            if (message.customType === "openteam-user-info-update")
+            if (
+              message.customType ===
+              (change === "failed tool append"
+                ? "openteam-catalog-update"
+                : "openteam-user-info-update")
+            )
               throw new Error("Injected append failure");
             return sendCustomMessage(message, options);
           };
@@ -524,7 +533,7 @@ for (const [change, mutate, hasUpdate] of scenarios)
         subagentType: change.startsWith("worker ") ? "executor" : null,
         requestSource: "agent",
       });
-      if (change === "failed update append" && turn === 2) {
+      if (change.startsWith("failed ") && turn === 2) {
         await expect(pending).rejects.toThrow("Injected append failure");
         continue;
       }
@@ -540,7 +549,7 @@ for (const [change, mutate, hasUpdate] of scenarios)
       expect(completed).toBe(true);
       expect(sessionPath).toBeString();
     }
-    expect(requests).toHaveLength(change === "failed update append" ? 3 : 4);
+    expect(requests).toHaveLength(change.startsWith("failed ") ? 3 : 4);
     for (let i = 1; i < requests.length; i++) {
       // This assertion covers the *entire* earlier model request, including the
       // opening user_info, assistant output and all previously appended notes.
@@ -579,7 +588,11 @@ for (const [change, mutate, hasUpdate] of scenarios)
       expect(text).not.toContain("<dynamic_tool_catalog>");
       expect(JSON.stringify(last.messages[1])).not.toContain("new installed skills");
     }
-    if (change === "catalog and roster") {
+    if (
+      change === "catalog and roster" ||
+      change === "failed combined append" ||
+      change === "failed tool append"
+    ) {
       expect(
         last.messages.filter((message: any) =>
           JSON.stringify(message).includes('sections=\\"dynamic_tool_snapshot')

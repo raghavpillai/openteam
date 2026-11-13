@@ -1,4 +1,8 @@
-import { renderCursorNamespaceStatement, renderDynamicToolCatalog, type CatalogNamespace } from "./prompt-context";
+import {
+  renderCursorNamespaceStatement,
+  renderDynamicToolCatalog,
+  type CatalogNamespace,
+} from "./prompt-context";
 
 const ENTRY = "openteam-dynamic-tool-catalog";
 
@@ -21,20 +25,22 @@ interface CatalogSessionLog {
  * announced on the next turn instead; connector namespaces are rediscovered
  * with GetDynamicTools until the next summary.
  */
-export function pinDynamicToolCatalog(
+export function prepareDynamicToolCatalog(
   log: CatalogSessionLog,
   epoch: number,
   namespaces: readonly CatalogNamespace[]
-): { catalog: string | null; update: string | null } {
+): { catalog: string | null; update: string | null; acknowledge(): void } {
   const cursor = renderCursorNamespaceStatement(namespaces);
-  const pinned = log.getEntries().filter((entry) => entry.type === "custom" && entry.customType === ENTRY).at(-1)?.data as PinnedCatalog | undefined;
+  const pinned = log
+    .getEntries()
+    .filter((entry) => entry.type === "custom" && entry.customType === ENTRY)
+    .at(-1)?.data as PinnedCatalog | undefined;
   if (!pinned || pinned.epoch !== epoch) {
     const catalog = renderDynamicToolCatalog(namespaces);
     log.appendCustomEntry(ENTRY, { epoch, catalog, cursor } satisfies PinnedCatalog);
-    return { catalog, update: null };
+    return { catalog, update: null, acknowledge() {} };
   }
-  if (pinned.cursor === cursor) return { catalog: pinned.catalog, update: null };
-  log.appendCustomEntry(ENTRY, { ...pinned, cursor } satisfies PinnedCatalog);
+  if (pinned.cursor === cursor) return { catalog: pinned.catalog, update: null, acknowledge() {} };
   return {
     catalog: pinned.catalog,
     update: [
@@ -45,5 +51,20 @@ export function pinDynamicToolCatalog(
       "</user_info_catalog_update>",
       "</system_reminder>",
     ].join("\n"),
+    acknowledge() {
+      log.appendCustomEntry(ENTRY, { ...pinned, cursor } satisfies PinnedCatalog);
+    },
   };
+}
+
+/** Convenience for callers that synchronously accept the returned update.
+ * Runtime delivery uses prepareDynamicToolCatalog and acknowledges after append. */
+export function pinDynamicToolCatalog(
+  log: CatalogSessionLog,
+  epoch: number,
+  namespaces: readonly CatalogNamespace[]
+): { catalog: string | null; update: string | null } {
+  const prepared = prepareDynamicToolCatalog(log, epoch, namespaces);
+  prepared.acknowledge();
+  return { catalog: prepared.catalog, update: prepared.update };
 }

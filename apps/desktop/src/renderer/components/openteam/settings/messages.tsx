@@ -1,10 +1,21 @@
 import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { MachineMessagesSettings } from "@openteam/client-core";
 import { api } from "../../../client/openteam-api";
 import { MessagesPermissionsDialog, missingGrants } from "./messages-permissions-dialog";
-import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
+import {
+  InteractiveSwitch,
+  SectionLabel,
+  SettingsGroup,
+  SettingsReveal,
+  SettingsRow,
+  SkeletonControl,
+  SkeletonSwitch,
+  SkeletonText,
+  settingsSecondaryButton,
+} from "./ui";
 
 /** This Mac's Messages switch, its macOS permissions, and who OpenTeam may text without asking. */
 export function MessagesSettings({
@@ -35,7 +46,11 @@ export function MessagesSettings({
       .catch(() => setSendFailed(true));
   }, [machineId]);
   useEffect(() => {
-    const refresh = () => void window.openteam?.computer.messagesPermissions().then(setPermissions).catch(() => {});
+    const refresh = () =>
+      void window.openteam?.computer
+        .messagesPermissions()
+        .then(setPermissions)
+        .catch(() => {});
     refresh();
     loadSend();
     window.addEventListener("focus", refresh);
@@ -52,7 +67,9 @@ export function MessagesSettings({
     try {
       onComputerChange(await window.openteam!.computer.update({ messagesEnabled }));
       // The server clears send rules whenever the switch flips.
-      setSend((current) => current && { ...current, sendWithoutAsking: false, allowedRecipients: [] });
+      setSend(
+        (current) => current && { ...current, sendWithoutAsking: false, allowedRecipients: [] }
+      );
       changed();
       if (messagesEnabled) {
         const current = await window.openteam!.computer.messagesPermissions().catch(() => null);
@@ -65,7 +82,11 @@ export function MessagesSettings({
       setSaving(null);
     }
   };
-  const updateSend = async (key: string, input: { sendWithoutAsking?: boolean; removeRecipient?: string }, failure: "standing" | "recipient") => {
+  const updateSend = async (
+    key: string,
+    input: { sendWithoutAsking?: boolean; removeRecipient?: string },
+    failure: "standing" | "recipient"
+  ) => {
     setSaving(key);
     setFailed(null);
     try {
@@ -84,32 +105,76 @@ export function MessagesSettings({
       <SettingsGroup>
         <SettingsRow
           title="Use Messages"
-          description={failed === "enabled" ? "Couldn't save. Try again." : "Lets OpenTeam read and send texts on this Mac"}
-          control={<InteractiveSwitch label="Use Messages" checked={enabled} disabled={saving !== null} onChange={(value) => void setEnabled(value)} />}
+          description={
+            failed === "enabled"
+              ? "Couldn't save. Try again."
+              : "Lets OpenTeam read and send texts on this Mac"
+          }
+          control={
+            <InteractiveSwitch
+              label="Use Messages"
+              checked={enabled}
+              disabled={saving !== null}
+              onChange={(value) => void setEnabled(value)}
+            />
+          }
         />
         {enabled ? (
           <SettingsRow
             title="macOS permissions"
-            description={!permissions ? "Loading…" : missing.length ? `Needs ${missing.join(", ")}` : "Automation, Contacts and Full Disk Access are allowed"}
+            description={
+              !permissions ? (
+                <SkeletonText width={268} />
+              ) : (
+                <SettingsReveal>
+                  {missing.length
+                    ? `Needs ${missing.join(", ")}`
+                    : "Automation, Contacts and Full Disk Access are allowed"}
+                </SettingsReveal>
+              )
+            }
             control={
-              <ButtonPrimitive
-                className={settingsSecondaryButton}
-                disabled={!permissions}
-                onClick={() => setDialogOpen(true)}
-                type="button"
-              >
-                {missing.length ? "Set up" : "Review"}
-              </ButtonPrimitive>
+              !permissions ? (
+                <SkeletonControl width={62} />
+              ) : (
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  className={`${settingsSecondaryButton} settings-reveal`}
+                  onClick={() => setDialogOpen(true)}
+                  type="button"
+                >
+                  {missing.length ? "Set up" : "Review"}
+                </Button>
+              )
             }
           />
         ) : null}
         {enabled ? (
           <SettingsRow
             title="Send Without Asking"
-            description={!send ? (sendFailed ? "Couldn't load this setting" : "Loading…") : failed === "standing" ? "Couldn't save. Try again." : "Skips the approval card for every text"}
+            description={
+              !send ? (
+                sendFailed ? (
+                  "Couldn't load this setting"
+                ) : (
+                  <SkeletonText width={214} />
+                )
+              ) : failed === "standing" ? (
+                "Couldn't save. Try again."
+              ) : (
+                <SettingsReveal>Skips the approval card for every text</SettingsReveal>
+              )
+            }
             control={
-              sendFailed ? (
-                <ButtonPrimitive className="text-[12px] text-foreground-secondary hover:text-foreground" onClick={loadSend} type="button">
+              !send && !sendFailed ? (
+                <SkeletonSwitch />
+              ) : sendFailed ? (
+                <ButtonPrimitive
+                  className="text-[12px] text-foreground-secondary hover:text-foreground"
+                  onClick={loadSend}
+                  type="button"
+                >
                   Retry
                 </ButtonPrimitive>
               ) : (
@@ -117,7 +182,9 @@ export function MessagesSettings({
                   label="Send Without Asking"
                   checked={send?.sendWithoutAsking ?? false}
                   disabled={!send || saving !== null}
-                  onChange={(sendWithoutAsking) => void updateSend("standing", { sendWithoutAsking }, "standing")}
+                  onChange={(sendWithoutAsking) =>
+                    void updateSend("standing", { sendWithoutAsking }, "standing")
+                  }
                 />
               )
             }
@@ -127,17 +194,27 @@ export function MessagesSettings({
           <>
             <SettingsRow
               title="Allowed recipients"
-              description={failed === "recipient" ? "The change could not be applied. Try again." : "OpenTeam can text these people without asking first"}
+              description={
+                failed === "recipient"
+                  ? "The change could not be applied. Try again."
+                  : "OpenTeam can text these people without asking first"
+              }
               control={
-                <ButtonPrimitive
+                <Button
+                  size="xs"
+                  variant="secondary"
                   aria-expanded={recipientsOpen}
                   className={settingsSecondaryButton}
                   onClick={() => setRecipientsOpen((open) => !open)}
                   type="button"
                 >
                   {recipients.length === 1 ? "1 person" : `${recipients.length} people`}
-                  <ChevronDown aria-hidden className={`size-3.5 transition-transform ${recipientsOpen ? "rotate-180" : ""}`} strokeWidth={2.25} />
-                </ButtonPrimitive>
+                  <ChevronDown
+                    aria-hidden
+                    className={`size-3.5 transition-transform ${recipientsOpen ? "rotate-180" : ""}`}
+                    strokeWidth={2.25}
+                  />
+                </Button>
               }
             />
             {recipientsOpen ? (
@@ -145,18 +222,32 @@ export function MessagesSettings({
                 {recipients.map((recipient) => (
                   <li className="flex items-center gap-3 py-1.5 pl-3" key={recipient.recipient}>
                     <div className="min-w-0 flex-1">
-                      {recipient.recipientName ? <div className="truncate text-[12.5px] font-medium">{recipient.recipientName}</div> : null}
-                      <div className="truncate text-[12px] text-foreground-secondary" dir="ltr">{recipient.recipient}</div>
+                      {recipient.recipientName ? (
+                        <div className="truncate text-[12.5px] font-medium">
+                          {recipient.recipientName}
+                        </div>
+                      ) : null}
+                      <div className="truncate text-[12px] text-foreground-secondary" dir="ltr">
+                        {recipient.recipient}
+                      </div>
                     </div>
-                    <ButtonPrimitive
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={`Remove ${recipient.recipientName ?? recipient.recipient}`}
                       className="rounded-md p-1 text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
                       disabled={saving !== null}
-                      onClick={() => void updateSend(recipient.recipient, { removeRecipient: recipient.recipient }, "recipient")}
+                      onClick={() =>
+                        void updateSend(
+                          recipient.recipient,
+                          { removeRecipient: recipient.recipient },
+                          "recipient"
+                        )
+                      }
                       type="button"
                     >
                       <Trash2 aria-hidden className="size-3.5" />
-                    </ButtonPrimitive>
+                    </Button>
                   </li>
                 ))}
               </ul>

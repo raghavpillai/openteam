@@ -1,4 +1,5 @@
-import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Input } from "../../ui/input";
+import { Button } from "../../ui/button";
 import { useCallback, useEffect, useState } from "react";
 import { useWindowVisible } from "../../../hooks/use-window-active";
 import { Monitor, MoreHorizontal } from "lucide-react";
@@ -6,7 +7,15 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { api } from "../../../client/openteam-api";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import { lastOpened } from "./last-opened";
-import { SectionLabel, SettingsGroup, settingsInput, settingsSecondaryButton } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SkeletonBar,
+  SkeletonControl,
+  SkeletonText,
+  settingsInput,
+  settingsSecondaryButton,
+} from "./ui";
 
 type Machine = Awaited<ReturnType<typeof api.machines>>[number];
 
@@ -40,9 +49,9 @@ function DeviceRow({ machine, current, busy, onChange }: { machine: Machine; cur
       {!current ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <ButtonPrimitive aria-label={`More actions for ${machine.label}`} className="grid size-7 place-items-center rounded-md text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]" disabled={busy} type="button">
+            <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${machine.label}`} className="grid size-7 place-items-center rounded-md text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]" disabled={busy} type="button">
               <MoreHorizontal className="size-4" />
-            </ButtonPrimitive>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {machine.transport === "relay" ? (
@@ -58,19 +67,39 @@ function DeviceRow({ machine, current, busy, onChange }: { machine: Machine; cur
   );
 }
 
+/** A device row's shape: icon, name, and its status line. */
+function DeviceRowSkeleton({ name, status }: { name: number; status: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex min-h-[52px] items-center gap-3 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]"
+    >
+      <SkeletonBar className="size-4 shrink-0 rounded-[4px]" />
+      <div className="min-w-0 flex-1">
+        <SkeletonText size="title" width={name} />
+        <span className="mt-px flex h-4 items-center gap-1.5">
+          <SkeletonBar className="size-1.5 shrink-0 rounded-full" />
+          <SkeletonBar className="h-[8px]" style={{ width: status }} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function MachineSettings() {
   const visible = useWindowVisible();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [local, setLocal] = useState<{machineId:string;connected:boolean;configured:boolean;error:string|null} | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const [roster, status] = await Promise.all([api.machines(), window.openteam?.auth.machineStatus?.().catch(() => null)]);
-    setMachines(roster); setLocal(status ?? null);
+    setMachines(roster); setLocal(status ?? null); setLoaded(true);
   }, []);
   useEffect(() => {
     if (!visible) return;
-    void load().catch(e => setError(clientErrorMessage(e, "Could not load computers")));
+    void load().catch(e => { setError(clientErrorMessage(e, "Could not load computers")); setLoaded(true); });
     const refresh = () => { void load().catch(() => {}); };
     const timer = setInterval(refresh, 10_000);
     window.addEventListener("openteam:machines-changed", refresh);
@@ -87,11 +116,17 @@ export function MachineSettings() {
   return <>
     <SectionLabel>Manage devices</SectionLabel>
     <SettingsGroup>
+      {!loaded ? (
+        <div aria-label="Loading devices" role="status">
+          <DeviceRowSkeleton name={152} status={196} />
+          <DeviceRowSkeleton name={118} status={164} />
+        </div>
+      ) : null}
       {local && !local.connected && <p role="status" className="pt-3 text-xs text-foreground-secondary">{local.error ?? (local.configured ? "Connecting this computer…" : "Sign in to connect this computer.")}</p>}
       {[...machines].sort((a, b) => rank(a) - rank(b)).map(machine => (
         <DeviceRow busy={busy} current={local?.machineId === machine.machineId} key={machine.machineId} machine={machine} onChange={action => void change(action)} />
       ))}
-      {!machines.length ? <p className="py-3 text-xs text-foreground-secondary">Open the OpenTeam desktop app on a computer and sign in to add it here.</p> : null}
+      {loaded && !machines.length ? <p className="py-3 text-xs text-foreground-secondary">Open the OpenTeam desktop app on a computer and sign in to add it here.</p> : null}
       {error && <p role="alert" className="pb-3 text-xs text-red-600">{error}</p>}
     </SettingsGroup>
   </>;
@@ -103,11 +138,12 @@ const buttonClass = settingsSecondaryButton;
 /** Manual bridges and the bot's screen size: rarely needed, kept out of the device list. */
 export function AdvancedComputerSettings() {
   const [display,setDisplay]=useState({width:1280,height:800});
+  const [displayLoaded,setDisplayLoaded]=useState(false);
   const [displaySaved,setDisplaySaved]=useState(false);
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { void api.computerDisplay().then(setDisplay).catch(e=>setError(clientErrorMessage(e,"Could not load display settings"))); }, []);
+  useEffect(() => { void api.computerDisplay().then(setDisplay).catch(e=>setError(clientErrorMessage(e,"Could not load display settings"))).finally(()=>setDisplayLoaded(true)); }, []);
   const change = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); window.dispatchEvent(new Event("openteam:machines-changed")); } catch (e) { setError(clientErrorMessage(e, "Could not update computers")); }
@@ -118,17 +154,25 @@ export function AdvancedComputerSettings() {
     <SettingsGroup>
       <details className="animated-disclosure border-b border-black/[0.065] py-3 text-[12.5px] dark:border-white/[0.07]"><summary>Connect a bridge manually</summary>
       <form className="flex flex-wrap gap-2 pt-2.5" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
-        <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className={`${fieldClass} min-w-0 flex-1`} />
-        <ButtonPrimitive type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</ButtonPrimitive>
+        <Input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className={`${fieldClass} min-w-0 flex-1`} />
+        <Button size="xs" variant="secondary" type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</Button>
       </form>
       </details>
       <form className="py-3" onSubmit={event=>{event.preventDefault();void change(async()=>{setDisplay(await api.saveComputerDisplay(display));setDisplaySaved(true);});}}>
         <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
           <span className="mr-auto">Box display</span>
-          <input aria-label="Box display width" className={`${fieldClass} w-20`} type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} />
+          {!displayLoaded ? (
+            <span aria-label="Loading display size" className="flex items-center gap-2" role="status">
+              <SkeletonControl width={80} />
+              <span aria-hidden className="text-foreground-secondary">×</span>
+              <SkeletonControl width={80} />
+            </span>
+          ) : <>
+          <Input aria-label="Box display width" className={`${fieldClass} settings-reveal w-20`} type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} />
           <span aria-hidden className="text-foreground-secondary">×</span>
-          <input aria-label="Box display height" className={`${fieldClass} w-20`} type="number" min={480} max={4320} required value={display.height} onChange={e=>{setDisplaySaved(false);setDisplay({...display,height:Number(e.target.value)});}} />
-          <ButtonPrimitive className={buttonClass} disabled={busy} type="submit">Save display</ButtonPrimitive>
+          <Input aria-label="Box display height" className={`${fieldClass} settings-reveal w-20`} type="number" min={480} max={4320} required value={display.height} onChange={e=>{setDisplaySaved(false);setDisplay({...display,height:Number(e.target.value)});}} />
+          </>}
+          <Button size="xs" variant="secondary" className={buttonClass} disabled={busy} type="submit">Save display</Button>
         </div>
         {error && <p role="alert" className="mt-1.5 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
         <p className="mt-1.5 text-[12px] leading-4 text-foreground-secondary">{displaySaved ? "Saved. " : ""}Applies to newly opened box desktops. Restart an existing box desktop to apply it there.</p>

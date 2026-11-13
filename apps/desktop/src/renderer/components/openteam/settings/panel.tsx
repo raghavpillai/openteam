@@ -1,4 +1,5 @@
 import { ButtonPrimitive } from "../../ui/button-primitive";
+import { Button } from "../../ui/button";
 import {
   BrainCircuit,
   CloudDownload,
@@ -10,14 +11,16 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   type SettingsAnchor,
   type SettingsView,
   settingsViewForAnchor,
 } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
-import { SettingsHeading } from "./ui";
+import { SettingsGroup, SettingsHeading, SkeletonBar, SkeletonControl, SkeletonText } from "./ui";
+import "./panel.css";
+import { preloadable } from "./preloadable";
 import {
   Dialog,
   DialogClose,
@@ -26,45 +29,16 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 
-const loadGeneralSettings = () => import("./general");
-const loadComputerSettings = () => import("./computer");
-const loadModelSettings = () => import("./model");
-const loadVoiceSettings = () => import("./transcription");
-const loadKeyboardSettings = () => import("./keyboard");
-const loadServerSettings = () => import("./server");
-const loadProvidersSettings = () => import("./providers");
-const loadUpdatesSettings = () => import("./updates");
-
-const GeneralSettings = lazy(loadGeneralSettings);
-const ComputerSettings = lazy(loadComputerSettings);
-const ModelSettings = lazy(loadModelSettings);
-const VoiceSettings = lazy(loadVoiceSettings);
-const KeyboardSettings = lazy(loadKeyboardSettings);
-const ServerSettings = lazy(loadServerSettings);
-const ProvidersSettings = lazy(loadProvidersSettings);
-const UpdatesSettings = lazy(loadUpdatesSettings);
-
-const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
-  general: loadGeneralSettings,
-  computer: loadComputerSettings,
-  model: loadModelSettings,
-  voice: loadVoiceSettings,
-  keyboard: loadKeyboardSettings,
-  server: loadServerSettings,
-  providers: loadProvidersSettings,
-  updates: loadUpdatesSettings,
-};
-
-const sectionComponents = {
-  general: GeneralSettings,
-  computer: ComputerSettings,
-  model: ModelSettings,
-  voice: VoiceSettings,
-  keyboard: KeyboardSettings,
-  server: ServerSettings,
-  providers: ProvidersSettings,
-  updates: UpdatesSettings,
-};
+const sections = {
+  general: preloadable(() => import("./general")),
+  computer: preloadable(() => import("./computer")),
+  model: preloadable(() => import("./model")),
+  voice: preloadable(() => import("./transcription")),
+  keyboard: preloadable(() => import("./keyboard")),
+  server: preloadable(() => import("./server")),
+  providers: preloadable(() => import("./providers")),
+  updates: preloadable(() => import("./updates")),
+} satisfies Record<SettingsView, ReturnType<typeof preloadable>>;
 
 const navigation: Array<{
   id: SettingsView;
@@ -81,6 +55,77 @@ const navigation: Array<{
   { id: "providers", label: "Providers", icon: Globe, available: true },
   { id: "updates", label: "Updates", icon: CloudDownload, available: true },
 ];
+
+/** Stands in for a section while its code loads (sections are preloaded when Settings opens). */
+function SectionSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading settings" role="status">
+      {[3, 2].map((rows, group) => (
+        <div key={group}>
+          <div className="mb-2 mt-7 flex h-4 items-center px-2 first:mt-0">
+            <SkeletonBar className="h-[8px] w-16" />
+          </div>
+          <SettingsGroup>
+            {Array.from({ length: rows }, (_, row) => (
+              <div
+                className="flex min-h-[52px] items-center gap-5 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]"
+                key={row}
+              >
+                <div className="min-w-0 flex-1 space-y-px">
+                  <SkeletonText size="title" width={[132, 104, 156][row % 3]!} />
+                  <SkeletonText width={[248, 196, 222][row % 3]!} />
+                </div>
+                <SkeletonControl width={[96, 34, 72][row % 3]!} />
+              </div>
+            ))}
+          </SettingsGroup>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The selected item's highlight, which glides between sections instead of jumping. */
+function useNavHighlight(view: SettingsView, open: boolean) {
+  const navRef = useRef<HTMLElement>(null);
+  const [box, setBox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    /** False for the first placement, which lands without gliding from the corner. */
+    animate: boolean;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    // Closed: reopening places the pill afresh rather than gliding from the last section.
+    if (!open || !nav) return setBox(null);
+    const measure = () => {
+      const item = nav.querySelector<HTMLElement>(`[data-settings-view="${view}"]`);
+      if (!item) return;
+      const next = {
+        x: item.offsetLeft,
+        y: item.offsetTop,
+        w: item.offsetWidth,
+        h: item.offsetHeight,
+      };
+      setBox((current) =>
+        current &&
+        current.x === next.x &&
+        current.y === next.y &&
+        current.w === next.w &&
+        current.h === next.h
+          ? current
+          : { ...next, animate: current !== null }
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [open, view]);
+  return { navRef, box };
+}
 
 export function SettingsPanel({
   onOpenChange,
@@ -102,7 +147,7 @@ export function SettingsPanel({
     if (!open || !target) return;
     const nextView = settingsViewForAnchor(target.anchor);
     setView(nextView);
-    void sectionLoaders[nextView]();
+    void sections[nextView].preload();
 
     let frame = 0;
     let highlightTimer = 0;
@@ -131,7 +176,15 @@ export function SettingsPanel({
     };
   }, [open, target]);
 
-  const ActiveSection = sectionComponents[view];
+  // Every section is a small chunk: fetch them all as Settings opens, so switching
+  // sections renders at once instead of waiting on a network round-trip for code.
+  useEffect(() => {
+    if (!open) return;
+    for (const section of Object.values(sections)) void section.preload();
+  }, [open]);
+
+  const { navRef, box } = useNavHighlight(view, open);
+  const ActiveSection = sections[view].Component;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -154,23 +207,39 @@ export function SettingsPanel({
         <aside className="border-r-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-3 pb-4 pt-4 dark:border-white/[0.07] dark:bg-[#111111] max-[512px]:border-b-[0.5px] max-[512px]:border-r-0 max-[512px]:py-2">
           <nav
             aria-label="Settings sections"
-            className="space-y-0.5 max-[512px]:grid max-[512px]:grid-cols-2 max-[512px]:gap-1 max-[512px]:space-y-0"
+            className="relative space-y-0.5 max-[512px]:grid max-[512px]:grid-cols-2 max-[512px]:gap-1 max-[512px]:space-y-0"
+            ref={navRef}
           >
+            {box ? (
+              <span
+                aria-hidden="true"
+                className="settings-nav-highlight"
+                data-animate={box.animate || undefined}
+                style={{
+                  width: box.w,
+                  height: box.h,
+                  transform: `translate(${box.x}px, ${box.y}px)`,
+                }}
+              />
+            ) : null}
             {navigation.map((item) => {
               const Icon = item.icon;
-              const preload = () => void sectionLoaders[item.id]();
+              const preload = () => void sections[item.id].preload();
               return (
                 <ButtonPrimitive
                   aria-current={view === item.id ? "page" : undefined}
                   aria-disabled={!item.available}
                   className={cn(
-                    "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-[512px]:justify-center",
+                    "relative flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-[512px]:justify-center",
                     view === item.id
-                      ? "bg-selected"
+                      ? box
+                        ? ""
+                        : "bg-selected"
                       : item.available
                         ? "hover:bg-hover"
                         : "cursor-default"
                   )}
+                  data-settings-view={item.id}
                   key={item.id}
                   onClick={() => {
                     if (!item.available) return;
@@ -191,27 +260,32 @@ export function SettingsPanel({
 
         <section className="relative min-h-0 min-w-0">
           <DialogClose asChild>
-            <ButtonPrimitive
+            <Button
+              variant="ghost"
+              size="icon-sm"
               aria-label="Close"
               className="absolute right-2.5 top-2.5 z-10 grid size-8 place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-black/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.06]"
               type="button"
             >
               <X className="size-4" strokeWidth={1.7} />
-            </ButtonPrimitive>
+            </Button>
           </DialogClose>
           <div
             className="bot-scrollbar h-full overflow-y-auto px-8 pb-8 pt-8 max-[512px]:px-6"
             ref={scrollRef}
           >
-            {/* Providers renders its own heading, with a breadcrumb on its Search and Fetch pages. */}
-            {view === "providers" ? null : (
-              <SettingsHeading>
-                {navigation.find((item) => item.id === view)?.label ?? "General"}
-              </SettingsHeading>
-            )}
-            <Suspense fallback={null}>
-              <ActiveSection />
-            </Suspense>
+            {/* Each section enters with a short fade and rise; keyed so a switch replays it. */}
+            <div className="settings-view-enter" key={view}>
+              {/* Providers renders its own heading, with a breadcrumb on its Search and Fetch pages. */}
+              {view === "providers" ? null : (
+                <SettingsHeading>
+                  {navigation.find((item) => item.id === view)?.label ?? "General"}
+                </SettingsHeading>
+              )}
+              <Suspense fallback={<SectionSkeleton />}>
+                <ActiveSection />
+              </Suspense>
+            </div>
           </div>
         </section>
       </DialogContent>

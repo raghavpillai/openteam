@@ -27,7 +27,10 @@ export function DialogOverlay({
 }: ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
-      className={cn("fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]", className)}
+      className={cn(
+        "dialog-overlay fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]",
+        className
+      )}
       {...props}
     />
   );
@@ -50,7 +53,7 @@ export function DialogContent({
       <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border bg-background p-6 shadow-xl outline-none",
+          "dialog-surface fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border bg-background p-6 shadow-xl outline-none",
           surface === "modal" && "modal-surface",
           className
         )}

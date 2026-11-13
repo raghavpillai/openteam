@@ -96,6 +96,27 @@ details.animated-disclosure[open]::details-content {
   to { opacity: 0; transform: translate(var(--floating-x), var(--floating-y)) scale(.98); }
 }
 
+/* Dialogs (Dialog and AlertDialog): a quick fade and settle in, a quicker fade out.
+   Centring uses the separate `translate` property, so `transform` is free to scale. */
+.dialog-overlay[data-state="open"] { animation: dialog-overlay-in 150ms ease-out; }
+.dialog-overlay[data-state="closed"] { animation: dialog-overlay-out 110ms ease-in forwards; }
+.dialog-surface[data-state="open"] { animation: dialog-surface-in 170ms cubic-bezier(.16, 1, .3, 1); }
+.dialog-surface[data-state="closed"] { animation: dialog-surface-out 110ms ease-in forwards; }
+@keyframes dialog-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialog-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes dialog-surface-in {
+  from { opacity: 0; transform: scale(.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes dialog-surface-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-surface[data-state="open"] { animation: dialog-overlay-in 120ms ease-out; }
+  .dialog-surface[data-state="closed"] { animation: dialog-overlay-out 90ms ease-in forwards; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rich-message-card {
     animation: rich-message-card-enter 120ms ease-out backwards;
@@ -1686,6 +1707,12 @@ textarea,
 :root[data-window-inactive] *::before,
 :root[data-window-inactive] *::after {
   animation-play-state: paused !important;
+}
+
+/* Dialog entrances and exits still finish: a paused exit would leave a closed dialog on
+   screen (Radix waits for it), and a paused entrance would leave it invisible. */
+:root:is([data-window-hidden], [data-window-inactive]) :is(.dialog-overlay, .dialog-surface) {
+  animation-play-state: running !important;
 }
 
 /* Desktop conversation chrome; transcript and composer horizontal gutters stay unchanged. */

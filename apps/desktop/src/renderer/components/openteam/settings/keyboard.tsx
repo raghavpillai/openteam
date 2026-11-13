@@ -1,3 +1,4 @@
+import { Button } from "../../ui/button";
 import { useCallback, useEffect, useState } from "react";
 import { useShortcutBindings, isMac } from "../../../hooks/use-shortcut-bindings";
 import {
@@ -10,10 +11,7 @@ import {
   shortcutText,
   type ShortcutAction,
 } from "../../../lib/keyboard-shortcuts";
-import {
-  checkShortcut,
-  SHORTCUT_LABELS,
-} from "../../../lib/keyboard-shortcut-rules";
+import { checkShortcut, SHORTCUT_LABELS } from "../../../lib/keyboard-shortcut-rules";
 import { Keycaps, RecordingKeys, ScreenBotShortcutSettings } from "./screenbot-shortcut";
 import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
@@ -52,24 +50,27 @@ function ShortcutRow({
   const [error, setError] = useState<string | null>(null);
   const isDefault = canonicalShortcut(binding, mac) === canonicalShortcut(fallback, mac);
 
-  const save = useCallback(async (value: string | null) => {
-    onRecord(null);
-    setHeld([]);
-    if (value !== null) {
-      // Checked here first for an instant answer; main checks again before saving.
-      const problem = checkShortcut(action, value, bindings, mac);
-      if (problem) {
-        setError(problem);
-        return;
+  const save = useCallback(
+    async (value: string | null) => {
+      onRecord(null);
+      setHeld([]);
+      if (value !== null) {
+        // Checked here first for an instant answer; main checks again before saving.
+        const problem = checkShortcut(action, value, bindings, mac);
+        if (problem) {
+          setError(problem);
+          return;
+        }
       }
-    }
-    try {
-      await window.openteam?.shortcuts?.set(action, value);
-      setError(null);
-    } catch (cause) {
-      setError(errorText(cause));
-    }
-  }, [action, bindings, mac, onRecord]);
+      try {
+        await window.openteam?.shortcuts?.set(action, value);
+        setError(null);
+      } catch (cause) {
+        setError(errorText(cause));
+      }
+    },
+    [action, bindings, mac, onRecord]
+  );
 
   useEffect(() => {
     if (!recording) return;
@@ -109,7 +110,11 @@ function ShortcutRow({
     const fnRecordable = action === "dictate" && mac;
     const shortcuts = window.openteam?.shortcuts;
     if (fnRecordable) void shortcuts?.recordFn(true);
-    const stopFn = fnRecordable ? shortcuts?.onShortcut((pressed) => { if (pressed === "fn-up") void save(FN_KEY); }) : undefined;
+    const stopFn = fnRecordable
+      ? shortcuts?.onShortcut((pressed) => {
+          if (pressed === "fn-up") void save(FN_KEY);
+        })
+      : undefined;
     return () => {
       stopFn?.();
       if (fnRecordable) void shortcuts?.recordFn(false);
@@ -120,9 +125,7 @@ function ShortcutRow({
   }, [action, mac, onRecord, recording, save]);
 
   const label = SHORTCUT_LABELS[action];
-  const description = recording
-    ? "Press the new shortcut. Esc cancels."
-    : label.description;
+  const description = recording ? "Press the new shortcut. Esc cancels." : label.description;
 
   return (
     <>
@@ -133,19 +136,33 @@ function ShortcutRow({
           <div className="flex items-center gap-2">
             <span
               aria-live="polite"
-              aria-label={recording ? `Recording a shortcut for ${label.title}` : `${label.title}: ${shortcutText(binding, mac)}`}
+              aria-label={
+                recording
+                  ? `Recording a shortcut for ${label.title}`
+                  : `${label.title}: ${shortcutText(binding, mac)}`
+              }
               className="px-1.5 py-1"
             >
               {recording ? (
-                <RecordingKeys keys={held.map((part) => (mac ? HELD_MAC : HELD_OTHER)[part] ?? part)} />
+                <RecordingKeys
+                  keys={held.map((part) => (mac ? HELD_MAC : HELD_OTHER)[part] ?? part)}
+                />
               ) : (
                 <Keycaps keys={shortcutKeycaps(binding, mac)} chord={false} />
               )}
             </span>
-            <button type="button" className={settingsSecondaryButton} onClick={() => onRecord(recording ? null : action)}>
+            <Button
+              size="xs"
+              variant="secondary"
+              type="button"
+              className={settingsSecondaryButton}
+              onClick={() => onRecord(recording ? null : action)}
+            >
               {recording ? "Cancel" : "Change…"}
-            </button>
-            <button
+            </Button>
+            <Button
+              size="xs"
+              variant="secondary"
               type="button"
               className={settingsSecondaryButton}
               disabled={isDefault || recording}
@@ -153,12 +170,15 @@ function ShortcutRow({
               onClick={() => void save(null)}
             >
               Reset
-            </button>
+            </Button>
           </div>
         }
       />
       {error && (
-        <div role="alert" className="border-t border-black/[0.065] py-2.5 text-[12px] leading-4 text-[#d70015] dark:border-white/[0.07] dark:text-[#ff6961]">
+        <div
+          role="alert"
+          className="border-t border-black/[0.065] py-2.5 text-[12px] leading-4 text-[#d70015] dark:border-white/[0.07] dark:text-[#ff6961]"
+        >
           {error}
         </div>
       )}
@@ -174,7 +194,12 @@ export default function KeyboardSettings() {
   useEffect(() => {
     void screenbot?.setRecording(recording !== null);
   }, [screenbot, recording]);
-  useEffect(() => () => { void screenbot?.setRecording(false); }, [screenbot]);
+  useEffect(
+    () => () => {
+      void screenbot?.setRecording(false);
+    },
+    [screenbot]
+  );
 
   return (
     <>
@@ -182,7 +207,12 @@ export default function KeyboardSettings() {
       <SectionLabel>Shortcuts</SectionLabel>
       <SettingsGroup>
         {SHORTCUT_ACTIONS.map((action) => (
-          <ShortcutRow key={action} action={action} recording={recording === action} onRecord={setRecording} />
+          <ShortcutRow
+            key={action}
+            action={action}
+            recording={recording === action}
+            onRecord={setRecording}
+          />
         ))}
       </SettingsGroup>
     </>

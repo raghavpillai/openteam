@@ -1,5 +1,6 @@
+// Browser network sharing: per-deployment consent and connection recovery.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NetworkInterfaceInfo } from "node:os";
@@ -7,7 +8,7 @@ import {
   DesktopBrowserNetwork,
   NetworkConsentStore,
   networkFingerprint,
-} from "../../src/main/browser-network";
+} from "../src/main/browser-network";
 
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => {
@@ -19,6 +20,12 @@ async function until(check: () => boolean, ms = 2500) {
     if (performance.now() >= deadline) throw Error("Recovery timed out");
     await Bun.sleep(10);
   }
+}
+async function storeFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "openteam-network-consent-"));
+  cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "consent.json");
+  return { path, store: new NetworkConsentStore(path) };
 }
 async function fixture(identity: (attempt: number) => Response | Promise<Response>) {
   const directory = await mkdtemp(join(tmpdir(), "openteam-network-recovery-"));
@@ -40,6 +47,80 @@ async function fixture(identity: (attempt: number) => Response | Promise<Respons
   const connection = { serverUrl: server.url.origin, credential: "fixture", connectionId: "one" };
   return { controller, connection, store, attempts: () => attempts };
 }
+
+test("network permission defaults off and is scoped to deployment and server address", async () => {
+  const { store, path } = await storeFixture();
+  expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
+  await store.set("https://host.test/", "deployment-a", true);
+  expect(await store.allowed("https://host.test", "deployment-a")).toBe(true);
+  expect(await store.allowed("https://host.test", "deployment-b")).toBe(false);
+  expect(await store.allowed("https://other.test", "deployment-a")).toBe(false);
+  expect(await store.allowed("https://host.test/other", "deployment-a")).toBe(false);
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
+  await store.set("https://host.test", "deployment-a", false);
+  expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
+});
+test("serialized grants survive simultaneous edits and revoke is durable across restarts", async () => {
+  const { store, path } = await storeFixture();
+  await Promise.all(
+    Array.from({ length: 20 }, (_, i) => store.set("https://host.test", `deployment-${i}`, true))
+  );
+  await store.set("https://host.test", "deployment-4", false);
+  const restarted = new NetworkConsentStore(path);
+  for (let i = 0; i < 20; i++)
+    expect(await restarted.allowed("https://host.test", `deployment-${i}`)).toBe(i !== 4);
+  expect((await readFile(path, "utf8")).includes("Bearer")).toBe(false);
+});
+test("chaos: reconnect reads wait for previously queued consent changes", async () => {
+  const { store } = await storeFixture();
+  await store.set("https://host.test", "deployment-a", true);
+  const writes = Array.from({ length: 20 }, (_, i) =>
+    store.set("https://other.test", `deployment-${i}`, true)
+  );
+  writes.push(store.set("https://host.test", "deployment-a", false));
+  try {
+    expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
+  } finally {
+    await Promise.all(writes);
+  }
+});
+test("malformed or non-boolean saved permission never enables sharing", async () => {
+  const { store, path } = await storeFixture();
+  for (const data of ["{", "null", "[]", '{"https://host.test#deployment-a":"true"}']) {
+    await writeFile(path, data);
+    expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
+  }
+});
+test("unsupported platform and disconnected desktop cannot grant permission", async () => {
+  const { store } = await storeFixture();
+  const controller = new DesktopBrowserNetwork("machine", store, "win32");
+  expect(controller.status()).toMatchObject({
+    supported: false,
+    sharingAllowed: false,
+    providing: false,
+  });
+  await expect(controller.setAllowed(true)).rejects.toThrow("updated");
+  controller.stop();
+});
+test("sign-out closes sharing and deployment identity changes never inherit an old grant", async () => {
+  let identity = crypto.randomUUID();
+  const { controller, connection, store } = await fixture(() => Response.json({ deploymentId: identity }));
+  await controller.configure(connection);
+  expect(controller.status().sharingAllowed).toBe(false);
+  await controller.setAllowed(true);
+  expect(controller.status().sharingAllowed).toBe(true);
+  expect(await store.allowed(connection.serverUrl, identity)).toBe(true);
+  await controller.configure(null);
+  expect(controller.status()).toMatchObject({ connected: false, sharingAllowed: false, providing: false });
+  await controller.configure(connection);
+  expect(controller.status().sharingAllowed).toBe(true);
+  await controller.setAllowed(false);
+  expect(await store.allowed(connection.serverUrl, identity)).toBe(false);
+  await controller.setAllowed(true);
+  identity = crypto.randomUUID();
+  await controller.configure(connection);
+  expect(controller.status().sharingAllowed).toBe(false);
+});
 
 test("chaos: a transient identity outage recovers without re-enrollment or new consent", async () => {
   const deploymentId = crypto.randomUUID();

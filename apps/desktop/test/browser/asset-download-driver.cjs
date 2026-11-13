@@ -40,7 +40,7 @@ dialog.showMessageBox = async (_window, options) => {
 const loadFile = BrowserWindow.prototype.loadFile;
 BrowserWindow.prototype.loadFile = function () {
   return loadFile.call(this, settings.renderer, {
-    query: { server: settings.server, asset: settings.asset, bytes: String(settings.bytes) },
+    query: { page: "asset-download", server: settings.server, asset: settings.asset, bytes: String(settings.bytes) },
   });
 };
 app.on("browser-window-created", (_event, window) => {

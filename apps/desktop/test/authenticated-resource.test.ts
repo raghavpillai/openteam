@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createBlobResourceCache } from "../src/renderer/lib/blob-resource-cache";
 import { protectedResourceUrl, resourceCacheUrl } from "../src/renderer/lib/resource-url";
 
 const apiBase = "http://127.0.0.1:3000";
@@ -65,5 +66,99 @@ describe("authenticated renderer resources", () => {
       "blob:http://127.0.0.1:3000/example",
     ])
       expect(protectedResourceUrl(source, apiBase)).toBeNull();
+  });
+
+});
+
+describe("shared blob resources", () => {
+  const svg = new Blob(["<svg/>"], { type: "image/svg+xml" });
+  /** A cache whose loads wait for `release()` and record whether they were aborted. */
+  const harness = () => {
+    const cache = createBlobResourceCache();
+    const loads: Array<{ signal: AbortSignal; finish: (result?: Blob | Error) => void }> = [];
+    const acquire = (key = "asset") =>
+      cache.acquire(key, (signal) =>
+        new Promise<Blob>((resolve, reject) => {
+          loads.push({ signal, finish: (result = svg) => (result instanceof Error ? reject(result) : resolve(result)) });
+        })
+      );
+    const settle = () => Bun.sleep(0);
+    return { cache, loads, acquire, settle };
+  };
+  const readable = (url: string) => fetch(url).then((r) => r.text(), () => null);
+
+  test("aliases share one load and object URL; a remaining alias stays readable and warm reuse skips a fetch", async () => {
+    const { loads, acquire, settle } = harness();
+    const first = acquire();
+    const second = acquire();
+    await settle();
+    expect(loads).toHaveLength(1);
+    loads[0]!.finish();
+    const url = await first.ready;
+    expect(await second.ready).toBe(url);
+    expect((await fetch(url)).headers.get("content-type")).toBe("image/svg+xml");
+    first.release();
+    expect(await readable(url)).toBe("<svg/>");
+    second.release();
+    const remount = acquire();
+    expect(await remount.ready).toBe(url);
+    expect(loads).toHaveLength(1);
+  });
+
+  test("releasing a pending alias keeps the survivor's load; releasing all aborts it without a blob", async () => {
+    const { loads, acquire, settle } = harness();
+    const leaving = acquire();
+    const staying = acquire();
+    await settle();
+    leaving.release();
+    expect(loads[0]!.signal.aborted).toBe(false);
+    loads[0]!.finish();
+    expect(await readable(await staying.ready)).toBe("<svg/>");
+
+    const abandoned = [acquire("other"), acquire("other")];
+    await settle();
+    for (const lease of abandoned) lease.release();
+    expect(loads[1]!.signal.aborted).toBe(true);
+    loads[1]!.finish();
+    await expect(abandoned[0]!.ready).rejects.toThrow();
+    const retry = acquire("other");
+    await settle();
+    expect(loads).toHaveLength(3);
+    loads[2]!.finish();
+    expect(await readable(await retry.ready)).toBe("<svg/>");
+  });
+
+  test("a failed load is retried by the next consumer", async () => {
+    const { loads, acquire, settle } = harness();
+    const failed = acquire();
+    await settle();
+    loads[0]!.finish(new Error("503"));
+    await expect(failed.ready).rejects.toThrow("503");
+    failed.release();
+    const retry = acquire();
+    await settle();
+    expect(loads).toHaveLength(2);
+    loads[1]!.finish();
+    expect(await readable(await retry.ready)).toBe("<svg/>");
+  });
+
+  test("clearing for new credentials aborts pending loads, revokes idle blobs and starts fresh", async () => {
+    const { cache, loads, acquire, settle } = harness();
+    const idle = acquire("idle");
+    await settle();
+    loads[0]!.finish();
+    const idleUrl = await idle.ready;
+    idle.release();
+    const pending = acquire("pending");
+    await settle();
+    cache.clear();
+    expect(loads[1]!.signal.aborted).toBe(true);
+    expect(await readable(idleUrl)).toBeNull();
+    const fresh = acquire("idle");
+    await settle();
+    expect(loads).toHaveLength(3);
+    loads[2]!.finish();
+    expect(await fresh.ready).not.toBe(idleUrl);
+    pending.release();
   });
 });

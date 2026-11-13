@@ -133,14 +133,8 @@
     "start": "electron .",
     "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
-    "test:notification-opening": "bun scripts/test-notification-opening.ts",
-    "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
-    "test:asset-resource-sharing": "bun scripts/test-asset-resource-sharing.ts",
-    "test:message-send-lifecycle": "bun scripts/test-message-send-lifecycle.ts",
-    "test:onboarding": "bun scripts/test-onboarding.ts",
-    "test:update-ui": "bun scripts/test-update-ui.ts",
-    "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",
-    "test:asset-downloads": "bun scripts/test-asset-downloads.ts"
+    "test:fixtures": "bun scripts/test-fixtures.ts",
+    "test:native:e2e": "bun test/host/fixtures/capability-integration.ts"
   },
   "type": "module"
 }

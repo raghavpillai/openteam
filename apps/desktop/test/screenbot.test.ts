@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { MenuItemConstructorOptions } from "electron";
 import { applicationMenuTemplate } from "../src/main/application-menu";
-import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { parseAppshotRoster } from "../src/main/appshot-roster";
-import { sweepIncompleteDeliveryStages } from "../src/main/delivery-file-stage";
 
 const bot = { id: "b1", name: "Atlas", title: "Research", color: "#27baae", icon: "classic", channelId: "c1" };
 
@@ -29,23 +26,6 @@ describe("appshot roster", () => {
   });
 });
 
-describe("delivery staging sweep", () => {
-  test("drops old half-written stages and keeps finished ones and fresh writes", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "stage-sweep-"));
-    try {
-      await writeFile(join(directory, "aaaaaaaa-1111"), "finished");
-      await writeFile(join(directory, "bbbbbbbb-2222.next"), "crashed mid-write");
-      await writeFile(join(directory, "cccccccc-3333.next"), "being written now");
-      const old = new Date(Date.now() - 60 * 60_000);
-      await utimes(join(directory, "bbbbbbbb-2222.next"), old, old);
-      expect(await sweepIncompleteDeliveryStages(directory)).toBe(1);
-      expect((await readdir(directory)).sort()).toEqual(["aaaaaaaa-1111", "cccccccc-3333.next"]);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-});
-
 test("the File menu offers Take Appshot and shows an ordinary shortcut without claiming it", () => {
   const actions: string[] = [];
   const template = applicationMenuTemplate("darwin", (action) => actions.push(action), undefined, "CommandOrControl+Shift+2");
@@ -61,6 +41,31 @@ test("the File menu offers Take Appshot and shows an ordinary shortcut without c
   const chordMenu = applicationMenuTemplate("darwin", () => {}, undefined, null);
   const chordItems = chordMenu.find((item) => item.label === "File")?.submenu as Array<{ label?: string; accelerator?: string }>;
   expect(chordItems.find((item) => item.label === "Take Appshot")?.accelerator).toBeUndefined();
+});
+
+test("Edit clipboard actions route to the computer only when it owns focus", () => {
+  let computerActive = true;
+  const remote: string[] = [];
+  const local: string[] = [];
+  const window = { webContents: { copy: () => local.push("copy"), cut: () => local.push("cut"), paste: () => local.push("paste") } };
+  const template = applicationMenuTemplate("darwin", () => {}, action => {
+    if (!computerActive) return false;
+    remote.push(action); return true;
+  });
+  const submenu = template.find(item => item.label === "Edit")?.submenu as MenuItemConstructorOptions[];
+  for (const label of ["Copy", "Cut", "Paste"]) {
+    const item = submenu.find(item => item.label === label)!;
+    (item.click as Function)(item, window, {});
+  }
+  expect(remote).toEqual(["copy", "cut", "paste"]);
+  expect(local).toEqual([]);
+  computerActive = false;
+  for (const label of ["Copy", "Cut", "Paste"]) {
+    const item = submenu.find(item => item.label === label)!;
+    (item.click as Function)(item, window, {});
+  }
+  expect(local).toEqual(["copy", "cut", "paste"]);
+  expect(remote).toHaveLength(3);
 });
 
 describe("appshot PNG encoder", () => {

@@ -1,55 +1,50 @@
-// Shared driver for the Electron fixture checks in scripts/test-*.ts: serve the
-// desktop renderer through Vite, launch an Electron runner from this directory
-// against one fixture page, and return the results.json the runner writes.
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+// Shared driver for the Electron fixture checks in scripts/test-fixtures.ts: serve the
+// desktop renderer through Vite, launch electron-runner.cjs against one fixture page
+// (fixture.html?page=<name>), and return the results.json it writes.
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type InlineConfig } from "vite";
 
 const desktopRoot = resolve(import.meta.dir, "../..");
-const electron = createRequire(import.meta.url)("electron") as string;
+export const electron = createRequire(import.meta.url)("electron") as string;
 
 export type FixtureRun = {
   /** Temp directory prefix and error label. */
   name: string;
-  /** Runner file in test/browser. */
-  runner: string;
-  /** Fixture page in test/browser, optionally with a query string. */
+  /** Page module in test/browser, optionally followed by &query parameters. */
   page: string;
-  /** Environment for the runner, given the working directory and fixture URL. */
-  env: (directory: string, url: string) => Record<string, string>;
+  /** Driver module in test/browser; without one the page reports its own result. */
+  driver?: string;
   timeoutMs: number;
-  /** Keep the runner's output (screenshots, results) here instead of a temp directory. */
-  directory?: string;
+  /** Build anything the driver loads from the working directory before Electron starts. */
+  prepare?: (directory: string) => Promise<void>;
   vite?: InlineConfig;
 };
 
-export async function runElectronFixture({
-  name,
-  runner,
-  page,
-  env,
-  timeoutMs,
-  directory: keep,
-  vite,
-}: FixtureRun) {
-  const scratch = await mkdtemp(join(tmpdir(), `openteam-${name}-`));
-  const directory = keep ? resolve(keep) : scratch;
-  await mkdir(directory, { recursive: true });
-  await rm(join(directory, "results.json"), { force: true });
+export async function runElectronFixture({ name, page, driver, timeoutMs, prepare, vite }: FixtureRun) {
+  const directory = await mkdtemp(join(tmpdir(), `openteam-${name}-`));
   const server = await createServer({
     root: desktopRoot,
     configFile: join(desktopRoot, "vite.config.ts"),
-    cacheDir: join(scratch, "vite-cache"),
+    cacheDir: join(directory, "vite-cache"),
+    logLevel: "warn",
     ...vite,
     server: { port: 0, strictPort: false, hmr: false, ...vite?.server },
   });
   try {
+    await prepare?.(directory);
     await server.listen();
-    const url = `${server.resolvedUrls!.local[0]}test/browser/${page}`;
-    const child = Bun.spawn([electron, join(desktopRoot, "test/browser", runner)], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, ...env(directory, url) },
+    const url = `${server.resolvedUrls!.local[0]}test/browser/fixture.html?page=${page}`;
+    const child = Bun.spawn([electron, join(desktopRoot, "test/browser/electron-runner.cjs")], {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: undefined,
+        FIXTURE_DIR: directory,
+        FIXTURE_URL: url,
+        FIXTURE_DRIVER: driver,
+      },
       stdout: "inherit",
       stderr: "pipe",
     });
@@ -63,15 +58,15 @@ export async function runElectronFixture({
     return result;
   } finally {
     await server.close();
-    await rm(scratch, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
-/** Run one fixture and print its results; for scripts that need nothing else. */
+/** Run one fixture and print its results. */
 export async function runAndPrint(run: FixtureRun) {
   const result = await runElectronFixture(run);
   if (Array.isArray(result.reports) && result.reports.every((r: unknown) => typeof r === "string"))
-    for (const report of result.reports) console.log(`PASS ${report}`);
+    for (const report of result.reports) console.log(`PASS ${run.name}: ${report}`);
   else console.log(JSON.stringify(result, null, 2));
   return result;
 }

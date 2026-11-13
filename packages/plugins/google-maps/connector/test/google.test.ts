@@ -156,6 +156,7 @@ test("routes keep Google's geometry and legs, map travel modes, and refuse parti
   expect(body.routingPreference).toBeUndefined();
   expect(body.intermediates).toHaveLength(1);
   expect(route).toMatchObject({ distanceMeters: 900, durationSeconds: 720, provider: "Google Maps" });
+  expect(route.id).toMatch(/^route:[0-9a-f-]{13}$/); // passed back by reference instead of copying the geometry
   expect(route.legs.map((leg: any) => [leg.fromPlaceId, leg.toPlaceId, leg.durationSeconds])).toEqual([["a", "b", 320], ["b", "c", 400]]);
   await routePlaces({ places: stops, mode: "driving" }, fetcher);
   expect(JSON.parse(String(calls[1]!.init.body)).routingPreference).toBe("TRAFFIC_AWARE");

@@ -124,6 +124,7 @@ test("routes keep measured geometry and legs, and refuse partial routes", async 
   const { route } = await routePlaces({ places: stops, mode: "walking" }, fetcher);
   expect(body.costing).toBe("pedestrian");
   expect(PlaceRouteSchema.safeParse(route).success).toBe(true);
+  expect(route.id).toMatch(/^route:[0-9a-f-]{13}$/); // passed back by reference instead of copying the geometry
   expect(route.geometry.coordinates).toHaveLength(3);
   expect(route.legs).toEqual([{ fromPlaceId: "a", toPlaceId: "b", distanceMeters: 700, durationSeconds: 540, instructions: ["Walk north."] }]);
   await expect(routePlaces({ places: stops, mode: "walking" }, json({ routes: [{ legs: [] }] }))).rejects.toThrow("every stop");

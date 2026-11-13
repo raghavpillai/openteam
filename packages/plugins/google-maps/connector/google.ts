@@ -1,6 +1,6 @@
 /** Google Maps Platform: Places API (New) for search, ratings, reviews, photos and hours, and the
  * Routes API for directions. Results use the field names of SendToUser presentation places, so a
- * Bot can pass them to a map unchanged. One API key (GOOGLE_MAPS_API_KEY) authorizes both. */
+ * Bot can name them by id in a map. One API key (GOOGLE_MAPS_API_KEY) authorizes both. */
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type Place = {
@@ -307,7 +307,7 @@ export async function searchPlaces(
     attribution: ATTRIBUTION,
     fetchedAt: now.toISOString(),
     instruction:
-      "Ratings, review counts, hours, open-now and photos come from Google Maps; keep provider and attribution on each place. Check the address before using a result. For reviews and summaries of finalists, call GetPlaceDetails with the place id.",
+      "Ratings, review counts, hours, open-now and photos come from Google Maps. In SendToUser, list places by id and OpenTeam fills in these details. Check the address before using a result. For reviews and summaries of finalists, call GetPlaceDetails with the place id.",
   };
 }
 
@@ -426,6 +426,8 @@ export async function routePlaces(
     throw new Error("Google Maps could not route through every stop with that travel mode");
   return {
     route: {
+      // Pass this id as a place_map route instead of copying the geometry.
+      id: `route:${crypto.randomUUID().slice(0, 13)}`,
       mode: input.mode,
       geometry: { type: "LineString", coordinates: coordinates.slice(0, 20_000).map((point: number[]) => [point[0], point[1]]) },
       distanceMeters: Math.max(0, Number(route.distanceMeters) || 0),

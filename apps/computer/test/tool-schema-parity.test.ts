@@ -118,7 +118,7 @@ describe("captured tool contract wiring", () => {
     expect(anchors).toEqual([...APP_SETTINGS_ANCHORS]);
     expect(anchors).toEqual([...SETTINGS_ANCHORS]);
     expect(actual.description).toContain(`settings?id=${anchors.find((anchor) => anchor === "web-search-provider")})`);
-    expect(actual.inputSchema.properties.type.enum).toEqual(["text", "attachment", "widget", "secret-request"]);
+    expect(actual.inputSchema.properties.type.enum).toEqual(["text", "attachment", "widget", "secret-request", "presentation"]);
     expect(actual.inputSchema.properties.type.description).not.toContain("cursor-agent");
     for (const removed of ["bcId", "credential", "voice_memo"]) expect(actual.inputSchema.properties).not.toHaveProperty(removed);
     expect(actual.inputSchema.properties.secret.properties).not.toHaveProperty("plugin_id");

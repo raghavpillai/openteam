@@ -60,7 +60,7 @@ export const tools: Tool[] = [
   {
     name: "RoutePlaces",
     description:
-      "Compute a real walking, cycling or driving route through 2–10 places in visit order with Valhalla (OpenStreetMap). Returns the route for a SendToUser place_map unchanged: GeoJSON [longitude, latitude] geometry, total and per-leg distance and duration, and turn instructions. Never draw straight lines and call them directions. Stop coordinates are sent to Valhalla.",
+      "Compute a real walking, cycling or driving route through 2–10 places in visit order with Valhalla (OpenStreetMap). Returns the route with an id to pass as a SendToUser place_map route, plus total and per-leg distance and duration and turn instructions. Never draw straight lines and call them directions. Stop coordinates are sent to Valhalla.",
     inputSchema: {
       type: "object",
       properties: {

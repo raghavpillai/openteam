@@ -46,3 +46,7 @@ An additional [opt-in A/B treatment](draft-notification-ab-2026-11-12.md) now te
 ## November 13 final-source acceptance recheck
 
 Two fresh model/worker replays of the busy-foreground, 24-distinct-send backlog produce one completion each in default/control and treatment. The synthetic transport records one unique result per recipient; no actual mail is sent. A read-only deployment recheck still finds the original server image and an unset treatment flag, so these PR fixes are not deployed. The [acceptance report](assets/draft-original-acceptance-2026-11-13.json) distinguishes the reproduced backlog fix from known default-mode replay/silence gaps and merge-readiness checks.
+
+## Full startup recovery follow-up
+
+A subsequent server-restart probe found that host recovery lost the draft event type and treatment receipt metadata. Those now survive recovery, so the resumed worker reuses published acknowledgements while retaining useful follow-up work. Recovery also no longer queues a new draft continuation for an archived chat. Five new permanent regressions and five repeat cycles cover these boundaries; the final server/messaging/adjacent-worker pass has 495 unique passing tests. Saved confirmed and unresolved send results do not replay transport. [Evidence and remaining limits](assets/draft-server-restart-2026-11-13.json) distinguish these synthetic checks from live production guarantees; treatment remains default-off and nothing was deployed.

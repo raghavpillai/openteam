@@ -170,6 +170,16 @@ The earlier iOS build assessment used the wrong local toolchain. The repository 
 
 The reproduced original backlog is fixed in both arms. This is not a 100% reliability claim or unconditional whole-PR merge approval. The remaining size check and default-mode recovery behavior need explicit resolution, followed by a staged production rollout and monitoring. No deployment, production configuration, approval behavior or public tool changed. [Acceptance evidence and precise limits](assets/draft-original-acceptance-2026-11-13.json).
 
+## Full server restart recovery — November 13
+
+Actual startup recovery exposed a path the earlier expired-lease tests did not cover. It converted interrupted `draft.response` continuations into generic `runtime.reconcile` turns and dropped treatment notification metadata. Recovery now preserves the draft event identity and frozen outcome receipts. Claiming resumed treatment work keeps the interrupted follow-up runnable even when the status was already published; it reuses the saved acknowledgement and delivers the event flag to the computer. A separate failing probe showed restart recovery queuing draft work in an already archived chat; that path now completes the old inbox and releases its lease without creating another continuation.
+
+Five new permanent tests cover restart before/after status publication through actual worker dispatch, useful follow-up delivery, three successive restarts and bounded exhaustion in both arms, interrupted-run reply fencing, unrelated later outcomes, archived chats, and saved confirmed/unresolved connector results from running/completed drafting turns. Saved send receipts recover without another connector call; unresolved sends remain unknown after the existing timeout. The original 24-distinct-send backlog regression still passes.
+
+Final validation passes **495 unique tests and 7,575 assertions**: 80 server/draft/decoder/lifecycle/startup tests, all 406 messaging tests with PostgreSQL enabled, and nine adjacent worker batching/revival tests. Five sequential repeat cycles pass 25 further executions of the five new tests; repetitions are separate from the unique count. Server, worker and messaging typechecks, server build and architecture checks pass. One earlier concurrent validation timed out in an oversized restart-bound fixture, whose unfinished global recovery interfered with the following fixture. Reducing that fixture to the two mixed outcomes needed for its retry-bound assertion resolved the interference; the independent 24-send regression remains unchanged, and no timeout threshold was increased.
+
+This is a server-focused synthetic fault-injection pass, with no new live-model/native Grokbot/UI trial, external email/Slack/APNs, deployment or production flag change. The opt-in treatment remains off by default. Previously demonstrated default-mode new-run replay/silent-model gaps and the measured desktop gzip excess remain unresolved; the size check was not remeasured here. Finite tests do not establish 100% production reliability. [Failing probes, final results and limits](assets/draft-server-restart-2026-11-13.json).
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

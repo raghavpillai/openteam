@@ -64,10 +64,11 @@ export async function prepareDraftNotification(tx: DB, wake: { id: string; botId
   const payload = object(wake.payload);
   const previous = object(payload.draftNotification);
   const rows = await pendingDraftNotifications(tx, wake.botId, wake.run.channelId);
-  if (!rows.length && wake.status === "pending") return null;
-  // A queued replay may have absorbed new outcomes. Rebind it at claim; only an
-  // already-processing turn keeps its original snapshot across lease recovery.
-  const outcomeIds = wake.status === "processing" && Array.isArray(previous.outcomeIds)
+  const recovering = typeof payload.interruptedRunId === "string" && Array.isArray(previous.outcomeIds) && previous.outcomeIds.length > 0;
+  if (!rows.length && wake.status === "pending" && !recovering) return null;
+  // Fresh queued work may absorb new outcomes. Interrupted work keeps its
+  // frozen snapshot across both lease recovery and a full server restart.
+  const outcomeIds = (wake.status === "processing" || recovering) && Array.isArray(previous.outcomeIds)
     ? previous.outcomeIds : rows.map(row => String(object(row.metadata).outcomeId));
   const content = `[SAND_HIDDEN_PROMPT]The platform handles the status acknowledgement for these draft outcomes. Do not post another status confirmation or infer other cards are pending. Complete the user's remaining requests using the individual card outcomes and the platform's stored-state counts, including any requested follow-up question. Questions, warnings, errors, and other useful new information must be delivered by actually calling SendToUser; plain assistant text is not shown to the user. If only acknowledging settled drafts remains, finish silently; you do not owe an additional acknowledgement.\n${rows.map(row => `Draft card ID: ${row.id}; outcome: ${object(row.metadata).outcomeId}; state: ${object(row.metadata).cardState}`).join("\n")}`;
   const next = { ...payload, content, draftNotification: { variant: "treatment", outcomeIds } };

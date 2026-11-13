@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@openteam/db";
+import type { Prisma, PrismaClient } from "@openteam/db";
 import { type AgentMessaging, renderSubagentRevivalPrompt, subagentRevivalBlock, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { AssetRef } from "@openteam/contracts";
@@ -36,7 +36,7 @@ export async function recover(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${TASK_RECOVERY_LOCK}))`;
     const activeRuns = await tx.run.findMany({
       where: { status: { in: [...SUBAGENT_RECOVERY_RUN_STATUSES] } },
-      include: { bot: { select: { status: true } }, inboxEvents: { take: 1, select: { payload: true } } },
+      include: { bot: { select: { status: true } }, inboxEvents: { take: 1, select: { type: true, payload: true } } },
     });
     // On a server-only restart the computer may still be executing. Settle its
     // old turn before scheduling reconciliation; a database status alone does
@@ -254,16 +254,27 @@ export async function recover(
     for (const run of activeRuns.filter(run => run.status === "running" && ["user", "handoff_resume"].includes(run.origin) && run.bot.status === "active" && run.channelId)) {
       const current = await tx.run.findUnique({ where: { id: run.id }, select: { status: true } });
       if (current?.status !== "interrupted") continue;
-      const payload = run.inboxEvents[0]?.payload as { content?: string; taskContextRunId?: string; attachments?: AssetRef[] } | undefined;
+      const source = run.inboxEvents[0];
+      const payload = source?.payload as { content?: string; taskContextRunId?: string; attachments?: AssetRef[]; draftNotification?: Prisma.JsonObject } | undefined;
       if (!payload?.content) continue;
       const context = payload.taskContextRunId ?? run.id;
       const prefix = `runtime-recovery:${context}:`;
       const attempts = await tx.inboxEvent.count({ where: { idempotencyKey: { startsWith: prefix } } });
       await tx.inboxEvent.updateMany({ where: { runId: run.id, status: { in: ["pending", "processing"] } }, data: { status: "completed", completedAt: now } });
       await tx.botRunLease.deleteMany({ where: { runId: run.id } });
+      if (source?.type === "draft.response" && !await tx.channel.findFirst({ where: { id: run.channelId!, archivedAt: null }, select: { id: true } })) continue;
       if (attempts >= 3) continue;
-      await messaging.enqueueWake(tx, { botId: run.botId, channelId: run.channelId!, origin: "handoff_resume", type: "runtime.reconcile", clientId: `${prefix}${attempts + 1}`, priority: 300, taskContextRunId: context, interruptedRunId: run.id, attachments: payload.attachments,
+      // A draft continuation must keep its event identity and frozen outcome
+      // receipts. Generic user recovery would lose acknowledgement deduplication.
+      const draft = source?.type === "draft.response";
+      const resumed = await messaging.enqueueWake(tx, { botId: run.botId, channelId: run.channelId!, origin: "handoff_resume", type: draft ? "draft.response" : "runtime.reconcile", clientId: `${prefix}${attempts + 1}`, priority: 300, taskContextRunId: context, interruptedRunId: run.id, attachments: payload.attachments,
+        ...(draft ? { wrapUserContent: false } : {}),
         content: `OpenTeam restarted during this user's pending request (for example, for an update) and cut off your previous turn. If you mention the interruption, call it a restart. Continue from the current transcript and authoritative state. Check existing delegated tasks before launching work; do not duplicate sends, submissions or completed actions, and respect newer cancellations and scope.\nOriginal pending request:\n${payload.content}` });
+      if (draft && payload.draftNotification?.variant === "treatment") {
+        await tx.inboxEvent.update({ where: { id: resumed.inbox.id }, data: { payload: {
+          ...(resumed.inbox.payload as Prisma.JsonObject), draftNotification: payload.draftNotification,
+        } } });
+      }
       reconciledRunIds.add(run.id);
     }
     // Ask for a resend only when no saved continuation will recover this turn.

@@ -1930,3 +1930,187 @@ test('original incident: 24 distinct reviewed sends queue behind a busy foregrou
   } finally { await f.cleanup(); }
  }
 }, 30_000);
+
+
+test('server restart preserves treatment draft receipts and pending follow-up work', async () => {
+ if (!databaseUrl) return;
+ const { recover } = await import('../src/services/startup-recovery');
+ for (const published of [false, true]) {
+  const f = await notificationExperiment('treatment');
+  try {
+   await f.prisma.run.updateMany({ where: { botId: f.botId }, data: { status: 'completed' } });
+   const id = await f.create(0); await f.settle(id, 'cancel'); await f.ready();
+   const claimed = await f.worker().claim(f.botId);
+   expect(claimed).not.toBeNull();
+   const oldPayload = (await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).payload as any;
+   if (published) await f.messaging.flushDraftNotification(f.context(claimed.runId));
+   expect(await f.visible()).toHaveLength(published ? 1 : 0);
+   const restart = () => recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+   await restart(); await restart();
+   const recovered = await f.prisma.inboxEvent.findMany({ where: { botId: f.botId, status: 'pending' } });
+   expect(recovered).toHaveLength(1);
+   expect(recovered[0]!.type).toBe('draft.response');
+   expect((recovered[0]!.payload as any).draftNotification).toEqual(oldPayload.draftNotification);
+   const resumed = await f.worker().claim(f.botId);
+   expect(resumed).not.toBeNull();
+   const { Projection } = await import('../../worker/src/projection');
+   await f.messaging.agentData.writeInferenceSettings({ providerId: 'openai-codex', modelId: 'synthetic-fixture', reasoning: 'low' });
+   const dispatched: any[] = [], failures: unknown[] = [];
+   const computer = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path.startsWith('/v1/context-sessions/')) return Response.json({ type: 'context.state', contextSessionId: path.split('/').at(-1), epoch: 0, archives: [] });
+    if (path === '/v1/task-capabilities') return Response.json({ desktopAvailable: true, boxAvailable: true });
+    if (path !== '/v1/turns') return new Response(null, { status: 404 });
+    const input = await request.json() as any; dispatched.push(input);
+    expect(input.requestSource).toBe('event');
+    expect(input.draftStatusAcknowledged).toBe(true);
+    expect(input.content).toContain((await f.visible())[0]!.content);
+    expect(input.content).toContain('Current draft state at dispatch:');
+    expect(await f.visible()).toHaveLength(1);
+    return new Response(new ReadableStream({ start(controller) {
+     const write = (event: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'));
+     write({ type: 'turn.started', turnId: input.runId });
+     void (async () => {
+      // Recovery still delivers useful requested work after its status acknowledgement.
+      await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'Would you like a different recipient?' });
+      write({ type: 'prompt.delivered', turnId: input.runId });
+      write({ type: 'turn.completed', turnId: input.runId, status: 'completed' }); controller.close();
+     })().catch(error => controller.error(error));
+    } }), { headers: { 'content-type': 'application/x-ndjson' } });
+   } });
+   try {
+    const worker = Object.assign(f.worker(), { agentData: f.messaging.agentData, computerUrl: computer.url.origin,
+     controlToken: 'synthetic-draft-test', projection: new Projection(f.prisma, f.messaging.agentData), pushNotifications: { drain: async () => {} } });
+    const fail = worker.fail.bind(worker);
+    worker.fail = async (...args: any[]) => { failures.push(args[1]); return fail(...args); };
+    await worker.execute(resumed);
+    expect(failures).toEqual([]);
+    expect(dispatched).toHaveLength(1);
+    expect(await f.visible()).toHaveLength(2);
+    expect((await f.card(id)).draftNotification.messageId).toBe((await f.visible())[0]!.id);
+    expect(f.mailSends()).toBe(0);
+    expect((await f.prisma.run.findUniqueOrThrow({ where: { id: resumed.runId } })).status).toBe('completed');
+   } finally { computer.stop(true); }
+   expect(await f.worker().claim(f.botId)).toBeNull();
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('server restart keeps draft recovery bounded and fences replies from interrupted attempts', async () => {
+ if (!databaseUrl) return;
+ const { recover } = await import('../src/services/startup-recovery');
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  try {
+   await f.prisma.run.updateMany({ where: { botId: f.botId }, data: { status: 'completed' } });
+   for (let i = 0; i < 2; i++) await f.settle(await f.create(i), i % 2 ? 'send' : 'cancel');
+   await f.ready();
+   let current = await f.worker().claim(f.botId);
+   const rootRunId = current.runId;
+   if (variant === 'treatment') await f.messaging.flushDraftNotification(f.context(current.runId));
+   for (let attempt = 0; attempt < 3; attempt++) {
+    const interrupted = current;
+    await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+    // An old computer must not add a late acknowledgement after cancellation.
+    const late = await f.messaging.sendVisible(f.context(interrupted.runId), { type: 'text', content: 'Obsolete status confirmation' });
+    expect(late).toMatchObject({ acknowledgement: { sent: false } });
+    expect((await f.visible()).some(message => message.content === 'Obsolete status confirmation')).toBe(false);
+    const pending = await f.prisma.inboxEvent.findMany({ where: { botId: f.botId, status: 'pending' } });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.idempotencyKey).toBe(`runtime-recovery:${rootRunId}:${attempt + 1}`);
+    expect(pending[0]!.type).toBe('draft.response');
+    current = await f.worker().claim(f.botId);
+    expect(current).not.toBeNull();
+    expect(current.content).toContain('Do not');
+    if (variant === 'treatment') {
+     expect((await f.messaging.flushDraftNotification(f.context(current.runId)))?.acknowledgement.sent).toBe(true);
+     expect(await f.visible()).toHaveLength(1);
+    }
+   }
+   await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+   await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, status: 'pending' } })).toBe(0);
+   expect(await f.worker().claim(f.botId)).toBeNull();
+   expect(await f.prisma.channelMessage.count({ where: { channelId: f.context('').channelId, sender: 'system' } })).toBe(1);
+   expect(f.mailSends()).toBe(1);
+   for (const id of f.ids) expect((await f.card(id)).cardState).toBe(f.ids.indexOf(id) % 2 ? 'sent' : 'dismissed');
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('recovered receipt does not absorb an unrelated draft settled after the restart', async () => {
+ if (!databaseUrl) return;
+ const { recover } = await import('../src/services/startup-recovery');
+ const f = await notificationExperiment('treatment');
+ try {
+  await f.prisma.run.updateMany({ where: { botId: f.botId }, data: { status: 'completed' } });
+  const first = await f.create(0); await f.settle(first, 'cancel'); await f.ready();
+  const initial = await f.worker().claim(f.botId);
+  await f.messaging.flushDraftNotification(f.context(initial.runId));
+  const firstReceipt = (await f.card(first)).draftNotification.messageId;
+  await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+  const recovered = await f.worker().claim(f.botId);
+  const second = await f.create(1); await f.settle(second, 'cancel'); await f.ready();
+  const duplicate = await f.messaging.flushDraftNotification(f.context(recovered.runId));
+  expect(duplicate?.acknowledgement).toMatchObject({ sent: true, message_id: firstReceipt, duplicate: true });
+  expect((await f.card(second)).draftNotification.messageId).toBeUndefined();
+  await f.release(recovered);
+  const next = await f.worker().claim(f.botId);
+  expect(next).not.toBeNull();
+  await f.messaging.flushDraftNotification(f.context(next.runId));
+  expect((await f.card(second)).draftNotification.messageId).toBeDefined();
+  expect(await f.visible()).toHaveLength(2);
+  expect(f.mailSends()).toBe(0);
+  await f.release(next);
+  expect(await f.worker().claim(f.botId)).toBeNull();
+ } finally { await f.cleanup(); }
+});
+
+test('server restart does not revive draft work in an archived chat', async () => {
+ if (!databaseUrl) return;
+ const { recover } = await import('../src/services/startup-recovery');
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  try {
+   await f.prisma.run.updateMany({ where: { botId: f.botId }, data: { status: 'completed' } });
+   const id = await f.create(0); await f.settle(id, 'cancel'); await f.ready();
+   const claimed = await f.worker().claim(f.botId);
+   await f.prisma.channel.update({ where: { id: claimed.channelId }, data: { archivedAt: new Date() } });
+   await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, status: 'pending' } })).toBe(0);
+   expect(await f.worker().claim(f.botId)).toBeNull();
+   expect(await f.visible()).toHaveLength(0);
+   expect(f.mailSends()).toBe(0);
+   expect((await f.card(id)).cardState).toBe('dismissed');
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('actual server recovery never replays reviewed sends from running or completed drafting turns', async () => {
+ if (!databaseUrl) return;
+ const { recover } = await import('../src/services/startup-recovery');
+ for (const sourceStatus of ['running', 'completed'] as const) for (const confirmed of [false, true]) {
+  const f = await notificationExperiment('treatment');
+  try {
+   const source = await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } });
+   await f.prisma.run.update({ where: { id: source.id }, data: { status: sourceStatus } });
+   const id = await f.create(0), stored = await f.card(id);
+   const startedAt = new Date(Date.now() - 181_000);
+   await f.prisma.channelMessage.update({ where: { id }, data: { metadata: { ...stored, cardState: 'sending', sendStartedAt: startedAt.toISOString(), sendAttemptId: crypto.randomUUID() } } });
+   await f.prisma.pluginInvocation.create({ data: { connectionId: f.connection.id, botId: f.botId, runId: source.id,
+    callId: `draft-send:${id}:send`, toolName: 'send_reviewed_email', arguments: { action: 'send', draft: stored.draft }, startedAt,
+    ...(confirmed ? { status: 'completed', result: { id: 'already-sent-before-restart' }, completedAt: new Date() } : { error: 'Executing' }) } });
+   await recover(f.prisma, { send: async () => crypto.randomUUID() } as never, f.messaging, async () => new Response());
+   await Promise.all(['refresh', 'send', 'cancel'].map(action => Effect.runPromise(f.service.mutate(id, { action }))));
+   const settled = await f.card(id);
+   expect(settled.cardState).toBe(confirmed ? 'sent' : 'unknown');
+   expect(settled.outcomeId).toBeDefined();
+   if (!confirmed) expect(settled.outcomeText).toContain('may or may not have gone out');
+   await Promise.all(['refresh', 'send', 'cancel'].map(action => Effect.runPromise(f.service.mutate(id, { action }))));
+   expect((await f.card(id)).outcomeId).toBe(settled.outcomeId);
+   expect(f.mailSends()).toBe(0);
+   expect(await f.prisma.pluginInvocation.count({ where: { botId: f.botId, arguments: { path: ['action'], equals: 'send' } } })).toBe(1);
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(confirmed ? 1 : 0);
+  } finally { await f.cleanup(); }
+ }
+});

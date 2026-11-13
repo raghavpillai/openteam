@@ -2788,7 +2788,7 @@ export class AgentMessaging {
           interruptRunId: null,
         };
       }
-      if (input.type === "text") {
+      if (input.type === "text" || input.type === "widget") {
         const stale = await guardDraftReply(tx, context);
         if (stale) return { acknowledgement: stale, interruptRunId: null };
       }

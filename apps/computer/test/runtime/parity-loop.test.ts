@@ -571,3 +571,55 @@ describe("sibling closing calls", () => {
       }
     }, 15000);
 });
+
+test('real Pi loop refreshes a stale question widget and delivers its useful replacement', async () => {
+ const root = await mkdtemp(join(tmpdir(), 'pi-draft-widget-refresh-'));
+ const host: any[] = [], requests: any[] = [];
+ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+  const input = await request.json() as any; host.push(input);
+  return Response.json(host.length === 1 ? {
+   sent: false, delivery_failed: true, reason: 'draft_state_changed', draft_state_revision: 'fresh',
+   draft_state: { pending: 1 }, note: 'Nothing was delivered. One draft remains; reconsider and call SendToUser in the next response.',
+  } : { sent: true, message_id: 'fresh-question' });
+ } });
+ let session: AgentSession | undefined;
+ try {
+  const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.checkAuth = async () => ({ type: 'api_key' });
+  modelRuntime.streamSimple = (_model, context, options) => streamSimple(model, context, {
+   ...options, apiKey: 'synthetic-fixture', maxRetries: 0,
+   fetch: (async (_url: any, init: any) => {
+    requests.push(JSON.parse(await new Response(init.body).text()));
+    const index = requests.length;
+    if (index > 1) expect(JSON.stringify(requests[index - 1].messages)).toContain('draft_state_changed');
+    const chunks = [
+     { choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `widget-${index}`, type: 'function', function: {
+      name: 'SendToUser', arguments: JSON.stringify({ type: 'widget', widget: { prompt: 'Revise the remaining draft?', options: [{ label: 'Revise', value: 'revise' }] } }),
+     } }] }, finish_reason: null }] },
+     { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } },
+    ];
+    return new Response(chunks.map(chunk => `data: ${JSON.stringify({ id: 'chatcmpl-fixture', object: 'chat.completion.chunk', created: 1, model: model.id, ...chunk })}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+   }) as typeof fetch,
+  });
+  const runtime = new ComputerRuntime() as any;
+  Object.assign(runtime, { agentDir: root, modelRuntime, resolveModel: () => model,
+   tools: new RuntimeTools({} as never, server.url.origin, 'fixture', root, root),
+   compactionExtension: () => ({ name: 'fixture-compaction', hidden: true, factory() {} }),
+  });
+  const active = { runId: crypto.randomUUID(), botId: crypto.randomUUID(), turnId: crypto.randomUUID(),
+   conversationId: crypto.randomUUID(), contextSessionId: crypto.randomUUID(), channelId: crypto.randomUUID(), deliveryId: null,
+   runtimeProfile: 'agent', requestSource: 'event', subagentType: null, pluginNamespaces: [],
+   draftStateRevision: 'old', draftStatusAcknowledged: true, discoveredDynamicTools: new Set(), sentMessageCount: 0,
+   reasoning: 'off', cwd: root, endTurnRequested: false, initialUserStarted: true, pendingSteers: [], acceptedSteerIds: new Set(),
+   assistantOrdinal: 0, startedItems: new Set(), toolArgs: new Map(), queue: { push() {} }, pluginAbortController: new AbortController(),
+  } as unknown as ActiveTurn;
+  const sessions = join(root, 'sessions'); await mkdir(sessions);
+  const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
+  session = await runtime.createStandaloneSession(root, 'System fixture', manager, active, { providerId: model.provider, modelId: model.id });
+  active.session = session!; session!.subscribe(event => runtime.routeEvent(active, event)); runtime.bindTurnStop(active, session!);
+  await session!.prompt('<user_query>Show a revision question if drafts remain.</user_query>');
+  expect(requests).toHaveLength(2); expect(host).toHaveLength(2);
+  expect(host.map(call => call.draftStateRevision)).toEqual(['old', 'fresh']);
+  expect(active.sentMessageCount).toBe(1); expect(active.awaitingUser).toBe(true); expect(active.endTurnRequested).toBe(true);
+ } finally { session?.dispose(); server.stop(true); await rm(root, { recursive: true, force: true }); }
+});

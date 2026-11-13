@@ -711,6 +711,11 @@ test('a changed draft snapshot rejects old questions and sibling warnings with t
    const rejected = await f.messaging.sendVisible(old, { type: 'text', content: 'Would you like revisions to the remaining drafts?', end_turn: true });
    expect(rejected.acknowledgement).toMatchObject({ sent: false, delivery_failed: true, retryable: true, reason: 'draft_state_changed', draft_state: { pending: 0 } });
    expect(await f.visible()).toHaveLength(before);
+   const widget = await f.messaging.sendVisible({ ...old, callId: 'old-widget' }, { type: 'widget', widget: {
+    prompt: 'Would you like revisions to the remaining drafts?', options: [{ label: 'Revise', value: 'revise' }],
+   } });
+   expect(widget.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 0 } });
+   expect(await f.prisma.channelMessage.count({ where: { channelId: old.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(0);
    // An already-emitted sibling does not acquire the fresh state merely because another call was rejected.
    const warning = 'Disk check failed. Please pause large downloads.';
    const sibling = await f.messaging.sendVisible({ ...old, callId: 'old-warning' }, { type: 'text', content: warning });
@@ -820,4 +825,27 @@ test('a change during platform-context preparation cannot authorize a reply base
   expect((await f.visible()).some(m => m.content.includes('Would you like revisions'))).toBe(false);
   expect(f.mailSends()).toBe(0);
  } finally { computer.stop(true); await f.cleanup(); }
+});
+
+test('a refreshed question widget still delivers when draft identities change but cards remain', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  for (let i = 0; i < 3; i++) await f.create(i);
+  await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const claimed = await f.worker().claim(f.botId);
+  const snapshot = await f.messaging.draftReplySnapshot(f.context(claimed.runId));
+  await f.settle(f.ids[1]!, 'cancel'); await f.create(3);
+  const question = { type: 'widget' as const, widget: { prompt: 'Which remaining draft should I revise?', options: [{ label: 'Choose a draft', value: 'choose' }] } };
+  const old = await f.messaging.sendVisible({ ...f.context(claimed.runId), draftStateRevision: snapshot.revision }, question);
+  expect(old.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 2 } });
+  const context = { ...f.context(claimed.runId), draftStateRevision: (old.acknowledgement as any).draft_state_revision };
+  const delivered = await f.messaging.sendVisible(context, question);
+  expect(delivered.acknowledgement).toMatchObject({ sent: true });
+  const message = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: (delivered.acknowledgement as any).message_id } });
+  expect(message.content).toBe(question.widget.prompt);
+  expect((message.metadata as any).type).toBe('widget');
+  const retried = await f.messaging.sendVisible(context, question);
+  expect(retried.acknowledgement).toMatchObject({ sent: true, duplicate: true, message_id: message.id });
+  expect(await f.prisma.channelMessage.count({ where: { channelId: context.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(1);
+ } finally { await f.cleanup(); }
 });

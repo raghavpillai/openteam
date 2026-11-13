@@ -72,6 +72,14 @@ Consecutive treatment outcomes now update the latest progress message while card
 
 The [follow-up evidence](assets/draft-state-progress-2026-11-12.json) and [comparison](assets/draft-state-progress-2026-11-12.html) distinguish live-model, database, and component checks. The freshness protocol is optional for rolling compatibility: protection requires current worker, server, and computer versions. It does not validate arbitrary factual claims by the model. Live tests use an isolated database, synthetic transport, and harness-driven queue draining; no actual mailbox send, APNs delivery, deployment, or production flag change was performed. Progress updates remain in the opt-in treatment.
 
+## Additional widget and race testing
+
+A further pass found that structured question widgets bypassed the draft-state check. The failing database regression delivered a widget after the remaining cards were discarded. The existing guard now covers widgets as well as text, preserving call-ID receipt recovery. Permanent server tests cover rejection in both variants, refreshed delivery with changed card identities, and idempotent retry. A real Pi-loop test verifies that the next model response adopts the refreshed revision and delivers a still-useful widget.
+
+Ten additional live-model scenarios passed with 65 synthetic cards: partial late discards and two successive refreshes in both variants, interruption, a busy foreground agent, repeated actions, a 24-card burst, and two widget cases. An obsolete widget was withheld when no cards remained; exactly one refreshed widget was delivered when one remained. Successful receipts matched the stored content. Five additional database diagnostics passed for equal counts with different identities, stale widgets, in-flight send completion, unconfirmed sends, and completed-turn replay with a later outcome.
+
+The rerun suites passed 19 server tests (358 assertions) and 93 runtime tests (831 assertions). Together with the unchanged focused, attachment/tool-surface and stream checks from the preceding pass, the permanent matrix totals 180 tests and 3,230 assertions. The five temporary database diagnostics add 24 assertions separately. Server, worker and computer typechecks/builds and all architecture checks passed. This was an isolated runtime/database pass, not another native Grokbot or deployed UI trial. No external mail was sent and production treatment remained off. Sanitized measurements and limits: [additional evidence](assets/draft-state-widget-regression-2026-11-12.json).
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

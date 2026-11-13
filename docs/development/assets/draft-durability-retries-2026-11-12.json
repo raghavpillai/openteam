@@ -1,0 +1,251 @@
+{
+  "testedAfterHead": "7702aea1612418aad3fb76940789851db5b41f0f",
+  "sourceFileSHA256": {
+    "apps/computer/test/computer-network-host-bridge.test.ts": "f4a2a382e6622caa6aa94d1dc196ed862261234a51bb6ad08bfe989c7ac455a0",
+    "apps/desktop/src/renderer/components/openteam/external-draft-card.tsx": "4080e19d2045c2a11cd9489e5409d980524a936907ae56a65adcc94ec708ac9e",
+    "apps/server/src/services/external-draft-service.ts": "e1dcf08e95fb1a7fc6c80eb9641eb0e6fdb536ef3d4fa0ebfdecdc90a449321e",
+    "apps/server/test/external-draft.integration.test.ts": "8f5b03d97c5b2ea3cd8ae9711568e466f27fb220d7812a945772b0613dd18a1f",
+    "packages/contracts/src/tool-results.ts": "d5edd7a000be0daadfad10ee6fcc0e1e322358534aec6a68a52749f726783b22",
+    "packages/contracts/test/external-draft.test.ts": "9071a1663f6766108e9727abb87280aaacd97aa6e67cbc42d5ef25b22c6e1595"
+  },
+  "runtime": "Repository-pinned Bun 1.4.2, installed only in a temporary directory",
+  "summary": {
+    "uniqueAutomatedTestsPassed": 3742,
+    "automatedTestsFailed": 0,
+    "environmentChecksSkipped": 74,
+    "draftIntegrationTests": 31,
+    "newDraftIntegrationTests": 7,
+    "newFormatterTests": 1,
+    "repeatCycles": 3,
+    "repeatedCaseExecutions": 21,
+    "finalLiveScenarios": 2,
+    "finalLiveCards": 12,
+    "additionalExploratoryLiveScenarios": 4,
+    "additionalExploratoryLiveCards": 37,
+    "nativePostFixCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "findings": [
+    {
+      "problem": "Discard committed the terminal state before committing the durable outcome/wake; a queue failure left a dismissed card with no agent wake.",
+      "before": "Injected queue failure left cardState=dismissed and no outcome/wake.",
+      "fix": "State change, outcome receipt, wake and update events now share one transaction. Existing half-discarded cards retain their normal refresh repair path.",
+      "checks": [
+        "Failure after queue writes rolls back card state, run, message, wake, receipt and update event",
+        "Same rollback with an already queued outcome",
+        "Retry discards once in default control and treatment"
+      ]
+    },
+    {
+      "problem": "Duplicate creation receipts could name changed retry recipients rather than the stored card, and retries still required the connector and source files.",
+      "before": "The stored card targeted ann@example.com but the duplicate receipt named bob@example.com; a lost-response retry failed when verification was offline.",
+      "fix": "Recover existing receipts before connector verification or attachment ingestion. Return stored routing and delivery state, including reviewed recipient edits.",
+      "checks": [
+        "Eight concurrent retries agree on one stored card",
+        "Offline retry preserves later review edits",
+        "Room retries recover the private card",
+        "Discarded cards are not recreated"
+      ]
+    },
+    {
+      "problem": "The model-facing formatter ignored duplicate state and used request arguments, describing old or discarded cards as newly editable.",
+      "fix": "Describe the existing card using stored routing and state; state that no new draft or send occurred; preserve no-resend/refusal instructions.",
+      "checks": [
+        "Six delivery states and legacy missing-state fallback",
+        "Real stored discarded receipt rendered with deliberately different retry arguments",
+        "Recovered room-card model results retain the private-chat location"
+      ]
+    },
+    {
+      "problem": "A successful discard with a lost response displayed both Discarded and an error.",
+      "fix": "Refresh the stored result after discard errors and clear stale errors when the server confirms sent/discarded state.",
+      "checks": [
+        "Native card with delayed lost response has no stale error",
+        "Real queue failure stays pending with an error",
+        "Retry and normal discard finish with three distinct stored outcomes"
+      ]
+    }
+  ],
+  "validation": {
+    "suites": {
+      "server": {
+        "files": 154,
+        "pass": 873,
+        "fail": 0,
+        "skip": 10,
+        "assertions": 7236
+      },
+      "worker": {
+        "files": 48,
+        "pass": 196,
+        "fail": 0,
+        "skip": 3,
+        "assertions": 1202
+      },
+      "computer": {
+        "files": 207,
+        "pass": 1243,
+        "fail": 0,
+        "skip": 68,
+        "assertions": 31087
+      },
+      "messaging": {
+        "files": 63,
+        "pass": 406,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 3928
+      },
+      "desktop": {
+        "files": 118,
+        "pass": 654,
+        "fail": 0,
+        "skip": 2,
+        "method": "Full run plus isolated rerun of the eight-case data-URL file after its timeout under concurrent cold-build load; unique tests are counted once. Aggregate assertions omitted because the first run partially executed the timed-out case."
+      },
+      "contractsClientProduct": {
+        "pass": 361,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 2291
+      }
+    },
+    "separatelyEnabledRecovery": {
+      "dispatch": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 7
+      },
+      "startup": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 32
+      }
+    },
+    "uniqueCounting": "The nine recovery cases replace their previously skipped entries. File reruns replace earlier results; repetitions are not counted as new tests.",
+    "repeatTrials": [
+      {
+        "cycle": 1,
+        "exitCode": 0,
+        "passed": 7
+      },
+      {
+        "cycle": 2,
+        "exitCode": 0,
+        "passed": 7
+      },
+      {
+        "cycle": 3,
+        "exitCode": 0,
+        "passed": 7
+      }
+    ],
+    "buildsAndTypechecks": [
+      "server",
+      "worker",
+      "computer",
+      "desktop renderer"
+    ],
+    "architecture": "All workspace/contract/iOS/duplication checks passed.",
+    "otherBoundaries": [
+      "Tampered attachment bytes are refused before any send; the card remains reviewable and discardable.",
+      "Progress refresh does not modify or requeue an already delivering/delivered push; chat/activity state still updates."
+    ]
+  },
+  "liveModel": {
+    "finalWorkingSourceCases": [
+      {
+        "scenario": "partial",
+        "variant": "control",
+        "cards": 6,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "scenario": "partial",
+        "variant": "treatment",
+        "cards": 6,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      }
+    ],
+    "earlierExploratoryCases": [
+      {
+        "scenario": "idempotency",
+        "variant": "treatment",
+        "cards": 1,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "scenario": "burst24",
+        "variant": "treatment",
+        "cards": 24,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "scenario": "widget-all",
+        "variant": "treatment",
+        "cards": 6,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "scenario": "widget-remaining",
+        "variant": "treatment",
+        "cards": 6,
+        "result": "pass",
+        "truthfulReceipts": true,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      }
+    ],
+    "method": "Configured openrouter/x-ai/grok-4.7 at low reasoning; real runtime/worker/PostgreSQL, synthetic transport, harness-driven queue claims. The final two cases ran after the production changes were complete. Formatted duplicate receipts are covered by deterministic service/formatter tests."
+  },
+  "computerUse": {
+    "method": "Native Chrome via cua_repl; actual ExternalDraftCard component served through Vite and backed by isolated real services. Fixture polls state; all send actions are refused.",
+    "preFixObservation": "Discarded card displayed Synthetic lost discard response after a deliberately lost successful response.",
+    "postFixObservations": [
+      "Delayed lost success response resolves to Discarded without an error",
+      "Injected queue outage leaves review card pending with the failure visible",
+      "Retry succeeds; no phantom or duplicate outcome",
+      "Normal third discard succeeds; read-only reopen works"
+    ],
+    "finalStoredStates": [
+      "dismissed",
+      "dismissed",
+      "dismissed"
+    ],
+    "uniqueOutcomeReceipts": 3,
+    "automaticRefreshRequests": 2,
+    "statusRows": 2,
+    "note": "The pause between actions exceeded the progress idle window; subsequent rapid outcomes updated the second row."
+  },
+  "validationCorrections": [
+    "The initial tampered-file probe changed its size and correctly hit metadata validation first. The final probe keeps the byte length unchanged and verifies content-integrity refusal.",
+    "An initial bulk integration timeout, a worker A2A transaction timeout and a desktop data-URL timeout occurred during concurrent cold UI/typecheck builds; isolated reruns passed without widening production timeouts.",
+    "A host-bridge test read its Python helper output as soon as the file existed, racing its write and occasionally parsing empty JSON. The test now waits for the complete record and passes; production bridge code is unchanged.",
+    "The new outbox test required literal status types to satisfy TypeScript; runtime checks and the final typecheck pass."
+  ],
+  "limits": [
+    "This is diagnostic coverage, not proof that every possible issue is absent.",
+    "74 platform/configuration-specific checks remain skipped; no real mailbox send or APNs delivery.",
+    "No new native Grokbot comparison in this pass; earlier direct observations remain in the preceding report.",
+    "Freshness covers card identity and delivery state, not arbitrary factual claims or body-only edits.",
+    "Current worker/server/computer versions are required for the full protocol; the desktop fix is covered by direct native component fault-injection, not a new automated UI test.",
+    "No deployment, approval-rule change, system Bun replacement or production treatment flag change."
+  ]
+}

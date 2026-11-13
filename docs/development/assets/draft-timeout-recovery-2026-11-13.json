@@ -1,0 +1,121 @@
+{
+  "testedAfterHead": "c2ac395d5a6620c8a4abe1750ce94ad1ac9e1cc2",
+  "sourceFileSHA256": {
+    "apps/server/src/services/external-draft-service.ts": "cec8bf2e3e0af17318a62a5ec43e56d775091d6651086e6e8bf3ec14b6d7b38e",
+    "apps/server/test/external-draft.integration.test.ts": "fc56419d482afa5c7c25c5536da287a1ee29b648d9da921704399ae951911af1"
+  },
+  "runtime": "Repository-pinned Bun 1.4.2; disposable PostgreSQL",
+  "summary": {
+    "uniqueAutomatedTestsPassedThisPass": 78,
+    "newDraftIntegrationTests": 8,
+    "newControlledFixtureTrials": 41,
+    "draftIntegrationTests": 47,
+    "repeatedCaseExecutions": 24,
+    "timeoutMatrixTrials": 24,
+    "nativeCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "findings": [
+    {
+      "problem": "A failed verification returning after timeout reopened an unknown card to pending, retaining the old outcomeId.",
+      "before": "The regression observed pending with sendError after the unknown outcome committed.",
+      "fix": "Reopen rechecks the current sending state and absence of a terminal outcome under the existing locks."
+    },
+    {
+      "problem": "Successful verification after timeout could start the external operation even though the card was already terminal.",
+      "before": "The regression observed one synthetic transport entry after the unknown outcome committed.",
+      "fix": "After verification and attachment preparation, serialize the dispatch decision against card mutation and recheck state, outcome and attempt identity. No lock is held across connector execution.",
+      "boundary": "A terminal outcome committed before dispatch is claimed prevents dispatch. An operation already claimed or entered before timeout remains potentially in flight; unknown is not a cancellation or remote-send recall."
+    },
+    {
+      "problem": "Refresh read an old sending state, paused during invocation lookup and then settled a reopened card or a later attempt.",
+      "before": "The regression turned a pending card into unknown; a timestamp-only intermediate fix also failed when the next attempt had the same timestamp.",
+      "fix": "Settlement rechecks sending state plus attempt identity under the mutation lock. New sends carry a private random sendAttemptId; legacy sending receipts remain recoverable with the existing timestamp fallback."
+    }
+  ],
+  "validation": {
+    "draftIntegration": {
+      "pass": 47,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 2792
+    },
+    "adjacent": {
+      "pass": 31,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 288
+    },
+    "adjacentFiles": [
+      "packages/contracts/test/external-draft.test.ts",
+      "packages/contracts/test/external-draft-revision.test.ts",
+      "packages/client-core/test/external-draft.test.ts",
+      "packages/messaging/test/draft-notifications.test.ts",
+      "apps/worker/test/draft-response-batch.test.ts",
+      "packages/plugins/gmail/connector/test/reviewed.test.ts",
+      "packages/plugins/email/connector/test/reviewed.test.ts"
+    ],
+    "newCoverage": [
+      "Late verification failure in control and treatment cannot reopen unknown",
+      "Late successful verification cannot dispatch after timeout wins",
+      "Delayed refresh cannot settle pending or a newer sending attempt, including equal timestamps",
+      "Email/Slack x review/automatic x control/treatment x late success/outage/account change: 24 fixture trials",
+      "Actual PluginInvocations claim/result storage plus fake transport; post-send outcome-queue rollback and restart recover sent exactly once; current and legacy no-attempt-ID receipts, both variants",
+      "Transport already entered before timeout: late success/loss and repeated actions do not replay it, both variants",
+      "Channel archived or card deleted while verification is held cannot dispatch",
+      "Delayed attachment preparation, intact and missing bytes, cannot dispatch or reopen unknown"
+    ],
+    "repeats": [
+      {
+        "cycle": 1,
+        "exitCode": 0,
+        "passed": 8
+      },
+      {
+        "cycle": 2,
+        "exitCode": 0,
+        "passed": 8
+      },
+      {
+        "cycle": 3,
+        "exitCode": 0,
+        "passed": 8
+      }
+    ],
+    "serverTypecheck": "pass",
+    "serverBuild": "pass",
+    "architecture": "pass",
+    "uniqueCounting": "47 draft integration plus 31 adjacent tests; 24 repeated case executions are separate. The preceding 3,753-test broad matrix was not rerun or added to this count."
+  },
+  "computerUse": {
+    "method": "Native cua_repl Chrome actions against the actual ExternalDraftCard component, isolated services, fake connector and gated verification. Timeout simulated by aging stored sendStartedAt; no three-minute real-time wait.",
+    "observations": [
+      "Two review sends show Sending with disabled Send/Discard while verification is held",
+      "Expiry changes both cards to Unconfirmed",
+      "Late verification failure and success leave both read-only, with original contents and no stale error",
+      "Untouched third card discards normally and produces one truthful acknowledgement with two unconfirmed deliveries",
+      "Reload preserves all three outcomes"
+    ],
+    "finalStoredStates": [
+      "unknown",
+      "unknown",
+      "dismissed"
+    ],
+    "syntheticTransportEntries": 0,
+    "statusRows": 1,
+    "cleanup": "Own browser tab closed; fixture removed; disposable data cleared and database stopped."
+  },
+  "diagnosticCorrections": [
+    "Initial full run had two 30-second test timeouts during heavy concurrent host load. The final 47-case run passed without increasing test or production timeouts.",
+    "The delayed-read test barrier returns an ordinary Promise instead of Prisma fluent client; its intentional test-only cast was corrected for TypeScript.",
+    "A temporary native harness initially used an invalid run context. The context was corrected before the native test; final fixture states were verified."
+  ],
+  "remainingLimits": [
+    "Finite diagnostic coverage cannot prove absence of every possible issue.",
+    "No new live-model or native Grokbot comparison in this pass. The previous live-model evidence remains historical.",
+    "No real email/Slack send, APNs delivery, deployment or production treatment change.",
+    "The previous broad matrix recorded 73 environment-specific skips and iOS SDK / desktop gzip-budget failures. Those checks were not revalidated by this server-only pass.",
+    "Timeout remains unconfirmed and may mean an already-dispatched operation completes later; the implementation cannot cancel or recall remote sends.",
+    "The attempt ID is private card metadata; no new public tool, schema migration, approval behavior or dependency."
+  ]
+}

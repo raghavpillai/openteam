@@ -1,0 +1,319 @@
+{
+  "testedAfterHead": "a28071b44a041463f5dcd3431e19bae419a222f1",
+  "sourceFileSHA256": {
+    "apps/desktop/src/renderer/components/openteam/external-draft-card.tsx": "e5e61b0d075abda6ee4e4afce31d2a62b8269fd166924a68fdc0b393a0729327",
+    "apps/ios/Sources/App/RichMessageCard.swift": "d78b3339891a7b385937fee84d4e21973a84171357d00e1fd41155209401bbe1",
+    "apps/server/src/services/external-draft-service.ts": "1df442fd9a92998ecd27c4fc0b382b85dd4ff4de64f0c9199d14eaf51a168a15",
+    "apps/server/test/external-draft.integration.test.ts": "a905bd04140a6174c0e4069273fa1b573e8293f56c74653aa465b185f26d595c",
+    "apps/worker/test/memory-restart.integration.test.ts": "f4b3b012d2992dc89cd9d3654657fbaf1809e81de482d7b311f961febf3f09bd",
+    "packages/contracts/src/tool-results.ts": "1d76e66ab5ec88f8ab2edcc627c6dc9d0980d8648bbc656575d0923118c419a8",
+    "packages/contracts/test/external-draft.test.ts": "208e3158f894936a54bd72a14716c08d5684635b496c895adb2a4f8d0b0fb5a1",
+    "packages/messaging/src/draft-notifications.ts": "cecd9bf95d909a41fbb74b45f221b40dedd51f61a0aa7b6c3416e75c06b09553"
+  },
+  "runtime": "Bun 1.4.2 (repository pinned), temporary install; system runtime unchanged",
+  "summary": {
+    "uniqueAutomatedTestsPassed": 3753,
+    "automatedTestsFailed": 0,
+    "environmentChecksSkipped": 73,
+    "draftIntegrationTests": 39,
+    "newDraftIntegrationTests": 8,
+    "newFormatterTests": 2,
+    "expandedSeededTrials": 32,
+    "expandedSeededCards": 192,
+    "expandedSeededOperations": 1088,
+    "liveModelScenarios": 10,
+    "liveModelCards": 20,
+    "nativeStateCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "findings": [
+    {
+      "problem": "A legacy computer request without draftStateRevision bypassed the active-run check and could publish after cancellation.",
+      "fix": "Check the active run under the existing locks before the optional revision comparison. Active legacy clients still deliver useful replies.",
+      "coverage": "In-flight text/widget cancellation in both variants; two actual-model interruption trials with the field removed from the wire request."
+    },
+    {
+      "problem": "Fresh automatic-send failures fell through to editable-card text; unknown delivery wording could imply a completed send.",
+      "fix": "Keep authoritative failure/uncertainty notes and explicitly distinguish not-delivered from unconfirmed. Unknown receipts do not confirm a send and forbid resending.",
+      "coverage": "Database+formatter regressions, two clear live failed cases, four final clear live unknown cases. One earlier ambiguous live phrasing is retained as a finding."
+    },
+    {
+      "problem": "A stopped-turn delivery receipt instructed the model to tell the user it did not go through, despite the turn being inactive.",
+      "fix": "Return the explicit ended-turn/do-not-retry note instead of the generic channel failure template."
+    },
+    {
+      "problem": "In-flight cards said Ready to send; failed/unconfirmed automatic-send cards said Sent without review.",
+      "fix": "Desktop and iOS use Sending while in flight and Review skipped unless delivery is confirmed sent.",
+      "coverage": "Native Chrome actions on the real desktop review component with isolated services and a gated synthetic sender; failed/unconfirmed history reopens read-only. Swift syntax check passes; full iOS build is blocked separately."
+    }
+  ],
+  "validation": {
+    "suites": {
+      "server": {
+        "files": 154,
+        "pass": 881,
+        "fail": 0,
+        "skip": 10,
+        "assertions": 9178
+      },
+      "worker": {
+        "files": 48,
+        "pass": 196,
+        "fail": 0,
+        "skip": 3,
+        "assertions": 1200
+      },
+      "computer": {
+        "files": 207,
+        "pass": 1243,
+        "fail": 0,
+        "skip": 68,
+        "assertions": 31087
+      },
+      "messaging": {
+        "files": 63,
+        "pass": 406,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 3928
+      },
+      "desktop": {
+        "files": 115,
+        "pass": 647,
+        "fail": 0,
+        "skip": 1,
+        "assertions": 5531
+      },
+      "desktopTSX": {
+        "pass": 8,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 23
+      },
+      "contractsClientProduct": {
+        "pass": 363,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 2306
+      }
+    },
+    "separatelyEnabledRecovery": {
+      "dispatch": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 7
+      },
+      "startup": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "assertions": 32
+      }
+    },
+    "uniqueCounting": "Nine explicitly enabled recovery cases replace skipped entries. The corrected worker file replaces its earlier race failure. Desktop files use fresh processes plus the three TSX files; repetitions are not additional unique tests. The built native shortcut helper now passes instead of being skipped.",
+    "stateMachine": {
+      "permanentTrials": 8,
+      "permanentCards": 48,
+      "permanentOperations": 272,
+      "expandedTrials": 32,
+      "expandedCards": 192,
+      "expandedOperations": 1088,
+      "expandedAssertions": 7634,
+      "checks": [
+        "reviewed recipients and body preserved",
+        "one transport attempt per card",
+        "no sends after terminal outcomes",
+        "immutable attachment bytes survive missing source files",
+        "retries return the stored receipt",
+        "no orphan wakes after lifecycle changes",
+        "other bots cannot invalidate a reply snapshot"
+      ]
+    },
+    "buildsAndTypechecksPassed": [
+      "server",
+      "worker",
+      "computer",
+      "desktop renderer/electron"
+    ],
+    "architecture": "pass",
+    "swiftSyntax": "pass"
+  },
+  "liveModel": {
+    "model": "openrouter/x-ai/grok-4.7, low reasoning",
+    "method": "Real runtime/Pi/worker/PostgreSQL with in-process fake connectors; no real mail transport. Two interruption cases emulate legacy wire shape, not an actual old computer binary.",
+    "cases": [
+      {
+        "batch": "svmln7ib",
+        "scenario": "report-failed",
+        "variant": "control",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 0,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "svmln7ib",
+        "scenario": "report-unknown",
+        "variant": "control",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "svmln7ib",
+        "scenario": "report-failed",
+        "variant": "treatment",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 0,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "svmln7ib",
+        "scenario": "report-unknown",
+        "variant": "treatment",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "ambiguous confirmed-send wording; prompted receipt refinement",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "dbk_zmx7",
+        "scenario": "report-unknown",
+        "variant": "control",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "dbk_zmx7",
+        "scenario": "report-unknown",
+        "variant": "treatment",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "dbk_zmx7",
+        "scenario": "report-unknown",
+        "variant": "control",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "dbk_zmx7",
+        "scenario": "report-unknown",
+        "variant": "treatment",
+        "cards": 1,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 1,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "p0vz2ja7",
+        "scenario": "interrupt",
+        "variant": "treatment",
+        "cards": 6,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 0,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      },
+      {
+        "batch": "p0vz2ja7",
+        "scenario": "interrupt",
+        "variant": "treatment",
+        "cards": 6,
+        "mechanicalChecks": "pass",
+        "semanticReview": "pass",
+        "syntheticSendAttempts": 0,
+        "externalMailSendAttempts": 0,
+        "credentialConfigRemoved": true
+      }
+    ],
+    "observations": [
+      "Four final unknown reports clearly state no send was confirmed; none retried.",
+      "Two interrupted legacy-wire trials publish no late outcome text/widgets; next user input proceeds.",
+      "Initial two failure reports clearly state nothing was delivered.",
+      "Opening acknowledgements and unrelated disk-space warnings can still appear; this is not a guarantee of one visible model message.",
+      "Disk warnings were left unchanged; no model filesystem deletion occurred."
+    ]
+  },
+  "computerUse": {
+    "method": "Native cua_repl Chrome actions; actual ExternalDraftCard component, isolated services and synthetic gated send only. Own tab closed and fixtures removed.",
+    "before": [
+      "Sending stored state with Ready to send badge",
+      "Failed/unknown cards with Sent without review notice"
+    ],
+    "after": [
+      "Sending badge and disabled Send/Discard during held operation",
+      "Failed and unknown notices say Review skipped",
+      "Both terminal histories expand with stored recipients/body",
+      "Synthetic completion becomes Sent"
+    ],
+    "finalStoredStates": [
+      "sent",
+      "failed",
+      "unknown"
+    ]
+  },
+  "remainingValidationBlockers": [
+    {
+      "check": "Full iOS simulator build",
+      "result": "failed",
+      "reason": "Installed Xcode 26.6 / simulator SDK 26.5 lacks iOS 27 Siri Messages schemas, IndexedEntityQuery and CSSearchableIndexDescription used by unchanged SiriMessaging.swift. Modified RichMessageCard.swift passes frontend parsing. No full iOS runtime/UI test claimed."
+    },
+    {
+      "check": "Desktop performance budget",
+      "result": "failed",
+      "limitRendererGzipBytes": 4468300,
+      "baselineComponent": {
+        "bytes": 17867324,
+        "gzipBytes": 4470248
+      },
+      "final": {
+        "bytes": 17867352,
+        "gzipBytes": 4470256
+      },
+      "reason": "The previous desktop card source also exceeds the limit; current label change adds 8 gzip bytes. Baseline comparison changes only the card component against the otherwise same working tree. Threshold was not increased."
+    }
+  ],
+  "testFixtureCorrections": [
+    "The fake worker HTTP endpoint now sends acceptance headers before awaiting its gated model work; it previously held dispatch locks artificially.",
+    "The memory-restart test now waits for both fact commit and pending-exchange acknowledgement, instead of racing the second commit. Production memory behavior is unchanged.",
+    "An all-in-one desktop run timed out on a native command fixture; its isolated rerun and fresh-process desktop files pass. The final count uses the isolated files.",
+    "The first expanded temporary stress harness had an incorrect relative worker import. It was corrected before the passing 1088-operation run."
+  ],
+  "limits": [
+    "Finite diagnostic testing cannot establish that every possible issue is absent.",
+    "73 environment/configuration-specific checks remain skipped.",
+    "Full iOS build and desktop budget are not clean; see blockers.",
+    "No real mailbox send, APNs delivery, deployment, production treatment change, or new native Grokbot comparison.",
+    "Legacy no-revision requests are cancellation-fenced but cannot detect snapshot drift. Full freshness still requires current worker/server/computer.",
+    "The revision detects identity/delivery-state changes, not arbitrary factual claims or body-only edits.",
+    "Receipt wording discourages misleading model summaries but is not a semantic classifier or guarantee of model behavior."
+  ]
+}

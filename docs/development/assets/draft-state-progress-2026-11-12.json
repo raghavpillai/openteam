@@ -1,0 +1,769 @@
+{
+  "sourceBase": "d36d7e100831dbd7d4137131e931f73d75de2a68",
+  "sourceFileSHA256": {
+    "apps/computer/src/runtime.ts": "e249ee0b306829f1bd8083ffa142f4d9f574ebab8e4c6aaced2ead8c53a43aa3",
+    "apps/computer/src/runtime/events.ts": "b17a7e40a5ce0e549abccb8e5b4b25dbdaf081bacb7e90531e702531f937df73",
+    "apps/computer/src/runtime/tools.ts": "efa5a3180263edd2da70495dc3e2e6f52dfbd436722020a0e1350cb5459e21df",
+    "apps/computer/src/runtime/types.ts": "8b41ce610d139599516e8c53e3505517c4922ad60f4d0116bd6e237824c48b33",
+    "apps/computer/test/runtime/draft-state.test.ts": "fa6c43e55253d446d39c8f49fc2a0af5804800d6f60b32dd3da8dbfa1b62a2b6",
+    "apps/server/src/services/external-draft-service.ts": "de9520a620ec147d16adad2374e3bf380eb5e252120fbcdbacbfa9ba34e542e7",
+    "apps/server/src/services/internal-tool-service.ts": "8c9272a76e8378fcb7dffb33b2e09abf9896434c3c664a9dffbfbc325a434667",
+    "apps/server/test/external-draft.integration.test.ts": "ff92886c939d28190f59ac0917541da478a497ae5a6844dbf9d552072c868f1e",
+    "apps/worker/src/worker.ts": "872a07b294abbde50445c11b322963f43377834e163d7627cd5f04c2cf40acda",
+    "packages/contracts/src/index.ts": "cdd16d36680985f02f3c317a525c2c96fd06997bd995d6c43ce4b9da7a165fbd",
+    "packages/contracts/src/tool-results.ts": "0a8788d203709da4609a7eea6a65e3e834c423d581aac135b7434abb550e0760",
+    "packages/messaging/src/draft-notifications.ts": "23b694a52ed4cbe976343c5a0c5ec8148f33f4c35baebfb442bd5bdb0c64a6dd",
+    "packages/messaging/src/index.ts": "4e6538abe90644ca1040de95aab6c541f8289da0cb821b0ffcaeb9507d529d8d",
+    "packages/messaging/src/notifications.ts": "dfafb6dc0e19ce1675ea3576ad27fc1731bf3eb139fee8dd7b9a48b68148e37b"
+  },
+  "summary": {
+    "automatedTests": 178,
+    "assertions": 3213,
+    "liveScenarios": 17,
+    "liveCards": 123,
+    "staleRevisionQuestionsDelivered": 0,
+    "streamTrials": 3,
+    "streamCardsPerTrial": 120,
+    "nativeComponentCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "implementation": [
+    "Worker reads current card counts on every dispatch, including recovered turns. Historical published status counts are no longer authoritative for follow-ups.",
+    "A private delivery-state revision travels through the worker/computer/tool-host protocol. Old-snapshot text returns an explicit not-delivered receipt with current counts. The runtime applies the new revision only to the next model response, so already-emitted sibling sends cannot bypass refresh.",
+    "Warnings and useful questions can be retried through normal SendToUser delivery. No semantic text classifier or automatic replacement of model text is used.",
+    "Consecutive treatment batches update the most recent progress row while pending cards remain, until a 10-second idle gap or intervening chat message. Outcome receipts, row edits, queued push body and update events commit together.",
+    "Freshness checks apply to both default control and treatment with current worker/computer versions. Progress row updates remain within the opt-in treatment. Approval and signature behavior is unchanged."
+  ],
+  "streamComparison": {
+    "before": [
+      {
+        "trial": 1,
+        "cards": 120,
+        "turns": 15,
+        "statusMessages": 15,
+        "firstNotificationMs": 350,
+        "streamDurationMs": 4714,
+        "firstPublishedSettledCount": 8,
+        "result": "pass"
+      },
+      {
+        "trial": 2,
+        "cards": 120,
+        "turns": 15,
+        "statusMessages": 15,
+        "firstNotificationMs": 355,
+        "streamDurationMs": 4737,
+        "firstPublishedSettledCount": 9,
+        "result": "pass"
+      },
+      {
+        "trial": 3,
+        "cards": 120,
+        "turns": 16,
+        "statusMessages": 16,
+        "firstNotificationMs": 341,
+        "streamDurationMs": 5371,
+        "firstPublishedSettledCount": 8,
+        "result": "pass"
+      }
+    ],
+    "after": [
+      {
+        "trial": 1,
+        "cards": 120,
+        "turns": 15,
+        "statusMessages": 1,
+        "firstNotificationMs": 355,
+        "streamDurationMs": 4906,
+        "firstPublishedSettledCount": 7,
+        "result": "pass"
+      },
+      {
+        "trial": 2,
+        "cards": 120,
+        "turns": 16,
+        "statusMessages": 1,
+        "firstNotificationMs": 391,
+        "streamDurationMs": 5424,
+        "firstPublishedSettledCount": 9,
+        "result": "pass"
+      },
+      {
+        "trial": 3,
+        "cards": 120,
+        "turns": 16,
+        "statusMessages": 1,
+        "firstNotificationMs": 342,
+        "streamDurationMs": 5375,
+        "firstPublishedSettledCount": 8,
+        "result": "pass"
+      }
+    ]
+  },
+  "liveCases": [
+    {
+      "scenario": "late-active",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "6 email drafts settled: 6 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": false,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "recovery-live",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "6 email drafts settled: 6 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "5 email drafts settled: 5 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "partial",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 1,
+      "uniquePlatformOutcomeReceipts": 1,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "warning",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": true,
+      "settledCards": 1,
+      "uniquePlatformOutcomeReceipts": 1,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-active",
+      "variant": "treatment",
+      "cards": 12,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 11 awaiting review.",
+        "11 email drafts settled: 11 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 12,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": false,
+      "settledCards": 12,
+      "uniquePlatformOutcomeReceipts": 12,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "recovery-live",
+      "variant": "treatment",
+      "cards": 12,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "12 email drafts settled: 12 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 12,
+      "uniquePlatformOutcomeReceipts": 12,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 12,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 11 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "11 email drafts settled: 11 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 12,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 12,
+      "uniquePlatformOutcomeReceipts": 12,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "ui-replay-b",
+      "variant": "control",
+      "cards": 12,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 0,
+      "visibleOutcomeMessages": [
+        "Discarded those drafts.\n\nWould you like revisions to the remaining drafts?",
+        "Discarded EXPANDED-5 through EXPANDED-11.\n\nWould you like revisions to the remaining drafts?",
+        "Discarded the EXPANDED-SAME draft. Nothing left open.",
+        "Discarded EXPANDED-SAME, EXPANDED-3, and EXPANDED-4. Nothing left open."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "Discarded the EXPANDED-12 draft.\n\nWould you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 4,
+            "pending": 8,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Discarded the EXPANDED-12 draft.\n\nWould you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 8,
+            "pending": 4,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Discarded the EXPANDED-SAME draft.\n\nWould you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 12,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": false,
+      "settledCards": 12,
+      "uniquePlatformOutcomeReceipts": 0,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "ui-replay-b",
+      "variant": "treatment",
+      "cards": 12,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 3,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-12\u201d). Nothing was sent for that draft. Drafts in this chat: 11 awaiting review.",
+        "Would you like revisions to the remaining drafts?",
+        "7 email drafts settled: 7 discarded without sending. Drafts in this chat: 4 awaiting review.",
+        "4 email drafts settled: 4 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 8,
+            "pending": 4,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": false,
+      "settledCards": 12,
+      "uniquePlatformOutcomeReceipts": 12,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 3,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "2 email drafts settled: 2 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 3,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 3,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 3,
+      "uniquePlatformOutcomeReceipts": 3,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "partial",
+      "variant": "treatment",
+      "cards": 3,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 1,
+      "uniquePlatformOutcomeReceipts": 1,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "warning",
+      "variant": "treatment",
+      "cards": 3,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 2 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "Would you like revisions to the remaining drafts?"
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": true,
+      "settledCards": 1,
+      "uniquePlatformOutcomeReceipts": 1,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-active",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "5 email drafts settled: 5 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": false,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "5 email drafts settled: 5 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "recovery-live",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "6 email drafts settled: 6 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "5 email drafts settled: 5 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    }
+  ],
+  "computerUse": {
+    "method": "Native Chrome through cua_repl, actual desktop ExternalDraftCard component, isolated real PostgreSQL draft service and worker claim/publish, synthetic transport refuses sends. Fixture polls stored state; this is not a deployed full-app event-stream test.",
+    "checks": [
+      "Invalid recipient disables Send",
+      "Three cards discarded through actual component controls",
+      "Only one progress row as counts change from one pending to none pending",
+      "Discarded card reopens read-only"
+    ],
+    "result": "pass",
+    "finalStatus": [
+      "3 email drafts settled: 3 discarded without sending. Drafts in this chat: none awaiting review."
+    ],
+    "actions": [
+      "cancel",
+      "cancel",
+      "cancel"
+    ]
+  },
+  "validation": {
+    "serverIntegration": "18 pass / 348 assertions, including update rollback, scoped push outbox, cancellation, retries and unrelated chat boundaries",
+    "runtime": "92 pass / 824 assertions in actual Pi-loop, reaction, draft-state and follow-up suites",
+    "focusedContractsAndWorker": "22 pass / 188 assertions",
+    "streams": "3 pass / 753 assertions",
+    "builds": [
+      "server",
+      "worker",
+      "computer"
+    ],
+    "typechecks": [
+      "server",
+      "worker",
+      "computer"
+    ],
+    "toolSurfacesAndAttachments": "43 pass / 1100 assertions",
+    "architecture": "workspace, contract enum, iOS bundle and client duplication checks passed",
+    "negativeControl": "Moving snapshot capture back after context preparation delivered a stale reply and failed the targeted regression, as expected. Restoring capture before context preparation passed all 18 database tests.",
+    "setupCorrections": [
+      "The first component harness could not build standalone Vite-specific PDF imports; the check was run using the actual Vite dependency pipeline instead.",
+      "An existing concurrent-send test assumed lock acquisition order; review edits are now saved before racing sends.",
+      "A heavily parallel check exceeded a 5-second fixture timeout. The 24-card tests now have explicit bounded timeouts. Push assertions are scoped to their test channel, since simultaneous fixtures share the mock push device."
+    ]
+  },
+  "limits": [
+    "Live tests use configured openrouter/x-ai/grok-4.7 at low reasoning and synthetic drafts; queue draining is driven by the harness rather than a deployed PgBoss listener.",
+    "These small diagnostic trials are not statistical reliability estimates.",
+    "The guard detects changes in card identity and delivery state, not arbitrary factual errors in model prose.",
+    "State changes can require an extra model response before useful text is delivered. Existing successful sends retain their receipts; successful actions must not be repeated.",
+    "Older computers omit the optional revision during rolling upgrades and keep previous behavior. Full freshness protection requires current worker, server and computer versions.",
+    "Queued push payloads were verified in PostgreSQL; no real APNs delivery or mailbox send was exercised.",
+    "Production treatment remains at its existing 0% default; no deployment or flag change in this pass."
+  ],
+  "grokbotBaseline": {
+    "method": "Earlier native computer-use observations in this session, three fresh bots. Native model/version not verified; inferred catch-up details are agent self-reports, not server logs.",
+    "cases": [
+      {
+        "cards": 6,
+        "directlyObserved": {
+          "allCardsDiscarded": true,
+          "discardedCardReopenedReadOnly": "TIMING-A-05",
+          "automaticOutcomeReplies": [
+            {
+              "at": "2026-11-13T01:02:48Z",
+              "text": "You discarded TIMING-A-06, so it wasn't sent. Would you like revisions to the remaining drafts?"
+            },
+            {
+              "at": "2026-11-13T01:03:18Z",
+              "text": "You discarded TIMING-A-04, 03, 02, and 01, so none of them were sent. TIMING-A-05 is still waiting for review. Would you like revisions to the remaining drafts?"
+            }
+          ],
+          "firstDiscardAt": "2026-11-13T01:02:45.277Z",
+          "remainingDiscardsAt": [
+            "2026-11-13T01:03:10.438Z",
+            "2026-11-13T01:03:11.248Z",
+            "2026-11-13T01:03:11.712Z",
+            "2026-11-13T01:03:12.447Z",
+            "2026-11-13T01:03:12.931Z"
+          ],
+          "staleReplyObservedAt": "2026-11-13T01:03:30.135Z",
+          "stillLatestAt": "2026-11-13T01:04:25.171Z",
+          "diagnosticUserMessageAt": "2026-11-13T01:04:39Z",
+          "diagnosticReplyAt": "2026-11-13T01:04:46Z",
+          "staleRevisionQuestionAfterAllSettled": true,
+          "explicitWrongPendingCount": 1
+        }
+      },
+      {
+        "cards": 12,
+        "directlyObserved": {
+          "allCardsDiscarded": true,
+          "automaticOutcomeReplies": [
+            {
+              "at": "2026-11-13T01:05:22Z",
+              "text": "TIMING-B-05 was discarded, and nothing went out. Would you like revisions to the remaining drafts?"
+            },
+            {
+              "at": "2026-11-13T01:05:59Z",
+              "text": "TIMING-B-04 was discarded, and nothing went out. Would you like revisions to the remaining drafts?"
+            }
+          ],
+          "allDiscardedBy": "2026-11-13T01:05:57.167Z",
+          "staleReplyObservedAt": "2026-11-13T01:06:59.213Z",
+          "diagnosticUserMessageAt": "2026-11-13T01:07:07Z",
+          "diagnosticReplyAt": "2026-11-13T01:07:14Z",
+          "staleRevisionQuestionAfterAllSettled": true
+        }
+      },
+      {
+        "cards": 3,
+        "directlyObserved": {
+          "allCardsDiscarded": true,
+          "invalidRecipient": "invalid-recipient",
+          "invalidRecipientDisablesSend": true,
+          "validLongTLD": "engineer@example.technology",
+          "validLongTLDEnablesSend": true,
+          "addressRestoredBeforeDiscard": true,
+          "warningDelivered": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "warningAt": "2026-11-13T01:09:30Z",
+          "revisionQuestionDeliveredWhileTwoPending": true,
+          "allDiscardedBy": "2026-11-13T01:10:31.486Z",
+          "latestIncorrectReply": {
+            "at": "2026-11-13T01:10:34Z",
+            "text": "TIMING-C-02 was discarded too, and nothing went out. TIMING-C-01 is the only card still open."
+          },
+          "explicitWrongPendingCount": 1,
+          "diagnosticUserMessageAt": "2026-11-13T01:11:21Z",
+          "diagnosticReplyAt": "2026-11-13T01:11:25Z"
+        }
+      }
+    ]
+  }
+}

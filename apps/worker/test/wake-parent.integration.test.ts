@@ -53,6 +53,11 @@ test.skipIf(!databaseUrl)(
           });
         if (path !== "/v1/turns") return Response.json({ ok: true, quarantined: [] });
         const input = (await request.json()) as ComputerTurnRequest;
+        // Runtime acceptance returns streaming headers before tools or gates run.
+        // Holding headers here would retain dispatch's run lock across StopSubagent.
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new TextEncoder().encode("\n"));
+          void (async () => {
         // The reminder lists every routine's name. Dispatch the fake from this
         // turn's query so an older routine cannot accidentally launch more Tasks.
         const query = /<user_query>\n([\s\S]*?)\n<\/user_query>/.exec(input.content)?.[1] ?? input.content;
@@ -165,7 +170,7 @@ test.skipIf(!databaseUrl)(
           }
         } catch (error) {
           errors.push(error);
-          return Response.json({ error: String(error) }, { status: 500 });
+          controller.error(error); return;
         }
         const events = [
           {
@@ -199,9 +204,10 @@ test.skipIf(!databaseUrl)(
             : []),
           { type: "turn.completed", turnId: input.runId, status: "completed" },
         ];
-        return new Response(events.map((event) => JSON.stringify(event)).join("\n") + "\n", {
-          headers: { "content-type": "application/x-ndjson" },
-        });
+        controller.enqueue(new TextEncoder().encode(events.map((event) => JSON.stringify(event)).join("\n") + "\n"));
+        controller.close();
+          })().catch(error => { errors.push(error); controller.error(error); });
+        } }), { headers: { "content-type": "application/x-ndjson" } });
       },
     });
     const keys = [

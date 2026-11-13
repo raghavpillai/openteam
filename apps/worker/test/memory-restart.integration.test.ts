@@ -239,10 +239,17 @@ for (const crashAt of ["before-memory", "inference", "inference-natural-expiry",
           .toMatchObject({ ownerId: naturalLease.ownerId, expiresAt: naturalLease.expiresAt });
         expect((await app.prisma.run.findUniqueOrThrow({ where: { id: pending.id } })).memoryReviewPending).toBe(true);
       }
-      await until(async () =>
-        (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, supersededAt: null } })) === 1 &&
-        (await app!.prisma.run.count({ where: { id: pending.id, memoryReviewPending: false } })) === 1
-      );
+      await until(async () => {
+        // Facts commit before acknowledgement; wait for both durable review
+        // intent and held exchanges to clear before inspecting the result.
+        const [facts, acknowledged, bot] = await Promise.all([
+          app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, supersededAt: null } }),
+          app!.prisma.run.count({ where: { id: pending.id, memoryReviewPending: false } }),
+          app!.prisma.bot.findUniqueOrThrow({ where: { id: botId } }),
+        ]);
+        return facts === 1 && acknowledged === 1 &&
+          Array.isArray(bot.pendingMemoryExchanges) && bot.pendingMemoryExchanges.length === 0;
+      });
       if (naturalLease) {
         expect(Date.now() - recoveryStartedAt).toBeGreaterThanOrEqual(naturalLease.remainingMs - 1_000);
         expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(1);

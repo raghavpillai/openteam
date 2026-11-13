@@ -555,6 +555,22 @@ async function draftReviewScenario(theme: string, width: number) {
     send().click(); await pause(150);
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
     check(document.querySelector("details .draft-body")?.textContent === remote.body, "Mutation receipt lost canonical history before its live update arrived");
+    // A remote discard is authoritative even when both in-flight HTTP responses fail.
+    card = { ...card, id: card.id + "-late-failure", metadata: { type: "external-draft", cardState: "pending", draft: { ...draft, verification } } };
+    draw(); await pause(100);
+    let rejectSend!: (error: Error) => void;
+    const sending = new Promise<never>((_resolve, reject) => { rejectSend = reject; });
+    Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
+      if (action === "send") return sending;
+      throw new Error("Synthetic refresh offline");
+    } });
+    send().click(); await pause(50);
+    card = { ...card, metadata: { ...(card.metadata as object), cardState: "dismissed" } };
+    draw(); await pause(100);
+    rejectSend(new Error("Synthetic send response lost")); await pause(150);
+    check(!document.querySelector("form") && !!document.querySelector("details"), "Late send failure reopened a remotely discarded card");
+    check(!document.querySelector('[role="alert"]'), "Late send failure left an error on a confirmed discard");
+    check(![...document.querySelectorAll('button')].some(button => ["Send", "Check delivery"].includes(button.textContent ?? "")), "Late send failure restored discarded-card controls");
     reports.push({ theme, width, scenario: "draft forwarding, revision, attachment preview, validation and discard history", calls });
   } finally { window.fetch = oldFetch; render(null); await pause(50); }
 }

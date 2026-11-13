@@ -1469,6 +1469,8 @@ export class RuntimeTools {
           tool,
           arguments: args,
           callId,
+          ...(tool === SEND_TO_USER_TOOL.name && active.draftStateRevision
+            ? { draftStateRevision: active.draftStateRevision } : {}),
         }),
         signal: requestSignal,
         // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
@@ -1484,6 +1486,11 @@ export class RuntimeTools {
       throw error;
     }
     if (!response.ok) throw controlPlaneError(response.status, body);
+    if (tool === SEND_TO_USER_TOOL.name && body && typeof body === "object" &&
+        (body as Record<string, unknown>).reason === "draft_state_changed" &&
+        typeof (body as Record<string, unknown>).draft_state_revision === "string") {
+      active.pendingDraftStateRevision = (body as { draft_state_revision: string }).draft_state_revision;
+    }
     if (
       body &&
       typeof body === "object" &&

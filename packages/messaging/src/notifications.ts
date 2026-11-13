@@ -144,6 +144,18 @@ export const publishMessageNotification = async (
   });
 };
 
+/** Refresh a progress message's pending alert without allocating another activity or push. */
+export const refreshMessageNotification = async (
+  tx: Prisma.TransactionClient,
+  message: Parameters<typeof publishMessageNotification>[1]
+): Promise<void> => {
+  const body = truncateNotificationText(messageNotificationBody(message));
+  await tx.$executeRaw`UPDATE "ChannelNotification" SET "payload" = "payload" || jsonb_build_object('body', ${body}::text)
+    WHERE "key" = ${`message:${message.id}`} AND "channelId" = ${message.channelId}::uuid`;
+  await tx.$executeRaw`UPDATE "OutboxDelivery" SET "payload" = "payload" || jsonb_build_object('body', ${body}::text)
+    WHERE "topic" = 'push.notification' AND "status" = 'pending' AND "payload"->>'messageId' = ${message.id}`;
+};
+
 /** The same plain-text line the chat list shows: first line of text, "Sent 1 image", a card's prompt. */
 export const messageNotificationBody = (message: {
   id: string;

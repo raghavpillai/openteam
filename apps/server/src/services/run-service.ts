@@ -20,6 +20,9 @@ export class RunService {
       if (run.status === "queued") {
         const completedAt = new Date();
         const cancelled = await this.prisma.$transaction(async (tx) => {
+          // Claim updates inbox then run; serialize with it before taking either row.
+          // Otherwise queued cancellation can hold the run while each waits on the other's inbox/run.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${run!.botId}`}))`;
           const updated = await tx.run.updateMany({
             where: { id: runId, status: "queued" },
             data: {

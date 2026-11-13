@@ -633,3 +633,269 @@ describe("inference provider service", () => {
     }
   });
 });
+
+const inputMetadataCases: Array<
+  [string, Record<string, unknown>, Array<"text" | "image"> | undefined]
+> = [
+  ["nested vision", { modalities: { input: ["text", "image"] } }, ["text", "image"]],
+  ["nested text", { modalities: { input: ["text"] } }, ["text"]],
+  ["nested image only", { modalities: { input: ["image"] } }, ["text", "image"]],
+  ["nested empty", { modalities: { input: [] } }, ["text"]],
+  ["flat vision", { input_modalities: ["text", "image"] }, ["text", "image"]],
+  [
+    "flat takes precedence",
+    { input_modalities: ["text"], modalities: { input: ["image"] } },
+    ["text"],
+  ],
+  [
+    "invalid flat falls back",
+    { input_modalities: null, modalities: { input: ["image"] } },
+    ["text", "image"],
+  ],
+  ["extra modalities", { modalities: { input: ["audio", "image", "video"] } }, ["text", "image"]],
+  ["mixed values", { modalities: { input: [null, {}, "image"] } }, ["text", "image"]],
+  ["audio alone", { modalities: { input: ["audio"] } }, ["text"]],
+  ["missing metadata", {}, undefined],
+  ["output alone", { modalities: { output: ["image"] } }, undefined],
+  ["null metadata", { modalities: null }, undefined],
+  ["array metadata", { modalities: ["image"] }, undefined],
+  ["string input", { modalities: { input: "image" } }, undefined],
+];
+
+for (const previous of [undefined, ["text"], ["text", "image"]] as const) {
+  for (const [label, metadata, advertised] of inputMetadataCases) {
+    test(`input metadata: ${label}, previous=${JSON.stringify(previous)}`, async () => {
+      const f = await fixture({
+        magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
+      });
+      f.connected.clear();
+      f.connected.add("magpie");
+      if (previous)
+        f.runtime.registerProvider("magpie", {
+          models: [{ ...model("magpie", "vision-chat"), input: [...previous] }],
+        } as never);
+      f.state.body = { data: [{ id: "vision-chat", ...metadata }] };
+      const catalog = await f.registry.catalog("magpie");
+      expect(catalog.models[0]?.input).toEqual(advertised ?? (previous ? [...previous] : ["text"]));
+    });
+  }
+}
+
+test("accepts Magpie's nested input modalities for custom providers", async () => {
+  const f = await fixture({
+    magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
+  });
+  f.connected.clear();
+  f.connected.add("magpie");
+  f.state.body = {
+    data: [
+      {
+        id: "auto/deepseek-v4.1-flash",
+        modalities: { input: ["text", "image"] },
+        supported_parameters: ["tools"],
+      },
+    ],
+  };
+
+  const catalog = await f.registry.catalog("magpie");
+
+  expect(catalog.models[0]).toMatchObject({
+    id: "auto/deepseek-v4.1-flash",
+    input: ["text", "image"],
+  });
+
+  f.runtime.registerProvider("magpie", {
+    models: [{ ...catalog.models[0]!, input: ["text"] }],
+  } as never);
+  await f.registry.verify({
+    providerId: "magpie",
+    modelId: "auto/deepseek-v4.1-flash",
+    reasoning: "off",
+  });
+  const saved = JSON.parse(await readFile(f.path, "utf8")) as {
+    providers: { magpie: { models: Array<{ input: string[] }> } };
+  };
+  expect(saved.providers.magpie.models[0]?.input).toEqual(["text", "image"]);
+});
+
+test("a late OpenRouter verification cannot raise a concurrently refreshed prompt cap", async () => {
+  const saved = {
+    ...model("openrouter", "vendor/chat"),
+    api: "openai-completions",
+    reasoning: false,
+    contextWindow: 16000,
+    baseUrl: "https://openrouter.test/api/v1",
+  };
+  const f = await fixture({
+    openrouter: { baseUrl: saved.baseUrl, api: "openai-completions", models: [saved] },
+  });
+  f.connected.clear();
+  f.connected.add("openrouter");
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let endpoints = 0;
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
+    raw: URL | string | Request,
+    init: RequestInit
+  ) => {
+    const url = new URL(String(raw));
+    if (url.pathname.endsWith("/endpoints")) {
+      const older = ++endpoints === 1;
+      if (older) {
+        entered.resolve();
+        await release.promise;
+      }
+      return Response.json({ data: { endpoints: [{ max_prompt_tokens: older ? 12000 : 4000 }] } });
+    }
+    f.state.body = {
+      data: [
+        {
+          id: saved.id,
+          context_length: 16000,
+          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+          supported_parameters: ["tools"],
+        },
+      ],
+    };
+    return f.fetcher(raw, init);
+  }) as typeof fetch);
+  const verifying = registry.verify({
+    providerId: "openrouter",
+    modelId: saved.id,
+    reasoning: "off",
+  });
+  try {
+    await entered.promise;
+    await registry.refreshPromptCaps();
+    expect(
+      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
+    ).toBe(4000);
+    release.resolve();
+    await verifying;
+    expect(
+      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
+    ).toBe(4000);
+  } finally {
+    release.resolve();
+    await verifying;
+  }
+});
+
+for (const change of ["URL", "remove model", "remove provider"] as const) {
+  test(`pending OpenRouter prompt-cap refresh preserves an in-flight ${change} edit`, async () => {
+    const saved = {
+      ...model("openrouter", "vendor/chat"),
+      api: "openai-completions",
+      contextWindow: 16000,
+      baseUrl: "https://openrouter.test/api/v1",
+    };
+    const f = await fixture({ openrouter: { baseUrl: saved.baseUrl, models: [saved] } });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async () => {
+      entered.resolve();
+      await release.promise;
+      return Response.json({ data: { endpoints: [{ max_prompt_tokens: 4000 }] } });
+    }) as unknown as typeof fetch);
+    const operation = registry.refreshPromptCaps();
+    try {
+      await entered.promise;
+      const edited = JSON.parse(await readFile(f.path, "utf8"));
+      if (change === "URL")
+        edited.providers.openrouter.models[0].baseUrl = "https://new-deployment.test/api/v1";
+      if (change === "remove model") edited.providers.openrouter.models = [];
+      if (change === "remove provider") delete edited.providers.openrouter;
+      const bytes = JSON.stringify(edited);
+      await writeFile(f.path, bytes);
+      release.resolve();
+      await operation;
+      expect(await readFile(f.path, "utf8")).toBe(bytes);
+    } finally {
+      release.resolve();
+      await operation;
+    }
+  });
+}
+
+test("late OpenRouter verification preserves concurrently refreshed pricing tiers", async () => {
+  const saved = {
+    ...model("openrouter", "vendor/chat"),
+    api: "openai-completions",
+    reasoning: false,
+    contextWindow: 16000,
+    baseUrl: "https://openrouter.test/api/v1",
+    cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  };
+  const f = await fixture({
+    openrouter: { baseUrl: saved.baseUrl, api: "openai-completions", models: [saved] },
+  });
+  f.connected.clear();
+  f.connected.add("openrouter");
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let endpoints = 0;
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
+    raw: URL | string | Request,
+    init: RequestInit
+  ) => {
+    if (new URL(String(raw)).pathname.endsWith("/endpoints")) {
+      const older = ++endpoints === 1;
+      if (older) {
+        entered.resolve();
+        await release.promise;
+      }
+      return Response.json({
+        data: {
+          endpoints: [
+            {
+              pricing: {
+                prompt: "0.000002",
+                completion: "0.00001",
+                input_cache_read: "0.0000001",
+                input_cache_write: "0.0000025",
+                overrides: older ? undefined : [{ min_prompt_tokens: 8000, prompt: "0.000006" }],
+              },
+            },
+          ],
+        },
+      });
+    }
+    f.state.body = {
+      data: [
+        {
+          id: saved.id,
+          context_length: 16000,
+          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+          supported_parameters: ["tools"],
+          pricing: {
+            prompt: "0.000002",
+            completion: "0.00001",
+            input_cache_read: "0.0000001",
+            input_cache_write: "0.0000025",
+          },
+        },
+      ],
+    };
+    return f.fetcher(raw, init);
+  }) as typeof fetch);
+  const verifying = registry.verify({
+    providerId: "openrouter",
+    modelId: saved.id,
+    reasoning: "off",
+  });
+  try {
+    await entered.promise;
+    await registry.refreshPromptCaps();
+    const current = JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].cost;
+    expect(current.input).toBe(2);
+    expect(current.tiers).toHaveLength(1);
+    release.resolve();
+    await verifying;
+    expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].cost).toEqual(
+      current
+    );
+  } finally {
+    release.resolve();
+    await verifying;
+  }
+});

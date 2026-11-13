@@ -3,7 +3,7 @@
   "key": "google-maps",
   "version": "1.0.0",
   "name": "Google Maps",
-  "description": "Google Maps places with ratings, reviews, photos, prices and live opening hours, plus walking, cycling and driving routes. Bots show them on maps in chat. Uses your own Google Maps Platform API key.",
+  "description": "Find places with Google ratings, reviews, photos and live opening hours, and plan walking, cycling and driving routes, using your own Google Maps Platform API key.",
   "publisher": "OpenTeam",
   "category": "Productivity",
   "featured": true,

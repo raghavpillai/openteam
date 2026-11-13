@@ -229,6 +229,16 @@ export function isOpenAt(week: Week, now: Date, timeZone: string): boolean {
   return week[(day + 6) % 7]!.some(([, close]) => close > 1440 && minute < close - 1440);
 }
 
+/** Today's hours for a card, in the place's time zone: "Today 11:00–22:30", "Closed today". */
+export function todaysHours(week: Week, now: Date, timeZone: string): string {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(now);
+  const spans = week[["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday)]!;
+  if (!spans.length) return "Closed today";
+  if (spans.length === 1 && spans[0]![0] === 0 && spans[0]![1] >= 1440) return "Open 24 hours today";
+  const time = (minutes: number) => `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return `Today ${spans.map(([open, close]) => `${time(open)}–${time(close)}`).join(", ")}`;
+}
+
 export function validTimeZone(zone: string) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone });
@@ -325,14 +335,21 @@ export async function searchNearbyPlaces(
       ...(line ? { address: line } : {}),
       ...(category ? { category } : {}),
       ...(website ? { websiteUrl: website } : {}),
-      ...(hours ? { hours } : {}),
+      // Today's hours when they can be read; otherwise OSM's own opening_hours text.
+      ...(hours ? { hours: week && input.timeZone ? todaysHours(week, now, input.timeZone) : hours } : {}),
       ...(openNow !== undefined ? { isOpen: openNow } : {}),
       provider: "OpenStreetMap",
       sourceUrl: `https://www.openstreetmap.org/${kind}/${row.osm_id}`,
       attribution: ATTRIBUTION,
     };
     const phone = clean(tags.phone ?? tags["contact:phone"], 100);
-    return [{ place, distanceMeters: distance, ...(phone ? { phone } : {}), ...(openNow !== undefined ? { openNow } : {}) }];
+    return [{
+      place,
+      distanceMeters: distance,
+      ...(phone ? { phone } : {}),
+      ...(hours ? { openingHours: hours } : {}), // the whole week, in OSM's syntax
+      ...(openNow !== undefined ? { openNow } : {}),
+    }];
   });
   results.sort((a, b) => a.distanceMeters - b.distanceMeters);
   return {

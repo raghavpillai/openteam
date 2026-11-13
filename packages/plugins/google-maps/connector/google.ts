@@ -192,12 +192,16 @@ const https = (value: unknown) => {
 };
 export const placeId = (id: string) => id.replace(/^google:/, "").replace(/^places\//, "");
 
-/** Today's line of Google's weekday hours, in the place's own time zone. */
+/** Today's hours from Google's weekday lines ("Thursday: 11:30 AM – 10:00 PM"), in the place's
+ * own time zone, written for a card: "Today 11:30 AM – 10:00 PM" or "Closed today". */
 export function todaysHours(lines: unknown, utcOffsetMinutes: unknown, now = new Date()): string | undefined {
   if (!Array.isArray(lines) || lines.length !== 7 || typeof utcOffsetMinutes !== "number") return undefined;
   const local = new Date(now.getTime() + utcOffsetMinutes * 60_000);
-  const index = (local.getUTCDay() + 6) % 7; // Google lists Monday first.
-  return clean(lines[index], 300);
+  const line = clean(lines[(local.getUTCDay() + 6) % 7], 300); // Google lists Monday first.
+  if (!line) return undefined;
+  const times = line.replace(/^[^:]+:\s*/, "");
+  if (/^closed$/i.test(times)) return "Closed today";
+  return /^open 24 hours$/i.test(times) ? "Open 24 hours today" : `Today ${times}`;
 }
 
 /** The first photo as a keyless image link, with its required author credit. */

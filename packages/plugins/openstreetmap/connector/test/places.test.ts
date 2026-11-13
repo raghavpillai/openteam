@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { httpsUrl, isOpenAt, parseOpeningHours, resetPlaceState, routePlaces, searchNearbyPlaces, searchPlaces, type Fetcher } from "../places";
+import { httpsUrl, isOpenAt, parseOpeningHours, resetPlaceState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../places";
 import { callTool, tools } from "../server";
 
 beforeEach(resetPlaceState);
@@ -50,6 +50,11 @@ test("opening_hours: common rules parse, later rules replace days, unsupported s
   expect(isOpenAt(week, new Date("2026-11-12T21:30:00Z"), zone)).toBe(false);
   expect(isOpenAt(week, new Date("2026-11-15T06:00:00Z"), zone)).toBe(true);
   expect(isOpenAt(parseOpeningHours("24/7")!, new Date(), "Asia/Tokyo")).toBe(true);
+  // Cards show today's hours in the place's zone.
+  expect(todaysHours(week, new Date("2026-11-12T20:00:00Z"), zone)).toBe("Today 11:30–16:00, 17:00–22:00");
+  expect(todaysHours(week, new Date("2026-11-14T20:00:00Z"), zone)).toBe("Today 12:00–02:00");
+  expect(todaysHours(parseOpeningHours("Mo-Sa 10:00-20:00; Su off")!, new Date("2026-11-15T20:00:00Z"), zone)).toBe("Closed today");
+  expect(todaysHours(parseOpeningHours("24/7")!, new Date(), zone)).toBe("Open 24 hours today");
 });
 
 test("websites become public HTTPS links or are dropped", () => {
@@ -85,11 +90,12 @@ test("nearby places stay within the radius, sorted by distance, with OSM details
   expect(result.results[0]).toEqual({
     distanceMeters: 44,
     phone: "+1 212 555 0100",
+    openingHours: "Mo-Fr 17:00-22:00",
     openNow: false,
     place: {
       id: "osm:node:1", name: "Near Thai", latitude: 40.751, longitude: -73.9935,
       address: "1 8th Avenue, New York, New York, 10001", category: "thai, noodle restaurant",
-      websiteUrl: "https://nearthai.example/", hours: "Mo-Fr 17:00-22:00", isOpen: false,
+      websiteUrl: "https://nearthai.example/", hours: "Today 17:00–22:00", isOpen: false,
       provider: "OpenStreetMap", sourceUrl: "https://www.openstreetmap.org/node/1", attribution: "© OpenStreetMap contributors",
     },
   });

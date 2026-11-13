@@ -51,11 +51,9 @@ test("the key goes in a header, never a URL, and a missing key is explained with
   expect(missing.content[0]!.text).toContain("account settings");
   expect(calls).toHaveLength(0);
   process.env.GOOGLE_MAPS_API_KEY = KEY;
-  await searchPlaces({ query: "Penn Station", photos: true }, recorder(() => ({ places: [place("ChIJpenn000000", "Penn Station", 40.7506)] })).fetcher);
   const { calls: photoCalls, fetcher: f2 } = recorder((call) =>
     call.url.includes("/media") ? { photoUri: "https://lh3.googleusercontent.com/p/abc=s1200" } : { places: [place("ChIJpenn000000", "Penn Station", 40.7506)] }
   );
-  resetGoogleState();
   const result = await searchPlaces({ query: "Penn Station" }, f2, undefined, NOW);
   for (const call of photoCalls) {
     expect(call.url).not.toContain(KEY);
@@ -80,7 +78,7 @@ test("search returns presentation places with Google ratings, today's hours, pri
       id: "google:ChIJzoob00000", name: "Zoob Zib", latitude: 40.7544, longitude: -73.9935,
       address: "460 9th Ave, New York, NY 10018, USA", category: "Thai Restaurant · $$",
       imageUrl: "https://lh3.googleusercontent.com/p/abc=s1200", websiteUrl: "https://zoobzib.example/",
-      rating: 4.5, reviewCount: 1234, isOpen: true, hours: "Thursday: 11:30 AM – 9:30 PM",
+      rating: 4.5, reviewCount: 1234, isOpen: true, hours: "Today 11:30 AM – 9:30 PM",
       provider: "Google Maps", sourceUrl: "https://maps.google.com/?cid=ChIJzoob00000", attribution: "Google Maps · Photo: Dana",
     },
     phone: "+1 212-555-0100",
@@ -88,9 +86,11 @@ test("search returns presentation places with Google ratings, today's hours, pri
   });
 });
 
-test("today's hours follow the place's offset, including across midnight UTC", () => {
-  expect(todaysHours(week, -300, new Date("2026-11-13T03:00:00Z"))).toBe("Thursday: 11:30 AM – 9:30 PM"); // 22:00 Thursday in New York
-  expect(todaysHours(week, 540, new Date("2026-11-12T20:00:00Z"))).toBe("Friday: 11:00 AM – 11:00 PM"); // 05:00 Friday in Tokyo
+test("today's hours follow the place's offset across midnight UTC, and read naturally", () => {
+  expect(todaysHours(week, -300, new Date("2026-11-13T03:00:00Z"))).toBe("Today 11:30 AM – 9:30 PM"); // 22:00 Thursday in New York
+  expect(todaysHours(week, 540, new Date("2026-11-12T20:00:00Z"))).toBe("Today 11:00 AM – 11:00 PM"); // 05:00 Friday in Tokyo
+  expect(todaysHours(week, 0, new Date("2026-11-15T12:00:00Z"))).toBe("Closed today"); // Sunday
+  expect(todaysHours(Array(7).fill("Monday: Open 24 hours"), 0, NOW)).toBe("Open 24 hours today");
   expect(todaysHours(week.slice(1), 0)).toBeUndefined();
 });
 
@@ -216,6 +216,8 @@ test("checkKey proves both APIs with the cheapest requests and reports each one 
   const offline = (async () => { throw new TypeError("fetch failed"); }) as unknown as Fetcher;
   const down = await checkKey(offline);
   expect(down.places).toMatchObject({ ok: false, reason: "UNREACHABLE", definitive: false });
+  // Bots and the Test a tool panel reach the same check through the tool.
+  expect(JSON.parse((await callTool("CheckGoogleMapsKey", {}, both.fetcher)).content[0]!.text).ok).toBe(true);
   delete process.env.GOOGLE_MAPS_API_KEY;
   await expect(checkKey(both.fetcher)).rejects.toThrow("No Google Maps API key");
   process.env.GOOGLE_MAPS_API_KEY = "${GOOGLE_MAPS_API_KEY}";
@@ -240,10 +242,4 @@ test("connecting fails with the fix when the key or an API is misconfigured, but
   expect(good.calls).toHaveLength(2); // verified once (both APIs), then reused for 30 minutes
   await listTools(good.fetcher, t0 + 31 * 60_000);
   expect(good.calls).toHaveLength(4);
-});
-
-test("the check tool is callable like any other tool", async () => {
-  const good = recorder((call) => (call.url.includes("routes") ? { routes: [{ distanceMeters: 1 }] } : { places: [{ id: "x" }] }));
-  const result = await callTool("CheckGoogleMapsKey", {}, good.fetcher);
-  expect(JSON.parse(result.content[0]!.text).ok).toBe(true);
 });

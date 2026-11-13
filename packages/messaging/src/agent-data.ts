@@ -3364,7 +3364,7 @@ export class AgentDataStore {
 
   private async runMemoryExtraction(
     botId: string,
-    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string; ownerId: string; signal: AbortSignal; reviewRevision?: number }
+    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string; ownerId: string; signal: AbortSignal; reviewRevision?: number; requirePendingRun?: boolean }
   ): Promise<boolean> {
     const observed = await this.currentMemoryRevision(this.prisma, botId);
     if (observed === null || (input.reviewRevision !== undefined && observed !== input.reviewRevision)) return true;
@@ -3389,6 +3389,7 @@ export class AgentDataStore {
         renderTurnMemoryDate(new Date(input.occurredAt), input.timeZone)
       ),
     });
+    input.signal.throwIfAborted();
     if (!response) return true;
     const extraction = parseExtractedMemories(response, existing);
     if (!extraction.additions.length && !extraction.removals.length && !extraction.replacements?.length) return true;
@@ -3409,6 +3410,9 @@ export class AgentDataStore {
       await lockAgentLifecycle(tx, botId);
       if (!await this.ownsMemoryReview(tx, botId, input.ownerId)) return false;
       await lockMemoryNamespace(tx, memoryNamespace(botId, "agent"));
+      input.signal.throwIfAborted();
+      if (input.requirePendingRun && !await tx.run.count({ where: { id: input.runId, botId, status: "completed", memoryReviewPending: true,
+        inboxEvents: { some: { status: "completed" } } } })) return true;
       const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true, memoryRevision: true } });
       // Addition-only output can be stale too: it may have been generated before
       // the fact existed and then restore a value a newer correction retired.
@@ -3461,11 +3465,13 @@ export class AgentDataStore {
       const updatedBot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { memoryRevision: true } });
       // Keep the checked shared component fixed: a peer can correct shared
       // memory concurrently, and its invalidation must not be rebased away.
+      input.signal.throwIfAborted();
       const resultingRevision = updatedBot.memoryRevision + (shared?.revision ?? 0);
       if (resultingRevision !== observed) {
         await tx.run.updateMany({ where: { botId, memoryReviewPending: true, memoryReviewRevision: observed },
           data: { memoryReviewRevision: resultingRevision } });
       }
+      input.signal.throwIfAborted();
       return true;
     });
   }
@@ -3480,14 +3486,16 @@ export class AgentDataStore {
     return rows.length > 0;
   }
 
-  private async claimMemoryReview(botId: string, ownerId: string, runId?: string): Promise<"claimed" | "busy" | "complete"> {
+  private async claimMemoryReview(botId: string, ownerId: string, runId?: string, requirePendingRun = false): Promise<"claimed" | "busy" | "complete"> {
     return this.prisma.$transaction(async (tx) => {
       await lockAgentLifecycle(tx, botId);
       if (!await tx.bot.count({ where: { id: botId, status: "active" } })) return "complete";
       // A worker may have read a pending Run before another owner acknowledged
       // it. Recheck under the same lifecycle lock used by atomic acknowledgement.
       if (runId && UUID_FOLDER.test(runId)) {
-        const run = await tx.run.findFirst({ where: { id: runId, botId }, select: { memoryReviewPending: true } });
+        const run = await tx.run.findFirst({ where: { id: runId, botId }, select: { memoryReviewPending: true, status: true,
+          inboxEvents: { where: { status: "completed" }, take: 1, select: { id: true } } } });
+        if (requirePendingRun && (!run || run.status !== "completed" || !run.inboxEvents.length)) return "complete";
         if (run && !run.memoryReviewPending) return "complete";
         if (run) {
           const oldest = await tx.run.findFirst({
@@ -3554,14 +3562,14 @@ export class AgentDataStore {
   /** True acknowledges review (or an intentional skip); false preserves durable work for retry. */
   async recordTurnMemory(
     botId: string,
-    input: { user: string; assistant: string; hidden?: boolean; occurredAt?: number; runId?: string; timeZone?: string }
+    input: { user: string; assistant: string; hidden?: boolean; occurredAt?: number; runId?: string; timeZone?: string; requirePendingRun?: boolean }
   ): Promise<boolean> {
     botId = canonicalMemoryBotId(botId);
     if (!this.memoryInference || input.hidden || !input.user.trim() || !isMemorableExchange(input.user)) return true;
     const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { status: true } });
     if (!bot || bot.status !== "active") return true;
     const ownerId = randomUUID();
-    const claim = await this.claimMemoryReview(botId, ownerId, input.runId);
+    const claim = await this.claimMemoryReview(botId, ownerId, input.runId, input.requirePendingRun);
     if (claim !== "claimed") return claim === "complete";
     const abort = new AbortController();
     let heartbeat: Promise<void> | undefined;
@@ -3583,7 +3591,7 @@ export class AgentDataStore {
       if (held === null) return false;
       const reviewed = await this.runMemoryExtraction(botId, {
         exchange: held.latest, earlier: held.earlier, ownerId, signal: abort.signal,
-        reviewRevision: held.latest.memoryRevision,
+        reviewRevision: held.latest.memoryRevision, requirePendingRun: input.requirePendingRun,
         occurredAt: held.latest.occurredAt ?? exchange.occurredAt,
         timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)), runId: held.latest.id === exchange.id ? input.runId : held.latest.id,
       });

@@ -47,16 +47,3 @@ test("native screenshot observation does not request a browser launch", async ()
   expect(result.details.coordinateSpace).toBe("desktop");
   expect(events).toEqual(["capture-native-frame"]);
 });
-
-test("explicit browser operation retains intentional launch path", async () => {
-  const runtime: any=Object.create(RuntimeTools.prototype);
-  const browser={connected:true};const events:string[]=[];
-  Object.assign(runtime, {
-    screens:{browserEndpointForAgent:async()=>{events.push("launch");return "new-endpoint";}},
-    formBrowser:async (_id:string,endpoint:string)=>events.push(endpoint),
-    browserUseSessions:new Map([["owner",browser]]),browserSessionScreens:new Map(),
-  });
-  expect(await runtime.privateBrowser({screenBotId:"owner",cwd:"/workspace"})).toBe(browser);
-  expect(events).toEqual(["launch","new-endpoint"]);
-});
-

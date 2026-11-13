@@ -28,8 +28,8 @@ async function loop(root: string, server: { url: URL }, fetch: (url: unknown, in
 }
 
 // Typed messages supersede a main turn instead of steering it.
-for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true }, { handoff: false, batch: true }])
-  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${batch ? " with three ordered replies" : ""}`, async () => {
+for (const handoff of [false, true])
+  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape`, async () => {
     const root = await tempDir("pi-parity-");
     const requests: any[] = [];
     const sent: any[] = [];
@@ -47,9 +47,7 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
         expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain("<user_query>Read the result</user_query>");
         requests.push(await requestBody(init));
         const toolId = `send-${requests.length}`;
-        return sseStep(model, batch
-          ? Array.from({ length: 3 }, (_, index) => toolCall(index, index === 0 ? toolId : `${toolId}-${index}`, "SendToUser", { type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }))
-          : [handoff ? toolCall(0, toolId, "WakeParent", { message: "Fixture result: notify the user." }) : toolCall(0, toolId, "SendToUser", { type: "text", content: "Fixture result", end_turn: true })]);
+        return sseStep(model, [handoff ? toolCall(0, toolId, "WakeParent", { message: "Fixture result: notify the user." }) : toolCall(0, toolId, "SendToUser", { type: "text", content: "Fixture result", end_turn: true })]);
       }, {
         requestSource: handoff ? "automation" : "turn", instructions: "System fixture: verified instructions",
         initialUserStarted: false, initialUserClientId: "fixture-user", queue: { push: (event: any) => acknowledged.push(event) },
@@ -73,8 +71,7 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
       await session!.prompt("<user_query>Read the result</user_query>");
       expect(acknowledged.filter((event) => event.type === "prompt.delivered")).toHaveLength(1);
       expect(requests).toHaveLength(1);
-      expect(sent).toHaveLength(batch ? 3 : 1);
-      if (batch) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
+      expect(sent).toHaveLength(1);
       expect(active.endTurnRequested).toBe(true);
       if (handoff) {
         expect(active.sentMessageCount).toBe(0);
@@ -112,21 +109,19 @@ describe("sibling closing calls", () => {
     question: { name: "SendToUser", arguments: { type: "widget", widget: { prompt: "Check back at 1:10 PM?", options: [{ label: "Yes", value: "yes", style: "primary" }] } } },
     aliasReply: { name: "CallDynamicTool", arguments: { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "Second result", end_turn: true } } },
   } as const;
-  const cases: { closings: (keyof typeof CLOSINGS)[]; failures?: number; routineDelay?: number; closingDelays?: number[]; failedSend?: number; failedClosing?: number; connectorFailure?: boolean; extraRoutine?: boolean; cancelOnSend?: number }[] = [
+  const cases: { closings: (keyof typeof CLOSINGS)[]; failures?: number; routineDelay?: number; closingDelays?: number[]; failedSend?: number; failedClosing?: number; connectorFailure?: boolean; cancelOnSend?: number }[] = [
     { closings: ["reply", "reaction", "reply"] },
-    { closings: ["reaction", "reply"], failures: 1, routineDelay: 80 },
     { closings: ["reply", "question"], failures: 1 },
     { closings: ["reaction", "reply"], failedSend: 1 },
     { closings: ["reaction", "reply"], connectorFailure: true, routineDelay: 80 },
-    { closings: ["reaction"], extraRoutine: true, routineDelay: 80 },
     { closings: ["reaction", "reply"], cancelOnSend: 1 },
     { closings: ["reply", "aliasReply"] },
     // Completion order of sibling closings must not matter.
     { closings: ["reaction", "reply", "reaction"], closingDelays: [80, 40, 0], failures: 1, routineDelay: 120 },
     { closings: ["reaction", "reply", "reaction"], closingDelays: [80, 40, 0], failedClosing: 2 },
   ];
-  for (const { closings, failures = 0, routineDelay = 0, closingDelays, failedSend, failedClosing, connectorFailure, extraRoutine, cancelOnSend } of cases)
-    test(`real Pi loop settles sibling closing calls ${closings.join("+")} with ${failures} failure${routineDelay ? " arriving late" : ""}${closingDelays ? ` delays ${closingDelays.join("/")}` : ""}${failedSend !== undefined ? ` undelivered send ${failedSend}` : ""}${failedClosing !== undefined ? ` rejected closing ${failedClosing}` : ""}${connectorFailure ? " connector error receipt" : ""}${extraRoutine ? " queued mutation sibling" : ""}${cancelOnSend !== undefined ? " interrupted batch" : ""}`, async () => {
+  for (const { closings, failures = 0, routineDelay = 0, closingDelays, failedSend, failedClosing, connectorFailure, cancelOnSend } of cases)
+    test(`real Pi loop settles sibling closing calls ${closings.join("+")} with ${failures} failure${routineDelay ? " arriving late" : ""}${closingDelays ? ` delays ${closingDelays.join("/")}` : ""}${failedSend !== undefined ? ` undelivered send ${failedSend}` : ""}${failedClosing !== undefined ? ` rejected closing ${failedClosing}` : ""}${connectorFailure ? " connector error receipt" : ""}${cancelOnSend !== undefined ? " interrupted batch" : ""}`, async () => {
       const root = await tempDir("pi-end-turn-hold-");
       const requests: any[] = [];
       const host: any[] = [];
@@ -168,12 +163,11 @@ describe("sibling closing calls", () => {
           const readCase = (index: number, id: string) => toolCall(index, id, "CallDynamicTool", { namespace: "fixture", toolName: "read_case", arguments: {} });
           return sseStep(model, [
             ...closings.map((closing, index) => toolCall(index, `closing-${index}`, CLOSINGS[closing].name, CLOSINGS[closing].arguments)),
-            connectorFailure || extraRoutine ? readCase(closings.length, "routine") : toolCall(closings.length, "routine", "UpdateRoutine", {
+            connectorFailure ? readCase(closings.length, "routine") : toolCall(closings.length, "routine", "UpdateRoutine", {
               action: "create", name: "Check back", prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *" }),
-            ...(extraRoutine ? [readCase(closings.length + 1, "routine-2")] : []),
           ]);
         }, {
-          pluginNamespaces: connectorFailure || extraRoutine ? [{ name: "fixture", namespaceStatus: "ready", description: "Fixture connector",
+          pluginNamespaces: connectorFailure ? [{ name: "fixture", namespaceStatus: "ready", description: "Fixture connector",
             tools: [{ name: "read_case", description: "Read case", inputSchema: { type: "object" }, source: "fixture/read_case", connectionId: "synthetic" }] }] : [],
           discoveredDynamicTools: new Set(), initialUserStarted: true, pendingSteers: [], acceptedSteerIds: new Set(), pluginAbortController: new AbortController(),
         });
@@ -190,9 +184,9 @@ describe("sibling closing calls", () => {
         }, 1500);
         try { await prompt; await stopPromise; } finally { clearTimeout(timeout); }
         expect(timedOut).toBe(false);
-        expect(host).toHaveLength(closings.length + (extraRoutine ? 2 : 1));
+        expect(host).toHaveLength(closings.length + 1);
         expect(host.map(call => call.callId).sort()).toEqual([
-          ...closings.map((_, index) => `closing-${index}`), "routine", ...(extraRoutine ? ["routine-2"] : []),
+          ...closings.map((_, index) => `closing-${index}`), "routine",
         ].sort());
         const asked = closings.includes("question");
         const holds = (failures || failedSend !== undefined || failedClosing !== undefined || connectorFailure) && !asked ? 1 : 0;

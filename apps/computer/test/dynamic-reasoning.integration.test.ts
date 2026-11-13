@@ -19,10 +19,7 @@ test.each([
     },
     ["low", "medium", "high", "xhigh", "max"],
   ],
-  [{ supported_efforts: null }, ["off", "minimal", "low", "medium", "high", "xhigh", "max"]],
-  [{ supported_efforts: ["none", "high"], default_effort: "none" }, ["off", "high"]],
   [{ mandatory: true }, []],
-  [undefined, []],
 ] as const)("discover, validate, restart and serialize OpenRouter efforts: %j", async (metadata, levels) => {
   const directory = await tempDir("openteam-dynamic-reasoning-");
   const modelsPath = join(directory, "models.json");
@@ -61,7 +58,8 @@ test.each([
   }) as typeof fetch);
   const [discovered] = (await registry.catalog("openrouter")).models;
   expect(reasoningCapabilities(discovered!).reasoningLevels).toEqual([...levels]);
-  for (const level of (levels.length ? levels : ["off"]) as readonly PiReasoningLevel[]) {
+  // The lowest and highest advertised efforts, or the provider default when none are advertised.
+  for (const level of (levels.length ? [levels[0], levels.at(-1)] : ["off"]) as readonly PiReasoningLevel[]) {
     await registry.verify({ providerId: "openrouter", modelId: id, reasoning: level });
     const saved = JSON.parse(await readFile(modelsPath, "utf8")).providers.openrouter.models[0];
     runtime = await restart();

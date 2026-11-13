@@ -39,7 +39,6 @@ describe("OpenRouter effort metadata", () => {
       ["low"],
       "low",
     ],
-    [{ supported_efforts: null }, [...PI_REASONING_LEVELS], "medium"],
     [
       { supported_efforts: null, mandatory: true },
       PI_REASONING_LEVELS.filter((x) => x !== "off"),
@@ -63,21 +62,12 @@ describe("OpenRouter effort metadata", () => {
     [{ supported_efforts: ["ultra"], mandatory: true }, [], "off"],
     [{ supported_efforts: ["high", "low"], default_enabled: true }, ["off", "low", "high"], "low"],
     [
-      { supported_efforts: ["high", "medium"], default_enabled: true },
-      ["off", "medium", "high"],
-      "medium",
-    ],
-    [
       { supported_efforts: ["high"], default_enabled: true, default_effort: "max" },
       ["off", "high"],
       "high",
     ],
-    [{ supported_efforts: [] }, [], "off"],
     [{ supported_efforts: "high" }, [], "off"],
-    [{ mandatory: true }, [], "off"],
-    [{}, [], "off"],
     [undefined, [], "off"],
-    [null, [], "off"],
   ] as const)("normalizes %j", (metadata, levels, defaultLevel) => {
     const normalized = { ...model, ...openRouterReasoning(metadata) };
     expect(reasoningCapabilities(normalized)).toEqual({

@@ -332,6 +332,7 @@ export class ExternalDraftService {
           return fail("Draft card not found");
         if (metadata.cardState && metadata.cardState !== "pending")
           return { message, claimed: false };
+        await lockDraftNotifications(tx, message.senderBotId, message.channelId);
         const stored = metadataRecord(metadata.draft);
         const draft =
           input.edits === undefined
@@ -481,6 +482,7 @@ export class ExternalDraftService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
+      await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
       const { sendStartedAt: _started, sentUnder: _sentUnder, ...metadata } = metadataRecord(message.metadata);
       const updated = await tx.channelMessage.update({
         where: { id: messageId },
@@ -555,7 +557,7 @@ export class ExternalDraftService {
         return { accepted: false, message: toChannelMessageView(message), runId: null };
       const outcomeId = createHash("sha256").update(`${messageId}:${state}`).digest("hex");
       const treatment = wake && draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent) === "treatment";
-      if (treatment) await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
+      await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
       const stored = metadataRecord(metadata.draft);
       const draft = parseExternalDraft(stored);
       // Carry identity in the wake itself, even if another turn already consumed ambient outcomes.

@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@openteam/db";
 import { nextMessageAddress } from "./message-address";
-import { publishMessageNotification } from "./notifications";
+import { publishMessageNotification, refreshMessageNotification } from "./notifications";
 import type { AgentSendToUserInput } from "@openteam/contracts";
 
 export const DRAFT_NOTIFICATION_COLLECTION_MS = 300;
+export const DRAFT_NOTIFICATION_PROGRESS_IDLE_MS = 10_000;
 export type DraftNotificationVariant = "control" | "treatment";
 type DB = Prisma.TransactionClient;
 const object = (value: unknown): Record<string, any> =>
@@ -68,6 +69,34 @@ export async function prepareDraftNotification(tx: DB, wake: { id: string; botId
 }
 
 type Counts = Record<"sent" | "dismissed" | "pending" | "sending" | "unknown" | "failed", number>;
+/** Current card identities and delivery states for a draft-outcome turn. */
+export async function draftReplySnapshot(tx: DB, context: Pick<DraftNotificationContext, "botId" | "channelId">) {
+  const cards = await tx.$queryRaw<Array<{ id: string; state: string; outcomeId: string | null }>>`SELECT
+    "id", coalesce("metadata"->>'cardState', 'pending') AS "state", "metadata"->>'outcomeId' AS "outcomeId"
+    FROM "ChannelMessage" WHERE "channelId" = ${context.channelId}::uuid AND "senderBotId" = ${context.botId}::uuid
+      AND "metadata"->>'type' = 'external-draft' ORDER BY "id"`;
+  const totals = counts([]);
+  for (const card of cards) totals[Object.hasOwn(totals, card.state) ? card.state as keyof Counts : "failed"]++;
+  return { revision: createHash("sha256").update(JSON.stringify(cards)).digest("hex"), counts: totals, cards };
+}
+
+/** Never report success for text based on a superseded snapshot. The next response can retry useful information. */
+export async function guardDraftReply(tx: DB, context: DraftNotificationContext & { draftStateRevision?: string }) {
+  if (!context.draftStateRevision) return null; // Older computers remain compatible during a rolling update.
+  const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response",
+    run: { channelId: context.channelId, status: { in: ["queued", "running"] } } }, select: { id: true } });
+  if (!event) return null;
+  await lockDraftNotifications(tx, context.botId, context.channelId);
+  const current = await draftReplySnapshot(tx, context);
+  if (current.revision === context.draftStateRevision) return null;
+  return {
+    sent: false, delivery_failed: true, retryable: true, reason: "draft_state_changed",
+    draft_state_revision: current.revision, draft_state: current.counts,
+    cards: current.cards.slice(0, 50),
+    note: "Nothing was delivered. Draft state changed while you were working. Reconsider this reply using these current counts; do not ask about remaining drafts when pending is zero. In your next response, actually call SendToUser again for any still-useful warning, question, or other requested information. Finish silently if only an obsolete draft question remains. Do not repeat successful draft or connector actions. Other sends already emitted in this response use the old snapshot too.",
+  };
+}
+
 function counts(rows: Outcome[]): Counts {
   const result: Counts = { sent: 0, dismissed: 0, pending: 0, sending: 0, unknown: 0, failed: 0 };
   for (const row of rows) {
@@ -106,17 +135,17 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
   const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response" }, include: { run: true } });
   if (!event || !isTreatmentDraftWake(event) || event.run.channelId !== context.channelId) return null;
   const quiet = { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
-  if (!["queued", "running"].includes(event.run.status)) return { result: quiet, created: false };
+  if (!["queued", "running"].includes(event.run.status)) return { result: quiet, created: false, updated: false };
   const channel = await tx.channel.findFirst({ where: { id: context.channelId, kind: "bot_dm", archivedAt: null,
     members: { some: { botId: context.botId, bot: { status: "active" } } } } });
-  if (!channel) return { result: quiet, created: false };
+  if (!channel) return { result: quiet, created: false, updated: false };
   await lockDraftNotifications(tx, context.botId, context.channelId);
   const clientId = `draft-notification:${context.runId}`;
   const existing = await tx.channelMessage.findUnique({ where: { channelId_clientId: { channelId: context.channelId, clientId } } });
   const acknowledgement = (message: { id: string; metadata: Prisma.JsonValue }, duplicate: boolean) => ({
     acknowledgement: { sent: true, message_id: message.id, message_address: object(message.metadata).address, duplicate }, interruptRunId: null,
   });
-  if (existing) return { result: acknowledgement(existing, true), created: false };
+  if (existing) return { result: acknowledgement(existing, true), created: false, updated: false };
   const receipt = object(object(event.payload).draftNotification);
   const outcomeIds = Array.isArray(receipt.outcomeIds) ? receipt.outcomeIds.filter((id): id is string => typeof id === "string") : [];
   // A replay with a new run/tool-call ID must not consume a later, unrelated outcome.
@@ -128,30 +157,57 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
     if (!covered.some(row => !object(object(row.metadata).draftNotification).messageId)) {
       const id = covered.map(row => object(object(row.metadata).draftNotification).messageId).find(id => typeof id === "string");
       const previous = id ? await tx.channelMessage.findFirst({ where: { id, channelId: context.channelId, senderBotId: context.botId } }) : null;
-      return { result: previous ? acknowledgement(previous, true) : quiet, created: false };
+      return { result: previous ? acknowledgement(previous, true) : quiet, created: false, updated: false };
     }
   }
   const rows = await pendingDraftNotifications(tx, context.botId, context.channelId);
-  if (!rows.length) return { result: quiet, created: false };
+  if (!rows.length) return { result: quiet, created: false, updated: false };
   const totals = await tx.$queryRaw<Array<{ state: string; count: bigint }>>`SELECT
     coalesce("metadata"->>'cardState', 'pending') AS "state", count(*) AS "count" FROM "ChannelMessage"
     WHERE "channelId" = ${context.channelId}::uuid AND "senderBotId" = ${context.botId}::uuid
       AND "metadata"->>'type' = 'external-draft' GROUP BY 1`;
-  const batchCounts = counts([]), deltaCounts = counts(rows);
+  const batchCounts = counts([]);
   for (const row of totals) batchCounts[Object.hasOwn(batchCounts, row.state) ? row.state as keyof Counts : "failed"] += Number(row.count);
-  const address = await nextMessageAddress(tx, context.channelId, "agent");
-  const message = await tx.channelMessage.create({ data: {
-    channelId: context.channelId, sender: "agent", senderBotId: context.botId, sourceRunId: context.runId,
-    clientId, content: summary(rows, batchCounts), metadata: { kind: "send-message", type: "text", address, timeZone: context.timeZone ?? object(event.payload).timeZone ?? "UTC",
-      draftOutcomeNotification: { variant: "treatment", outcomeIds: rows.map(row => String(object(row.metadata).outcomeId)), counts: batchCounts, changed: deltaCounts } },
-  } });
+  // Consecutive progress stays in one row. A new chat message or an idle pause starts a new acknowledgement.
+  const last = await tx.channelMessage.findFirst({ where: { channelId: context.channelId }, orderBy: { sequence: "desc" } });
+  const prior = object(object(last?.metadata).draftOutcomeNotification);
+  const progressAt = Date.parse(String(prior.updatedAt ?? last?.createdAt.toISOString() ?? ""));
+  const reuse = last?.senderBotId === context.botId && prior.variant === "treatment" &&
+    (object(prior.counts).pending > 0 || object(prior.counts).sending > 0) &&
+    Date.now() >= progressAt && Date.now() - progressAt <= DRAFT_NOTIFICATION_PROGRESS_IDLE_MS &&
+    Array.isArray(prior.outcomeIds) && prior.outcomeIds.length > 0;
+  let combined = rows;
+  if (reuse && prior.outcomeIds.length) {
+    const previousRows = await tx.$queryRaw<Outcome[]>`SELECT "id", jsonb_build_object(
+      'outcomeId', "metadata"->'outcomeId', 'cardState', "metadata"->'cardState', 'draft', jsonb_build_object(
+        'platform', "metadata"#>'{draft,platform}', 'to', "metadata"#>'{draft,to}',
+        'target', "metadata"#>'{draft,target}', 'subject', "metadata"#>'{draft,subject}')) AS "metadata"
+      FROM "ChannelMessage" WHERE "channelId" = ${context.channelId}::uuid AND "senderBotId" = ${context.botId}::uuid
+        AND "metadata"->>'outcomeId' IN (${Prisma.join(prior.outcomeIds)}) ORDER BY "sequence"`;
+    combined = [...previousRows, ...rows];
+  }
   const now = new Date().toISOString();
+  const notification = { variant: "treatment", outcomeIds: combined.map(row => String(object(row.metadata).outcomeId)),
+    counts: batchCounts, changed: counts(combined), updatedAt: now };
+  const message = reuse ? await tx.channelMessage.update({ where: { id: last.id }, data: {
+    content: summary(combined, batchCounts), metadata: { ...object(last.metadata), draftOutcomeNotification: notification },
+  } }) : await tx.channelMessage.create({ data: {
+    channelId: context.channelId, sender: "agent", senderBotId: context.botId, sourceRunId: context.runId,
+    clientId, content: summary(rows, batchCounts), metadata: { kind: "send-message", type: "text",
+      address: await nextMessageAddress(tx, context.channelId, "agent"), timeZone: context.timeZone ?? object(event.payload).timeZone ?? "UTC",
+      draftOutcomeNotification: notification },
+  } });
   await tx.$executeRaw`UPDATE "ChannelMessage" SET "metadata" = "metadata" || jsonb_build_object(
     'draftNotification', coalesce("metadata"->'draftNotification', '{}'::jsonb) || jsonb_build_object('messageId', ${message.id}::text, 'notifiedAt', ${now}::text))
     WHERE "id" IN (${Prisma.join(rows.map(row => Prisma.sql`${row.id}::uuid`))})`;
-  await publishMessageNotification(tx, message);
+  if (reuse) {
+    await refreshMessageNotification(tx, message);
+    await tx.event.create({ data: { topic: "channel.message.updated", entityId: message.id,
+      payload: { channelId: context.channelId, messageId: message.id } } });
+  } else await publishMessageNotification(tx, message);
   await tx.channel.update({ where: { id: context.channelId }, data: { updatedAt: new Date() } });
   await tx.event.create({ data: { topic: "draft.notification.published", entityId: message.id,
-    payload: { variant: "treatment", botId: context.botId, channelId: context.channelId, outcomeCount: rows.length, runId: context.runId } } });
-  return { result: acknowledgement(message, false), created: true };
+    payload: { variant: "treatment", botId: context.botId, channelId: context.channelId, outcomeCount: rows.length,
+      runId: context.runId, updated: Boolean(reuse) } } });
+  return { result: acknowledgement(message, false), created: !reuse, updated: Boolean(reuse) };
 }

@@ -64,6 +64,14 @@ The worker reads the variant recorded in the durable wake, so it does not indepe
 
 No deployment configuration was changed, and no live traffic has been enrolled. Before enabling live A/B traffic, review status wording, correct delivery of requested follow-ups, and redundant model confirmations. Evaluate duplicate notifications, unreported outcome age, notification latency, and follow-up quality per cohort. A wider rollout should preserve correctness under real interruptions and late arrivals; the deterministic tests do not establish a live-model quality lift.
 
+## Fresh state and progress updates
+
+Further native Grokbot tests reproduced stale pending-state replies in three fresh bots after all 21 review cards were discarded. OpenBot's follow-up now reads current counts on dispatch and carries a private delivery-state revision through the worker, computer, and tool host. If state changes during inference, text is explicitly not delivered; the next model response receives fresh counts and can retry useful warnings or questions. Already-emitted sibling sends retain the old revision, and successful actions must not be repeated. This checks changing state rather than classifying or replacing model prose.
+
+Consecutive treatment outcomes now update the latest progress message while cards remain pending. A new chat message, completed batch, or 10-second idle gap starts a new acknowledgement. Per-card receipts, edits, notification history, and queued push content commit together. Three controlled 120-card streams produced one progress row each, compared with 15–16 rows before, while the first acknowledgement still arrived in roughly 350ms. The computer-use check of the real desktop card component also verified invalid-recipient Send disabling, read-only reopening, and three discards updating one status row.
+
+The [follow-up evidence](assets/draft-state-progress-2026-11-12.json) and [comparison](assets/draft-state-progress-2026-11-12.html) distinguish live-model, database, and component checks. The freshness protocol is optional for rolling compatibility: protection requires current worker, server, and computer versions. It does not validate arbitrary factual claims by the model. Live tests use an isolated database, synthetic transport, and harness-driven queue draining; no actual mailbox send, APNs delivery, deployment, or production flag change was performed. Progress updates remain in the opt-in treatment.
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

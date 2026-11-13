@@ -1573,6 +1573,12 @@ export class WakeWorker {
         if (!payload.content || !payload.clientId) continue;
         missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
       }
+      // Recovered turns must use current card state, not the old published acknowledgement.
+      const draftSnapshot = claimed.inboxType === "draft.response"
+        ? await this.messaging.draftReplySnapshot(claimed) : null;
+      let draftContent = claimed.content;
+      if (draftStatusText) draftContent += `\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Those counts are historical; use the current draft state below for any outstanding request.`;
+      if (draftSnapshot) draftContent += `\n\nCurrent draft state at dispatch: ${JSON.stringify(draftSnapshot.counts)}. Do not ask about revisions when pending is zero. If SendToUser reports draft_state_changed, nothing was delivered: reconsider with its fresh counts and retry any still-useful warning, question, or other requested information. Finish silently when only an obsolete draft question remains.`;
       const instructions = platformPrompt.instructions;
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.
@@ -1603,9 +1609,8 @@ export class WakeWorker {
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
-        }, draftStatusText
-          ? `${claimed.content}\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Use its remaining-review count when completing any outstanding user request.`
-          : claimed.content),
+        }, draftContent),
+        ...(draftSnapshot ? { draftStateRevision: draftSnapshot.revision } : {}),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,

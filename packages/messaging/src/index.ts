@@ -4,7 +4,7 @@ export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-a
 export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed, requestIsStopped } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
 import { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
-import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications, isExactDraftNotificationEcho } from "./draft-notifications";
+import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications, isExactDraftNotificationEcho, draftReplySnapshot, guardDraftReply } from "./draft-notifications";
 export { draftNotificationVariant, isTreatmentDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
 export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { parsePresentation, presentationFallback } from "@openteam/contracts/presentation";
@@ -758,6 +758,7 @@ export interface ToolContext {
   deliveryId: string | null;
   origin: WakeInput["origin"];
   callId: string;
+  draftStateRevision?: string;
   timeZone?: string | null;
   replyToMessageId: string | null;
   isFork: boolean;
@@ -1106,9 +1107,16 @@ export class AgentMessaging {
     });
   }
 
+  async draftReplySnapshot(context: Pick<ToolContext, "botId" | "channelId">) {
+    return this.prisma.$transaction(async tx => {
+      await lockDraftNotifications(tx, context.botId, context.channelId);
+      return draftReplySnapshot(tx, context);
+    });
+  }
+
   private async notifyDraftOutcomes(tx: Prisma.TransactionClient, context: Pick<ToolContext, "botId" | "channelId" | "runId" | "timeZone">) {
     const notification = await publishDraftNotification(tx, context);
-    if (notification?.created) await this.scheduleTranscriptProjection(tx, [context.botId]);
+    if (notification?.created || notification?.updated) await this.scheduleTranscriptProjection(tx, [context.botId]);
     return notification?.result ?? null;
   }
 
@@ -2712,7 +2720,10 @@ export class AgentMessaging {
             const published = await tx.channelMessage.findFirst({ where: {
               id: String(notification.acknowledgement.message_id), channelId: context.channelId, senderBotId: context.botId,
             } });
-            if (published && isExactDraftNotificationEcho(input, published.content)) return notification;
+            if (published && isExactDraftNotificationEcho(input, published.content)) {
+              const stale = await guardDraftReply(tx, context);
+              return stale ? { acknowledgement: stale, interruptRunId: null } : notification;
+            }
           }
         }
       }
@@ -2776,6 +2787,10 @@ export class AgentMessaging {
           },
           interruptRunId: null,
         };
+      }
+      if (input.type === "text") {
+        const stale = await guardDraftReply(tx, context);
+        if (stale) return { acknowledgement: stale, interruptRunId: null };
       }
       const awaitingUser = await tx.channelMessage.findFirst({
         where: {

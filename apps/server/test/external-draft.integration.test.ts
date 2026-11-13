@@ -59,6 +59,8 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   expect((await f.card(card.message_id)).cardState).toBeUndefined();
   await expect(Effect.runPromise(service.mutate(card.message_id, { action: 'send', edits: { providerIdentifier: 'different' } }))).rejects.toThrow('cannot be changed');
   await expect(Effect.runPromise(service.mutate(card.message_id, { action: 'send', edits: { from: 'stranger@example.com' } }))).rejects.toThrow('verified addresses');
+  // Both racing sends must see the saved review edits; lock acquisition order is unspecified.
+  await Effect.runPromise(service.mutate(card.message_id, { action: 'save', edits: { from: 'alias@example.com', body: 'It is $1,250. Thanks!', to: ['ann@example.com'], cc: ['bob@example.com'] } }));
   await Promise.all([
    Effect.runPromise(service.mutate(card.message_id, { action: 'send', edits: { from: 'alias@example.com', body: 'It is $1,250. Thanks!', to: ['ann@example.com'], cc: ['bob@example.com'], subject: 'Re: Invoice question' } })),
    Effect.runPromise(service.mutate(card.message_id, { action: 'send' })),
@@ -266,11 +268,11 @@ test('Grokbot comparison: same-subject discard followed by reverse-order burst r
   await f.ready(); const second = await f.worker().claim(f.botId);
   for (const id of f.ids.slice(1)) expect(second.content).toContain(`Draft card ID: ${id}`);
   await f.messaging.flushDraftNotification(f.context(second.runId));
-  await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: (await f.visible())[1]!.content });
+  await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: (await f.visible())[0]!.content });
   const messages = await f.visible();
-  expect(messages).toHaveLength(2);
-  expect(messages[1]!.content).toContain('5 discarded without sending');
-  expect(messages[1]!.content).toContain('none awaiting review');
+  expect(messages).toHaveLength(1);
+  expect(messages[0]!.content).toContain('6 discarded without sending');
+  expect(messages[0]!.content).toContain('none awaiting review');
   const covered = messages.flatMap(message => (message.metadata as any).draftOutcomeNotification.outcomeIds);
   expect(covered).toHaveLength(6); expect(new Set(covered).size).toBe(6);
   for (const id of f.ids) {
@@ -304,7 +306,9 @@ test('draft discard executes through worker dispatch and projection without a fo
    if (variant === 'treatment') {
     expect(input.draftStatusAcknowledged).toBe(true);
     expect(input.content).toContain((await f.visible())[0]!.content);
-    expect(input.content).toContain('remaining-review count');
+    expect(input.content).toContain('Current draft state at dispatch:');
+    expect(input.content).toContain('\"pending\":0');
+    expect(input.draftStateRevision).toMatch(/^[a-f0-9]{64}$/);
    }
    else expect(input.draftStatusAcknowledged).toBeUndefined();
    // A model can finish an acknowledged event silently; ordinary turns still owe a reply.
@@ -395,7 +399,7 @@ test('A/B: 24 completions, lost response, new call IDs and a replayed run', asyn
     queuedWakes: queued.length, visibleMessages: messages.length, duplicateMessages: messages.length - 1, mockedMailSends: f.mailSends() });
   } finally { await f.cleanup(); }
  }
-});
+}, 15_000);
 
 test('A/B: interruption after context delivery, worker restart and a deliberately silent model', async () => {
  if (!databaseUrl) return;
@@ -517,23 +521,25 @@ test('treatment notification, receipts and push outbox roll back together; cance
  const pushUser = crypto.randomUUID();
  let deviceId: string | undefined;
  try {
-  await f.settle(await f.create(0), 'cancel'); await f.ready(); const claimed = await f.worker().claim(f.botId);
+  const firstCard = await f.create(0), secondCard = await f.create(1);
+  await f.settle(firstCard, 'cancel'); await f.ready(); const claimed = await f.worker().claim(f.botId);
   const context = { ...f.context(claimed.runId), timeZone: 'UTC' };
   await f.prisma.user.create({ data: { id: pushUser, name: 'Draft notification AB fixture', email: `${pushUser}@openteam.invalid` } });
   const session = await f.prisma.session.create({ data: { id: crypto.randomUUID(), userId: pushUser, token: crypto.randomUUID(), expiresAt: new Date(Date.now() + 60_000) } });
   const device = await f.prisma.pushDevice.create({ data: { installationId: crypto.randomUUID(), platform: 'ios',
    pushToken: crypto.randomUUID(), authSessionId: session.id, authRequired: process.env.OPENTEAM_AUTH_MODE?.trim().toLowerCase() !== 'disabled' } });
   deviceId = device.id;
+  const deliveryWhere = { target: device.id, payload: { path: ['channelId'], equals: context.channelId } };
   const originalNotifications = await f.prisma.channelNotification.count({ where: { channelId: context.channelId } });
   await expect(f.prisma.$transaction(async tx => {
    expect((await publishDraftNotification(tx, context))?.created).toBe(true);
-   expect(await tx.outboxDelivery.count({ where: { target: device.id } })).toBe(1);
+   expect(await tx.outboxDelivery.count({ where: deliveryWhere })).toBe(1);
    throw new Error('injected crash before commit');
   })).rejects.toThrow('injected crash before commit');
   expect(await f.visible()).toHaveLength(0);
   expect((await f.card(f.ids[0]!)).draftNotification.messageId).toBeUndefined();
   expect(await f.prisma.channelNotification.count({ where: { channelId: context.channelId } })).toBe(originalNotifications);
-  expect(await f.prisma.outboxDelivery.count({ where: { target: device.id } })).toBe(0);
+  expect(await f.prisma.outboxDelivery.count({ where: deliveryWhere })).toBe(0);
   expect(await f.messaging.flushDraftNotification({ ...context, channelId: crypto.randomUUID() })).toBeNull();
   await f.prisma.run.update({ where: { id: claimed.runId }, data: { status: 'cancelled' } });
   expect((await f.messaging.flushDraftNotification(context))?.acknowledgement).toMatchObject({ sent: false, silent: true });
@@ -542,9 +548,30 @@ test('treatment notification, receipts and push outbox roll back together; cance
   await Promise.all(Array.from({ length: 3 }, () => f.messaging.flushDraftNotification(context)));
   expect(await f.visible()).toHaveLength(1);
   expect(await f.prisma.channelNotification.count({ where: { channelId: context.channelId } })).toBe(originalNotifications + 1);
-  expect(await f.prisma.outboxDelivery.count({ where: { target: device.id } })).toBe(1);
+  expect(await f.prisma.outboxDelivery.count({ where: deliveryWhere })).toBe(1);
+  // Updating progress is atomic with its new receipts and the already queued push body.
+  const oldProgress = (await f.visible())[0]!;
+  await f.release(claimed); await f.settle(secondCard, 'cancel'); await f.ready();
+  const secondClaim = await f.worker().claim(f.botId);
+  await expect(f.prisma.$transaction(async tx => {
+   expect((await publishDraftNotification(tx, f.context(secondClaim.runId)))?.updated).toBe(true);
+   throw new Error('crash while updating progress');
+  })).rejects.toThrow('crash while updating progress');
+  expect((await f.visible())[0]!.content).toBe(oldProgress.content);
+  expect((await f.card(secondCard)).draftNotification.messageId).toBeUndefined();
+  expect(((await f.prisma.outboxDelivery.findFirstOrThrow({ where: deliveryWhere })).payload as any).body).toBe(oldProgress.content);
+  await f.messaging.flushDraftNotification(f.context(secondClaim.runId));
+  const updatedProgress = (await f.visible())[0]!;
+  expect(updatedProgress.id).toBe(oldProgress.id);
+  expect(updatedProgress.content).toContain('2 discarded without sending');
+  expect(updatedProgress.content).toContain('none awaiting review');
+  expect(((await f.prisma.outboxDelivery.findFirstOrThrow({ where: deliveryWhere })).payload as any).body).toBe(updatedProgress.content);
+  expect(((await f.prisma.channelNotification.findUniqueOrThrow({ where: { key: `message:${updatedProgress.id}` } })).payload as any).body).toBe(updatedProgress.content);
+  expect(await f.prisma.outboxDelivery.count({ where: deliveryWhere })).toBe(1);
+  expect(await f.prisma.channelNotification.count({ where: { channelId: context.channelId } })).toBe(originalNotifications + 1);
+  await f.release(secondClaim);
   // A real user reply is not replaced or deduplicated by the notification experiment.
-  await f.release(claimed);
+
   const replay = await f.prisma.$transaction(async tx => {
    const wake = await f.messaging.enqueueWake(tx, { botId: f.botId, channelId: context.channelId, origin: 'user', type: 'draft.response',
     content: '[SAND_HIDDEN_PROMPT]Already reported outcome.', clientId: `already-${crypto.randomUUID()}`, priority: 400, wrapUserContent: false });
@@ -666,4 +693,92 @@ test('a draft made in a room becomes a card in the 1:1 chat', async () => {
    `Draft email from me@example.com to ann@example.com is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is (id: ${card.message_id}). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`
   );
  } finally { await f.prisma.channel.deleteMany({ where: { id: room.id } }); await f.cleanup(); }
+});
+
+test('a changed draft snapshot rejects old questions and sibling warnings with truthful retryable receipts', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  try {
+   for (let i = 0; i < 3; i++) await f.create(i);
+   await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const claimed = await f.worker().claim(f.botId);
+   await f.messaging.flushDraftNotification(f.context(claimed.runId));
+   const snapshot = await f.messaging.draftReplySnapshot(f.context(claimed.runId));
+   expect(snapshot.counts.pending).toBe(2);
+   const old = { ...f.context(claimed.runId, 'old-question'), draftStateRevision: snapshot.revision };
+   await Promise.all(f.ids.slice(1).map(id => f.settle(id, 'cancel')));
+   const before = (await f.visible()).length;
+   const rejected = await f.messaging.sendVisible(old, { type: 'text', content: 'Would you like revisions to the remaining drafts?', end_turn: true });
+   expect(rejected.acknowledgement).toMatchObject({ sent: false, delivery_failed: true, retryable: true, reason: 'draft_state_changed', draft_state: { pending: 0 } });
+   expect(await f.visible()).toHaveLength(before);
+   // An already-emitted sibling does not acquire the fresh state merely because another call was rejected.
+   const warning = 'Disk check failed. Please pause large downloads.';
+   const sibling = await f.messaging.sendVisible({ ...old, callId: 'old-warning' }, { type: 'text', content: warning });
+   expect(sibling.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed' });
+   const fresh = { ...f.context(claimed.runId, 'fresh-warning'), draftStateRevision: (rejected.acknowledgement as any).draft_state_revision };
+   const delivered = await f.messaging.sendVisible(fresh, { type: 'text', content: warning });
+   expect(delivered.acknowledgement).toMatchObject({ sent: true });
+   const message = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: (delivered.acknowledgement as any).message_id } });
+   expect(message.content).toBe(warning);
+   // A lost success response keeps its own receipt even after the state changes again.
+   await f.create(3);
+   expect((await f.messaging.sendVisible(fresh, { type: 'text', content: warning })).acknowledgement)
+    .toMatchObject({ sent: true, duplicate: true, message_id: message.id });
+   expect((await f.visible()).filter(m => m.content.includes('Would you like revisions'))).toHaveLength(0);
+   expect(f.mailSends()).toBe(0);
+  } finally { await f.cleanup(); }
+ }
+});
+
+test('consecutive draft batches update one progress row and preserve per-outcome receipts across retries', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  for (let i = 0; i < 24; i++) await f.create(i);
+  const notificationsBefore = await f.prisma.channelNotification.count({ where: { channelId: f.context('').channelId } });
+  let progressId = '';
+  for (let offset = 0; offset < 24; offset += 3) {
+   await Promise.all(f.ids.slice(offset, offset + 3).map(id => f.settle(id, 'cancel'))); await f.ready();
+   const claimed = await f.worker().claim(f.botId);
+   const receipt = await f.messaging.flushDraftNotification(f.context(claimed.runId));
+   const id = String((receipt?.acknowledgement as any).message_id);
+   if (!progressId) progressId = id;
+   expect(id).toBe(progressId);
+   expect((await f.messaging.flushDraftNotification(f.context(claimed.runId)))?.acknowledgement).toMatchObject({ message_id: id, duplicate: true });
+   await f.release(claimed);
+  }
+  const messages = await f.visible(); expect(messages).toHaveLength(1);
+  expect(messages[0]!.content).toContain('24 discarded without sending');
+  expect(messages[0]!.content).toContain('none awaiting review');
+  const covered = (messages[0]!.metadata as any).draftOutcomeNotification.outcomeIds;
+  expect(covered.length).toBe(24); expect(new Set(covered).size).toBe(24);
+  for (const id of f.ids) expect((await f.card(id)).draftNotification.messageId).toBe(progressId);
+  expect(await f.prisma.channelNotification.count({ where: { channelId: f.context('').channelId } })).toBe(notificationsBefore + 1);
+  expect(await f.prisma.event.count({ where: { topic: 'channel.message.updated', entityId: progressId } })).toBe(7);
+  expect(await f.worker().claim(f.botId)).toBeNull(); expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+}, 15_000);
+
+test('progress acknowledgements start a fresh row after other chat messages, idle pauses, or a completed batch', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  for (let i = 0; i < 5; i++) await f.create(i);
+  const publish = async (id: string) => {
+   await f.settle(id, 'cancel'); await f.ready(); const claimed = await f.worker().claim(f.botId);
+   await f.messaging.flushDraftNotification(f.context(claimed.runId)); await f.release(claimed);
+  };
+  await publish(f.ids[0]!);
+  await f.prisma.channelMessage.create({ data: { channelId: f.context('').channelId, sender: 'user', content: 'A new request.', clientId: crypto.randomUUID() } });
+  await publish(f.ids[1]!); expect(await f.visible()).toHaveLength(2);
+  const last = (await f.visible()).at(-1)!;
+  await f.prisma.channelMessage.update({ where: { id: last.id }, data: { metadata: { ...(last.metadata as any), draftOutcomeNotification: {
+   ...(last.metadata as any).draftOutcomeNotification, updatedAt: new Date(Date.now() - 11_000).toISOString(),
+  } } } });
+  await publish(f.ids[2]!); expect(await f.visible()).toHaveLength(3);
+  await f.messaging.sendVisible(f.context((await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id), { type: 'text', content: 'An unrelated warning.' });
+  await publish(f.ids[3]!); expect(await f.visible()).toHaveLength(5);
+  await publish(f.ids[4]!); expect(await f.visible()).toHaveLength(5);
+  await publish(await f.create(5)); expect(await f.visible()).toHaveLength(6);
+ } finally { await f.cleanup(); }
 });

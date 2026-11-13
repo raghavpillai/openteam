@@ -42,3 +42,7 @@ Validation includes unit tests excluding other channels, ordinary user messages 
 No production state was changed during this investigation. The remediation is local and has not been deployed. The original queue had already drained; no remote cancellation was necessary.
 
 An additional [opt-in A/B treatment](draft-notification-ab-2026-11-12.md) now tests stronger guarantees: separate context-delivery and visible-notification receipts, server-owned status text, and deduplication across tool calls and runs. Its controlled PostgreSQL failure tests pass. The default treatment percentage is zero, and no live traffic has been enrolled.
+
+## November 13 final-source acceptance recheck
+
+Two fresh model/worker replays of the busy-foreground, 24-distinct-send backlog produce one completion each in default/control and treatment. The synthetic transport records one unique result per recipient; no actual mail is sent. A read-only deployment recheck still finds the original server image and an unset treatment flag, so these PR fixes are not deployed. The [acceptance report](assets/draft-original-acceptance-2026-11-13.json) distinguishes the reproduced backlog fix from known default-mode replay/silence gaps and merge-readiness checks.

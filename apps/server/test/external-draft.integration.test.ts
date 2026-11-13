@@ -1886,3 +1886,47 @@ test('live and recovered reviewed email require a complete send confirmation', a
   } finally { await f.cleanup(); }
  }
 }, 30_000);
+
+test('original incident: 24 distinct reviewed sends queue behind a busy foreground turn and continue once', async () => {
+ if (!databaseUrl) return;
+ const { PluginInvocations } = await import('../src/services/plugin/invocations');
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant); let attempts = 0;
+  const plugins = new PluginInvocations(f.prisma, async callId => {
+   const call = await f.prisma.pluginInvocation.findUniqueOrThrow({ where: { callId } });
+   const result = (call.arguments as any).action === 'verify' ? { identity: 'me@example.com' } : { id: `synthetic-distinct-${++attempts}`, labelIds: ['SENT'] };
+   await f.prisma.pluginInvocation.update({ where: { callId }, data: { status: 'completed', result, completedAt: new Date() } }); return result;
+  });
+  const service = new ExternalDraftService(f.prisma, f.messaging, plugins as never, { treatmentPercent: variant === 'treatment' ? '100' : '0' });
+  try {
+   const foreground = await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } });
+   await f.prisma.botRunLease.create({ data: { botId: f.botId, runId: foreground.id, scope: 'foreground', ownerId: crypto.randomUUID(), expiresAt: new Date(Date.now() + 120_000) } });
+   const ids: string[] = [];
+   for (let i = 0; i < 24; i++) {
+    const created = await service.create(f.context(foreground.id, `original-24-${i}`), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: [`provider${i}@example.com`], cc: ['copy1@example.com', 'copy2@example.com'], subject: 'Original incident synthetic replay', body: `Reviewed content ${i}`, waitForReview: true }) as any;
+    ids.push(created.message_id);
+   }
+   for (const group of [ids.slice(0, 21), ids.slice(21, 23), ids.slice(23)]) {
+    for (const id of group) await Effect.runPromise(service.mutate(id, { action: 'send' }));
+    expect(await f.worker().claim(f.botId)).toBeNull();
+   }
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response', status: 'pending' } })).toBe(variant === 'control' ? 24 : 1);
+   await f.prisma.botRunLease.deleteMany({ where: { botId: f.botId } });
+   await f.prisma.run.update({ where: { id: foreground.id }, data: { status: 'completed', completedAt: new Date() } });
+   await f.ready(); const claimed = await f.worker().claim(f.botId); expect(claimed).toBeTruthy();
+   if (variant === 'control') expect(claimed.content).toContain('24 external message draft outcome(s)');
+   await f.messaging.flushDraftNotification(f.context(claimed.runId));
+   const content = variant === 'treatment' ? (await f.visible())[0]!.content : 'All 24 reviewed messages were sent.';
+   await f.messaging.sendVisible(f.context(claimed.runId, 'one-outcome-reply'), { type: 'text', content, end_turn: true });
+   expect(await f.visible()).toHaveLength(1);
+   await f.release(claimed); expect(await f.worker().claim(f.botId)).toBeNull();
+   const records = await f.prisma.pluginInvocation.findMany({ where: { botId: f.botId, arguments: { path: ['action'], equals: 'send' } } });
+   expect(records).toHaveLength(24); expect(attempts).toBe(24);
+   expect(await f.prisma.pluginInvocation.count({ where: { botId: f.botId, arguments: { path: ['action'], equals: 'verify' } } })).toBe(48);
+   expect(new Set(records.map(row => (row.result as any).id)).size).toBe(24);
+   expect(new Set(records.map(row => (row.arguments as any).draft.to[0])).size).toBe(24);
+   for (const id of ids) expect(await f.card(id)).toMatchObject({ cardState: 'sent', outcomeId: expect.any(String) });
+   for (const row of records) expect((row.arguments as any).draft.cc).toEqual(['copy1@example.com', 'copy2@example.com']);
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);

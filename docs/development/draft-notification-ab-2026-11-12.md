@@ -158,6 +158,18 @@ Native Chrome tests on the actual card component confirm pristine remote updates
 
 Two checks remain blocked. The final desktop startup/raw limits pass at 1,330,294 and 17,867,905 bytes, but gzip fails at 4,470,492 against 4,468,300; no threshold was raised. Full iOS build fails in unchanged BarRegions.swift and SiriMessaging.swift; the modified Swift file passes syntax parsing, but no full iOS/runtime pass is claimed. [Independent findings, test accounting and limits](assets/draft-parallel-audit-2026-11-13.json) include failing reproductions and final evidence. No real email/Slack/APNs, deployment, production flag change, new live-model run or fresh native Grokbot comparison occurred.
 
+## Original-incident acceptance and merge assessment — November 13
+
+The final-source replay now targets the original failure boundary directly. Two fresh configured Grok/Pi/worker runs each hold a foreground model reply open while 24 reviewed synthetic emails finish in groups of 21, 2 and 1. Each arm records 24 distinct recipients, both Cc addresses, 48 verifications and 24 unique saved send results. No real email transport is registered. After releasing the foreground turn, both default/control and treatment execute one outcome continuation and produce one completion message. The original incident recorded 24 continuations and 23 outcome replies. The default reply also includes an unrelated disk-warning paragraph; this is not a claim that all model prose is silent or deterministic. Queue jobs are harness-driven and timing is compressed.
+
+A new permanent regression checks that exact busy-lease/backlog ordering and the distinct saved sends. Eight targeted original/failure-boundary cases pass with 380 assertions on the final source. The earlier injected replay counterexample still matters: control produces three visible messages with two duplicates after new call IDs and a new outcome run, while treatment preserves one platform status. A silent model after a context-delivery crash can omit the control acknowledgement. Treatment is stronger for durable platform receipts; neither mode semantically filters every arbitrary model paraphrase.
+
+Read-only production inspection still reports the original server image prefix `f60a912709ec`, with treatment unset. The PR has not been deployed and its fixes are not active there. GitHub reports a clean, mergeable PR with two successful WhatsApp connector jobs; those jobs do not validate this email flow.
+
+The earlier iOS build assessment used the wrong local toolchain. The repository documents Xcode 27; a full simulator build now **passes with installed Xcode 27.1 / SDK 27.1**, using scoped `DEVELOPER_DIR` without changing the machine’s global selection. The old Xcode 26.6 failures are removed as a current merge blocker. The desktop gzip check still fails at 4,470,492 against 4,468,300, a 2,192-byte excess; thresholds are unchanged.
+
+The reproduced original backlog is fixed in both arms. This is not a 100% reliability claim or unconditional whole-PR merge approval. The remaining size check and default-mode recovery behavior need explicit resolution, followed by a staged production rollout and monitoring. No deployment, production configuration, approval behavior or public tool changed. [Acceptance evidence and precise limits](assets/draft-original-acceptance-2026-11-13.json).
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { checkKey, explainGoogleError, getPlaceDetails, resetGoogleState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../google";
+import { PlaceRouteSchema, PlaceSchema } from "../../../../contracts/src/presentation";
+import { checkKey, explainGoogleError, getPlaceDetails, resetGoogleState, routeInstructions, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, wrapLongitude, type Fetcher } from "../google";
 import { callTool, listTools, resetKeyVerification, tools } from "../server";
 
 const KEY = "AIza-test-key-never-shown";
@@ -92,6 +93,8 @@ test("today's hours follow the place's offset across midnight UTC, and read natu
   expect(todaysHours(week, 0, new Date("2026-11-15T12:00:00Z"))).toBe("Closed today"); // Sunday
   expect(todaysHours(Array(7).fill("Monday: Open 24 hours"), 0, NOW)).toBe("Open 24 hours today");
   expect(todaysHours(week.slice(1), 0)).toBeUndefined();
+  // Lines are matched by day name, whatever order Google lists them in.
+  expect(todaysHours([week[6], ...week.slice(0, 6)], -300, NOW)).toBe("Today 11:30 AM – 9:30 PM");
 });
 
 test("nearby search restricts to the radius, can sort by distance, and marks closed businesses", async () => {
@@ -235,11 +238,45 @@ test("connecting fails with the fix when the key or an API is misconfigured, but
   const offline = (async () => { throw new TypeError("fetch failed"); }) as unknown as Fetcher;
   expect((await listTools(offline)).map((tool) => tool.name)).toContain("SearchPlaces");
   const good = recorder((call) => (call.url.includes("routes") ? { routes: [{ distanceMeters: 1 }] } : { places: [{ id: "x" }] }));
-  resetKeyVerification();
-  const t0 = Date.now();
-  await listTools(good.fetcher, t0);
-  await listTools(good.fetcher, t0 + 60_000);
-  expect(good.calls).toHaveLength(2); // verified once (both APIs), then reused for 30 minutes
-  await listTools(good.fetcher, t0 + 31 * 60_000);
-  expect(good.calls).toHaveLength(4);
+  await listTools(good.fetcher);
+  expect(good.calls).toHaveLength(2); // both APIs checked once
+  // Once verified, later listings never hide the tools: a key that breaks later is reported by the
+  // calls themselves and by CheckGoogleMapsKey, which must stay available.
+  expect((await listTools(invalid.fetcher)).map((tool) => tool.name)).toContain("CheckGoogleMapsKey");
+  expect(invalid.calls).toHaveLength(2); // only the first, failed attempt
+});
+
+test("everything the tools return passes the presentation schema the map renders", async () => {
+  const longId = "E" + "x".repeat(250);
+  const { fetcher } = recorder((call) =>
+    call.url.includes("/media")
+      ? { photoUri: "https://lh3.googleusercontent.com/p/abc=s1200" }
+      : call.url.includes("routes.googleapis.com")
+        ? { routes: [{ distanceMeters: 900, duration: "720s",
+            polyline: { geoJsonLinestring: { type: "LineString", coordinates: [[-73.985, 40.748], [-73.982, 40.753]] } },
+            legs: [{ distanceMeters: 900, duration: "720s", steps: [...Array.from({ length: 260 }, (_, i) => ({ navigationInstruction: { instructions: `Step ${i}` } })), { navigationInstruction: { instructions: "   " } }] }] }] }
+        : { places: [
+            place("ChIJzoob00000", "Zoob Zib", 40.7544, { websiteUri: "zoobzib.example", rating: 4.7 }),
+            place(longId, "Address result", 40.75),
+            place("ChIJbare00000", "Bare", 40.751, { primaryTypeDisplayName: undefined, priceLevel: undefined, websiteUri: undefined, photos: [], currentOpeningHours: undefined }),
+          ] }
+  );
+  const search = await searchNearbyPlaces({ query: "thai", latitude: 40.7506, longitude: -73.9935 }, fetcher, undefined, NOW);
+  expect(search.results.map((entry) => entry.place.name)).toEqual(["Zoob Zib", "Bare"]); // the over-long id is dropped, never cut
+  for (const { place: result } of search.results) expect(PlaceSchema.safeParse(result).success).toBe(true);
+  const { route } = await routePlaces({ places: search.results.map((entry) => entry.place), mode: "walking" }, fetcher);
+  expect(route.legs[0]!.instructions).toHaveLength(200);
+  expect(PlaceRouteSchema.safeParse(route).success).toBe(true);
+  expect(routeInstructions([" Turn left ", "", "  ", 7, null])).toEqual(["Turn left"]);
+});
+
+test("nearby boxes stay valid across ±180° and at the poles", async () => {
+  expect([wrapLongitude(180.003), wrapLongitude(-180.5), wrapLongitude(12)].map((n) => Number(n.toFixed(3)))).toEqual([-179.997, 179.5, 12]);
+  const { calls, fetcher } = recorder(() => ({ places: [] }));
+  await searchNearbyPlaces({ query: "resort", latitude: -16.8, longitude: 179.99, radiusMeters: 5000, photos: false }, fetcher);
+  const box = JSON.parse(String(calls[0]!.init.body)).locationRestriction.rectangle;
+  expect(box.low.longitude).toBeLessThan(180);
+  expect(box.high.longitude).toBeLessThan(-179); // wraps; Google reads low > high as crossing 180°
+  await searchNearbyPlaces({ query: "station", latitude: 89.99, longitude: 0, radiusMeters: 5000, photos: false }, fetcher);
+  expect(JSON.parse(String(calls[1]!.init.body)).locationRestriction.rectangle.high.latitude).toBe(90);
 });

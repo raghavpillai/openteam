@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
+import { PlaceRouteSchema, PlaceSchema } from "../../../../contracts/src/presentation";
 import { httpsUrl, isOpenAt, parseOpeningHours, resetPlaceState, routePlaces, searchNearbyPlaces, searchPlaces, todaysHours, type Fetcher } from "../places";
 import { callTool, tools } from "../server";
 
@@ -99,9 +100,14 @@ test("nearby places stay within the radius, sorted by distance, with OSM details
       provider: "OpenStreetMap", sourceUrl: "https://www.openstreetmap.org/node/1", attribution: "© OpenStreetMap contributors",
     },
   });
+  for (const entry of result.results) expect(PlaceSchema.safeParse(entry.place).success).toBe(true);
   const open = await searchNearbyPlaces({ ...input, openNow: true }, fetcher, undefined, now);
   expect(open.results.map((entry) => entry.place.name)).toEqual(["Far Thai"]);
   await expect(searchNearbyPlaces({ ...input, timeZone: "Mars/Olympus" }, fetcher)).rejects.toThrow("IANA");
+  // Nominatim's viewbox can't wrap ±180°, so it is kept inside valid coordinates.
+  resetPlaceState();
+  await searchNearbyPlaces({ query: "resort", latitude: -16.8, longitude: 179.99, radiusMeters: 5000 }, fetcher, undefined, now);
+  expect(request!.searchParams.get("viewbox")!.split(",").map(Number)[2]).toBe(180);
   await expect(searchNearbyPlaces({ query: "thai", latitude: 0, longitude: 0, openNow: true }, fetcher)).rejects.toThrow("timeZone");
 });
 
@@ -113,10 +119,11 @@ test("routes keep measured geometry and legs, and refuse partial routes", async 
   let body: any;
   const fetcher = (async (_url: URL, init?: RequestInit) => {
     body = JSON.parse(String(init?.body));
-    return Response.json({ routes: [{ distance: 700, duration: 540, geometry: { type: "LineString", coordinates: [[-73.985, 40.748], [-73.983, 40.75], [-73.982, 40.753]] }, legs: [{ distance: 700, duration: 540, steps: [{ maneuver: { instruction: "Walk north." } }] }] }] });
+    return Response.json({ routes: [{ distance: 700, duration: 540, geometry: { type: "LineString", coordinates: [[-73.985, 40.748], [-73.983, 40.75], [-73.982, 40.753]] }, legs: [{ distance: 700, duration: 540, steps: [{ maneuver: { instruction: "Walk north." } }, { maneuver: { instruction: "  " } }] }] }] });
   }) as Fetcher;
   const { route } = await routePlaces({ places: stops, mode: "walking" }, fetcher);
   expect(body.costing).toBe("pedestrian");
+  expect(PlaceRouteSchema.safeParse(route).success).toBe(true);
   expect(route.geometry.coordinates).toHaveLength(3);
   expect(route.legs).toEqual([{ fromPlaceId: "a", toPlaceId: "b", distanceMeters: 700, durationSeconds: 540, instructions: ["Walk north."] }]);
   await expect(routePlaces({ places: stops, mode: "walking" }, json({ routes: [{ legs: [] }] }))).rejects.toThrow("every stop");

@@ -40,8 +40,7 @@ test.skipIf(!live)("search, nearby, details, photos and routes return real, well
   for (const { place, distanceMeters } of nearby.results) {
     expect(distanceMeters).toBeLessThanOrEqual(1500);
     expect(place.provider).toBe("Google Maps");
-    expect(typeof place.rating).toBe("number");
-    expect(place.reviewCount).toBeGreaterThan(0);
+    if (place.rating !== undefined) expect(place.reviewCount).toBeGreaterThan(0); // brand-new places can be unrated
     if (place.imageUrl) expect(place.imageUrl).not.toContain("key=");
   }
   const photo = nearby.results.find((entry) => entry.place.imageUrl)?.place.imageUrl;

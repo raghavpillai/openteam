@@ -15,7 +15,8 @@ Bots look up places on Google Maps, with ratings, reviews, photos, price levels 
 | --- | --- | --- |
 | `SearchPlaces` | Places Text Search | Places matching a name, address or description, optionally near a point |
 | `SearchNearbyPlaces` | Places Text Search, limited to a radius | Places of a kind near a point, by relevance or distance, with distance |
-| `GetPlaceDetails` | Place Details | Up to five reviews, Google's review summary and overview, and the week's hours |
+| `GetPlaceDetails` | Place Details | Up to five reviews (Google picks the most relevant), Google's review summary and overview, and the week's hours |
+| `CheckGoogleMapsKey` | Places API (New) and Routes API | Whether the key works for each API, and what to fix in Google Cloud if not |
 | `RoutePlaces` | Routes API | A walking, cycling or driving route through 2–25 stops, with per-leg distance, duration and turn instructions |
 
 Search results include the Google rating and review count, price level, today's hours, open-now, website, phone and one photo. All tools are read-only. The `google-maps-places` skill shows Bots how to combine them for "best nearby" answers and maps.
@@ -26,4 +27,4 @@ Google bills per request after a monthly free allowance for each request type. R
 
 ## Privacy
 
-Queries, search areas and route stops are sent to Google with your key. The key stays on your server and is never shown to Bots. Photos are returned as Google image links, which don't contain the key. Identical requests are reused for five minutes.
+Queries, search areas and route stops are sent to Google with your key. The key stays on your server and is never shown to Bots. Photos are returned as Google image links, which don't contain the key. Google can expire these links, so photos in older conversations may stop loading; the card then shows its placeholder. Identical requests are reused for five minutes.

@@ -197,7 +197,10 @@ export const placeId = (id: string) => id.replace(/^google:/, "").replace(/^plac
 export function todaysHours(lines: unknown, utcOffsetMinutes: unknown, now = new Date()): string | undefined {
   if (!Array.isArray(lines) || lines.length !== 7 || typeof utcOffsetMinutes !== "number") return undefined;
   const local = new Date(now.getTime() + utcOffsetMinutes * 60_000);
-  const line = clean(lines[(local.getUTCDay() + 6) % 7], 300); // Google lists Monday first.
+  // Find today's line by its day name; Google usually lists Monday first, so fall back to that.
+  const day = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][local.getUTCDay()]!;
+  const named = lines.find((entry) => typeof entry === "string" && entry.startsWith(`${day}:`));
+  const line = clean(named ?? lines[(local.getUTCDay() + 6) % 7], 300);
   if (!line) return undefined;
   const times = line.replace(/^[^:]+:\s*/, "");
   if (/^closed$/i.test(times)) return "Closed today";
@@ -220,7 +223,8 @@ async function photo(place: any, fetcher: Fetcher, signal?: AbortSignal) {
 }
 
 function toPlace(raw: any, extras: { imageUrl?: string; credit?: string }, now: Date): Place | null {
-  const id = clean(raw?.id, 300),
+  // Presentation ids are at most 200 characters; never cut one, which would corrupt it.
+  const id = typeof raw?.id === "string" && raw.id.length <= 193 ? raw.id : undefined,
     latitude = raw?.location?.latitude,
     longitude = raw?.location?.longitude,
     name = clean(raw?.displayName?.text);
@@ -253,6 +257,11 @@ function toPlace(raw: any, extras: { imageUrl?: string; credit?: string }, now: 
     attribution: extras.credit ? `${ATTRIBUTION} · Photo: ${extras.credit}` : ATTRIBUTION,
   };
 }
+
+export const wrapLongitude = (longitude: number) => ((((longitude + 180) % 360) + 360) % 360) - 180;
+/** Turn instructions as presentation routes accept them: trimmed, non-empty, at most 200 a leg. */
+export const routeInstructions = (values: unknown[]) =>
+  values.flatMap((value) => (typeof value === "string" && value.trim() ? [value.trim().slice(0, 2000)] : [])).slice(0, 200);
 
 const EARTH_RADIUS = 6_371_008.8;
 const radians = (degrees: number) => (degrees * Math.PI) / 180;
@@ -316,10 +325,11 @@ export async function searchNearbyPlaces(
   const body: Record<string, unknown> = {
     textQuery: input.query.trim(),
     pageSize: 20,
+    // A box that crosses ±180° keeps low.longitude > high.longitude, which Google reads as wrapping.
     locationRestriction: {
       rectangle: {
-        low: { latitude: input.latitude - dLat, longitude: input.longitude - dLon },
-        high: { latitude: input.latitude + dLat, longitude: input.longitude + dLon },
+        low: { latitude: Math.max(-90, input.latitude - dLat), longitude: wrapLongitude(input.longitude - dLon) },
+        high: { latitude: Math.min(90, input.latitude + dLat), longitude: wrapLongitude(input.longitude + dLon) },
       },
     },
     ...(input.rankBy === "distance" ? { rankPreference: "DISTANCE" } : {}),
@@ -425,9 +435,7 @@ export async function routePlaces(
         toPlaceId: input.places[index + 1]!.id,
         distanceMeters: Math.max(0, Number(leg.distanceMeters) || 0),
         durationSeconds: seconds(leg.duration),
-        instructions: (leg.steps ?? []).flatMap((step: any) =>
-          typeof step?.navigationInstruction?.instructions === "string" ? [step.navigationInstruction.instructions] : []
-        ),
+        instructions: routeInstructions((leg.steps ?? []).map((step: any) => step?.navigationInstruction?.instructions)),
       })),
       provider: "Google Maps",
       attribution: ATTRIBUTION,

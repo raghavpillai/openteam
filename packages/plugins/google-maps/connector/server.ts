@@ -68,7 +68,7 @@ export const tools: Tool[] = [
   {
     name: "GetPlaceDetails",
     description:
-      "Read one Google Maps place in depth: up to five recent reviews with their ratings and authors, Google's review summary and overview, the week's opening hours, rating, price level, website, phone and a photo. Pass the place id from SearchPlaces or SearchNearbyPlaces (with or without its google: prefix).",
+      "Read one Google Maps place in depth: up to five reviews (Google picks the most relevant) with their ratings and authors, Google's review summary and overview, the week's opening hours, rating, price level, website, phone and a photo. Pass the place id from SearchPlaces or SearchNearbyPlaces (with or without its google: prefix).",
     inputSchema: {
       type: "object",
       properties: { placeId: { type: "string", minLength: 10, maxLength: 320 }, photos },
@@ -133,22 +133,23 @@ export async function callTool(name: string, args: unknown, fetcher: Fetcher = f
   }
 }
 
-let verifiedAt = 0;
-/** Connecting lists tools: prove the key works for both APIs first, so a bad key, a disabled API
- * or a restriction shows up on the account with its fix instead of failing later in chat. Only
- * definitive configuration errors block; an unreachable Google does not. */
-export async function listTools(fetcher: Fetcher = fetch, now = Date.now()) {
-  if (now - verifiedAt > 30 * 60_000) {
+let verified = false;
+/** Connecting lists tools: until the key has worked once in this process, prove it works for both
+ * APIs, so a bad key, a disabled API or a restriction shows up on the account with its fix. Only
+ * definitive configuration errors block; an unreachable Google does not. Once verified, tools stay
+ * listed and each call reports its own error, so CheckGoogleMapsKey stays available to diagnose. */
+export async function listTools(fetcher: Fetcher = fetch) {
+  if (!verified) {
     const check = await checkKey(fetcher);
     const blocking = [check.places, check.routes].filter((entry) => !entry.ok && entry.definitive);
     // An invalid key fails both APIs with the same fix; say it once.
     if (blocking.length) throw new Error([...new Set(blocking.map((entry) => entry.message))].join(" "));
-    if (check.ok) verifiedAt = now;
+    verified = check.ok;
   }
   return tools.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations }));
 }
 export const resetKeyVerification = () => {
-  verifiedAt = 0;
+  verified = false;
 };
 
 export async function serveGoogleMaps() {

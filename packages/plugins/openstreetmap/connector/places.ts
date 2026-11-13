@@ -288,7 +288,13 @@ export async function searchNearbyPlaces(
   url.searchParams.set("bounded", "1");
   url.searchParams.set(
     "viewbox",
-    [input.longitude - dLon, input.latitude + dLat, input.longitude + dLon, input.latitude - dLat].map((n) => n.toFixed(6)).join(",")
+    // Nominatim's viewbox can't wrap ±180°, so keep it inside valid coordinates.
+    [
+      Math.max(-180, input.longitude - dLon),
+      Math.min(90, input.latitude + dLat),
+      Math.min(180, input.longitude + dLon),
+      Math.max(-90, input.latitude - dLat),
+    ].map((n) => n.toFixed(6)).join(",")
   );
   let rows = cached<any[]>(url.href);
   if (!rows) {
@@ -416,9 +422,10 @@ export async function routePlaces(
         toPlaceId: input.places[index + 1]!.id,
         distanceMeters: Math.max(0, Number(leg.distance) || 0),
         durationSeconds: Math.max(0, Number(leg.duration) || 0),
-        instructions: (leg.steps ?? []).flatMap((step: any) =>
-          typeof step?.maneuver?.instruction === "string" ? [step.maneuver.instruction] : []
-        ),
+        // Presentation routes accept trimmed, non-empty instructions, at most 200 a leg.
+        instructions: (leg.steps ?? [])
+          .flatMap((step: any) => (typeof step?.maneuver?.instruction === "string" && step.maneuver.instruction.trim() ? [step.maneuver.instruction.trim().slice(0, 2000)] : []))
+          .slice(0, 200),
       })),
       provider: "Valhalla / OpenStreetMap",
       attribution: ATTRIBUTION,

@@ -11,12 +11,7 @@ private let placeAccent = Color.blue
 // Formatting matches the desktop client: Apple-style durations, ratings
 // rounded half away from zero, pluralised and grouped review counts.
 private func travelTime(_ seconds: Double) -> String {
-  if seconds < 60 { return "<1 min" }
-  let minutes = Int((seconds / 60).rounded())
-  if minutes < 60 { return "\(minutes) min" }
-  let hours = minutes / 60
-  if hours >= 24 { return hours % 24 == 0 ? "\(hours / 24) d" : "\(hours / 24) d \(hours % 24) hr" }
-  return minutes % 60 == 0 ? "\(hours) hr" : "\(hours) hr \(minutes % 60) min"
+  PresentationRoute.travelTime(seconds)
 }
 private func formatRating(_ rating: Double) -> String {
   rating.formatted(.number.precision(.fractionLength(1)).rounded(rule: .toNearestOrAwayFromZero))

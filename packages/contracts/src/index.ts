@@ -1343,6 +1343,8 @@ export const ComputerTurnRequest = Schema.Struct({
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
   requestSource: Schema.optional(RuntimeRequestSource),
+  /** A durable platform status already acknowledges this draft-outcome event. */
+  draftStatusAcknowledged: Schema.optional(Schema.Boolean),
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),

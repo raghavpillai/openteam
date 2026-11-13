@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@openteam/db";
 import { nextMessageAddress } from "./message-address";
 import { publishMessageNotification } from "./notifications";
+import type { AgentSendToUserInput } from "@openteam/contracts";
 
 export const DRAFT_NOTIFICATION_COLLECTION_MS = 300;
 export type DraftNotificationVariant = "control" | "treatment";
@@ -19,6 +20,13 @@ export function draftNotificationVariant(botId: string, configured = process.env
 
 export function isTreatmentDraftWake(wake: { type: string; payload: unknown }) {
   return wake.type === "draft.response" && object(object(wake.payload).draftNotification).variant === "treatment";
+}
+
+/** Reuse a receipt only for the identical text with no additional content or routing. */
+export function isExactDraftNotificationEcho(input: AgentSendToUserInput, content: string) {
+  return input.type === "text" && input.content === content && Object.entries(input).every(
+    ([key, value]) => value === undefined || ["type", "content", "end_turn"].includes(key)
+  );
 }
 
 export async function lockDraftNotifications(tx: DB, botId: string, channelId: string) {
@@ -52,7 +60,7 @@ export async function prepareDraftNotification(tx: DB, wake: { id: string; botId
   // already-processing turn keeps its original snapshot across lease recovery.
   const outcomeIds = wake.status === "processing" && Array.isArray(previous.outcomeIds)
     ? previous.outcomeIds : rows.map(row => String(object(row.metadata).outcomeId));
-  const content = `[SAND_HIDDEN_PROMPT]The platform handles the status acknowledgement for these draft outcomes. Do not post another status confirmation or infer other cards are pending. Continue any remaining work using the individual card outcomes.\n${rows.map(row => `Draft card ID: ${row.id}; outcome: ${object(row.metadata).outcomeId}; state: ${object(row.metadata).cardState}`).join("\n")}`;
+  const content = `[SAND_HIDDEN_PROMPT]The platform handles the status acknowledgement for these draft outcomes. Do not post another status confirmation or infer other cards are pending. Complete the user's remaining requests using the individual card outcomes and the platform's stored-state counts, including any requested follow-up question. Questions, warnings, errors, and other useful new information must be delivered by actually calling SendToUser; plain assistant text is not shown to the user. If only acknowledging settled drafts remains, finish silently; you do not owe an additional acknowledgement.\n${rows.map(row => `Draft card ID: ${row.id}; outcome: ${object(row.metadata).outcomeId}; state: ${object(row.metadata).cardState}`).join("\n")}`;
   const next = { ...payload, content, draftNotification: { variant: "treatment", outcomeIds } };
   await tx.inboxEvent.update({ where: { id: wake.id }, data: { payload: next as Prisma.InputJsonValue } });
   if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content } });

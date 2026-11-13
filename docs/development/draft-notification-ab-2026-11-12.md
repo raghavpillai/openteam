@@ -1,8 +1,8 @@
 # Draft notification A/B experiment
 
-The control is the local draft-outcome batching fix. The treatment adds durable user-notification receipts, one pending wake per conversation, and server-written status messages. This is a controlled fault-injection comparison, not a live-user or live-model experiment. Mail transport and model text are mocked; PostgreSQL queueing, claims, leases, message persistence, outcome receipts and notification outbox writes are real.
+The control is the local draft-outcome batching fix. The treatment adds durable user-notification receipts, one pending wake per conversation, and server-written status messages. The original measurements below describe the implementation merged in PR #309, before live testing exposed overbroad suppression of model text. They are controlled fault-injection results, not a live-user or live-model experiment. Mail transport and model text are mocked; PostgreSQL queueing, claims, leases, message persistence, outcome receipts and notification outbox writes are real.
 
-## Measured comparison
+## Original comparison before the follow-up delivery fix
 
 | Injected scenario | Control | Treatment |
 | --- | --- | --- |
@@ -22,6 +22,20 @@ The same review found and fixed stale settled-history fields when another device
 
 Machine-readable measurements: [JSON](assets/draft-notification-ab-2026-11-12.json). Inline comparison artifact: [HTML](assets/draft-notification-ab-2026-11-12.html).
 
+## Follow-up delivery correction
+
+Subsequent live testing reproduced two requested revision questions and an unrelated disk-pressure warning being replaced by the platform status receipt. The caller was told its text was sent even though the stored message contained different text. The correction preserves ordinary SendToUser delivery and reuses a status receipt only for its exact plain-text echo, without additional content or routing.
+
+Exploratory runs also showed that avoiding a mandatory acknowledgement was insufficient: the model needed the published remaining-review count, and sometimes wrote its question as internal assistant text. The worker now supplies the exact published status and marks the acknowledged event through an optional private runtime field. If such a turn finishes with internal text and no actual send, it gets one conditional reminder to deliver outstanding questions or warnings; a status-only event may still finish silently. Other event families and ordinary user-turn reminders retain their existing behavior.
+
+The final live matrix passed eight cases with fresh bots/sessions and 65 synthetic cards: two partial-discard/question trials, explicit warning delivery, a 24-card treatment burst, queued outcomes behind a busy foreground run, interruption during a live reply followed by a new user request, repeated discard plus invalid-recipient rejection, and the default control's 24-card burst. Every successful SendToUser receipt was checked against its actual stored text. Both requested questions were visible, explicit and ambient warnings were delivered, and the treatment burst emitted one platform status without another model status.
+
+These runs used the configured Grok 4.7 model through OpenRouter and real runtime/worker/PostgreSQL paths. Card creation was seeded through the real draft service, mail transport was synthetic, queue claims were driven by the harness, and busy/interruption boundaries were deliberately gated. They do not measure production error rates, native UI or real push delivery. All temporary credentials and synthetic database records were removed. Production treatment configuration remains unset (zero).
+
+Automated validation passed 174 tests (2,338 assertions), including fourteen PostgreSQL integration tests (257 assertions), runtime follow-up boundaries, real Pi loop behavior, cancellation, tapbacks, routing, exact status retries, and truthful follow-up receipts. Server/worker/computer type checks and builds, plus architecture checks, passed.
+
+Evidence: [final live JSON](assets/draft-notification-followup-live-2026-11-12.json), [live comparison](assets/draft-notification-followup-live-2026-11-12.html), and [current fault-injection JSON](assets/draft-notification-followup-ab-2026-11-12.json). The original comparison above is historical; in particular its blanket suppression of deliberately incorrect model text is no longer the behavior of this implementation.
+
 ## Treatment behavior
 
 1. Every draft retains its existing outcome receipt and identity. Selected outcomes also carry `draftNotification.variant = treatment` in stored card metadata.
@@ -30,9 +44,12 @@ Machine-readable measurements: [JSON](assets/draft-notification-ab-2026-11-12.js
 4. Before computer/model dispatch, the worker publishes a canonical status message. Its facts come from stored card states. The remaining-review/sending/unconfirmed counts explicitly describe all draft cards belonging to that bot in that chat, rather than guessing which older cards belong to the same task.
 5. The visible message, notification activity/outbox and each covered outcome's `messageId`/`notifiedAt` commit in one transaction. Per-conversation locking and existing message uniqueness enforce deduplication; no schema migration is required. Multiple outcomes use one receipt update, and state counts are aggregated in PostgreSQL without loading historical email bodies.
 6. `contextDeliveredAt` records runtime prompt delivery separately. Acknowledging context does not mark the user notification delivered. A stored notification is not a claim that the user has read it or that APNs has reached a device.
-7. Model-generated text from a dedicated treatment `draft.response` continuation returns the canonical notification receipt instead of posting another status line. This also works with changed tool-call IDs. A replay whose outcomes are already reported cannot consume a later unrelated outcome. Normal user turns and other message types keep their existing behavior.
+7. Only an exact echo of the published status, with no additional content, attachments, reply target or routing, reuses its existing receipt. Questions, warnings, mixed status-plus-question text and other model messages are delivered normally with receipts identifying their actual stored text. A repeated tool call retains ordinary call-ID idempotency. A replay whose outcomes are already reported cannot consume a later unrelated outcome.
+8. Once the worker has actually published or recovered the durable status receipt, it dispatches the continuation as an existing `event` request source, with a private `draftStatusAcknowledged` marker. This avoids the runtime's generic mandatory-reply nudges while allowing one conditional check for outstanding follow-up delivery. Control wakes still use the normal user-turn source. The prompt includes the exact already-published status so the model can use authoritative remaining-review counts, and explicitly preserves outstanding user requests.
 
-The model continuation still runs after the status is persisted, so remaining work can continue. Its free-form text status is suppressed by this experiment; additional conversational nuance or follow-up questions in that specific continuation will therefore not appear as separate text. This is a product tradeoff to evaluate before wider rollout. Approval rules, connector send authorization and draft cancellation tools are unchanged. Other event families are outside this experiment.
+The model continuation still runs after the status is persisted, so remaining work can continue. Live testing found that replacing all of its text silently lost revision questions and an unrelated runtime warning while falsely returning a sent receipt. The follow-up delivery fix removes that blanket replacement.
+
+The platform notification remains database-derived and idempotent; arbitrary model prose is not a semantic status classifier. A differently worded model status is ordinary text, and can still contain model mistakes. The current fault-injection suite deliberately verifies that such text is not falsely acknowledged as a different canonical message: two injected incorrect model messages remain visible in both arms, alongside two accurate platform notifications in treatment. Instructions discourage redundant confirmations; they do not guarantee that arbitrary paraphrases are recognized. Approval rules, connector send authorization and draft cancellation tools are unchanged. Other event families are outside this experiment.
 
 ## Opt-in configuration and rollback
 
@@ -45,7 +62,7 @@ Set `OPENTEAM_DRAFT_NOTIFICATION_TREATMENT_PERCENT` on the **server process that
 
 The worker reads the variant recorded in the durable wake, so it does not independently assign cohorts. Existing pending outcomes keep their recorded behavior if the percentage changes. Roll back by setting the server percentage to `0`; already-recorded treatment work drains with its deduplication rules intact.
 
-No deployment configuration was changed, and no live traffic has been enrolled. Before enabling live A/B traffic, review status wording and the suppression of free-form text in notification continuations. Evaluate duplicate notifications, unreported outcome age, notification latency, and follow-up quality per cohort. A wider rollout should preserve correctness under real interruptions and late arrivals; the deterministic tests do not establish a live-model quality lift.
+No deployment configuration was changed, and no live traffic has been enrolled. Before enabling live A/B traffic, review status wording, correct delivery of requested follow-ups, and redundant model confirmations. Evaluate duplicate notifications, unreported outcome age, notification latency, and follow-up quality per cohort. A wider rollout should preserve correctness under real interruptions and late arrivals; the deterministic tests do not establish a live-model quality lift.
 
 ## Reproduction
 

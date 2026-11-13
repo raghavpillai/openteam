@@ -4,7 +4,7 @@ export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-a
 export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed, requestIsStopped } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
 import { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
-import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications } from "./draft-notifications";
+import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications, isExactDraftNotificationEcho } from "./draft-notifications";
 export { draftNotificationVariant, isTreatmentDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
 export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
@@ -2699,11 +2699,19 @@ export class AgentMessaging {
         include: { members: { orderBy: { ordinal: "asc" } } },
       });
       if (!activeChannel) throw new Error("The active delivery channel is unavailable");
-      // Only dedicated treatment outcome continuations use canonical status notifications.
-      // Regular user turns and all other message types keep their existing delivery behavior.
+      // Platform status receipts cannot stand in for different model-authored text.
+      // Questions, warnings, attachments and routed replies keep normal delivery.
       if (input.type === "text") {
         const notification = await this.notifyDraftOutcomes(tx, context);
-        if (notification) return notification;
+        if (notification) {
+          if (!notification.acknowledgement.sent) return notification;
+          if (!context.isFork && "message_id" in notification.acknowledgement) {
+            const published = await tx.channelMessage.findFirst({ where: {
+              id: String(notification.acknowledgement.message_id), channelId: context.channelId, senderBotId: context.botId,
+            } });
+            if (published && isExactDraftNotificationEcho(input, published.content)) return notification;
+          }
+        }
       }
       if (activeChannel.kind === "agent_dm") {
         throw new ApiError(

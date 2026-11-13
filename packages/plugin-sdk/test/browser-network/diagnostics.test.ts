@@ -9,6 +9,80 @@ import {
 } from "../../src/browser-network/diagnostics";
 import { createBrowserProxy } from "../../src/browser-network/socks";
 import { dialTarget, NetworkError } from "../../src/browser-network/policy";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+test("Node reproduces a kernel reset during TLS auth, preserves pipeline failure, and recovers without replay", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "openteam-reset-repro-"));
+  try {
+    const cert = join(directory, "cert.pem"),
+      key = join(directory, "key.pem");
+    const certificate = Bun.spawn(
+      [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        key,
+        "-out",
+        cert,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+      ],
+      { stdout: "ignore", stderr: "ignore" }
+    );
+    expect(await certificate.exited).toBe(0);
+    const bundle = join(directory, "fixture.mjs");
+    const build = await Bun.build({
+      entrypoints: [join(import.meta.dirname, "reset-node.fixture.ts")],
+      target: "node",
+      naming: "fixture.mjs",
+      outdir: directory,
+    });
+    expect(build.success).toBe(true);
+    const child = Bun.spawn(
+      [
+        process.env.OPENTEAM_TEST_NODE ?? "node",
+        bundle,
+        cert,
+        key,
+        resolve(import.meta.dirname, "../../../plugins/1password/skills/1password/SKILL.md"),
+      ],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    const timeout = setTimeout(() => child.kill("SIGKILL"), 25_000);
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    clearTimeout(timeout);
+    if (code !== 0) throw new Error(stderr || stdout || `reset fixture exited ${code}`);
+    const result = JSON.parse(stdout);
+    expect(result).toMatchObject({
+      kernelResetReproduced: true,
+      baselineMaskedExit: 0,
+      readRetryRecovered: true,
+      authRequests: 1,
+      connectionOffers: 3,
+      capacityRecovered: true,
+      routeFenceRecovered: true,
+      credentialFreeLogs: true,
+    });
+    expect(result.propagatedFailureExit).not.toBe(0);
+    console.log(JSON.stringify(result));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test("failed destination dialing preserves the original socket code", async () => {
   const server = createServer();

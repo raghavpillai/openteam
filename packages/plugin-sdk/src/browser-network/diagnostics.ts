@@ -46,6 +46,7 @@ const codes = new Set([
   "EPERM",
   "device_unavailable",
   "capacity",
+  "capacity_exceeded",
   "request_cancelled",
   "dns_failed",
   "connect_failed",

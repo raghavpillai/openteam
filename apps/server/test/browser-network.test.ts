@@ -41,8 +41,12 @@ const browserPath = [
 ].find((path) => path && existsSync(path));
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) await close();
-});
+  const errors: unknown[] = [];
+  for (const close of cleanup.splice(0).reverse()) {
+    try { await close(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Network fixture cleanup failed");
+}, 30_000);
 async function until(check: () => boolean | Promise<boolean>, ms = 6000) {
   const start = Date.now();
   while (!(await check())) {
@@ -655,8 +659,12 @@ describe("connected device browser network", () => {
             env: { ...process.env, NODE_EXTRA_CA_CERTS: cert },
             stdio: ["pipe", "pipe", "pipe"],
           });
-          cleanup.push(() => {
+          const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+          cleanup.push(async () => {
+            if (child.exitCode !== null || child.signalCode !== null) return;
+            const force = setTimeout(() => child.kill("SIGKILL"), 2000);
             child.kill();
+            try { await exited; } finally { clearTimeout(force); }
           });
           if (file === "worker.mjs") child.stdin.write(JSON.stringify(config) + "\n");
           else child.stdin.end(JSON.stringify(config));
@@ -742,6 +750,8 @@ describe("connected device browser network", () => {
       });
       cleanup.push(() => browser.close());
       const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      // Stop service workers and outstanding requests before closing their browser and relay.
+      cleanup.push(() => context.close());
       let bypassRequests = 0;
       const bypass = Bun.serve({
         hostname: "127.0.0.1",
@@ -811,7 +821,9 @@ describe("connected device browser network", () => {
       await largePage.close();
       expect((await f.service.view()).runtime.bytesReceived).toBeGreaterThan(8 * 1024 * 1024);
     },
-    60000
+    // This includes a 256 MiB browser transfer; keep RPC deadlines above short, but allow
+    // the bulk transfer and deterministic process cleanup to finish on loaded test hosts.
+    120000
   );
   test("streams large binary uploads/downloads with half-close and concurrent connections through the device", async () => {
     const f = await fixture();

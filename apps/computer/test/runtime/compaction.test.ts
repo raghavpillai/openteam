@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 import { BotCompactionArchiveStore, BotCompactionCoordinator, type BotMessage, sha256 } from "../../src/bot-compaction";
 import type { BotArchiveCommitInput } from "../../src/compaction/types";
 import { compactionExtension, compactionObservation, inferCompaction } from "../../src/runtime/compaction";
@@ -39,6 +40,127 @@ const toolHost = (name: string, text: string, onRun: () => void) => ({
   cancelApprovals() {},
 });
 const status = (events: any[]) => events.filter((event) => event.type === "turn.completed").at(-1)?.status;
+
+test.each(["ReportTaskProgress", "ReportRequestProgress"].flatMap((tool) =>
+  [false, true].flatMap((ready) => [false, true].map((parked) => ({ tool, ready, parked })))
+))("progress updates preserve an in-flight summary but changed authority restarts it %j", async ({ tool, ready, parked }) => {
+  const root = await tempDir("progress-compaction-");
+  const coordinator = new BotCompactionCoordinator(new BotCompactionArchiveStore(root), 0);
+  const snapshot = (revision: number, base = "Original authority") => replaceTaskProgressContext(base,
+    tool === "ReportRequestProgress" ? { requests: [{ revision, summary: `Progress ${revision}` }] } : { revision, summary: `Progress ${revision}` });
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: snapshot(1), modelRef, reasoning: "off", cwd: root,
+    session: {
+      messages: [{ role: "user", content: "Goal" }, { role: "assistant", content: "Work", usage: { input: 90_000, output: 1 } }, { role: "user", content: "Continue" }],
+      getContextUsage: () => ({ contextWindow: 100_000 }), getAllTools: () => [], getActiveToolNames: () => [],
+    },
+  } as unknown as ActiveTurn;
+  const signals: AbortSignal[] = [];
+  const observe = () => coordinator.observe({ ...compactionObservation(active), infer: async (_request, signal) => {
+    signals.push(signal);
+    if (ready) return { text: "Original summary" };
+    return new Promise<never>((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }));
+  } });
+  try {
+    await observe();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (parked) coordinator.parkBackground(active.contextSessionId);
+    for (let revision = 2; revision <= 20; revision++) {
+      active.instructions = snapshot(revision);
+      await observe();
+    }
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+    expect(compactionObservation(active).systemPrompt).toBe("Original authority");
+    active.instructions = snapshot(2, "Changed authority");
+    await observe();
+    expect(signals).toHaveLength(2);
+    expect(signals[0]!.aborted).toBe(true);
+    expect(compactionObservation(active).systemPrompt).toBe("Changed authority");
+  } finally {
+    coordinator.discardBackground(active.contextSessionId);
+  }
+});
+
+// Real Pi loop: progress advances while a background summary is in flight. The summary
+// must keep the main request's prefix and tools, and be adopted ahead of the newest progress.
+test.each([false, true])("a summary started before progress advances is adopted once, ahead of the latest progress (root task: %p)", async (rootTask) => {
+  const root = await tempDir("progress-adoption-");
+  const requests: any[] = [], summaries: any[] = [], signals: AbortSignal[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let summaryDone: Promise<unknown> | undefined;
+  const runtime = await offlineComputerRuntime(model, root, async (_url, init) => {
+    const body = await requestBody(init);
+    if (JSON.stringify(body.messages.at(-1)).includes("<summary_request>")) {
+      summaries.push(body);
+      return sseStep(model, "Keep the pending document within the existing approval limits.");
+    }
+    requests.push(body);
+    return requests.length <= 3
+      ? sseStep(model, [toolCall(0, `inspect-${requests.length}`, "InspectFixture")], 90_000)
+      : sseStep(model, "Status: done\nVerified the requested outcome.", 1000);
+  });
+  const stream = runtime.modelRuntime.streamSimple;
+  runtime.modelRuntime.completeSimple = (m: any, context: any, options: any) => {
+    signals.push(options.signal);
+    return (summaryDone = gate.then(() => stream(m, context, options).result()));
+  };
+  runtime.compactionArchive = new BotCompactionArchiveStore(join(root, "archive"));
+  runtime.compaction = new BotCompactionCoordinator(runtime.compactionArchive, 0);
+  const snapshot = (revision: number) => {
+    const progress = { runId: "fixture-run", revision, state: "working", summary: `Verified receipt revision ${revision}`,
+      evidence: ["/requests/receipt"], remaining: ["Inspect the pending document without sending"], nextAction: "Inspect only" };
+    return replaceTaskProgressContext("Keep the original approval and limits.", rootTask ? { requests: [progress] } : progress);
+  };
+  const active: any = piTurn(model, root, {
+    instructions: snapshot(1), resetSelfSummaryCount: true,
+    ...(rootTask
+      ? { requestSource: "turn", sentMessageCount: 1, userAcknowledged: true }
+      : { runtimeProfile: "subagent", subagentType: "executor" }),
+  });
+  let inspections = 0;
+  runtime.tools = { ...toolHost("InspectFixture", "", () => {}), customTools: () => [{
+    name: "InspectFixture", label: "Inspect fixture", description: "Read the current request", parameters: { type: "object", properties: {} },
+    execute: async () => {
+      if (++inspections === 2) active.instructions = snapshot(2);
+      if (inspections === 3) {
+        expect(signals).toHaveLength(1);
+        active.instructions = snapshot(3);
+        release();
+        await summaryDone;
+      }
+      return { content: [{ type: "text", text: "Inspection complete; no external changes." }], details: {} };
+    },
+  }] };
+  try {
+    const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });
+    await openSession(runtime, active, manager);
+    runtime.activeByRun.set(active.runId, active);
+    await runtime.execute(active, "Inspect the request within the existing scope.", []);
+    expect(inspections).toBe(3);
+    expect(requests).toHaveLength(4);
+    for (let i = 1; i < 3; i++) expect(requests[i].messages.slice(0, requests[i - 1].messages.length)).toEqual(requests[i - 1].messages);
+    expect(JSON.stringify(requests[2])).toContain("Verified receipt revision 2");
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].messages.slice(0, requests[0].messages.length)).toEqual(requests[0].messages);
+    expect(summaries[0].tools).toEqual(requests[0].tools);
+    expect(JSON.stringify(summaries[0].messages[0])).not.toContain("durable_task_state");
+    const adopted = JSON.stringify(requests[3]);
+    expect(adopted).toContain("summary_content");
+    expect(adopted.indexOf("summary_content")).toBeLessThan(adopted.indexOf("Verified receipt revision 3"));
+    const snapshots = manager.getEntries().filter((entry: any) => entry.type === "custom_message" && entry.customType === "openteam-task-progress");
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots.every((entry: any) => entry.display === false)).toBe(true);
+  } finally {
+    release();
+    runtime.compaction.discardBackground(active.contextSessionId);
+    active.session?.dispose();
+  }
+});
 
 test("summary adapter rejects error, length and aborted stops even with partial output", async () => {
   for (const stopReason of ["error", "length", "aborted"] as const) {

@@ -364,8 +364,9 @@ describe("task progress", () => {
     };
     await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "progress", input));
     expect(turn.endTurnRequested).not.toBe(true);
-    expect(compactionObservation(turn).systemPrompt).toContain("Confirm destination receipt");
-    expect(compactionObservation(turn).systemPrompt).toContain("Original authorization and scope.");
+    // Progress rides in the turn's instructions; compaction keeps hashing the original authority.
+    expect(turn.instructions).toContain("Confirm destination receipt");
+    expect(compactionObservation(turn).systemPrompt).toBe("Original authorization and scope.");
     deferred = true;
     await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
     expect(turn.endTurnRequested).toBe(true);
@@ -399,8 +400,8 @@ describe("task progress", () => {
     const waiting = await withFetch(host, () => run(tools, active, "ReportRequestProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
     expect(waiting.terminate).toBe(true);
     expect(active.endTurnRequested).toBe(true);
-    const snapshot = compactionObservation(active).systemPrompt;
-    for (const value of [requestId, "Confirm destination receipt", "Only one outgoing message is approved."]) expect(snapshot).toContain(value);
+    for (const value of [requestId, "Confirm destination receipt", "Only one outgoing message is approved."]) expect(active.instructions).toContain(value);
+    expect(compactionObservation(active).systemPrompt).toBe("Only one outgoing message is approved.");
     const next = { ...active, endTurnRequested: false };
     expect((await withFetch(host, () => run(tools, next, "ReportRequestProgress", "complete", { ...input, state: "complete", remaining: [] }))).terminate).toBe(true);
     expect(next.endTurnRequested).toBe(true);

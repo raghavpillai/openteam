@@ -54,7 +54,7 @@ const TILES = {
   openrouter: { Mark: OpenRouterMark, background: "#000000", color: "#ffffff", scale: 0.61 },
   deepgram: { Mark: DeepgramMark, background: "#080808", color: "#ffffff", scale: 0.7 },
 } as const;
-export type TileProvider = keyof typeof TILES;
+type TileProvider = keyof typeof TILES;
 
 export const isTileProvider = (id: string): id is TileProvider => id in TILES;
 

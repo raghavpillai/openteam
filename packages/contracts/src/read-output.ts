@@ -117,7 +117,7 @@ export const formatNotebookForModel = (raw: string): string | undefined => {
 
 /** pdftotext ends each page with a form feed. The reference's pdf-parse ends each page's text with
  * `\n\n-- N of M --\n\n`, so a Read shows which page a line is on. */
-export const pdfPagesText = (raw: string): string => {
+const pdfPagesText = (raw: string): string => {
   if (!raw) return raw;
   const pages = raw.replace(/\r\n?/g, "\n").split("\f");
   if (pages.length > 1 && pages.at(-1) === "") pages.pop();

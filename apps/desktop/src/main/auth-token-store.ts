@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 
 const MAX_TOKEN_BYTES = 16 * 1024;
 
-export interface AuthTokenReadResult {
+interface AuthTokenReadResult {
   token: string | null;
   persistence: "disk";
   backend: "file";

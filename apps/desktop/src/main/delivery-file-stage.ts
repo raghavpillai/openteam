@@ -4,7 +4,7 @@ import { join } from "node:path";
 const MAX_DELIVERY_STAGE_BYTES = 200 * 1024 * 1024;
 const STAGING_ID = /^[a-zA-Z0-9-]{8,120}$/;
 
-export interface DeliveryFileStageInput {
+interface DeliveryFileStageInput {
   stagingId: string;
   bytes: ArrayBuffer | Uint8Array;
 }

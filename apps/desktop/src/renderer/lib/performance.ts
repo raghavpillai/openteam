@@ -1,13 +1,13 @@
-export interface OpenTeamPerformanceEntry {
+interface OpenTeamPerformanceEntry {
   name: string;
   duration: number;
   at: number;
   detail?: Record<string, number | string | boolean>;
 }
 
-export type OpenTeamPerformanceScenario = Record<string, number | string | boolean>;
+type OpenTeamPerformanceScenario = Record<string, number | string | boolean>;
 
-export interface OpenTeamPerformanceExport {
+interface OpenTeamPerformanceExport {
   exportedAt: number;
   scenario: OpenTeamPerformanceScenario;
   entries: OpenTeamPerformanceEntry[];

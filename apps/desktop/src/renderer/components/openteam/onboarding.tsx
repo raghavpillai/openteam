@@ -67,7 +67,7 @@ type Screen =
   | "search"
   | "voice"
   | "bot";
-export type FirstBotProfile = Required<
+type FirstBotProfile = Required<
   Pick<CreateBotInput, "clientRequestId" | "name" | "icon" | "color" | "description">
 >;
 

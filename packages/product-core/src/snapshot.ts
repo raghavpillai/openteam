@@ -9,9 +9,7 @@ import type {
   SubagentActivityView,
 } from "@openteam/contracts";
 import { a2aProjectionFor } from "./messages";
-import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from "./statuses";
-
-export { ACTIVE_RUN_STATUSES };
+import { isActiveRunStatus } from "./statuses";
 
 export interface SnapshotIndex {
   botById: ReadonlyMap<string, BotView>;
@@ -89,7 +87,7 @@ export const createSnapshotIndex = (snapshot: ClientSnapshot): SnapshotIndex => 
   };
 };
 
-export interface ChannelRowProjection {
+interface ChannelRowProjection {
   channel: ChannelView;
   bot: BotView | null;
   latest: ChannelMessageView | null;

@@ -69,7 +69,7 @@ function deviceLinkStatusMatches(
   return link.sessionExpiresAt === undefined && link.challengeGeneration === undefined;
 }
 
-export type DeviceLinkTransition =
+type DeviceLinkTransition =
   | { kind: "expired" | "stale" | "ready" }
   | {
       kind: "pending";

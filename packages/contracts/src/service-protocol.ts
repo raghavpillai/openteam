@@ -180,10 +180,6 @@ export interface ComputerInferenceRequest {
   reasoning: PiReasoningLevel;
 }
 
-export interface ComputerInferenceResponse {
-  text: string;
-}
-
 export const parseComputerInferenceRequest = (value: unknown): ComputerInferenceRequest => {
   const input = isRecord(value) ? value : {};
   if (!["extraction", "verification", "connection-check"].includes(String(input.kind))) {
@@ -279,7 +275,7 @@ export interface ShellAwaitRequest {
   pattern?: string;
 }
 
-export interface HostAwaitShellRequest extends ShellAwaitRequest {
+interface HostAwaitShellRequest extends ShellAwaitRequest {
   machineId?: string;
 }
 
@@ -359,7 +355,7 @@ export const parseShellAwaitResponse = (value: unknown): ShellAwaitResponse => {
   return value as unknown as ShellAwaitResponse;
 };
 
-export interface HostReadResponse {
+interface HostReadResponse {
   kind: "text" | "image";
   text?: string;
   data?: string;
@@ -373,7 +369,7 @@ export interface HostReadResponse {
   exceededLimit?: boolean;
 }
 
-export interface HostShellResponse {
+interface HostShellResponse {
   shell_id: string;
   status: "completed" | "running";
   exit_code: number | null;
@@ -382,7 +378,7 @@ export interface HostShellResponse {
   elapsed_ms: number;
 }
 
-export interface HostMachinesResponse {
+interface HostMachinesResponse {
   machines: HostMachine[];
 }
 

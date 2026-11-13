@@ -896,6 +896,4 @@ export class BoxStoreSync {
 export {
   type BoxStoreDirtyHint,
   type BoxStoreManifest,
-  type BoxStoreSyncMetrics,
-  type ManifestFile,
 } from "./box-store/manifest";

@@ -23,7 +23,7 @@ type Client = Pick<PrismaClient, "webSearchSettings" | "webFetchSettings" | "web
 type Row = { secret: string | null; check: WebProviderState["check"] };
 type ToolState = { selected: string | null; rows: Map<string, Row> };
 type State = Record<WebTool, ToolState>;
-export type WebProviderChecker = (request: WebProviderCheckRequest) => Promise<WebProviderCheckResult>;
+type WebProviderChecker = (request: WebProviderCheckRequest) => Promise<WebProviderCheckResult>;
 
 function validateWebApiKey(value: unknown): void {
   if (

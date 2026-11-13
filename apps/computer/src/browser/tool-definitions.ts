@@ -1,5 +1,5 @@
 import { referenceTool } from "@openteam/contracts/tool-contracts";
-export interface BrowserUseToolDefinition {
+interface BrowserUseToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;

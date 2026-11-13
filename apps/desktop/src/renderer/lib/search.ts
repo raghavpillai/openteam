@@ -101,7 +101,7 @@ const fuzzyPaletteScore = (field: string, token: string): number | null => {
   return score - firstMatch * 0.1 - comparableField.length * 0.02;
 };
 
-export interface PaletteSearchItem {
+interface PaletteSearchItem {
   title: string;
   keywords?: readonly string[];
   searchPriority?: number;
@@ -150,7 +150,7 @@ export const rankPaletteItems = <Item extends PaletteSearchItem>(
     .map(({ item }) => item);
 };
 
-export interface PaletteHighlightSegment {
+interface PaletteHighlightSegment {
   text: string;
   isMatch: boolean;
   start: number;

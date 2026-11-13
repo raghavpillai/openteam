@@ -9,9 +9,9 @@ import { clientErrorMessage } from "./redaction";
 
 export const DURABLE_SEND_SCHEMA_VERSION = 2;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
-export const DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
+const DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
 export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
-export const DURABLE_SEND_SCOPE_MAX_LENGTH = 2_048;
+const DURABLE_SEND_SCOPE_MAX_LENGTH = 2_048;
 
 /** Consecutive generations must alternate backup slots, regardless of wall-clock jumps. */
 export const nextDurableSendJournalGeneration = (previous?: number, now = Date.now()): number => {
@@ -23,7 +23,7 @@ export const nextDurableSendJournalGeneration = (previous?: number, now = Date.n
 };
 
 /** A corruption/abuse guard, never a retention policy for live sends. */
-export const DURABLE_SEND_MAX_RECORDS = 10_000;
+const DURABLE_SEND_MAX_RECORDS = 10_000;
 
 export type DurableSendPhase =
   | "prepared"
@@ -32,7 +32,7 @@ export type DurableSendPhase =
   | "accepted-awaiting-echo"
   | "failed";
 
-export type DurableSendFailureDisposition = "offline" | "ambiguous" | "fatal";
+type DurableSendFailureDisposition = "offline" | "ambiguous" | "fatal";
 
 export interface DurableSendFailure {
   code: string;
@@ -113,12 +113,12 @@ export type MessageDeliveryAcceptance =
       message: ChannelMessageView;
     };
 
-export interface DurableSendStorage {
+interface DurableSendStorage {
   read: () => Promise<unknown>;
   write: (journal: DurableSendJournal) => Promise<void>;
 }
 
-export interface DurableSendRuntime {
+interface DurableSendRuntime {
   dispatch: (record: DurableSendRecord) => Promise<{ message: ChannelMessageView }>;
   resolveAcceptance: (record: DurableSendRecord) => Promise<MessageDeliveryAcceptance>;
   classifyError: (cause: unknown) => DurableSendFailureDisposition;
@@ -136,7 +136,7 @@ export interface DurableSendRuntime {
   onTelemetry?: (event: DurableSendTelemetryEvent) => void;
 }
 
-export type DurableSendTelemetryOutcome =
+type DurableSendTelemetryOutcome =
   | "enqueued"
   | "queued"
   | "dispatch-started"
@@ -148,7 +148,7 @@ export type DurableSendTelemetryOutcome =
   | "cancelled"
   | "restored";
 
-export interface DurableSendTelemetryEvent {
+interface DurableSendTelemetryEvent {
   outcome: DurableSendTelemetryOutcome;
   nonce: string;
   lineageId: string;
@@ -705,17 +705,6 @@ export const durableSendVisualState = (
   return "pending";
 };
 
-export const durableSendStatusLabel = (
-  phase: DurableSendPhase,
-  transportDown = false
-): string | null => {
-  if (phase === "queued") {
-    return transportDown ? "Will send when reconnected" : "Waiting to send…";
-  }
-  if (phase === "failed") return "Failed to send";
-  return null;
-};
-
 export const durableSendMessage = (record: DurableSendRecord): ChannelMessageView =>
   record.acceptedMessage ?? {
     id: durableSendRenderKey(record),
@@ -740,7 +729,7 @@ export const durableSendMessage = (record: DurableSendRecord): ChannelMessageVie
   };
 
 /** Resolve a transcript echo even when the direct send response was lost or is still pending. */
-export const durableSendAuthoritativeEcho = (
+const durableSendAuthoritativeEcho = (
   record: DurableSendRecord,
   authoritativeMessages: readonly ChannelMessageView[]
 ): ChannelMessageView | null => {

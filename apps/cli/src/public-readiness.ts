@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { connect } from "node:tls";
 
-export interface PublicReadiness {
+interface PublicReadiness {
   dns: { ok: boolean; detail: string };
   endpoint: { ok: boolean; detail: string };
   tls?: { ok: boolean; detail: string };

@@ -60,7 +60,7 @@ const automationRunBase = (runSection: string) =>
     .flatMap((text, index) => (index === 0 ? [text, runSection] : [text]))
     .join("\n\n");
 
-export interface PlatformPromptFeatures {
+interface PlatformPromptFeatures {
   /** An automation run's own section; the run drops the chat-turn sections it can't use. */
   automationRun?: string;
   managedSkills?: boolean;

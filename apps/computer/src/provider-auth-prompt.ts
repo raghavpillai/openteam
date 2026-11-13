@@ -1,6 +1,6 @@
 import type { Interface } from "node:readline/promises";
 
-export interface AuthSelectOption {
+interface AuthSelectOption {
   id: string;
   label: string;
   description?: string;

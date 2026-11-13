@@ -30,7 +30,7 @@ const retryAt = (attempt: number): Date =>
 const errorMessage = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
 
-export type PushAuthenticationMode = "disabled" | "required";
+type PushAuthenticationMode = "disabled" | "required";
 
 export const pushAuthenticationModeFromEnvironment = (
   value = process.env.OPENTEAM_AUTH_MODE

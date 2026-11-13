@@ -28,7 +28,7 @@ export const taskProgressContext = (value: unknown): string => {
   return p ? renderTaskProgressContext(p) : "";
 };
 
-export type TaskScopeUpdate = { callId: string; runId: string; message: string; source?: "host_stop" };
+type TaskScopeUpdate = { callId: string; runId: string; message: string; source?: "host_stop" };
 export const taskScopeUpdates = (value: unknown): TaskScopeUpdate[] =>
   Array.isArray(value)
     ? value.filter(
@@ -179,7 +179,7 @@ export async function recoverTaskInterruption(
   return true;
 }
 
-export async function notifyTaskProgress(
+async function notifyTaskProgress(
   tx: Prisma.TransactionClient,
   messaging: AgentMessaging,
   subagent: {

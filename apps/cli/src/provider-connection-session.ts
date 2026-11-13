@@ -4,7 +4,7 @@ import type { SessionKey } from "./setup-session";
 import { TerminalReport } from "./terminal";
 import type { SetupSessionFrame } from "./ui";
 
-export type ConnectionResult = "connected" | "cancelled";
+type ConnectionResult = "connected" | "cancelled";
 type Action = { id: string; label: string; detail?: string };
 const CONTINUE = { type: "continue" } as const;
 

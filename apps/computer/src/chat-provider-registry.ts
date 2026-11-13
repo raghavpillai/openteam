@@ -26,7 +26,7 @@ import {
 
 export const CHAT_PROVIDERS = new Set(Object.keys(CHAT_PROVIDER_DEFINITIONS));
 export const KEYLESS_API_KEY = "openteam-no-auth";
-export type ChatModel = Model<Api> & {
+type ChatModel = Model<Api> & {
   reasoningLevels?: PiReasoningLevel[];
   defaultReasoningLevel?: PiReasoningLevel;
   recommended?: boolean;

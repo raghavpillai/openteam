@@ -537,11 +537,11 @@ export type RunCodeRequest =
   | { type: "pdf"; key: string; data: string };
 /** Answers a script's requests. A thrown error may carry a policy_denied or
  * job_failed `code`; any other failure is reported as a worker fault. */
-export interface RunCodeHost {
+interface RunCodeHost {
   progress?: (state: RunCodeState) => void | Promise<void>;
   request?: (request: RunCodeRequest) => Promise<unknown>;
 }
-export interface RunCodeInput {
+interface RunCodeInput {
   endpoint: string;
   targets: string[];
   selected: string;
@@ -555,7 +555,7 @@ export interface RunCodeInput {
   /** A file chooser held by the parent connection, offered as the second argument. */
   chooser?: { target: string; multiple: boolean } | null;
 }
-export interface RunCodeResult {
+interface RunCodeResult {
   payload: { result?: unknown; error?: { code: RunCodeErrorCode; message: string }; stdio: Array<{ type: string; text: string }> };
   images: Array<{ key: string; mimeType: string; data: string }>;
   targets: string[];

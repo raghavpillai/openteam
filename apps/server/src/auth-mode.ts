@@ -1,4 +1,4 @@
-export type AuthMode = "required" | "disabled";
+type AuthMode = "required" | "disabled";
 
 export const parseAuthMode = (value: string | undefined): AuthMode => {
   if (value === undefined) return "required";

@@ -95,7 +95,7 @@ export const UPDATE_PALETTE_KEYWORDS = [
   "restart",
 ] as const;
 
-export type PaletteUpdateStatus =
+type PaletteUpdateStatus =
   | "idle"
   | "checking"
   | "up-to-date"

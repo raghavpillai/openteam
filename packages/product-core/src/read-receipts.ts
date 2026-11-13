@@ -3,14 +3,7 @@ import type { MarkChannelReadView } from "@openteam/contracts";
 const numericSequence = (value: string | undefined): bigint | null =>
   value !== undefined && /^\d+$/.test(value) ? BigInt(value) : null;
 
-/** Clamp a visible read watermark to the newest message the client actually knows. */
-export const readReceiptTarget = (latest: string | null, requested?: string): string | null => {
-  const end = numericSequence(latest ?? undefined);
-  const target = requested === undefined ? end : numericSequence(requested);
-  return end === null || target === null ? null : (target < end ? target : end).toString();
-};
-
-export interface ReadReceiptRequest {
+interface ReadReceiptRequest {
   send: (
     channelId: string,
     throughSequence?: string,

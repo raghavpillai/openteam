@@ -5,7 +5,7 @@ import type { DesktopTailscaleStatus, TailscaleStatus } from "@openteam/contract
 import { safeErrorMessage } from "@openteam/product-core/redaction";
 import { canManageLocalInstallation, readManagedInstallation } from "./local-installation";
 
-export interface TailscaleRequest {
+interface TailscaleRequest {
   serverUrl: string;
   action: "status" | "enable" | "disable";
   httpsPort?: string;

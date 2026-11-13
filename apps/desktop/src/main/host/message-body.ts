@@ -6,7 +6,7 @@ interface MessageRun {
   mention?: string;
   part?: number;
 }
-export interface MessageBody {
+interface MessageBody {
   text: string;
   runs: MessageRun[];
   /** True only when the archive could not be decoded and text was scanned out of its bytes. */

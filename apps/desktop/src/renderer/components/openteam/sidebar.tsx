@@ -100,7 +100,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "../ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -422,7 +421,7 @@ export type BotRowAction =
   | "retry"
   | "delete";
 
-export type GroupRowAction =
+type GroupRowAction =
   | "togglePin"
   | "toggleUnread"
   | "editProfile"

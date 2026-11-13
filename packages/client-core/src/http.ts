@@ -67,11 +67,6 @@ export const withDefaultScheme = (value: string): string => {
   return `${local || (port && port !== "443") ? "http" : "https"}://${trimmed}`;
 };
 
-export const normalizeOptionalBaseUrl = (value: string | null | undefined): string | null => {
-  if (!value?.trim()) return null;
-  return normalizeBaseUrl(value);
-};
-
 export const createJsonTransport = ({
   baseUrl,
   fetch: fetchOverride,

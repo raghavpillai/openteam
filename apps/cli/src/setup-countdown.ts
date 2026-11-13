@@ -18,7 +18,7 @@ export const printSetupCancelled = (paths: InstallationPaths): void => {
   console.log(view.toString());
 };
 
-export type CountdownKey = "start" | "cancel" | null;
+type CountdownKey = "start" | "cancel" | null;
 
 /**
  * Enter starts now; Esc, q, Ctrl-C, or Ctrl-D cancel. Raw input arrives in chunks, so a

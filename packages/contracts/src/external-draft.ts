@@ -3,7 +3,7 @@ import type { AssetRef } from "./index";
 export type { DraftRevision } from "./external-draft-revision";
 export const DRAFT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const DRAFT_ATTACHMENTS_MAX_BYTES = 25 * 1024 * 1024;
-export const DRAFT_ATTACHMENT_MAX_FILES = 10;
+const DRAFT_ATTACHMENT_MAX_FILES = 10;
 export const isDraftEmailAddress = (value: string) =>
   value.length <= 320 && /^[^\s<>@,;:\x00-\x1f\x7f]+@[^\s<>@,;:\x00-\x1f\x7f]+\.[^\s<>@,;:\x00-\x1f\x7f]+$/.test(value);
 
@@ -149,7 +149,7 @@ export function editExternalDraft(
  * Bot's allow list; "disable-drafts" sends every draft without review.
  */
 export type ExternalDraftApprovalMode = "always-allow" | "needs-approval" | "disable-drafts";
-export interface ExternalDraftApprovalSettings {
+interface ExternalDraftApprovalSettings {
   draftingDisabled: boolean;
   draftAllowedRecipients: readonly string[];
 }

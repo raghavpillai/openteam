@@ -978,5 +978,3 @@ export class ScreenBroker {
     await persist;
   }
 }
-
-export type { ScreenStatus } from "./screen/types";

@@ -6,7 +6,7 @@ import { normalizeRepository, normalizeVersion } from "./config";
 import { CliError } from "./errors";
 import { LOCAL_RELEASE_KEY_ID, LOCAL_RELEASE_PUBLIC_KEY, localReleaseSigningPayload } from "./release-signing-key";
 
-export interface ReleaseArtifact {
+interface ReleaseArtifact {
   version: string;
   composeUrl: string;
   checksumUrl: string;

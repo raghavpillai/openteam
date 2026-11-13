@@ -9,7 +9,7 @@ import { cn } from "../../lib/cn";
  */
 const IMAGE_ROW = { height: 200, minHeight: 64, gap: 6, maxFoldedTiles: 3, defaultAspect: 4 / 3 } as const;
 
-export interface ImageRowPlan {
+interface ImageRowPlan {
   height: number;
   widths: number[];
   /** Photos behind the last tile's "+N", counting that tile's own photo; 0 when nothing folds. */
@@ -82,7 +82,7 @@ export function formatAttachmentSize(bytes: number) {
   }).format(value);
 }
 
-export type FileGlyphVariant =
+type FileGlyphVariant =
   | "pdf" | "docx" | "ppt" | "spreadsheet" | "keynote" | "generic" | "json"
   | "zip" | "image" | "video" | "audio" | "font" | "unknown";
 

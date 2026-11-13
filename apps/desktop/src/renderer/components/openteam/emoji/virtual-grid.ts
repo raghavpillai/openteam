@@ -2,7 +2,7 @@ const EMOJI_GRID_HEADER_HEIGHT = 32;
 const EMOJI_GRID_ROW_HEIGHT = 34;
 const EMOJI_GRID_EMPTY_HEIGHT = 48;
 
-export type EmojiVirtualRow =
+type EmojiVirtualRow =
   | { key: string; kind: "header"; label: string }
   | { emojis: string[]; key: string; kind: "emojis"; label: string }
   | { key: string; kind: "empty"; label: string };

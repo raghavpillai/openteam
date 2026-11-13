@@ -24,7 +24,7 @@ export type ModelTestState =
   /** `rejected`: the provider turned the key or sign-in down. */
   | { status: "failed"; error: string; rejected?: boolean };
 
-export type ModelSelection = { providerId: string; modelId: string; reasoning: PiReasoningLevel };
+type ModelSelection = { providerId: string; modelId: string; reasoning: PiReasoningLevel };
 
 /**
  * What a load selects for `providerId`: the saved model when it's the saved provider,

@@ -16,7 +16,7 @@ export interface MessageWindowGapState {
   newer: boolean;
 }
 
-export interface MessageWindowEdgeEviction {
+interface MessageWindowEdgeEviction {
   count: number;
   /** The evicted message immediately across the gap from the retained window. */
   adjacentEvictedMessageId: string;
@@ -24,7 +24,7 @@ export interface MessageWindowEdgeEviction {
   boundaryRetainedMessageId: string;
 }
 
-export interface MessageWindowEviction {
+interface MessageWindowEviction {
   older: MessageWindowEdgeEviction | null;
   newer: MessageWindowEdgeEviction | null;
 }
@@ -44,7 +44,7 @@ export interface BoundMessageWindowOptions {
   existingGaps?: Partial<MessageWindowGapState>;
 }
 
-export interface MessageWindowSoftExcess {
+interface MessageWindowSoftExcess {
   messages: number;
   bytes: number;
   /** A protected ID forced the contiguous primary window past a configured limit. */
@@ -53,7 +53,7 @@ export interface MessageWindowSoftExcess {
   oversized: boolean;
 }
 
-export interface BoundMessageWindowResult {
+interface BoundMessageWindowResult {
   /** Chronological, unique, contiguous primary messages. */
   messages: ChannelMessageView[];
   /** Required reply ancestors/roots that sit outside the primary window. */
@@ -72,7 +72,7 @@ export interface BoundMessageWindowResult {
 
 export type MessageViewportFillDirection = "older-first" | "newer-first";
 
-export interface BoundMessageViewportWindowOptions
+interface BoundMessageViewportWindowOptions
   extends Omit<BoundMessageWindowOptions, "protectedIds" | "retain"> {
   /** Actual message IDs intersecting the viewport at the time paging began. */
   viewportMessageIds: ReadonlySet<string>;
@@ -389,9 +389,9 @@ export const boundMessageWindowAroundViewport = (
   };
 };
 
-export type LatestRefreshDisposition = "empty" | "initialize" | "merge" | "reset";
+type LatestRefreshDisposition = "empty" | "initialize" | "merge" | "reset";
 
-export interface LatestRefreshOverlap {
+interface LatestRefreshOverlap {
   disposition: LatestRefreshDisposition;
   overlaps: boolean;
   requiresReset: boolean;

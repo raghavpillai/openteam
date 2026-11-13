@@ -38,7 +38,7 @@ const endpoint = (value: TranscriptionDraft) =>
       ? "https://api.deepgram.com/v1"
       : value.baseUrl.replace(/\/+$/, "");
 
-export type ModelExit = boolean | { connectProvider: string; authType?: "oauth" | "api_key" };
+type ModelExit = boolean | { connectProvider: string; authType?: "oauth" | "api_key" };
 export class ModelSession implements InteractiveSession<ModelExit> {
   tab = 0;
   private cursors = [0, 0];

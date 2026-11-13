@@ -29,7 +29,7 @@ export const safePackagePath = (path: string): string => {
     throw new Error(`Unsafe package path: ${path}`);
   return normalized;
 };
-export const PLUGIN_EVENT_SOURCES: readonly PluginEventSource[] = ["email"];
+const PLUGIN_EVENT_SOURCES: readonly PluginEventSource[] = ["email"];
 export const PLUGIN_EVENT_POLL_DEFAULT_SECONDS = 60;
 
 /** Tools a connector declares for the host (event polls, reviewed sends); Bots never call them. */
@@ -52,7 +52,7 @@ export const connectorHostTools = (connector?: {
     (name): name is string => typeof name === "string" && name.length > 0
   );
 
-export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
+const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
   "main",
   "executor",
   "videoReview",
@@ -201,7 +201,7 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     connectorKeys.add(connector.key);
     requireText(connector.name, "connector name", 200);
     if (
-      !["http", "stdio", "builtin"].includes(connector.transport) ||
+      !["http", "stdio"].includes(connector.transport) ||
       !["none", "oauth", "token"].includes(connector.auth)
     )
       throw new Error("Unsupported connector transport or authentication");
@@ -238,8 +238,6 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
         for (const [nestedKey, nested] of Object.entries(value)) inspectSecrets(nested, nestedKey);
     };
     inspectSecrets(connector.configuration);
-    if (connector.transport === "builtin" && connector.endpoint !== "openteam://utility-lab")
-      throw new Error("Unknown builtin connector");
     if (connector.transport === "stdio" && typeof connector.configuration?.command !== "string")
       throw new Error("Local MCP connector must declare a command");
     assertComputerMcpRuntime(connector.configuration);

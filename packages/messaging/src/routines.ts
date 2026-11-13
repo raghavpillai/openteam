@@ -25,7 +25,7 @@ const MAX_ROUTINES_PER_OWNER = 50;
 const TOO_FREQUENT = () =>
   new ApiError(400, "routine_schedule_too_frequent", "routine schedules must be at least 5 minutes apart.");
 
-export type RoutineOwner = { kind: "bot"; id: string } | { kind: "group"; id: string };
+type RoutineOwner = { kind: "bot"; id: string } | { kind: "group"; id: string };
 
 /** Routine writes and seeds must precede retirement. Group coalescing and worker claims take
  * member claim gates before the room gate, so all routine entry points use that same order. */
@@ -77,9 +77,7 @@ export interface RoutineMutationInput {
   source?: "agent" | "ui";
 }
 
-export type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
-
-export interface NormalizedSchedule {
+interface NormalizedSchedule {
   scheduleText: string;
   scheduleKind: "cron" | "interval";
   cronExpression: string | null;
@@ -190,7 +188,7 @@ const routineOwnerFrom = (routine: {
   throw new Error("Routine has no owner");
 };
 
-export interface RoutineRunLedgerEntry {
+interface RoutineRunLedgerEntry {
   id: string;
   trigger: "schedule" | "manual" | "event";
   startedAt: number;
@@ -489,19 +487,6 @@ const parseRoutineSchedule = (
     timezoneMode: zoneMatch ? "pinned" : "installation",
     timezone,
   };
-};
-
-const assertTimeOnlyTrigger = (trigger: Record<string, unknown>): void => {
-  const schedules = cronSchedules(trigger);
-  const listenerCount =
-    trigger.type === "group" && Array.isArray(trigger.listeners) ? trigger.listeners.length : 1;
-  if ((trigger.type !== "cron" && trigger.type !== "group") || schedules.length !== listenerCount) {
-    throw new ApiError(
-      400,
-      "routine_time_schedule_required",
-      "Routines only support time-based schedules"
-    );
-  }
 };
 
 export const normalizeRoutineMutationTrigger = (

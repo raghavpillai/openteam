@@ -19,7 +19,7 @@ export interface EventStreamSource {
   waitForEvent(version: number, timeoutMs: number, signal?: AbortSignal): Promise<number>;
 }
 
-export interface ProductEventBatch {
+interface ProductEventBatch {
   events: ProductEvent[];
 }
 

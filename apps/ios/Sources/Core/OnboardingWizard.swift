@@ -83,7 +83,7 @@ public enum ProviderFamilies {
   }
 }
 
-/// Providers the API-key screen offers, guessed from the key's prefix.
+/// Providers the API-key screen offers.
 public enum APIKeyProviders {
   public struct Option: Sendable, Hashable, Identifiable {
     public let id: String
@@ -106,14 +106,6 @@ public enum APIKeyProviders {
       tagline: "Hundreds of models, one key"),
   ]
   public static func option(_ id: String) -> Option? { options.first { $0.id == id } }
-  /// `sk-ant-` is Anthropic, `sk-or-` OpenRouter, any other `sk-` OpenAI.
-  public static func guess(_ key: String) -> String? {
-    let value = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if value.hasPrefix("sk-ant-") { return "anthropic" }
-    if value.hasPrefix("sk-or-") { return "openrouter" }
-    if value.hasPrefix("sk-") { return "openai" }
-    return nil
-  }
 }
 
 /// What the first bot is for. The description is sent with the bot and shapes its greeting.

@@ -3,7 +3,7 @@ import { pluginCatalog } from "@openteam/plugins";
 
 type JsonObject = Record<string, unknown>;
 
-export interface OpenTeamMarketplaceManifest {
+interface OpenTeamMarketplaceManifest {
   schemaVersion: 1;
   revision: string;
   plugins: readonly PluginDefinition[];

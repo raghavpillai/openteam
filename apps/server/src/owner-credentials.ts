@@ -5,7 +5,7 @@ import { usernameKey, usernameProblem } from "./username";
 
 type OwnerCredentialOperation = "setup" | "update" | "reset";
 
-export interface OwnerCredentialInput {
+interface OwnerCredentialInput {
   operation: OwnerCredentialOperation;
   username?: string;
   password?: string;

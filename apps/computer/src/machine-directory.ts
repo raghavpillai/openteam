@@ -1,6 +1,6 @@
 import { HOST_BRIDGE_PATHS,parseHostMachinesResponse,type HostMachine } from "@openteam/contracts/service-protocol";
-export type MachineMessagesState = "ready" | "needs_permission" | "off" | "unavailable";
-export interface RegisteredMachine {machineId:string;label:string;bridgeUrl:string|null;transport?:string;enabled:boolean;connected?:boolean;messages?:MachineMessagesState}
+type MachineMessagesState = "ready" | "needs_permission" | "off" | "unavailable";
+interface RegisteredMachine {machineId:string;label:string;bridgeUrl:string|null;transport?:string;enabled:boolean;connected?:boolean;messages?:MachineMessagesState}
 export class MachineDirectory {
   constructor(private readonly serverUrl:string,private readonly token:string,private readonly defaultBridge:string,private readonly fetcher:typeof fetch=fetch){}
   private async request(path:string,body?:unknown,signal?:AbortSignal){

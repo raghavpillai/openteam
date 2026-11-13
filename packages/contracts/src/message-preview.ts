@@ -1,5 +1,5 @@
 /** Longest message preview, in UTF-16 code units, including the trailing ellipsis. */
-export const MESSAGE_PREVIEW_LIMIT = 200;
+const MESSAGE_PREVIEW_LIMIT = 200;
 /** Markdown is only scanned this far into a line, so a huge one-line message stays cheap. */
 const MARKDOWN_SCAN_LIMIT = 4096;
 
@@ -173,7 +173,7 @@ const MARKDOWN_SYNTAX: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 
 /** Markdown as the plain text a reader sees, on one line. */
-export const markdownToPlainText = (markdown: string): string =>
+const markdownToPlainText = (markdown: string): string =>
   MARKDOWN_SYNTAX.reduce(
     (text, [pattern, replacement]) => text.replace(pattern, replacement),
     stripMathDelimiters(stripFormattingTags(markdown))
@@ -181,7 +181,7 @@ export const markdownToPlainText = (markdown: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-export const truncatePreviewText = (value: string, limit = MESSAGE_PREVIEW_LIMIT): string =>
+const truncatePreviewText = (value: string, limit = MESSAGE_PREVIEW_LIMIT): string =>
   value.length <= limit ? value : `${sliceCodeUnits(value, limit - 1).trimEnd()}…`;
 
 /**
@@ -202,7 +202,7 @@ export const messagePreviewText = (content: string, limit = MESSAGE_PREVIEW_LIMI
   return "";
 };
 
-export type AttachmentSummaryKind =
+type AttachmentSummaryKind =
   | "image"
   | "video"
   | "audio"
@@ -300,7 +300,7 @@ export interface AttachmentSummarySource {
   fileName?: string | null;
 }
 
-export const attachmentSummaryKind = (attachment: AttachmentSummarySource): AttachmentSummaryKind =>
+const attachmentSummaryKind = (attachment: AttachmentSummarySource): AttachmentSummaryKind =>
   (attachment.mimeType ? kindFromMimeType(attachment.mimeType) : null) ??
   (attachment.fileName ? kindFromFileName(attachment.fileName) : null) ??
   "file";

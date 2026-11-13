@@ -7,7 +7,7 @@ import semver from "semver";
 
 export const MINIMUM_COMPOSE_VERSION = "2.20.0";
 
-export interface ComposeCommand {
+interface ComposeCommand {
   executable: string;
   prefix: readonly string[];
   version: string;

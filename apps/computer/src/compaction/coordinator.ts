@@ -93,7 +93,7 @@ const addSummaryUsage = (
   return result as BotSummaryUsage;
 };
 
-export interface PendingSummary {
+interface PendingSummary {
   contextSessionId: string;
   id: string;
   reason: BotCompactionReason;
@@ -137,7 +137,7 @@ export interface BotObservation {
   infer: (request: BotSummaryRequest, signal: AbortSignal) => Promise<BotSummaryResult>;
 }
 
-export interface BotPreparedCompaction {
+interface BotPreparedCompaction {
   summary: string;
   firstKeptEntryId: string;
   retainedTail: BotMessage[];

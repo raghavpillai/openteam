@@ -9,7 +9,7 @@ import { LoadingOrb } from "../ui/loading-orb";
 import { AttachmentStage } from "./attachment-stage";
 import { imageRowWidth, planImageRow } from "./attachment-visuals";
 
-export interface DisplayImage {
+interface DisplayImage {
   url: string;
   fileName?: string;
   alt?: string;

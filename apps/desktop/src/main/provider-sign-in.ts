@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-export type ProviderSignInCapture =
+type ProviderSignInCapture =
   | { status: "captured"; callbackUrl: string }
   | { status: "unavailable"; message: string }
   | { status: "cancelled" };

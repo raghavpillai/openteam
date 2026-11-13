@@ -17,13 +17,6 @@ export * from "./search";
 export * from "./selection";
 export * from "./snapshot";
 export * from "./snapshot-reconcile";
-export {
-  type ActiveRunStatus,
-  hasTransientRoutineExecution,
-  isActiveRunStatus,
-  isTransientRoutineExecutionStatus,
-  type TransientRoutineExecutionStatus,
-} from "./statuses";
 export * from "./timestamps";
 export * from "./bot-avatar";
 export * from "./questions";

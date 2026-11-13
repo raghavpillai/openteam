@@ -59,7 +59,7 @@ export function slackBodyProblems(body: string): Set<SlackSyntaxProblem> {
 }
 
 /** Why the model's body can't go on a card as written, or undefined when it can. */
-export function draftBodyRefusal(draft: { platform?: unknown; body?: unknown }): string | undefined {
+function draftBodyRefusal(draft: { platform?: unknown; body?: unknown }): string | undefined {
   if (typeof draft.body !== "string") return undefined;
   if (draft.platform === "email") {
     const tag = emailBodyHtmlTag(draft.body);

@@ -16,7 +16,7 @@ import {
 } from "@openteam/product-core/snapshot";
 import { useMemo, useRef } from "react";
 
-export { createSnapshotIndex, type SnapshotIndex };
+export { createSnapshotIndex };
 
 const append = <T>(map: Map<string, T[]>, key: string, value: T) => {
   const existing = map.get(key);

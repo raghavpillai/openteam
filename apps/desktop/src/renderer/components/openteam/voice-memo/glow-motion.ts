@@ -44,7 +44,7 @@ export function mobileVoiceLevel(raw: number) {
 
 /** A tall mobile-style ceiling, concentrated in the middle of the desktop pill.
  * Keep the small resting ring independent of the much larger voiced crest. */
-export type VoiceShape = {
+type VoiceShape = {
   centre: number;
   width: number;
   split: number;
@@ -103,7 +103,7 @@ export function downwardReach(reach: number, available = 24) {
   return limit * Math.tanh(Math.max(0, reach) / Math.max(1, limit));
 }
 
-export type SidePeak = { x: number; width: number; height: number };
+type SidePeak = { x: number; width: number; height: number };
 
 /** Irregular, low side pulses. Each new position fades in from zero and back
  * out, so apparent randomness never becomes frame-to-frame flicker. */

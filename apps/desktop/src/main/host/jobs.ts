@@ -381,7 +381,7 @@ const resultOutput = (chunks: Buffer[], diagnostic?: string) => {
   ]).toString("utf8");
 };
 
-export interface HostShellExecutionOptions {
+interface HostShellExecutionOptions {
   maxRuntimeMs?: number;
   terminationGraceMs?: number;
 }

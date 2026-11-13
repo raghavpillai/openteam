@@ -6,7 +6,7 @@ export const SIDEBAR_PINNED_MAX_MOUNTED_GRID_ROWS = 24;
 /** 106px tile plus Bot's 12px pinned-grid row gap. */
 export const SIDEBAR_PINNED_GRID_ROW_SIZE = 118;
 
-export type SidebarSectionLayoutInput = {
+type SidebarSectionLayoutInput = {
   id: string;
   collapsed: boolean;
 };

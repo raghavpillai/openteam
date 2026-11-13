@@ -31,7 +31,7 @@ interface DynamicToolView {
   source: string;
 }
 
-export interface DynamicNamespaceView {
+interface DynamicNamespaceView {
   name: string;
   description: string;
   kind: "first-party" | "mcp";

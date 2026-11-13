@@ -464,5 +464,3 @@ function DesktopScreenCanvas({ scenario }: { scenario: (typeof examples)[number]
     />
   );
 }
-
-export { ComputerDemo, RoutineDemo, MobileDemo, MemoryDemo } from "./app-demo-details";

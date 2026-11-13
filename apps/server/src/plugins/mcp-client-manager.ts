@@ -24,7 +24,7 @@ const withAbort = <T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> => 
 export const isMcpAuthorizationError = (error: unknown): boolean =>
   error instanceof UnauthorizedError || (error instanceof StreamableHTTPError && error.code === 401);
 
-export interface HttpMcpConnectionOptions {
+interface HttpMcpConnectionOptions {
   endpoint: string;
   headers?: Record<string, string>;
   authProvider?: OAuthClientProvider;

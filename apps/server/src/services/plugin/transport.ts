@@ -91,16 +91,14 @@ export class PluginTransport {
       if (!claim.count)
         throw new ApiError(409, "plugin_call_replayed", "This call is already executing");
       const rawResult =
-        current.transport === "builtin"
-          ? await this.invokeBuiltin(invocation.toolName, invocation.arguments, invocation)
-          : current.transport === "stdio"
-            ? await this.callStdio(current, invocation.toolName, invocation.arguments, signal)
-            : await this.callHttp(
-                current,
-                invocation.toolName,
-                invocation.arguments,
-                signal
-              );
+        current.transport === "stdio"
+          ? await this.callStdio(current, invocation.toolName, invocation.arguments, signal)
+          : await this.callHttp(
+              current,
+              invocation.toolName,
+              invocation.arguments,
+              signal
+            );
       receivedResult = true;
       const result = boundPluginResult(await this.redactValue(
         redactConnectionSecrets(rawResult, current), invocation.connection
@@ -301,11 +299,9 @@ export class PluginTransport {
   ): Promise<unknown> {
     try {
       const result =
-        connection.transport === "builtin"
-          ? await this.invokeBuiltin(toolName, args, { connectionId: connection.id })
-          : connection.transport === "stdio"
-            ? await this.callStdio(connection, toolName, args)
-            : await this.callHttp(connection, toolName, args);
+        connection.transport === "stdio"
+          ? await this.callStdio(connection, toolName, args)
+          : await this.callHttp(connection, toolName, args);
       return boundPluginResult(await this.redactValue(result, connection));
     } catch (error) {
       throw await this.redactError(error, connection);
@@ -661,27 +657,5 @@ export class PluginTransport {
       );
     }
     return jsonObject(value);
-  }
-
-  private async invokeBuiltin(
-    toolName: string,
-    argsValue: unknown,
-    context: { connectionId: string; botId?: string }
-  ): Promise<unknown> {
-    const args = jsonObject(argsValue);
-    if (toolName === "echo") return { text: args.text };
-    if (toolName === "add") return { value: Number(args.a) + Number(args.b) };
-    if (toolName === "remember_note") {
-      await this.prisma.pluginActivity.create({
-        data: {
-          connectionId: context.connectionId,
-          botId: context.botId,
-          kind: "fixture.note",
-          summary: `Remembered: ${String(args.note).slice(0, 160)}`,
-        },
-      });
-      return { remembered: true };
-    }
-    throw new ApiError(404, "plugin_tool_not_found", "Builtin plugin tool not found");
   }
 }

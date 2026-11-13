@@ -32,11 +32,6 @@ const RESERVED_OTHER = [
   "Alt+Tab", "Alt+F4", "Control+Escape", "Super+L", "Super+D", "Super+Tab",
 ];
 
-export interface ShortcutCheck {
-  /** null when the binding can be used. */
-  error: string | null;
-}
-
 /**
  * Whether `binding` can be saved for `action`: a real shortcut (Fn only for dictation, on a
  * Mac), not one the system needs, and not already used by another action or by the screenbot

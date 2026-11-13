@@ -11,7 +11,7 @@ export function sidebarRowIsWorking(row: SidebarChannelRow) {
   return Boolean(row.running && ["queued", "running"].includes(row.running.status) || row.hasActiveTask);
 }
 
-export type SidebarUnreadRowMetric = {
+type SidebarUnreadRowMetric = {
   channelId: string;
   unread: boolean;
   unreadCount?: number;

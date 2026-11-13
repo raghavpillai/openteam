@@ -15,7 +15,7 @@ import {
   type OpenTarget,
 } from "./protocol";
 
-export interface Wire {
+interface Wire {
   send(bytes: Uint8Array): void;
   close(): void;
   bufferedAmount: number;

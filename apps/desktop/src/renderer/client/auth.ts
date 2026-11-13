@@ -232,7 +232,7 @@ export const signIn = async (username: string, password: string): Promise<OpenTe
   return session;
 };
 
-export interface OpenTeamServerConnection {
+interface OpenTeamServerConnection {
   baseUrl: string;
   mode: "required" | "disabled";
 }

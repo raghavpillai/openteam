@@ -66,7 +66,7 @@ const engineStopped = (result: RunResult): boolean =>
 /** Docker Desktop's own contexts; others, such as Colima or OrbStack, are left alone. */
 const DESKTOP_CONTEXTS = ["desktop-linux", "default"];
 
-export type DockerDesktopStart = "skipped" | "ready" | "timed-out";
+type DockerDesktopStart = "skipped" | "ready" | "timed-out";
 
 /**
  * In an interactive macOS terminal, open Docker Desktop when it is installed but its engine

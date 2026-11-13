@@ -1,6 +1,6 @@
 import type { ModelProvider } from "./model-settings";
 
-export type ProviderOption = {
+type ProviderOption = {
   id: string;
   provider: ModelProvider;
   authType?: "oauth" | "api_key";

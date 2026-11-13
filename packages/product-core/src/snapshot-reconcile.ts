@@ -71,7 +71,7 @@ const fullFingerprint = ({ fingerprint, content }: Fingerprint): string => {
   return JSON.stringify(serialized);
 };
 
-export type SnapshotCaches = Record<
+type SnapshotCaches = Record<
   | "bots"
   | "channels"
   | "channelMessages"

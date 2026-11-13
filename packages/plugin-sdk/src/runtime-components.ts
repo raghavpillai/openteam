@@ -35,23 +35,23 @@ export interface PluginHook {
   matcher?: string;
   loopLimit?: number;
 }
-export interface PluginRule {
+interface PluginRule {
   name: string;
   description: string;
   body: string;
   alwaysApply: boolean;
   globs: string[];
 }
-export interface PluginCommand {
+interface PluginCommand {
   name: string;
   description: string;
   body: string;
 }
-export interface PluginAgent extends PluginCommand {
+interface PluginAgent extends PluginCommand {
   model?: string;
   readonly?: boolean;
 }
-export interface PluginRuntimeComponents {
+interface PluginRuntimeComponents {
   hooks: PluginHook[];
   rules: PluginRule[];
   commands: PluginCommand[];

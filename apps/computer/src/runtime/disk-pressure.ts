@@ -14,7 +14,7 @@ const THRESHOLDS = {
   hardRecoveryRatio: 0.08,
 };
 
-export type DiskPressureLevel = "healthy" | "soft" | "hard";
+type DiskPressureLevel = "healthy" | "soft" | "hard";
 
 export const DISK_PRESSURE_REMINDER =
   "<system_reminder>\nThe computer is almost out of disk space. Avoid disk-heavy work such as large downloads, installs, builds or Docker images. The next time you message the user, tell them once: name their few biggest files or folders with sizes from a quick read-only check, and offer to delete them. Never delete anything without their explicit yes.\n</system_reminder>";

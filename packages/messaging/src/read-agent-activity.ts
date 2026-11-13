@@ -13,7 +13,7 @@ interface AgentActivitySummary {
   recentExcerpt: string;
 }
 
-export type AgentActivityResult =
+type AgentActivityResult =
   | { kind: "unavailable" }
   | { kind: "read"; agents: AgentActivitySummary[]; truncated: boolean };
 
@@ -81,7 +81,7 @@ const age = (at: Date, now: Date) => {
   return `${text} ago`;
 };
 
-export function renderAgentActivity(result: AgentActivityResult, bounds: AgentActivityBounds, now = new Date()): string {
+function renderAgentActivity(result: AgentActivityResult, bounds: AgentActivityBounds, now = new Date()): string {
   if (result.kind === "unavailable") return "This user owns no other bots to read.";
   const scope = `last ${bounds.sinceHours}h, up to ${bounds.maxAgents} bots, ${bounds.excerptChars} excerpt chars each`;
   if (!result.agents.length) {

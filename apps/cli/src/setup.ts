@@ -118,7 +118,7 @@ export interface SetupPrompter {
   close(): void;
 }
 
-export interface SetupCommandOptions {
+interface SetupCommandOptions {
   /** Automatic installer handoff; explicit setup starts immediately. */
   countdown?: boolean;
   advanced?: boolean;

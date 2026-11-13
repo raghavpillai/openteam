@@ -1,5 +1,5 @@
 /** Per-turn notes ride in one <system_reminder> part ahead of the timestamped query, as in the reference. */
-export const USER_REPLY_REMINDER =
+const USER_REPLY_REMINDER =
   "Reply to this message by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER delivered; only a real SendToUser tool invocation reaches the user, so if you don't invoke the tool they just see silence.";
 
 export const UNFINISHED_TASKS_REMINDER =

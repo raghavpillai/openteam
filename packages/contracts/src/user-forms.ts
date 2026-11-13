@@ -82,7 +82,7 @@ export function formFieldIsPayment(field: Pick<UserFormField, "id" | "label">): 
     `${field.id} ${field.label}`
   );
 }
-export function parseUserFormTarget(value: unknown): UserFormTarget {
+function parseUserFormTarget(value: unknown): UserFormTarget {
   const item = record(value);
   if (!["ref", "selector", "label"].includes(String(item.kind)))
     throw new Error("Unknown form target kind");

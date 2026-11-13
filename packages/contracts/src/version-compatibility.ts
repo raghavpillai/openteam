@@ -1,6 +1,6 @@
 export const OPENTEAM_API_PROTOCOL_VERSION = 2;
 
-export interface OpenTeamClientCompatibilityPolicy {
+interface OpenTeamClientCompatibilityPolicy {
   minimumClientVersion?: string | null;
   maximumClientVersionExclusive?: string | null;
   recommendedClientVersion?: string | null;
@@ -95,7 +95,7 @@ export const defaultOpenTeamCompatibilityWindow = (
   };
 };
 
-export type OpenTeamCompatibilityState =
+type OpenTeamCompatibilityState =
   | "compatible"
   | "update-recommended"
   | "client-update-required"

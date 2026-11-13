@@ -16,7 +16,7 @@ export const withSiteDispatchNotes = (task: string): string => {
   return notes.length ? [task, ...notes].join("\n\n") : task;
 };
 
-export const withoutSiteDispatchNotes = (task: string): string =>
+const withoutSiteDispatchNotes = (task: string): string =>
   SITE_DISPATCH_NOTES.reduce((text, note) => text.replaceAll(note.text, ""), task);
 
 // A plugin agent's task is its template, then the parent's own words after this line.
@@ -40,7 +40,7 @@ export const normalizeSubagentTypeName = (name: string): string => {
 };
 
 /** The subagent type a spelling names, or the spelling itself when it names none. */
-export const canonicalSubagentType = (name: string): string =>
+const canonicalSubagentType = (name: string): string =>
   SUBAGENT_TYPES.find((type) => normalizeSubagentTypeName(type) === normalizeSubagentTypeName(name)) ?? name;
 
 /** Task arguments with subagent_type spelled as its type is named. */
@@ -112,7 +112,7 @@ const PARENT_ONLY_TOOLS: Record<DispatchType, ReadonlyMap<string, string>> = {
 };
 
 /** The parent's tools a Task child of this type lacks, with the reason; for a resume of unknown type, those every child lacks. */
-export const parentOnlyToolsFor = (subagentType: string | undefined): ReadonlyMap<string, string> => {
+const parentOnlyToolsFor = (subagentType: string | undefined): ReadonlyMap<string, string> => {
   if (subagentType !== undefined) return PARENT_ONLY_TOOLS[canonicalSubagentType(subagentType) as DispatchType] ?? new Map();
   return new Map([...PARENT_ONLY_TOOLS.executor].filter(([tool]) => SUBAGENT_TYPES.every((type) => PARENT_ONLY_TOOLS[type].has(tool))));
 };

@@ -9,7 +9,7 @@ const TRIVIAL_EXCHANGES = new Set(
   )
 );
 
-export interface ExtractedMemories {
+interface ExtractedMemories {
   additions: Array<{ content: string; kind: "profile" | "log" }>;
   removals: string[];
   replacements?: Array<{ old: string; fact: string }>;
@@ -29,7 +29,7 @@ export const isMemorableExchange = (userMessage: string): boolean => {
   return !TRIVIAL_EXCHANGES.has(normalized);
 };
 
-export interface ExtractionFact {
+interface ExtractionFact {
   content: string;
   tier: string;
   createdAt: Date;

@@ -11,7 +11,7 @@ interface DataUrlWriteProgress {
   chunkBytes: number;
 }
 
-export interface DataUrlWriteOptions {
+interface DataUrlWriteOptions {
   maxBytes?: number;
   signal?: AbortSignal;
   inputChunkCharacters?: number;
@@ -19,7 +19,7 @@ export interface DataUrlWriteOptions {
   onProgress?: (progress: DataUrlWriteProgress) => void;
 }
 
-export interface DataUrlWriteResult {
+interface DataUrlWriteResult {
   bytesWritten: number;
   largestChunkBytes: number;
 }

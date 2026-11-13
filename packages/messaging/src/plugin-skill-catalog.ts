@@ -13,14 +13,14 @@ export interface PluginSkillCache {
   skills?: Array<{ name?: unknown; installPath?: unknown; filePath?: unknown }>;
 }
 
-export interface PluginSkillInstallation {
+interface PluginSkillInstallation {
   name: string;
   pluginKey: string;
   version: string;
   manifest: unknown;
 }
 
-export interface PluginPrivateSkillRecord {
+interface PluginPrivateSkillRecord {
   id: string;
   name: string;
   description: string;
@@ -28,7 +28,7 @@ export interface PluginPrivateSkillRecord {
   updatedAt: Date;
 }
 
-export interface PluginSkillEntry {
+interface PluginSkillEntry {
   /** Plugin key, or `private-<id>` for a private skill. */
   pluginId: string;
   /** Plugin display name; null for a private skill. */

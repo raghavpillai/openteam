@@ -19,7 +19,7 @@ export const BOT_AVATAR_COLORS = [
   "#878787",
 ] as const;
 
-export type BotAvatarColor = (typeof BOT_AVATAR_COLORS)[number];
+type BotAvatarColor = (typeof BOT_AVATAR_COLORS)[number];
 
 /** Captured model-tool spellings, in the same order as the native picker. */
 export const BOT_AVATAR_COLOR_NAMES = [
@@ -41,7 +41,7 @@ export const resolveBotAvatarColorName = (value: string): string => {
 };
 
 /** Fresh bots may receive every picker color except black. */
-export const BOT_AVATAR_DEALT_COLORS = [
+const BOT_AVATAR_DEALT_COLORS = [
   "#a47952",
   "#f23d52",
   "#ff7a1a",
@@ -67,7 +67,7 @@ export const DEFAULT_BOT_AVATAR = {
 const COLOR_SEED = Math.imul(1, 2_654_435_769);
 
 /** FNV-1a over UTF-16 code units, kept in the unsigned 32-bit domain. */
-export const hashBotAvatarKey = (key: string): number => {
+const hashBotAvatarKey = (key: string): number => {
   let hash = 2_166_136_261;
   for (let index = 0; index < key.length; index += 1) {
     hash ^= key.charCodeAt(index);
@@ -88,7 +88,7 @@ const botAvatarRandom = (initialSeed: number) => {
   };
 };
 
-export const botAvatarColorForKey = (key: string): BotAvatarColor => {
+const botAvatarColorForKey = (key: string): BotAvatarColor => {
   const seed = (hashBotAvatarKey(key) ^ COLOR_SEED) >>> 0;
   const random = botAvatarRandom((seed ^ COLOR_SEED) >>> 0);
   return (
@@ -97,7 +97,7 @@ export const botAvatarColorForKey = (key: string): BotAvatarColor => {
   );
 };
 
-export const botAvatarShapeForKey = (key: string): RobotAvatarShape => {
+const botAvatarShapeForKey = (key: string): RobotAvatarShape => {
   let hash = hashBotAvatarKey(key) | 0;
   hash = Math.imul(hash ^ (hash >>> 16), 73_244_475);
   hash = Math.imul(hash ^ (hash >>> 13), 3_266_489_909);

@@ -46,11 +46,7 @@ import {
   type AssetRef,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
-import {
-  emptySidebarPreferences,
-  parseSidebarPreferences,
-  type SidebarPreferences,
-} from "@openteam/contracts/client-preferences";
+import { parseSidebarPreferences, type SidebarPreferences } from "@openteam/contracts/client-preferences";
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
@@ -86,19 +82,7 @@ import {
 } from "./memory-facts";
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
-import {
-  acknowledgeAutomationStatus,
-  acknowledgeMemoryContext,
-  acknowledgePromptSections,
-  parsePromptSections,
-  prepareAutomationStatus,
-  prepareMemoryContext,
-  preparePromptSections,
-  type AutomationStatusReceipt,
-  type MemoryContextLive,
-  type MemoryContextReceipt,
-  type PromptSectionReceipt,
-} from "./prompt-sections";
+import { acknowledgeAutomationStatus, acknowledgeMemoryContext, acknowledgePromptSections, prepareAutomationStatus, prepareMemoryContext, preparePromptSections, type AutomationStatusReceipt, type MemoryContextLive, type MemoryContextReceipt, type PromptSectionReceipt } from "./prompt-sections";
 import { AUTOMATION_STATUS_CLEARED } from "./automation-status";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import { canonicalAgentId, lockAgentLifecycle } from "./agent-lifecycle";
@@ -211,11 +195,11 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
 
 export type BotFileTarget = "profile" | "settings" | "avatar";
 
-export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
+type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
   signal?: AbortSignal;
 };
 
-export type MemoryInference = (request: MemoryInferenceRequest) => Promise<string>;
+type MemoryInference = (request: MemoryInferenceRequest) => Promise<string>;
 
 interface AgentDataStoreOptions {
   root?: string;
@@ -238,7 +222,7 @@ export interface PendingIdentityAnnouncement {
 const profileUpdateXmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-export const renderAgentProfileUpdate = (name: string, description: string): string => {
+const renderAgentProfileUpdate = (name: string, description: string): string => {
   const identity = { name, description };
   const marker = Buffer.from(JSON.stringify(identity), "utf8").toString("base64url");
   return [
@@ -274,11 +258,11 @@ const sniffAvatarExtension = (bytes: Uint8Array): (typeof AVATAR_EXTENSIONS)[num
 
 type Tx = Prisma.TransactionClient;
 
-export interface ReconcileResult {
+interface ReconcileResult {
   warnings: string[];
 }
 
-export interface AutomationReconcileBatchResult extends ReconcileResult {
+interface AutomationReconcileBatchResult extends ReconcileResult {
   /** The last processed bot ID, or null when the current safety-sweep cycle is complete. */
   nextCursor: string | null;
   reconciled: number;
@@ -306,7 +290,7 @@ export interface LiveMemory extends MemoryContextLive {
   policy: string;
 }
 
-export interface RootSidebarSection {
+interface RootSidebarSection {
   id: string;
   name: string;
   agentIds: string[];
@@ -320,7 +304,7 @@ interface AccountScopedRootSettings {
   computerUseModel?: string;
 }
 
-export interface RootSettings extends AccountScopedRootSettings {
+interface RootSettings extends AccountScopedRootSettings {
   version: 1;
   inference: ServerInferenceSettings;
   mcpBoxServers: string[];
@@ -428,14 +412,6 @@ const stringRecord = (input: unknown, label: string): Record<string, string> => 
     throw new Error(`${label} values must be strings`);
   }
   return value as Record<string, string>;
-};
-
-const stringArrayRecord = (input: unknown, label: string): Record<string, string[]> => {
-  const value = parseJsonObject(JSON.stringify(input), label);
-  const parsed: Record<string, string[]> = {};
-  for (const [key, item] of Object.entries(value))
-    parsed[key] = uniqueStrings(item, `${label}.${key}`);
-  return parsed;
 };
 
 const parseAccountScopedSettings = (input: unknown, label: string): AccountScopedRootSettings => {

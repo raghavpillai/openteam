@@ -11,7 +11,7 @@ const numericIdentity = (value: string | undefined, fallback: number): number =>
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-export interface AgentProcessIdentity {
+interface AgentProcessIdentity {
   uid?: number;
   gid?: number;
 }

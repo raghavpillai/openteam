@@ -4,15 +4,15 @@ import { join } from "node:path";
 import type { CommandRunner } from "./process";
 
 /** Providers whose Pi OAuth client matches the vendor CLI, so its tokens can be reused. */
-export type ReusableProvider = "openai-codex" | "claude-code";
+type ReusableProvider = "openai-codex" | "claude-code";
 
-export interface DetectedLogin {
+interface DetectedLogin {
   provider: ReusableProvider;
   /** Where the sign-in lives, such as "Codex CLI (~/.codex/auth.json)". */
   source: string;
 }
 
-export interface ReusableCredential {
+interface ReusableCredential {
   type: "oauth";
   access: string;
   refresh: string;

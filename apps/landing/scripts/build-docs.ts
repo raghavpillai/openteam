@@ -56,7 +56,7 @@ export function codeBlockHtml(text: string, lang?: string) {
  * Search results cut descriptions near 160 characters, so keep whole sentences
  * up to that length, or trim at a word boundary when that would leave too little.
  */
-export function metaDescription(text: string, limit = 160) {
+function metaDescription(text: string, limit = 160) {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= limit) return clean;
   const sentences = clean.match(/[^.!?]+[.!?]+(?=\s|$)/g) ?? [clean];
@@ -110,7 +110,7 @@ export function validateConfig(value: unknown): DocsConfig {
 
 /** Reads only during dev/build. The deployed site imports the resulting JSON. */
 /** Blog entries listed after the docs in `llms.txt`. */
-export type LlmsIndexEntry = { title: string; href: string; description: string };
+type LlmsIndexEntry = { title: string; href: string; description: string };
 
 export function compileDocs(
   directory = docsDirectory,

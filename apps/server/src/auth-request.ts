@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
-export interface RequestIpSource {
+interface RequestIpSource {
   requestIP(request: Request): { address: string } | null;
 }
 

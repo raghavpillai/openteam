@@ -88,7 +88,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const SCREEN_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
-export interface DesktopScreenBotOptions {
+interface DesktopScreenBotOptions {
   preloadPath: string;
   /** Loads the overlay page: the Vite server in development, the bundle otherwise. */
   loadPage: (window: BrowserWindow) => Promise<void>;

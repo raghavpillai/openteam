@@ -1,6 +1,6 @@
 import { ApiError, type ChannelMessageContextDirection } from "@openteam/contracts";
 
-export interface MessageContextExtents {
+interface MessageContextExtents {
   before: number;
   after: number;
 }

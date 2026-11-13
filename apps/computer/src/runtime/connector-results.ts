@@ -5,7 +5,7 @@ import { join } from "node:path";
 const CONNECTOR_TEXT_FILE_THRESHOLD_BYTES = 40_000;
 const CONNECTOR_TEXT_FILE_MAX_BYTES = 49 * 1024 * 1024;
 
-export type ConnectorResultPart =
+type ConnectorResultPart =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 

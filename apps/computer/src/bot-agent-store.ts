@@ -33,21 +33,6 @@ import type {
   StoredTranscriptEntry,
 } from "./agent-store/types";
 
-export type {
-  AgentDirectoryRecord,
-  AgentDirectorySnapshot,
-} from "@openteam/contracts/service-protocol";
-export {
-  type AgentDirectoryDiscoveryMetrics,
-} from "./agent-store/directory-inventory";
-
-export {
-  type AgentStoreHandleMetrics,
-  type BotAgentStoreOptions,
-  type ConversationPublicationMetrics,
-  type StoredTranscriptEntry,
-} from "./agent-store/types";
-
 const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
 
 const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;

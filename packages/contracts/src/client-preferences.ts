@@ -186,36 +186,3 @@ export const normalizeSidebarPreferences = (
     };
   }
 };
-
-export const sidebarPreferencesFromRootSettings = (
-  root: RootSettingsView,
-  fallback: SidebarPreferences
-): SidebarPreferences | null => {
-  if (!root.valid) return null;
-  if (root.settings.sidebarPreferences) {
-    return normalizeSidebarPreferences(root.settings.sidebarPreferences, fallback);
-  }
-  const pinnedIds = root.settings.pinnedAgentIds;
-  const sidebarSections = root.settings.sidebarSections;
-  if (!pinnedIds && !sidebarSections) return null;
-  // The legacy root stores Unassigned as a reserved section. Clients render it
-  // separately, so importing it as a user section creates a duplicate empty row.
-  const unassigned = sidebarSections?.find((section) => section.id === "__agents__");
-  const assignedSections = (sidebarSections ?? []).filter((section) => section.id !== "__agents__");
-  const sections = assignedSections.map((section) => ({
-    id: section.id,
-    name: section.name,
-    collapsed: section.isCollapsed,
-  }));
-  return {
-    ...fallback,
-    pinnedIds: pinnedIds ?? [],
-    unassignedCollapsed: unassigned?.isCollapsed ?? fallback.unassignedCollapsed,
-    sections,
-    sectionByChannel: Object.fromEntries(
-      assignedSections.flatMap((section) =>
-        section.agentIds.map((channelId) => [channelId, section.id] as const)
-      )
-    ),
-  };
-};

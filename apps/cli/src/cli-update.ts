@@ -35,7 +35,7 @@ export interface StagedCliUpdate {
   version: string;
 }
 
-export interface CliPromotion extends StagedCliUpdate {
+interface CliPromotion extends StagedCliUpdate {
   followerPid: number | null;
 }
 

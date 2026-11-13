@@ -12,7 +12,7 @@ interface SetupSummaryRow {
   value: string;
 }
 
-export interface SelectionPromptInput {
+interface SelectionPromptInput {
   message: string;
   options: readonly { label: string }[];
   index: number;

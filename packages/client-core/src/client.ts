@@ -87,7 +87,7 @@ import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
 
 /** A Mac's send settings: skip every approval card, or only for allowed recipients. */
 export interface MachineMessagesSettings { machineId: string; sendWithoutAsking: boolean; allowedRecipients: Array<{ recipient: string; recipientName: string | null }> }
-export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
+interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
   sourceMachineId?: () => string | undefined;
@@ -97,7 +97,7 @@ export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   eventTransport?: "stream" | "long-poll";
 }
 
-export interface SendMessageOptions {
+interface SendMessageOptions {
   richText?: string;
   isFork?: boolean;
   /** Stable idempotency nonce supplied by the durable client send journal. */
@@ -847,5 +847,3 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       `${transport.baseUrl}/api/v0/bots/${encodeURIComponent(botId)}/screen/frame?v=${revision}`,
   };
 };
-
-export type OpenTeamClient = ReturnType<typeof createOpenTeamClient>;

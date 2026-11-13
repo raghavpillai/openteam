@@ -118,7 +118,7 @@ export interface DesktopNotificationEvent extends DesktopNotificationTarget {
   body: string;
 }
 
-export interface DesktopNotificationAdapter {
+interface DesktopNotificationAdapter {
   isFocused: () => boolean;
   isSupported: () => boolean;
   /** Banners are silent. */

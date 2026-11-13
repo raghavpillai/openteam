@@ -1,7 +1,7 @@
 import type { BaseWindow, BrowserWindow, MenuItemConstructorOptions } from "electron";
 
 export type ApplicationMenuAction = "about" | "updates" | "settings" | "screenbot";
-export type ClipboardMenuAction = "copy" | "cut" | "paste";
+type ClipboardMenuAction = "copy" | "cut" | "paste";
 
 export function applicationMenuTemplate(
   platform: NodeJS.Platform,

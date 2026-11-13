@@ -1,5 +1,5 @@
 import type { AssetKind, AssetRef, ClientCapabilities } from "@openteam/contracts";
-import { attachmentLimitForName, attachmentSizeRejection, attachmentRejectionMessage, videoMimeForName } from "@openteam/contracts/media-input";
+import { attachmentLimitForName, attachmentSizeRejection, attachmentRejectionMessage } from "@openteam/contracts/media-input";
 
 export type AttachmentPreviewKind =
   | "video"
@@ -12,13 +12,13 @@ export type AttachmentPreviewKind =
   | "docx"
   | "unknown";
 
-export interface AttachmentCandidate {
+interface AttachmentCandidate {
   fileName: string;
   mimeType?: string | null;
   byteSize?: number | null;
 }
 
-export const ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT = 1_500_000;
+const ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT = 1_500_000;
 export const ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT = 200_000;
 export const attachmentTextPreview = (text: string) => ({
   content: text.slice(0, ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT),
@@ -42,11 +42,6 @@ export const attachmentAssetKind = (
   }
   return "file";
 };
-
-export const attachmentIsVideo = (
-  candidate: Pick<AttachmentCandidate, "fileName" | "mimeType">
-): boolean =>
-  videoMimeForName(candidate.fileName) !== undefined;
 
 export const attachmentByteLimit = (
   candidate: Pick<AttachmentCandidate, "fileName" | "mimeType">,
@@ -94,7 +89,7 @@ export const remainingAttachmentCapacity = (
   capabilities: ClientCapabilities["uploads"]
 ): number => Math.max(0, capabilities.maxAttachmentsPerMessage - Math.max(0, currentCount));
 
-export const attachmentOverflowMessage = (remaining: number): string =>
+const attachmentOverflowMessage = (remaining: number): string =>
   `Only the first ${Math.max(0, Math.trunc(remaining))} files were added.`;
 
 export const attachmentPreviewKind = (attachment: AssetRef): AttachmentPreviewKind => {

@@ -36,7 +36,7 @@ function formatAttachedFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-export interface AttachedFilesContext {
+interface AttachedFilesContext {
   /** Follows the user's text inside <user_query>; empty when nothing was saved. */
   note: string;
   /** Precedes the turn's text when videos came with it; empty otherwise. */

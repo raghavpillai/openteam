@@ -11,7 +11,7 @@ import {
   type TailscaleHttps,
 } from "./tailscale-https";
 
-export interface ManagedTailscaleRoute {
+interface ManagedTailscaleRoute {
   host: string;
   port: string;
   backendPort: string;

@@ -54,13 +54,13 @@ const APT_SOURCE_LOCATIONS = [
   "/usr/share/keyrings",
 ];
 
-export interface PackageSnapshot {
+interface PackageSnapshot {
   /** Installed package name to version. */
   installed: Record<string, string>;
   manual: string[];
 }
 
-export interface RecordedPackage {
+interface RecordedPackage {
   /** The installed version when it was recorded. */
   version?: string;
   /** The apt source it came from, as "<URI> <suite>", when that isn't one of the image's own. */
@@ -72,7 +72,7 @@ export interface RecordedPackage {
   /** Why the last start on this image build couldn't reinstall it; it is tried again on a new build. */
   failed?: { build: string; reason: string };
 }
-export type PackageRecord = Record<string, RecordedPackage>;
+type PackageRecord = Record<string, RecordedPackage>;
 /** packages.json: the record, and the installed packages a bot forgot, which stay untracked until installed again. */
 interface InstallsFile { packages: PackageRecord; forgotten: string[] }
 
@@ -143,7 +143,7 @@ function stillForgotten(forgotten: Iterable<string>, before: PackageSnapshot | u
 }
 
 interface PolicySource { uri: string; suite: string }
-export interface PackagePolicy {
+interface PackagePolicy {
   installed?: string;
   candidate?: string;
   /** Newest first, as apt lists them; a source-less version is only in dpkg's status. */
@@ -205,7 +205,7 @@ function installTarget(name: string, entry: RecordedPackage, policy: PackagePoli
   return version ? `${name}=${version}` : undefined;
 }
 
-export interface ArchiveEntry { file: string; size: number; downloadedMs: number }
+interface ArchiveEntry { file: string; size: number; downloadedMs: number }
 
 /** apt names its downloads `<name>_<version>_<arch>.deb`. */
 const archivePackage = (file: string) => /^([^_]+)_([^_]+)_([^_]+)\.deb$/.exec(file);
@@ -332,7 +332,7 @@ export async function readReplayStatus(paths: InstallsPaths = installsPaths()): 
   }
 }
 
-export interface AptOptions {
+interface AptOptions {
   paths?: InstallsPaths;
   image?: ImageFiles;
   extendedStates?: string;
@@ -554,7 +554,7 @@ export function unfetchedUrls(output: string): string[] {
   return output.split("\n").flatMap((line) => /^(?:Err:\d+|W: Failed to fetch|E: Failed to fetch) (\S+)/.exec(line.trim())?.[1] ?? []);
 }
 
-export interface ReplayOptions extends AptOptions {
+interface ReplayOptions extends AptOptions {
   now?: () => Date;
   log?: (line: string) => void;
   /** Runs after the apt replay, while the status still says running (the language step). */

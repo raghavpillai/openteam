@@ -1,7 +1,7 @@
 import { parseGroupMentions } from "@openteam/messaging";
 import { metadataRecord } from "../service-utils";
 
-export type ReplyTarget = {
+type ReplyTarget = {
   id: string;
   sequence: bigint;
   sender: "user" | "agent" | "system";

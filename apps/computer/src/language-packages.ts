@@ -10,7 +10,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PACKAGE_TOOL_ENVIRONMENT, runCommand, writeAtomic, type CommandRunner, type InstallsPaths } from "./apt-packages";
 
-export interface ImageInfo { build: string; python: string; node: string }
+interface ImageInfo { build: string; python: string; node: string }
 
 export interface LanguageRebuild {
   python?: { from: string; to: string; reinstalled: string[]; failed: string[] };
@@ -62,7 +62,7 @@ export async function uvToolsOn(toolsDirectory: string, python: string): Promise
   return tools;
 }
 
-export interface LanguageOptions {
+interface LanguageOptions {
   run?: CommandRunner;
   /** The filesystem root and the bots' home; tests point these at a scratch tree. */
   root?: string;

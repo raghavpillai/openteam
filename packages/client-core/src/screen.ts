@@ -6,7 +6,7 @@ import {
 } from "./async";
 
 export const SCREEN_STATUS_POLL_MS = 4_000;
-export const SCREEN_TAKEOVER_HEARTBEAT_MS = 20_000;
+const SCREEN_TAKEOVER_HEARTBEAT_MS = 20_000;
 export const SCREEN_FRAME_REFRESH_MS = 5_000;
 
 /** Defer navigation cleanup one turn so React effect reattachment does not dismiss a handoff. */
@@ -95,7 +95,7 @@ export const shouldRefreshScreenFrame = ({
   return enabled && inspectorActive && documentVisible && state === "ready";
 };
 
-export interface ScreenSessionController {
+interface ScreenSessionController {
   activate: () => void;
   confirmTakeover: (active: boolean) => void;
   deactivate: () => void;
@@ -104,7 +104,7 @@ export interface ScreenSessionController {
   wake: () => void;
 }
 
-export interface ScreenSessionControllerOptions<Result extends { humanTakeover: boolean }> {
+interface ScreenSessionControllerOptions<Result extends { humanTakeover: boolean }> {
   pollStatus: () => Promise<void>;
   requestTakeover: (active: boolean) => Promise<Result>;
   onTakeoverResult: (result: Result) => void;

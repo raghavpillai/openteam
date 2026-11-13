@@ -1,20 +1,7 @@
-import type { SearchCategory, SearchResultKind } from "@openteam/contracts";
+import type { SearchResultKind } from "@openteam/contracts";
 
-export const SEARCH_CACHE_LIMIT = 64;
-export const SEARCH_QUERY_MAX_LENGTH = 200;
-
-export const SEARCH_CATEGORIES: ReadonlyArray<{
-  category: SearchCategory;
-  label: string;
-}> = [
-  { category: "all", label: "All" },
-  { category: "messages", label: "Messages" },
-  { category: "bots", label: "Bots" },
-  { category: "channels", label: "Chats" },
-  { category: "files", label: "Files" },
-  { category: "links", label: "Links" },
-  { category: "routines", label: "Routines" },
-];
+const SEARCH_CACHE_LIMIT = 64;
+const SEARCH_QUERY_MAX_LENGTH = 200;
 
 export const searchResultKindLabel = (kind: SearchResultKind): string => {
   switch (kind) {
@@ -33,26 +20,7 @@ export const searchResultKindLabel = (kind: SearchResultKind): string => {
   }
 };
 
-export const searchCategoryKind = (category: SearchCategory): SearchResultKind | null => {
-  switch (category) {
-    case "messages":
-      return "message";
-    case "bots":
-      return "bot";
-    case "channels":
-      return "channel";
-    case "files":
-      return "file";
-    case "links":
-      return "link";
-    case "routines":
-      return "routine";
-    default:
-      return null;
-  }
-};
-
-export interface NormalizeSearchQueryOptions {
+interface NormalizeSearchQueryOptions {
   lowercase?: boolean;
   maxLength?: number;
 }
@@ -66,19 +34,12 @@ export const normalizeSearchQuery = (
   return cased.slice(0, Math.max(0, Math.trunc(maxLength)));
 };
 
-export const searchTextMatches = (query: string, ...values: string[]): boolean => {
-  const normalized = normalizeSearchQuery(query, { lowercase: true });
-  if (!normalized) return true;
-  const haystack = normalizeSearchQuery(values.join(" "), { lowercase: true });
-  return normalized.split(" ").every((term) => haystack.includes(term));
-};
-
-export interface SearchRequestToken {
+interface SearchRequestToken {
   cacheKey: string;
   generation: number;
 }
 
-export interface SearchRequestGate {
+interface SearchRequestGate {
   begin: (cacheKey: string) => SearchRequestToken;
   invalidate: () => void;
   isCurrent: (token: SearchRequestToken) => boolean;

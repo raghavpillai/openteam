@@ -1,6 +1,7 @@
 import { ApiError } from "@openteam/contracts";
 import { createPrismaClient } from "@openteam/db";
 import { createPluginTemplate } from "@openteam/plugin-sdk";
+import { createOpenTeamClient } from "../../../../../packages/client-core/src";
 import type { AppService } from "../../../src/app-service";
 import { pluginMutationRoutes } from "../../../src/routes/plugin-mutation";
 import { pluginQueryRoutes } from "../../../src/routes/plugin-query";
@@ -143,12 +144,40 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { ca
     removePluginAccount: service.removeAccount,
     setMcpInstructions: service.setInstructions,
   } as unknown as AppService;
+  /** A portable client against the fixture routes, signed in as `session` when given. */
+  const client = (session?: string) => createOpenTeamClient({ baseUrl: server.url.origin, ...(session ? { getAuthToken: () => session } : {}) });
+  /** Approves (or, with "cancel", denies) at the provider and returns the redirect it sends. */
+  const approve = async (authorizationUrl: string, account = "Account A") => {
+    const url = new URL(authorizationUrl);
+    url.pathname = "/approve";
+    const response = await fetch(url, { method: "POST", body: new URLSearchParams({ account }), redirect: "manual" });
+    if (response.status !== 302) throw new Error(`Provider approval returned ${response.status}`);
+    return response.headers.get("location")!;
+  };
+  /** Installs a fixture plugin through the routes and returns its first account. */
+  const install = async (index = 0, session = options.authSessions?.[0]) => {
+    const key = definitions[index]!.key;
+    await client(session).installPlugin(key);
+    return (await client(session).pluginSettings()).installs.find(row => row.pluginKey === key)!.connections[0]!;
+  };
+  const row = (id: string) => db.pluginConnection.findUniqueOrThrow({ where: { id } });
+  /** Marks stored tokens expired (and the provider's too) so the next use must refresh. */
+  const expireTokens = async (id: string, noRefresh = false) => {
+    const credentials = (await row(id)).credentials as any;
+    if (noRefresh) delete credentials.oauth.tokens.refresh_token;
+    await db.pluginConnection.update({ where: { id }, data: { credentials: { ...credentials, oauth: { ...credentials.oauth, tokensExpireAt: 1 } } } });
+  };
   return {
     db,
     server,
     service,
     provider,
     definitions,
+    client,
+    approve,
+    install,
+    row,
+    expireTokens,
     async close() {
       await service.close();
       server.stop(true);

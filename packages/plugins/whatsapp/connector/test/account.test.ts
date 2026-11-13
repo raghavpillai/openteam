@@ -249,6 +249,34 @@ test("shared QR lifecycle rotates and invalidates within one fixed session, and 
   expect(JSON.stringify(await f.account.status())).not.toContain("data:image/png");
 });
 
+test("the initial QR stays visible for 60 seconds, rotations expire after 20, and a new attempt resets the lifetime", async () => {
+  const f = await fixture();
+  const pending = f.account.startLink(); await Bun.sleep(1);
+  const auth = f.process.follows[0]!;
+  const issuedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(issuedAt);
+  try {
+    auth.emit({ event: "qr_code", data: { code: "initial-minute-long-qr" } });
+    const initial = await pending;
+    expect(initial.expiresAt).toBe(issuedAt + 60_000);
+    clock.mockReturnValue(issuedAt + 25_000);
+    expect((await f.account.linkStatus()).challenge?.qrCodeDataUrl).toBe(initial.qrCodeDataUrl);
+    clock.mockReturnValue(issuedAt + 60_000);
+    auth.emit({ event: "qr_code", data: { code: "next-twenty-second-qr" } });
+    const rotated = await f.account.linkStatus();
+    expect(rotated.challenge?.expiresAt).toBe(issuedAt + 80_000);
+    expect(rotated.challenge?.qrCodeDataUrl).not.toBe(initial.qrCodeDataUrl);
+    clock.mockReturnValue(issuedAt + 80_001);
+    expect((await f.account.linkStatus()).challenge?.qrCodeDataUrl).toBeNull();
+    await f.account.cancelLink(initial.sessionId);
+    const next = f.account.startLink(); await Bun.sleep(1);
+    f.process.follows[1]!.emit({ event: "qr_code", data: { code: "new-attempt-first-qr" } });
+    const replacement = await next;
+    expect(replacement.sessionId).not.toBe(initial.sessionId);
+    expect(replacement.expiresAt).toBe(Date.now() + 60_000);
+  } finally { clock.mockRestore(); }
+});
+
 test("image expiry keeps approval alive and late bootstrap cannot complete past the session deadline", async () => {
   const f = await fixture();
   const pending = f.account.startLink(); await Bun.sleep(1);

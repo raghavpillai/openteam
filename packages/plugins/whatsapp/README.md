@@ -4,13 +4,15 @@ This packaged MCP connector links a personal WhatsApp account with `wacli` 0.26.
 
 ## Connect
 
-Install the plugin, save account settings, and choose Connect. Scan the live QR in OpenTeam account settings using your phone's **Linked devices → Link a device** scanner. QR linking uses the shared desktop/iOS device-link flow; phone-code linking is not exposed. No developer app, Go/Python installation, or API key is required. The computer must run Linux x64 or ARM64 with glibc; both binaries are included and verified before execution. The desktop/iOS app can be used for setup because execution happens on the bot computer.
+Install the plugin and choose Connect. No setup fields are required. Scan the live QR in OpenTeam using your phone's **Linked devices → Link a device** scanner. QR linking uses the shared desktop/iOS device-link flow; phone-code linking is not exposed. No developer app, Go/Python installation, or API key is required. The computer must run Linux x64 or ARM64 with glibc; both binaries are included and verified before execution. The desktop/iOS app can be used for setup because execution happens on the bot computer.
 
 The native client is configured with the device label **OpenTeam Plugin** and retains the stock CLI platform defaults. Existing links retain their original label; the phone-visible label on a fresh link still needs live verification.
 
 Native processes on Linux receive a kernel parent-death signal if the connector is killed, releasing the account lock before reconnect. This uses `/usr/bin/setpriv` from util-linux and `/bin/sh`, both included in the OpenTeam computer image. Other Linux hosts must provide them too.
 
 QR images use a high-resolution square grid with a four-module white border. Desktop and iOS show a larger QR with sharp scaling. Chat screenshots remain frozen even while the native process rotates challenges; use the live account-settings view for reliable linking.
+
+The first QR remains visible for 60 seconds, matching the pinned client's initial challenge lifetime; subsequent codes last 20 seconds. Get new code replaces the approval session and displays a fresh initial QR.
 
 The five manifest-declared lifecycle tools are host-only. `connection_status` remains available to Bots without QR secrets. Each approval has an exact session ID, a fixed deadline of at most ten minutes including bootstrap, and strictly increasing challenge generations. Rotation replaces the image; invalidation or image expiry hides it while polling continues. Get new code uses the host restart barrier to stop the previous approval first. Delayed events cannot revive a cancelled or expired session. A phone error alone does not identify passkey or transport failures; cancel and wait when WhatsApp reports a linking restriction.
 
@@ -22,11 +24,11 @@ Each account uses `OPENTEAM_PLUGIN_STATE_DIR` directly for keys, native database
 
 An explicit new pairing after a recorded remote logout archives revoked session files privately before creating new keys; retained history stays in place. The verified executable cache is `~/.cache/openteam/whatsapp/v0.26.0/`. Native reconnect and at most three consecutive wrapper restarts recover unexpected sync failures. Known storage, version, passkey and account-restriction failures do not automatically restart. Disconnect stops native children; reconnect resumes authenticated accounts.
 
-## Account settings
+## Managed defaults
 
-- **Read-only access:** removes send/edit/reaction/chat-change/backfill tools. Account-settings linking, sync, and local media downloads remain available. This is a tool-level mode; syncing still writes the local archive.
-- **Attachment folder:** defaults to `/workspace` on the bot computer. Upload paths are resolved and confined to it, with session files excluded. Downloads use generated filenames under `whatsapp/<account-key>/`. Downloads return an absolute local path. Transfer uploads from your own device using OpenTeam file tools first.
-- **Maximum stored messages:** 100,000 by default, configurable between 1,000 and 1,000,000. Sync also stops at 512 MB of message database storage. These limits stop ingestion rather than evicting history. They do not cap all downloaded media or session storage.
+- **Tool access:** messaging tools are available after linking. Use OpenTeam's tool permissions to choose which Bots can use them.
+- **Attachments:** use `/workspace` on the bot computer. Upload paths are resolved and confined to it, with session files excluded. Downloads use generated filenames under `whatsapp/<account-key>/` and return an absolute local path.
+- **Storage:** sync stops at 100,000 messages or 512 MB of message database storage. These limits stop ingestion rather than evicting history. They do not cap all downloaded media or session storage.
 
 Add another OpenTeam account for a different WhatsApp number. Account names can change without changing the stored account ID or linked session. Do not point multiple connectors at one manually shared store.
 

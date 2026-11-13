@@ -130,7 +130,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Both together on main at 3f91add4 (#309 email review + rebindable shortcuts): 1,297,183.
 // Hold-to-dictate and double-press gestures for the Dictate shortcut: 1,298,156.
 // The "microphone still starting" message for a hold released too early: 1,298,850.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_299_300);
+// Main at f17447de (#315 file previews) measures 1,322,729, over its own limit; with this
+// branch, 1,328,296.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_329_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -141,7 +143,8 @@ const startupCssBytes = result.renderer.startup.files
 // v0.0.14 delivery/loading styles and background animation controls: 183,131.
 // The matching chat/details/media styling brings the measured stylesheet to 200,278 B.
 // Main at 2090e228: 201,404 B; ScreenBot' settings row adds 450 (201,854).
-atMost("startup CSS bytes", startupCssBytes, 202_000);
+// Main at f17447de (#315 file previews): 220,564 B; with this branch, 220,625.
+atMost("startup CSS bytes", startupCssBytes, 221_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -189,7 +192,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // Both together on main at 3f91add4: 16,683,510 B.
 // With the Dictate hold/double-press gestures: 16,685,425 B; dictation from anywhere in the
 // conversation and ScreenBot's fading voice-bar exit: 16,686,084 B.
-atMost("renderer bytes", result.renderer.bytes, 16_686_800);
+// Main at f17447de: 16,720,649 B; with this branch, 16,733,081 B.
+atMost("renderer bytes", result.renderer.bytes, 16_734_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -216,7 +220,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_686_800);
 // Settings › Keyboard and rebindable shortcuts: 4,163,937.
 // Both together on main at 3f91add4: 4,165,193.
 // With the dictate gestures and microphone indication: 4,166,041.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_166_500);
+// Main at f17447de: 4,174,402; with this branch, 4,178,761.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_179_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -272,7 +277,8 @@ const lazyBudgets: Record<string, number> = {
   desktopDialogs: 25_000,
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.
-  channelLibrary: 6_500,
+  // Main at f17447de (#315): 6,725, unchanged by this branch.
+  channelLibrary: 6_800,
   avatarPicker: 20_000,
   // The main window's half of ScreenBots: Bot list and durable delivery for the overlay.
   screenBotBridge: 3_500,
@@ -283,7 +289,8 @@ const lazyBudgets: Record<string, number> = {
   // This closure stays dynamic; noVNC retains its separate lazy boundary.
   botScreen: 28_000,
   vncProtocol: 280_000,
-  fileAttachment: 20_000,
+  // Main at f17447de (#315 gooey preview composer): 32,418, unchanged by this branch.
+  fileAttachment: 32_500,
   pdfPreview: 1_500_000,
   docxPreview: 550_000,
   spreadsheetPreview: 550_000,

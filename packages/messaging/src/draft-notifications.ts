@@ -34,6 +34,14 @@ export async function lockDraftNotifications(tx: DB, botId: string, channelId: s
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`draft-notification:${botId}:${channelId}`}))`;
 }
 
+/** Take after the draft lock, matching claim/recovery order. Stop cannot commit across publication. */
+async function draftRunActive(tx: DB, context: DraftNotificationContext) {
+  const runs = await tx.$queryRaw<Array<{ status: string }>>`SELECT "status" FROM "Run"
+    WHERE "id" = ${context.runId}::uuid AND "botId" = ${context.botId}::uuid
+      AND "channelId" = ${context.channelId}::uuid FOR SHARE`;
+  return ["queued", "running"].includes(runs[0]?.status ?? "");
+}
+
 type Outcome = { id: string; metadata: Prisma.JsonValue };
 export async function pendingDraftNotifications(tx: DB, botId: string, channelId: string): Promise<Outcome[]> {
   return tx.$queryRaw<Outcome[]>`SELECT "id", jsonb_build_object(
@@ -80,13 +88,17 @@ export async function draftReplySnapshot(tx: DB, context: Pick<DraftNotification
   return { revision: createHash("sha256").update(JSON.stringify(cards)).digest("hex"), counts: totals, cards };
 }
 
-/** Never report success for text based on a superseded snapshot. The next response can retry useful information. */
+/** Never report success for a reply based on a superseded snapshot. The next response can retry useful information. */
 export async function guardDraftReply(tx: DB, context: DraftNotificationContext & { draftStateRevision?: string }) {
   if (!context.draftStateRevision) return null; // Older computers remain compatible during a rolling update.
   const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response",
-    run: { channelId: context.channelId, status: { in: ["queued", "running"] } } }, select: { id: true } });
+    run: { channelId: context.channelId } }, select: { id: true } });
   if (!event) return null;
   await lockDraftNotifications(tx, context.botId, context.channelId);
+  if (!await draftRunActive(tx, context)) return {
+    sent: false, delivery_failed: true, retryable: false, reason: "turn_not_active",
+    note: "Nothing was delivered. This draft-outcome turn has ended; do not retry its reply.",
+  };
   const current = await draftReplySnapshot(tx, context);
   if (current.revision === context.draftStateRevision) return null;
   return {
@@ -140,6 +152,7 @@ export async function publishDraftNotification(tx: DB, context: DraftNotificatio
     members: { some: { botId: context.botId, bot: { status: "active" } } } } });
   if (!channel) return { result: quiet, created: false, updated: false };
   await lockDraftNotifications(tx, context.botId, context.channelId);
+  if (!await draftRunActive(tx, context)) return { result: quiet, created: false, updated: false };
   const clientId = `draft-notification:${context.runId}`;
   const existing = await tx.channelMessage.findUnique({ where: { channelId_clientId: { channelId: context.channelId, clientId } } });
   const acknowledgement = (message: { id: string; metadata: Prisma.JsonValue }, duplicate: boolean) => ({

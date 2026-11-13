@@ -25,7 +25,7 @@ test.skipIf(!databaseUrl)(
     const previousAuth = process.env.OPENTEAM_AUTH_MODE;
     process.env.OPENTEAM_AUTH_MODE = "disabled";
     const bot = await prisma.bot.create({
-      data: { name: "Notification QA", icon: "pod", color: "#ff6600", defaultDirectory: "/tmp/notification-qa" },
+      data: { name: "Notification QA", icon: "pod", color: "#ff6600", defaultDirectory: "/tmp/notification-qa", status: "active" },
     });
     const channel = await prisma.channel.create({
       data: {

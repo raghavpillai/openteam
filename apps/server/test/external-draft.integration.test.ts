@@ -6,6 +6,7 @@ import { createPrismaClient } from '@openteam/db';
 import { AgentDataStore, AgentMessaging, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from '@openteam/messaging';
 import { Effect } from 'effect';
 import { ExternalDraftService } from '../src/services/external-draft-service';
+import { RunService } from '../src/services/run-service';
 import { loadConnectionNamespaces } from '../src/services/plugin/namespaces';
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -798,13 +799,19 @@ test('a change during platform-context preparation cannot authorize a reply base
   if (path.startsWith('/v1/context-sessions/')) return Response.json({ type: 'context.state', contextSessionId: path.split('/').at(-1), epoch: 0, archives: [] });
   if (path === '/v1/task-capabilities') return Response.json({ desktopAvailable: false, boxAvailable: true });
   const input = await request.json() as any; dispatched = true;
-  const rejected = await f.messaging.sendVisible({ ...f.context(input.runId), draftStateRevision: input.draftStateRevision },
-   { type: 'text', content: 'Would you like revisions to the remaining drafts?', end_turn: true });
-  expect(rejected.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 0 } });
-  return new Response([
-   { type: 'turn.started', turnId: input.runId }, { type: 'prompt.delivered', turnId: input.runId },
-   { type: 'turn.completed', turnId: input.runId, status: 'completed' },
-  ].map(event => JSON.stringify(event)).join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
+  // The real computer returns streaming headers before model tools run. Dispatch
+  // holds the run row until those headers arrive, so do not await a tool here.
+  return new Response(new ReadableStream({ start(controller) {
+   const write = (event: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'));
+   write({ type: 'turn.started', turnId: input.runId });
+   void (async () => {
+    const rejected = await f.messaging.sendVisible({ ...f.context(input.runId), draftStateRevision: input.draftStateRevision },
+     { type: 'text', content: 'Would you like revisions to the remaining drafts?', end_turn: true });
+    expect(rejected.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 0 } });
+    write({ type: 'prompt.delivered', turnId: input.runId });
+    write({ type: 'turn.completed', turnId: input.runId, status: 'completed' }); controller.close();
+   })().catch(error => controller.error(error));
+  } }), { headers: { 'content-type': 'application/x-ndjson' } });
  } });
  try {
   for (let i = 0; i < 3; i++) await f.create(i);
@@ -849,3 +856,168 @@ test('a refreshed question widget still delivers when draft identities change bu
   expect(await f.prisma.channelMessage.count({ where: { channelId: context.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(1);
  } finally { await f.cleanup(); }
 });
+
+
+/** Observe an actual blocked query, rather than assuming a fixed scheduling delay. */
+async function waitForDraftLockWaiter(prisma: ReturnType<typeof createPrismaClient>, key: string) {
+ const deadline = Date.now() + 8_000;
+ while (Date.now() < deadline) {
+  const rows = await prisma.$queryRaw<Array<{ waiting: boolean }>>`SELECT EXISTS(SELECT 1 FROM pg_locks
+   WHERE locktype = 'advisory' AND objid = (hashtext(${key})::bigint & 4294967295)::oid AND NOT granted) AS waiting`;
+  if (rows[0]?.waiting) return;
+  await Bun.sleep(10);
+ }
+ throw new Error('Draft operation never reached the held lock');
+}
+
+test('cancellation while waiting on the draft lock blocks both status and question publication', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) for (const type of ['text', 'widget'] as const) {
+  const f = await notificationExperiment(variant);
+  let unlock: () => void = () => {}, locked: () => void = () => {};
+  const held = new Promise<void>(resolve => locked = resolve), gate = new Promise<void>(resolve => unlock = resolve);
+  let barrier: Promise<unknown> | undefined;
+  try {
+   for (let i = 0; i < 2; i++) await f.create(i);
+   await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId);
+   const context = f.context(turn.runId), snapshot = await f.messaging.draftReplySnapshot(context);
+   const key = `draft-notification:${f.botId}:${context.channelId}`;
+   barrier = f.prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`; locked(); await gate;
+   }, { timeout: 15_000 });
+   await held;
+   const reply = f.messaging.sendVisible({ ...context, draftStateRevision: snapshot.revision }, type === 'text'
+    ? { type, content: 'A late draft confirmation.' }
+    : { type, widget: { prompt: 'Revise the remaining draft?', options: [{ label: 'Revise', value: 'revise' }] } });
+   await waitForDraftLockWaiter(f.prisma, key);
+   await f.prisma.run.update({ where: { id: turn.runId }, data: { status: 'cancelled' } });
+   unlock(); await barrier;
+   expect((await reply).acknowledgement).toMatchObject(type === 'text' && variant === 'treatment'
+    ? { sent: false, silent: true } : { sent: false, retryable: false, reason: 'turn_not_active' });
+   expect(await f.visible()).toHaveLength(0);
+   expect(await f.prisma.channelMessage.count({ where: { channelId: context.channelId, metadata: { path: ['type'], equals: 'widget' } } })).toBe(0);
+   expect((await f.card(f.ids[0]!)).draftNotification?.messageId).toBeUndefined();
+  } finally { unlock(); await barrier?.catch(() => {}); await f.cleanup(); }
+ }
+}, 30_000);
+
+test('racing send and discard settle each card exactly once and repeated actions cannot resend', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  try {
+   let expectedSends = 0;
+   for (let i = 0; i < 16; i++) {
+    const id = await f.create(i), before = f.mailSends();
+    const actions = i % 2 ? ['send', 'cancel'] as const : ['cancel', 'send'] as const;
+    await Promise.all(actions.map(action => f.settle(id, action)));
+    const metadata = await f.card(id);
+    expect(['sent', 'dismissed']).toContain(metadata.cardState);
+    expectedSends += metadata.cardState === 'sent' ? 1 : 0;
+    expect(f.mailSends() - before).toBe(metadata.cardState === 'sent' ? 1 : 0);
+    const receipt = metadata.outcomeId;
+    await Promise.all([f.settle(id, 'send'), f.settle(id, 'cancel'), f.settle(id, 'send')]);
+    expect((await f.card(id)).outcomeId).toBe(receipt);
+    expect(f.mailSends()).toBe(expectedSends);
+   }
+   const cards = await Promise.all(f.ids.map(id => f.card(id)));
+   expect(new Set(cards.map(card => card.outcomeId)).size).toBe(16);
+   const snapshot = await f.messaging.draftReplySnapshot(f.context(''));
+   expect(snapshot.counts).toMatchObject({ pending: 0, sending: 0, sent: expectedSends, dismissed: 16 - expectedSends });
+  } finally { await f.cleanup(); }
+ }
+}, 30_000);
+
+test('failed verification reopens review without sending or producing a settled-outcome wake', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ let failVerification = false, entered: () => void = () => {}, release: () => void = () => {}, sends = 0;
+ const started = new Promise<void>(resolve => entered = resolve), gate = new Promise<void>(resolve => release = resolve);
+ const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => {
+  if (input.arguments.action === 'verify') {
+   if (failVerification) { entered(); await gate; throw new Error('Synthetic verification unavailable'); }
+   return { identity: 'me@example.com' };
+  }
+  sends++; return { id: 'synthetic-send' };
+ } } as never, { treatmentPercent: '100' });
+ let sending: Promise<unknown> | undefined;
+ try {
+  for (let i = 0; i < 3; i++) await f.create(i);
+  await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId);
+  failVerification = true; sending = Effect.runPromise(service.mutate(f.ids[1]!, { action: 'send' })); await started;
+  const during = await f.messaging.draftReplySnapshot(f.context(turn.runId));
+  expect(during.counts).toMatchObject({ pending: 1, sending: 1 });
+  await f.settle(f.ids[1]!, 'cancel'); expect((await f.card(f.ids[1]!)).cardState).toBe('sending');
+  release(); await sending;
+  expect(await f.card(f.ids[1]!)).toMatchObject({ cardState: 'pending', sendError: 'Synthetic verification unavailable' });
+  expect((await f.card(f.ids[1]!)).outcomeId).toBeUndefined();
+  expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+  const reply = await f.messaging.sendVisible({ ...f.context(turn.runId), draftStateRevision: during.revision }, { type: 'text', content: 'Only one remains?' });
+  expect(reply.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 2, sending: 0 } });
+  expect(sends).toBe(0);
+  await f.settle(f.ids[1]!, 'cancel'); expect((await f.card(f.ids[1]!)).cardState).toBe('dismissed');
+ } finally { release(); await sending?.catch(() => {}); await f.cleanup(); }
+});
+
+
+test('a draft publication already in progress commits before cancellation can finish', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ let release: () => void = () => {}, published: () => void = () => {}, publishing: Promise<unknown> | undefined;
+ const started = new Promise<void>(resolve => published = resolve), gate = new Promise<void>(resolve => release = resolve);
+ let backend = 0, cancellation: Promise<unknown> | undefined;
+ try {
+  await f.create(0); await f.settle(f.ids[0]!, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId);
+  publishing = f.prisma.$transaction(async tx => {
+   const rows = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`; backend = rows[0]!.pid;
+   expect((await publishDraftNotification(tx, f.context(turn.runId)))?.created).toBe(true);
+   published(); await gate;
+  }, { timeout: 15_000 });
+  await started;
+  cancellation = f.prisma.run.update({ where: { id: turn.runId }, data: { status: 'cancelled' } }).then(() => undefined);
+  let blocked = false; const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+   const rows = await f.prisma.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE ${backend} = ANY(pg_blocking_pids(pid))) AS blocked`;
+   if (rows[0]?.blocked) { blocked = true; break; }
+   await Bun.sleep(10);
+  }
+  expect(blocked).toBe(true);
+  // Other connections cannot observe a partial status/receipt before the commit.
+  expect(await f.visible()).toHaveLength(0);
+  expect((await f.card(f.ids[0]!)).draftNotification.messageId).toBeUndefined();
+  release(); await publishing; await cancellation;
+  expect(await f.visible()).toHaveLength(1);
+  expect((await f.messaging.flushDraftNotification(f.context(turn.runId)))?.acknowledgement).toMatchObject({ sent: false, silent: true });
+  expect(await f.visible()).toHaveLength(1);
+ } finally { release(); await publishing?.catch(() => {}); await cancellation?.catch(() => {}); await f.cleanup(); }
+}, 30_000);
+
+
+test('queued cancellation waits for a concurrent draft-outcome claim and then stops the running turn', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ let release: () => void = () => {}, entered: () => void = () => {}, claiming: Promise<unknown> | undefined, cancellation: Promise<unknown> | undefined;
+ const started = new Promise<void>(resolve => entered = resolve), gate = new Promise<void>(resolve => release = resolve);
+ try {
+  await f.create(0); const settled = await f.settle(f.ids[0]!, 'cancel'); const runId = settled.runId!;
+  const inbox = await f.prisma.inboxEvent.findFirstOrThrow({ where: { runId } });
+  const key = `bot-run-claim:${f.botId}`; let transportCalls = 0;
+  const service = new RunService(f.prisma, async () => {
+   transportCalls++; expect((await f.prisma.run.findUniqueOrThrow({ where: { id: runId } })).status).toBe('running');
+   return Response.json({ cancelled: true });
+  });
+  // Hold exactly the row order a worker claim uses, after it has selected queued work.
+  claiming = f.prisma.$transaction(async tx => {
+   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+   await tx.inboxEvent.update({ where: { id: inbox.id }, data: { status: 'processing' } }); entered(); await gate;
+   await tx.run.update({ where: { id: runId }, data: { status: 'running' } });
+  }, { timeout: 15_000 });
+  await started; cancellation = Effect.runPromise(service.cancel(runId));
+  await waitForDraftLockWaiter(f.prisma, key);
+  expect((await f.prisma.run.findUniqueOrThrow({ where: { id: runId } })).status).toBe('queued');
+  release(); await claiming; await cancellation;
+  expect(transportCalls).toBe(1);
+  expect((await f.prisma.run.findUniqueOrThrow({ where: { id: runId } })).status).toBe('cancelled');
+  expect((await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: inbox.id } })).status).toBe('processing');
+ } finally { release(); await claiming?.catch(() => {}); await cancellation?.catch(() => {}); await f.cleanup(); }
+}, 30_000);

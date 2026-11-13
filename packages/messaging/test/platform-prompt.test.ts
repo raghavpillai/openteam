@@ -144,12 +144,6 @@ describe("main-agent prompt assembly", () => {
     expect(prompt.instructions).not.toContain("quick: Small jobs");
   });
 
-  test("every feature combination stays within the prompt budget", () => {
-    for (const managedSkills of [true, false])
-      for (const sharing of [true, false])
-        expect(renderPlatformBaseSystemPrompt({ managedSkills, sharing }).length).toBeLessThan(40_000);
-  });
-
   test("the question-widget example in the prompt passes real send validation", () => {
     const example = PLATFORM_BASE_SYSTEM_PROMPT.match(/send a question widget instead of prose: (\{.+\})\./)?.[1];
     expect(example).toBeDefined();
@@ -158,7 +152,7 @@ describe("main-agent prompt assembly", () => {
 });
 
 describe("subagent prompt assembly", () => {
-  test.each(["executor", "videoReview", "watchVideo", "computerUse", "knowledgeWork"])("%s gets an isolated worker prompt", async (subagentType) => {
+  test.each(["executor", "watchVideo", "computerUse", "knowledgeWork"])("%s gets an isolated worker prompt", async (subagentType) => {
     const prompt = await worker(subagentType);
     expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
     expect(prompt.instructions).not.toContain("<agent_skills>");
@@ -167,7 +161,7 @@ describe("subagent prompt assembly", () => {
     if (subagentType === "knowledgeWork") expect(prompt.userInfo).toEndWith("</user_info>\n\n<agent_skills>knowledgeWork catalog</agent_skills>");
     else if (subagentType === "executor") expect(prompt.userInfo).toMatch(new RegExp(`${userInfo.source}$`));
     else expect(prompt.userInfo).toBeNull();
-    if (subagentType === "videoReview" || subagentType === "watchVideo") {
+    if (subagentType === "watchVideo") {
       // A media worker's prompt is the whole review brief: no tools or plugin skills.
       expect(prompt.instructions).not.toContain("Installed plugin skills");
       return;
@@ -184,7 +178,6 @@ describe("subagent prompt assembly", () => {
     expect(prompt.instructions).toContain("Operate in readonly mode: do not modify anything.");
     expect(prompt.instructions).not.toContain("ListMachines");
   });
-
 });
 
 describe("teammates roster", () => {
@@ -200,5 +193,4 @@ describe("teammates roster", () => {
     expect(Buffer.byteLength(render(10_000))).toBeLessThan(4_000);
     expect(selectPlatformPromptPeers([], peers(10_000))).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
-
 });

@@ -1,16 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  symlink,
-  truncate,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, truncate, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -46,18 +35,10 @@ describe("content-addressed attachment store", () => {
     let emitted = 0;
     let oversizedCanceled = false;
     const oversized = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        emitted += 1;
-        controller.enqueue(chunk);
-      },
-      cancel() {
-        oversizedCanceled = true;
-      },
+      pull(controller) { emitted += 1; controller.enqueue(chunk); },
+      cancel() { oversizedCanceled = true; },
     });
-
-    await expect(
-      store.ingestStream({ fileName: "oversized.txt", stream: oversized })
-    ).rejects.toMatchObject({ code: "asset_too_large" });
+    await expect(store.ingestStream({ fileName: "oversized.txt", stream: oversized })).rejects.toMatchObject({ code: "asset_too_large" });
     expect(emitted).toBeGreaterThanOrEqual(26);
     expect(emitted).toBeLessThanOrEqual(27);
     expect(oversizedCanceled).toBeTrue();
@@ -65,24 +46,13 @@ describe("content-addressed attachment store", () => {
 
     const abort = new AbortController();
     let markPullStarted: (() => void) | null = null;
-    const pullStarted = new Promise<void>((resolve) => {
-      markPullStarted = resolve;
-    });
+    const pullStarted = new Promise<void>((resolve) => { markPullStarted = resolve; });
     let abortedCanceled = false;
     const stalled = new ReadableStream<Uint8Array>({
-      pull() {
-        markPullStarted?.();
-        return new Promise<void>(() => undefined);
-      },
-      cancel() {
-        abortedCanceled = true;
-      },
+      pull() { markPullStarted?.(); return new Promise<void>(() => undefined); },
+      cancel() { abortedCanceled = true; },
     });
-    const pending = store.ingestStream({
-      fileName: "aborted.txt",
-      stream: stalled,
-      signal: abort.signal,
-    });
+    const pending = store.ingestStream({ fileName: "aborted.txt", stream: stalled, signal: abort.signal });
     await pullStarted;
     abort.abort(new Error("client disconnected"));
 
@@ -94,37 +64,16 @@ describe("content-addressed attachment store", () => {
   test("deduplicates bytes and rebuilds trusted metadata from the store", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const first = await store.ingestBytes({
-      fileName: "first.png",
-      mimeType: "application/octet-stream",
-      bytes: png(),
-      alt: "First image",
-    });
+    const first = await store.ingestBytes({ fileName: "first.png", mimeType: "application/octet-stream", bytes: png(), alt: "First image" });
     const second = await store.ingestBytes({ fileName: "second.png", bytes: png() });
 
     expect(second.assetId).toBe(first.assetId);
-    expect(first).toMatchObject({
-      mimeType: "image/png",
-      byteSize: 24,
-      kind: "image",
-      width: 3,
-      height: 2,
-    });
-    expect(
-      await store.normalizeRefs([
-        {
-          ...first,
-          fileName: "renamed.png",
-          mimeType: "text/html",
-          byteSize: 1,
-          kind: "file",
-        },
-      ])
-    ).toEqual([{ ...first, fileName: "renamed.png" }]);
+    expect(first).toMatchObject({ mimeType: "image/png", byteSize: 24, kind: "image", width: 3, height: 2 });
+    // Client-supplied metadata is untrusted; only the name survives.
+    expect(await store.normalizeRefs([{ ...first, fileName: "renamed.png", mimeType: "text/html", byteSize: 1, kind: "file" }]))
+      .toEqual([{ ...first, fileName: "renamed.png" }]);
     expect(await readFile(store.contentPath(first.assetId))).toEqual(png());
-    expect(await store.runtimeImages([first])).toEqual([
-      { url: `data:image/png;base64,${png().toString("base64")}`, alt: "First image" },
-    ]);
+    expect(await store.runtimeImages([first])).toEqual([{ url: `data:image/png;base64,${png().toString("base64")}`, alt: "First image" }]);
   });
 
   test("shares one budget across the messages sent in one request", async () => {
@@ -149,12 +98,7 @@ describe("content-addressed attachment store", () => {
   test("downgrades active text MIME types before same-origin serving", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const ref = await store.ingestBytes({
-      fileName: "page.html",
-      mimeType: "text/html",
-      bytes: Buffer.from("<script>top.location='https://attacker.invalid'</script>"),
-    });
-
+    const ref = await store.ingestBytes({ fileName: "page.html", mimeType: "text/html", bytes: Buffer.from("<script>top.location='https://attacker.invalid'</script>") });
     expect(ref).toMatchObject({ kind: "text", mimeType: "text/plain" });
   });
 
@@ -165,9 +109,7 @@ describe("content-addressed attachment store", () => {
     const ref = await store.ingestBytes({ fileName: "note.txt", bytes: Buffer.from("trusted") });
     await writeFile(join(assetRoot, `${ref.assetId}.blob`), "changed");
 
-    await expect(
-      new AssetStore({ root: assetRoot, allowedFileRoots: [root] }).metadata(ref.assetId)
-    ).rejects.toMatchObject({ code: "asset_corrupt" });
+    await expect(new AssetStore({ root: assetRoot, allowedFileRoots: [root] }).metadata(ref.assetId)).rejects.toMatchObject({ code: "asset_corrupt" });
   });
 
   test("rejects unsafe names, invalid base64, private URLs, and file-root escapes", async () => {
@@ -176,22 +118,14 @@ describe("content-addressed attachment store", () => {
     const store = new AssetStore({
       root: join(root, "assets"),
       allowedFileRoots: [join(root, "allowed")],
-      fetch: (() => {
-        throw new Error("private URL must be rejected before fetch");
-      }) as unknown as typeof fetch,
+      fetch: (() => { throw new Error("private URL must be rejected before fetch"); }) as unknown as typeof fetch,
     });
     await writeFile(join(outside, "secret.txt"), "secret");
 
-    await expect(
-      store.ingestBytes({ fileName: "../escape.txt", bytes: Buffer.from("x") })
-    ).rejects.toMatchObject({ code: "invalid_asset_filename" });
+    await expect(store.ingestBytes({ fileName: "../escape.txt", bytes: Buffer.from("x") })).rejects.toMatchObject({ code: "invalid_asset_filename" });
     expect(() => store.decodeUpload({ fileName: "bad.txt", bytesBase64: "%%%=" })).toThrow();
-    await expect(
-      store.ingestSource({ url: "https://127.0.0.1/private.png" })
-    ).rejects.toMatchObject({ code: "private_asset_url" });
-    await expect(
-      store.ingestSource({ url: pathToFileURL(join(outside, "secret.txt")).toString() })
-    ).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    await expect(store.ingestSource({ url: "https://127.0.0.1/private.png" })).rejects.toMatchObject({ code: "private_asset_url" });
+    await expect(store.ingestSource({ url: pathToFileURL(join(outside, "secret.txt")).toString() })).rejects.toMatchObject({ code: "asset_path_outside_store" });
     // A missing file inside an allowed root is named as missing, not as outside the store.
     await mkdir(join(root, "allowed"));
     await expect(store.ingestSource({ url: pathToFileURL(join(root, "allowed", "nope.pdf")).toString() })).rejects.toMatchObject({
@@ -216,9 +150,7 @@ describe("content-addressed attachment store", () => {
     await symlink(join(outside, "secret.txt"), join(allowed, "link.txt"));
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [allowed] });
 
-    await expect(
-      store.ingestSource({ url: pathToFileURL(join(allowed, "link.txt")).toString() })
-    ).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    await expect(store.ingestSource({ url: pathToFileURL(join(allowed, "link.txt")).toString() })).rejects.toMatchObject({ code: "asset_path_outside_store" });
   });
 
   test("prunes only unreferenced assets after the recovery grace period", async () => {

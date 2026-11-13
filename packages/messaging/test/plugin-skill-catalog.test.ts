@@ -3,11 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentDataStore } from "../src/agent-data";
-import {
-  pluginSkillsForAgent,
-  renderPluginSkillCatalog,
-  type PluginSkillCache,
-} from "../src/plugin-skill-catalog";
+import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "../src/plugin-skill-catalog";
 
 const updatedAt = new Date("2026-10-14T12:00:00.000Z");
 const manifest = {
@@ -18,13 +14,7 @@ const manifest = {
   files: { "skills/main-only/reference.md": "Reference notes." },
   skills: [
     { name: "main-only", description: "Main", body: "Main agent workflow.", path: "skills/main-only" },
-    {
-      name: "sign-in",
-      description: "Sign in",
-      body: "Shared sign-in workflow.",
-      path: "skills/sign-in",
-      agents: ["main", "computerUse"],
-    },
+    { name: "sign-in", description: "Sign in", body: "Shared sign-in workflow.", path: "skills/sign-in", agents: ["main", "computerUse"] },
     { name: "desktop-only", description: "Desktop", body: "Desktop workflow.", agents: ["computerUse"] },
   ],
 };
@@ -44,22 +34,9 @@ const store = (prisma: unknown = {}) =>
   new AgentDataStore(prisma as never, { root, workspaceRoot: join(root, "workspace") });
 const syncCache = async (): Promise<PluginSkillCache> => {
   await store().syncPluginSkillCache([
-    {
-      id: manifest.key,
-      name: manifest.name,
-      version: manifest.version,
-      publisher: manifest.publisher,
-      skills: manifest.skills,
-      files: manifest.files,
-    },
-    {
-      id: `private-${privateSkill.id}`,
-      name: privateSkill.name,
-      version: updatedAt.toISOString(),
-      publisher: "Private",
-      skills: [{ ...privateSkill, path: "skills/private" }],
-      files: {},
-    },
+    { id: manifest.key, name: manifest.name, version: manifest.version, publisher: manifest.publisher, skills: manifest.skills, files: manifest.files },
+    { id: `private-${privateSkill.id}`, name: privateSkill.name, version: updatedAt.toISOString(), publisher: "Private",
+      skills: [{ ...privateSkill, path: "skills/private" }], files: {} },
   ]);
   return JSON.parse(await readFile(join(root, "plugin-skills/cache.json"), "utf8"));
 };
@@ -80,12 +57,8 @@ test("the main agent's catalog lists each plugin skill with the path of its SKIL
   const mainOnly = catalogPath(catalog, "Main");
   expect(await readFile(mainOnly, "utf8")).toContain("Main agent workflow.");
   expect(await readFile(join(mainOnly, "../reference.md"), "utf8")).toBe("Reference notes.");
-  expect(await readFile(catalogPath(catalog, "Sign in"), "utf8")).toContain(
-    "Shared sign-in workflow."
-  );
-  expect(await readFile(catalogPath(catalog, "Private"), "utf8")).toContain(
-    "Private workflow."
-  );
+  expect(await readFile(catalogPath(catalog, "Sign in"), "utf8")).toContain("Shared sign-in workflow.");
+  expect(await readFile(catalogPath(catalog, "Private"), "utf8")).toContain("Private workflow.");
 });
 
 test("only the files of the installed package revision are listed", async () => {
@@ -104,7 +77,5 @@ test("only the files of the installed package revision are listed", async () => 
 test("subagents get only the skills that name them, and never private skills", async () => {
   const cache = await syncCache();
   expect(pluginSkillsForAgent(cache, [installation], [privateSkill], "executor")).toEqual([]);
-  expect(
-    pluginSkillsForAgent(cache, [installation], [privateSkill], "computerUse").map((entry) => entry.name)
-  ).toEqual(["sign-in", "desktop-only"]);
+  expect(pluginSkillsForAgent(cache, [installation], [privateSkill], "computerUse").map((entry) => entry.name)).toEqual(["sign-in", "desktop-only"]);
 });

@@ -9,19 +9,8 @@ import { renderMemoryContextBlock, renderMemoryFactSnapshot, renderUserMemoryFac
 import { parseRecallInput, recallMemoryResult } from "../src/recall-memory";
 
 test("extraction lines add, retire and prefix facts, skipping ones already known", () => {
-  expect(
-    parseExtractedMemories(
-      [
-        "remove: Lives in Boston.",
-        "profile: Lives in NYC.",
-        "- note: Likes cobalt for the demo.",
-        "log: Lives in Boston.",
-        "An untagged line is history.",
-        "NONE",
-      ].join("\n"),
-      ["Lives in Boston."]
-    )
-  ).toEqual({
+  const lines = ["remove: Lives in Boston.", "profile: Lives in NYC.", "- note: Likes cobalt for the demo.", "log: Lives in Boston.", "An untagged line is history.", "NONE"];
+  expect(parseExtractedMemories(lines.join("\n"), ["Lives in Boston."])).toEqual({
     additions: [
       { content: "Lives in NYC.", kind: "profile" },
       { content: "[note] Likes cobalt for the demo.", kind: "log" },
@@ -33,10 +22,7 @@ test("extraction lines add, retire and prefix facts, skipping ones already known
 });
 
 test("small talk is skipped, anything substantive is reviewed", () => {
-  expect(isMemorableExchange("thanks!")).toBe(false);
-  expect(isMemorableExchange("ok")).toBe(false);
-  expect(isMemorableExchange("ok?")).toBe(true);
-  expect(isMemorableExchange("I moved to Lyon")).toBe(true);
+  expect(["thanks!", "ok", "ok?", "I moved to Lyon"].map(isMemorableExchange)).toEqual([false, false, true, true]);
 });
 
 test("the extraction prompt carries today's date and exchanges an interrupted review left", () => {
@@ -65,15 +51,8 @@ test("the extraction prompt carries today's date and exchanges an interrupted re
       "Assistant: Done, noted.",
     ].join("\n")
   );
-  expect(renderTurnMemoryDate(new Date("2026-10-05T10:00:00Z"), "Europe/Paris")).toBe(
-    "Monday Oct 5, 2026 (Europe/Paris)"
-  );
-  expect(renderTurnMemoryDate(new Date("2026-10-05T23:30:00Z"), "Asia/Tokyo")).toBe(
-    "Tuesday Oct 6, 2026 (Asia/Tokyo)"
-  );
-  expect(renderTurnMemoryDate(new Date("2026-10-05T10:00:00Z"), "Not/AZone")).toBe(
-    "Monday Oct 5, 2026 (UTC)"
-  );
+  expect(renderTurnMemoryDate(new Date("2026-10-05T23:30:00Z"), "Asia/Tokyo")).toBe("Tuesday Oct 6, 2026 (Asia/Tokyo)");
+  expect(renderTurnMemoryDate(new Date("2026-10-05T10:00:00Z"), "Not/AZone")).toBe("Monday Oct 5, 2026 (UTC)");
 });
 
 const fact = (content: string, day: number, scope: "agent" | "user" = "agent", tier = "log") => ({

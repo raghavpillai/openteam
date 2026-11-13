@@ -42,33 +42,24 @@ const settle = async () => { for (let i = 0; i < 3; i++) await Promise.resolve()
 
 describe("shared reconnecting product event stream", () => {
   test("reconnects from the latest committed cursor and resets backoff after opening", async () => {
-    const attempts: Array<{
-      after: string;
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred<void>>;
-      signal: AbortSignal;
-    }> = [];
+    const attempts: Array<{ after: string; handlers: ProductEventHandlers; pending: ReturnType<typeof deferred<void>> }> = [];
     const scheduled: Array<{ callback: () => void; delay: number }> = [];
     const received: string[] = [];
     const disconnects: unknown[] = [];
     let cursor = "40";
     const stream = createReconnectingProductEventStream({
       cursor: () => cursor,
-      listen: (after, handlers, signal) => {
+      listen: (after, handlers) => {
         const pending = deferred();
-        attempts.push({ after, handlers, pending, signal });
+        attempts.push({ after, handlers, pending });
         return pending.promise;
       },
       onEvent: (next) => received.push(next.sequence),
       onDisconnect: (cause) => disconnects.push(cause),
       delayForAttempt: (attempt) => 1_000 * 2 ** attempt,
-      schedule: (callback, delay) => {
-        scheduled.push({ callback, delay });
-        return scheduled.length as unknown as ReturnType<typeof setTimeout>;
-      },
+      schedule: (callback, delay) => (scheduled.push({ callback, delay }), scheduled.length as unknown as ReturnType<typeof setTimeout>),
       cancel: () => undefined,
     });
-
     stream.resume();
     await settle();
     expect(attempts[0]?.after).toBe("40");
@@ -77,11 +68,9 @@ describe("shared reconnecting product event stream", () => {
     cursor = "41";
     attempts[0]?.pending.resolve();
     await settle();
-
     expect(received).toEqual(["41"]);
     expect(disconnects).toEqual([undefined]);
     expect(scheduled[0]?.delay).toBe(1_000);
-
     scheduled.shift()?.callback();
     await settle();
     expect(attempts[1]?.after).toBe("41");
@@ -150,7 +139,6 @@ describe("shared screen session controller", () => {
       requestTakeover: async (active) => { requests.push(active); return { humanTakeover: active }; },
       onTakeoverResult: (result) => results.push(result.humanTakeover),
     });
-
     controller.activate();
     await Promise.resolve();
     expect(polls).toBe(1);
@@ -159,7 +147,6 @@ describe("shared screen session controller", () => {
     await Promise.resolve();
     expect(requests).toEqual([true]);
     expect(results).toEqual([true]);
-
     controller.deactivate();
     await Promise.resolve();
     await Promise.resolve();

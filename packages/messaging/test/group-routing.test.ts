@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  groupVisibilityClauses,
-  parseGroupMentions,
-  resolveGroupResponderIds,
-} from "../src/group-routing";
+import { groupVisibilityClauses, parseGroupMentions, resolveGroupResponderIds } from "../src/group-routing";
 
 const members = [
   { id: "one", name: "Parity Probe v3" },
@@ -13,61 +9,33 @@ const members = [
 
 describe("OpenTeam-compatible group routing", () => {
   test("no mention and everyone route to all members", () => {
-    expect(
-      resolveGroupResponderIds(members, [{ sender: "user", content: "Please review" }])
-    ).toEqual(["one", "two", "three"]);
-    expect(
-      resolveGroupResponderIds(members, [{ sender: "user", content: "@everyone review" }])
-    ).toEqual(["one", "two", "three"]);
+    for (const content of ["Please review", "@everyone review"])
+      expect(resolveGroupResponderIds(members, [{ sender: "user", content }])).toEqual(["one", "two", "three"]);
   });
 
   test("one or multiple mentions route only to matched members", () => {
-    expect(resolveGroupResponderIds(members, [{ sender: "user", content: "@QA run it" }])).toEqual([
-      "three",
-    ]);
-    expect(
-      resolveGroupResponderIds(members, [
-        { sender: "user", content: "@Parity start" },
-        { sender: "agent", content: "@research please follow up" },
-      ])
-    ).toEqual(["one", "two"]);
+    expect(resolveGroupResponderIds(members, [{ sender: "user", content: "@QA run it" }])).toEqual(["three"]);
+    expect(resolveGroupResponderIds(members, [
+      { sender: "user", content: "@Parity start" },
+      { sender: "agent", content: "@research please follow up" },
+    ])).toEqual(["one", "two"]);
   });
 
   test("routing scans only from the last user message", () => {
-    expect(
-      resolveGroupResponderIds(members, [
-        { sender: "user", content: "@QA old task" },
-        { sender: "agent", content: "done" },
-        { sender: "user", content: "@Parity new task" },
-      ])
-    ).toEqual(["one"]);
+    expect(resolveGroupResponderIds(members, [
+      { sender: "user", content: "@QA old task" },
+      { sender: "agent", content: "done" },
+      { sender: "user", content: "@Parity new task" },
+    ])).toEqual(["one"]);
   });
 
   test("freezes the base snapshot while admitting only earlier same-round outputs", () => {
-    expect(
-      groupVisibilityClauses({
-        rootSequence: 97n,
-        triggerSequence: 100n,
-        lastTargetSequence: null,
-        earlierRunIds: ["run-first", "run-first", "run-second"],
-      })
-    ).toEqual([
+    const round = { rootSequence: 97n, triggerSequence: 100n };
+    expect(groupVisibilityClauses({ ...round, lastTargetSequence: null, earlierRunIds: ["run-first", "run-first", "run-second"] })).toEqual([
       { sequence: { lte: 100n } },
-      {
-        sender: "agent",
-        sourceRunId: { in: ["run-first", "run-second"] },
-        sequence: { gt: 100n },
-      },
+      { sender: "agent", sourceRunId: { in: ["run-first", "run-second"] }, sequence: { gt: 100n } },
     ]);
-
-    expect(
-      groupVisibilityClauses({
-        rootSequence: 97n,
-        triggerSequence: 100n,
-        lastTargetSequence: 99n,
-        earlierRunIds: [],
-      })
-    ).toEqual([{ sequence: { gt: 99n, lte: 100n } }]);
+    expect(groupVisibilityClauses({ ...round, lastTargetSequence: 99n, earlierRunIds: [] })).toEqual([{ sequence: { gt: 99n, lte: 100n } }]);
   });
 });
 

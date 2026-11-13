@@ -77,30 +77,14 @@ test.each([
 });
 
 test("oversized trigger groups are rejected instead of silently dropping listeners", () => {
-  const listeners = Array.from({ length: 9 }, (_, index) => ({
-    type: "cron",
-    schedule: `0 ${index} * * *`,
-  }));
-  for (const trigger of [
-    listeners,
-    { type: "group", listeners },
-    { type: "group", triggers: listeners },
-  ]) {
-    expect(() => parseStoredTrigger(trigger)).toThrow("at most 8");
-  }
-  expect(parseStoredTrigger({ type: "group", listeners: listeners.slice(0, 8) })).toMatchObject({
-    listeners: listeners.slice(0, 8),
-  });
+  const listeners = Array.from({ length: 9 }, (_, index) => ({ type: "cron", schedule: `0 ${index} * * *` }));
+  for (const trigger of [listeners, { type: "group", listeners }, { type: "group", triggers: listeners }]) expect(() => parseStoredTrigger(trigger)).toThrow("at most 8");
+  expect(parseStoredTrigger({ type: "group", listeners: listeners.slice(0, 8) })).toMatchObject({ listeners: listeners.slice(0, 8) });
 });
 
 test("repo-wide listeners may not carry the high-volume event kinds", () => {
   const refusal = (trigger: unknown) => {
-    try {
-      normalizeRoutineMutationTrigger({ trigger }, "UTC");
-      return null;
-    } catch (error) {
-      return (error as Error).message;
-    }
+    try { normalizeRoutineMutationTrigger({ trigger }, "UTC"); return null; } catch (error) { return (error as Error).message; }
   };
   expect(refusal({ type: "github", repo: "org/app", events: ["pr-opened", "pr-pushed", "review-commented"] })).toBe(
     `the github listener on "org/app" was not saved: pr-pushed, review-commented are not scoped on the repo. Narrow it with a 'pr' or 'userAllowlist' filter and try again.`

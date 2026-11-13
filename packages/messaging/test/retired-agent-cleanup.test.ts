@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { cleanupRetiredAgent } from "../src/retired-agent-cleanup";
 
-for (const failure of ["turn", "context", "background", "screen", "store", "files"] as const) {
+// One retry case per kind of step: a computer call, the database, and local files.
+for (const failure of ["turn", "context", "store", "files"] as const) {
   test(`retired cleanup retries ${failure} after the directory is already gone`, async () => {
     const retired = { id: "bot", cleanupPending: true, cleanupRunIds: ["run"] };
     let contextExists = true;
@@ -15,8 +16,6 @@ for (const failure of ["turn", "context", "background", "screen", "store", "file
       calls.push(path);
       const fails = (failure === "turn" && path.endsWith("/cancel")) ||
         (failure === "context" && path.includes("context-sessions")) ||
-        (failure === "background" && path.includes("background-shells")) ||
-        (failure === "screen" && path.includes("screens")) ||
         (failure === "store" && path.includes("agent-stores"));
       if (offline && fails) return new Response("offline", { status: 503 });
       // Cancellation is idempotent even after the computer has already stopped the turn.

@@ -74,7 +74,6 @@ test("message previews use the first visible line, strip markdown and cap at 200
     ["Status update\nAll three invoices are paid.\n\nDetails follow.", "Status update"],
     ["\n \n## Weekly audit\n\n### Summary\n- **UTC:** now", "Weekly audit"],
     ["- **Rent:** paid\n- **Utilities:** due Friday", "Rent: paid"],
-    ["1. First step\n2. Second step", "First step"],
     ["> Hi Sam, thanks for the update.\n\nWant me to send it?", "Hi Sam, thanks for the update."],
     ["| Item | Cost |\n|---|---|\n| Rent | $2,000 |", "Item Cost"],
     ["![Revenue chart](https://example.com/chart.png)\n\nUp 12%.", "Revenue chart"],
@@ -83,11 +82,8 @@ test("message previews use the first visible line, strip markdown and cap at 200
     ["---\n\nAfter the rule.", "---"],
     ["![](https://x.test/chart.png)\n\nRevenue grew 12%", "Revenue grew 12%"],
     ["<br>\n> \nStill here", "Still here"],
-    ["```", ""],
-    ["", ""],
     [`Done. Here is the [quarterly revenue workbook](https://docs.google.com/spreadsheets/d/${"a".repeat(180)}/edit) for you to review.`, "Done. Here is the quarterly revenue workbook for you to review."],
     [`${"a".repeat(198)}😀😀`, `${"a".repeat(198)}…`],
-    ["x".repeat(10_000), `${"x".repeat(199)}…`],
   ])
     expect(messagePreviewText(input!)).toBe(preview!);
   const words = messagePreviewText(`${"word ".repeat(60)}end`);

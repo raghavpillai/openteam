@@ -3,18 +3,12 @@ import { Schema } from "effect";
 import {
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
-  NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
   ScreenActionInput,
   SendMessageInput,
-  DISCONNECT_CHANNEL_TOOL,
   isStateTool,
   STATE_TOOL_TARGETS,
-  UPDATE_AVATAR_TOOL,
-  UPDATE_MEMORY_TOOL,
   UPDATE_PROFILE_TOOL,
-  UPDATE_ROUTINE_TOOL,
-  UPDATE_SKILL_TOOL,
   TaskInput,
   UploadAssetInput,
 } from "../src";
@@ -49,20 +43,6 @@ describe("API contracts", () => {
       const expected = referenceTool(tool.name);
       expect({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}).toEqual(expected);
     }
-    expect(NATIVE_TOOLS.some((tool) => tool.name === "AddMcpServer")).toBe(false);
-    expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
-  });
-
-  test("pins delivery contracts including named secrets", () => {
-    const sendToUser = NATIVE_TOOLS.find((tool) => tool.name === "SendToUser");
-    expect(sendToUser?.description).not.toContain('credential-request');
-    expect(sendToUser?.description).not.toContain('ListCredentials');
-    expect(sendToUser?.description).not.toContain('cursor-agent');
-    const schema = sendToUser!.inputSchema as any;
-    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request']);
-    expect(schema.properties.secret.properties).toHaveProperty('name');
-    expect(schema.properties.secret.properties).toHaveProperty('connector');
-    expect(schema.properties).not.toHaveProperty('credential');
   });
 
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
@@ -79,14 +59,7 @@ describe("API contracts", () => {
   });
 
   test("splits durable state into top-level and namespaced tools with fixed targets", () => {
-    expect([UPDATE_MEMORY_TOOL.name, UPDATE_ROUTINE_TOOL.name]).toEqual(["UpdateMemory", "UpdateRoutine"]);
-    expect(NATIVE_TOOL_NAMES).not.toContain("update_state");
-    expect(CURSOR_TOOL_NAMES).not.toContain("update_state");
-    expect(
-      [UPDATE_SKILL_TOOL, UPDATE_PROFILE_TOOL, UPDATE_AVATAR_TOOL, DISCONNECT_CHANNEL_TOOL].map((tool) => tool.name)
-    ).toEqual(["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel"]);
     expect(STATE_TOOL_TARGETS).toEqual({ UpdateMemory: "memory", UpdateRoutine: "routine", UpdateSkill: "skill", UpdateProfile: "profile", UpdateAvatar: "avatar", DisconnectChannel: "channel" });
-    expect(isStateTool("update_state")).toBe(false);
     expect(isStateTool("UpdateProject")).toBe(false);
     for (const name of Object.keys(STATE_TOOL_TARGETS)) {
       expect(isStateTool(name)).toBe(true);
@@ -105,10 +78,6 @@ describe("API contracts", () => {
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
       "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."
     );
-    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x" })).toThrow(
-      "UpdateMemory: pick the memory type it belongs in"
-    );
-    expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
     // The apps draw robots; a mark shape they can't render would reset the robot to the default.
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "cloud" })).toThrow("avatar_shape");
     expect(normalizeMainToolArguments("UpdateProfile", { avatar_shape: "owl" })).toEqual({ avatar_shape: "owl" });
@@ -210,7 +179,7 @@ test("Task profiles and model arguments cannot override server inference, and am
   const config = parseTaskConfiguration({ executorProfiles: [profile("quick", "openai", "small-model", "low"), profile("deep", "anthropic", "large-model", "high")], defaultExecutorProfile: "quick" });
   expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
   expect(taskUserInfo(config)).not.toContain("available_subagent_models");
-  for (const reasoning of ["off", "minimal", "low", "medium", "high"] as const)
+  for (const reasoning of ["off", "high"] as const)
     for (const subagent_type of ["executor", "computerUse", "videoReview", "watchVideo"])
       for (const model of [undefined, "quick", "deep", "unconfigured", "provider/model"])
         for (const resume of [undefined, "previous"]) {

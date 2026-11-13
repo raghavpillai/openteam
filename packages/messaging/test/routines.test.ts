@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { ApiError } from "@openteam/contracts";
 import { triggerIdentity } from "../src/automation-trigger";
 import {
   nextRoutineRun,
@@ -20,6 +19,7 @@ describe("routine schedules", () => {
     expect(tokyo).toMatchObject({ timezone: "Asia/Tokyo", timezoneMode: "pinned" });
     expect(nextRoutineRun(utc, now).toISOString()).toBe("2026-09-25T09:00:00.000Z");
     expect(nextRoutineRun(tokyo, now).toISOString()).toBe("2026-09-25T00:00:00.000Z");
+    expect(normalizeRoutineSchedule("CRON_TZ=America/New_York @daily", "UTC")).toMatchObject({ cronExpression: "0 0 * * *", timezone: "America/New_York" });
   });
   test.each([
     "@every nonsense",
@@ -30,14 +30,7 @@ describe("routine schedules", () => {
     "0 0 30 2 *",
     "CRON_TZ=Not/A_Zone 0 9 * * *",
   ])("classifies invalid schedule %s as a client error", (schedule) => {
-    let failure: unknown;
-    try {
-      normalizeRoutineSchedule(schedule, "UTC");
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(ApiError);
-    expect(failure).toMatchObject({ status: 400, code: "invalid_routine_schedule" });
+    expect(() => normalizeRoutineSchedule(schedule, "UTC")).toThrow(expect.objectContaining({ status: 400, code: "invalid_routine_schedule" }));
   });
 
   test.each(["@every 1m", "*/2 * * * *", "0,3 9 * * *"])("refuses %s with the five-minute floor reason", (schedule) => {
@@ -46,73 +39,20 @@ describe("routine schedules", () => {
     );
   });
 
-  test("normalizes aliases and pinned time zones", () => {
-    const daily = normalizeRoutineSchedule("CRON_TZ=America/New_York @daily", "UTC");
-    expect(daily).toMatchObject({
-      cronExpression: "0 0 * * *",
-      scheduleKind: "cron",
-      timezoneMode: "pinned",
-      timezone: "America/New_York",
-    });
-  });
-
   test("accepts interval, weekday, event, and mixed listeners", () => {
-    expect(normalizeRoutineMutationTrigger({ schedule: "@every 5m" }, "UTC")).toMatchObject({
-      trigger: { type: "cron", schedule: "@every 5m" },
-      schedule: { scheduleKind: "interval", intervalSeconds: 300 },
-    });
-    const weekday = normalizeRoutineMutationTrigger(
-      {
-        trigger: {
-          type: "cron",
-          schedule: "CRON_TZ=America/New_York 0 11 * * 1-5",
-        },
-      },
-      "UTC"
-    );
-    expect(weekday).toMatchObject({
-      trigger: {
-        type: "cron",
-        schedule: "CRON_TZ=America/New_York 0 11 * * 1-5",
-      },
-      schedule: {
-        scheduleKind: "cron",
-        cronExpression: "0 11 * * 1-5",
-        timezoneMode: "pinned",
-        timezone: "America/New_York",
-      },
-    });
-    expect(
-      nextRoutineTriggerRun(weekday.trigger, weekday.schedule, new Date("2026-09-02T14:59:00Z"))
-    ).toEqual(new Date("2026-09-02T15:00:00Z"));
+    expect(normalizeRoutineMutationTrigger({ schedule: "@every 5m" }, "UTC").schedule).toMatchObject({ scheduleKind: "interval", intervalSeconds: 300 });
+    const weekday = normalizeRoutineMutationTrigger({ trigger: { type: "cron", schedule: "CRON_TZ=America/New_York 0 11 * * 1-5" } }, "UTC");
+    expect(weekday.schedule).toMatchObject({ cronExpression: "0 11 * * 1-5", timezone: "America/New_York" });
+    expect(nextRoutineTriggerRun(weekday.trigger, weekday.schedule, new Date("2026-09-02T14:59:00Z"))).toEqual(new Date("2026-09-02T15:00:00Z"));
     expect(normalizeRoutineMutationTrigger({ trigger: { type: "webhook" } }, "UTC")).toMatchObject({ schedule: { scheduleKind: "event" } });
-    expect(
-      normalizeRoutineMutationTrigger(
-        {
-          trigger: {
-            type: "group",
-            listeners: [
-              { type: "cron", schedule: "0 11 * * 1-5" },
-              { type: "pagerduty", event: { case: "incidentAny" } },
-            ],
-          },
-        },
-        "UTC"
-      )
-    ).toMatchObject({ schedule: { scheduleKind: "cron" }, trigger: { type: "group" } });
+    const mixed = { type: "group", listeners: [{ type: "cron", schedule: "0 11 * * 1-5" }, { type: "pagerduty", event: { case: "incidentAny" } }] };
+    expect(normalizeRoutineMutationTrigger({ trigger: mixed }, "UTC")).toMatchObject({ schedule: { scheduleKind: "cron" }, trigger: { type: "group" } });
   });
 
   test("matches Bot wall-clock behavior through DST gaps and folds", () => {
-    const springGap = normalizeRoutineSchedule("30 2 * * *", "Asia/Jerusalem", {
-      enforceMinimum: false,
-    });
-    expect(nextRoutineRun(springGap, new Date("2026-03-26T20:00:00Z"))).toEqual(
-      new Date("2026-03-27T23:30:00Z")
-    );
-
-    const fallFold = normalizeRoutineSchedule("30 1 * * *", "Asia/Jerusalem", {
-      enforceMinimum: false,
-    });
+    const springGap = normalizeRoutineSchedule("30 2 * * *", "Asia/Jerusalem", { enforceMinimum: false });
+    expect(nextRoutineRun(springGap, new Date("2026-03-26T20:00:00Z"))).toEqual(new Date("2026-03-27T23:30:00Z"));
+    const fallFold = normalizeRoutineSchedule("30 1 * * *", "Asia/Jerusalem", { enforceMinimum: false });
     const firstFold = nextRoutineRun(fallFold, new Date("2026-10-24T20:00:00Z"));
     const secondFold = nextRoutineRun(fallFold, firstFold);
     expect(firstFold).toEqual(new Date("2026-10-24T22:30:00Z"));
@@ -123,17 +63,9 @@ describe("routine schedules", () => {
     let queriedWhere: unknown;
     const channelId = "dec8b14f-402f-9e34-1ddd-a3ebb13c2329";
     const routineId = "a2b83ac9-45c9-e57b-fcbb-18da42d0de11";
-    const service = new RoutineService(
-      {
-        routine: {
-          findFirst: async ({ where }: { where: unknown }) => {
-            queriedWhere = where;
-            return { botId: null, channelId };
-          },
-        },
-      } as never,
-      {} as never
-    );
+    const service = new RoutineService({
+      routine: { findFirst: async ({ where }: { where: unknown }) => { queriedWhere = where; return { botId: null, channelId }; } },
+    } as never, {} as never);
 
     await expect(service.owner(routineId)).resolves.toEqual({ kind: "group", id: channelId });
     expect(queriedWhere).toMatchObject({ id: routineId });
@@ -157,13 +89,7 @@ const anchor = new Date("2026-01-01T00:00:00Z");
 
 describe("durable routine cadence", () => {
   test("relative listeners keep their independent phases", () => {
-    const trigger = {
-      type: "group",
-      listeners: [
-        { type: "cron", schedule: "@every 10m" },
-        { type: "cron", schedule: "@every 15m" },
-      ],
-    };
+    const trigger = { type: "group", listeners: [{ type: "cron", schedule: "@every 10m" }, { type: "cron", schedule: "@every 15m" }] };
     const fallback = normalizeRoutineSchedule("@every 10m", "UTC");
     let current = anchor;
     const times = [];
@@ -182,83 +108,39 @@ describe("durable routine cadence", () => {
 
   test("year-long downtime jumps directly to the original interval phase", () => {
     const schedule = normalizeRoutineSchedule("@every 5m", "UTC");
-    expect(nextRoutineRun(schedule, new Date("2027-01-01T00:02:00Z"), anchor).toISOString()).toBe(
-      "2027-01-01T00:05:00.000Z"
-    );
+    expect(nextRoutineRun(schedule, new Date("2027-01-01T00:02:00Z"), anchor).toISOString()).toBe("2027-01-01T00:05:00.000Z");
   });
 
   test("explicit phase remains epoch-aligned even with a definition anchor", () => {
     const schedule = normalizeRoutineSchedule("@every 1h/5m", "UTC");
-    expect(
-      nextRoutineRun(
-        schedule,
-        new Date("2026-01-01T00:02:00Z"),
-        new Date("2025-12-31T23:23:00Z")
-      ).toISOString()
-    ).toBe("2026-01-01T00:05:00.000Z");
+    expect(nextRoutineRun(schedule, new Date("2026-01-01T00:02:00Z"), new Date("2025-12-31T23:23:00Z")).toISOString()).toBe("2026-01-01T00:05:00.000Z");
   });
 
   test("mixed cron and interval listeners retain elapsed phase across calendar ticks", () => {
-    const trigger = {
-      type: "group",
-      listeners: [
-        { type: "cron", schedule: "@every 15m" },
-        { type: "cron", schedule: "10 * * * *" },
-      ],
-    };
+    const trigger = { type: "group", listeners: [{ type: "cron", schedule: "@every 15m" }, { type: "cron", schedule: "10 * * * *" }] };
     const fallback = normalizeRoutineSchedule("@every 15m", "UTC");
     const calendar = nextRoutineTriggerRun(trigger, fallback, anchor, "UTC", anchor);
     expect(calendar.toISOString()).toBe("2026-01-01T00:10:00.000Z");
-    expect(nextRoutineTriggerRun(trigger, fallback, calendar, "UTC", anchor).toISOString()).toBe(
-      "2026-01-01T00:15:00.000Z"
-    );
+    expect(nextRoutineTriggerRun(trigger, fallback, calendar, "UTC", anchor).toISOString()).toBe("2026-01-01T00:15:00.000Z");
   });
 
   test("rejects an invalid Teams regex before enabling a listener", () => {
-    expect(() =>
-      normalizeRoutineMutationTrigger(
-        {
-          trigger: {
-            type: "microsoftTeams",
-            tenantId: "tenant",
-            teamIds: ["team"],
-            messageContains: "[",
-            messageContainsIsRegex: true,
-          },
-        },
-        "UTC"
-      )
-    ).toThrow("valid regular expression");
-    expect(
-      normalizeRoutineMutationTrigger(
-        {
-          trigger: {
-            type: "microsoftTeams",
-            tenantId: "tenant",
-            teamIds: ["team"],
-            messageContains: "alert.*",
-            messageContainsIsRegex: true,
-          },
-        },
-        "UTC"
-      ).trigger
-    ).toMatchObject({ messageContains: "alert.*" });
+    const teams = (messageContains: string) =>
+      normalizeRoutineMutationTrigger({ trigger: { type: "microsoftTeams", tenantId: "t", teamIds: ["team"], messageContains, messageContainsIsRegex: true } }, "UTC");
+    expect(() => teams("[")).toThrow("valid regular expression");
+    expect(teams("alert.*").trigger).toMatchObject({ messageContains: "alert.*" });
   });
 });
 
 describe("routine calendar and interval edge cases", () => {
   test("leap-day schedules can find an occurrence more than one year away", () => {
     const schedule = normalizeRoutineSchedule("0 9 29 2 *", "UTC");
-    expect(nextRoutineRun(schedule, new Date("2026-09-22T06:00:00Z"))).toEqual(
-      new Date("2028-02-29T09:00:00Z")
-    );
+    expect(nextRoutineRun(schedule, new Date("2026-09-22T06:00:00Z"))).toEqual(new Date("2028-02-29T09:00:00Z"));
   });
 
   test("a short gap cannot hide beyond the first eight occurrences", () => {
     setSystemTime(new Date("2026-09-22T00:02:00Z"));
-    expect(() =>
-      normalizeRoutineSchedule("0,1,10,15,20,25,30,35,40,45,50,55 * * * *", "UTC")
-    ).toThrow("5 minutes");
+    expect(() => normalizeRoutineSchedule("0,1,10,15,20,25,30,35,40,45,50,55 * * * *", "UTC")).toThrow("5 minutes");
   });
 });
 

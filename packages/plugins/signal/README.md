@@ -55,9 +55,8 @@ bun test packages/plugins/signal/connector/test
 bun test packages/plugin-sdk/src/runtime-assets.test.ts
 bun test apps/server/test/plugin/device-link.test.ts apps/computer/test/runtime/managed-account-state.test.ts
 bun packages/plugins/signal/connector/test/build.ts
-bun packages/plugins/signal/connector/test/managed-smoke.ts
 ```
 
 The ordinary suite uses synthetic accounts and child processes. Optional real-runtime tests set `SIGNAL_TEST_EXECUTABLE` and `SIGNAL_TEST_JAVA_HOME`; they create empty temporary account directories and never use an existing account. Operator-run `connector/test/live.ts` uses an explicitly selected private account directory; `link` requires a phone scan and `verify` sends one labeled Note to Self message. Live state and evidence belong under ignored `output/`, never in the plugin package.
 
-`managed-smoke.ts` installs or reuses the pinned runtimes and checks two real MCP lifecycles against an empty temporary account, without administrator paths or an existing Signal account. It leaves only the public runtime cache. Set `SIGNAL_RUNTIME_CACHE` to choose that cache; add `--provision` to also obtain and cancel a linking code over the network. The code is never printed or scanned.
+`connector/test/patch-ci.ts` installs or reuses the pinned runtimes (set `SIGNAL_RUNTIME_CACHE` to choose that cache) and runs the real-runtime tests against an empty temporary account; it needs a JDK 25 `JAVA_HOME`. Real provisioning, which contacts Signal for a linking code, runs only when you call that test by name.

@@ -4,21 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentDataStore } from "../../src/agent-data";
 import { parseAutomationRuns } from "../../src/automation-files";
-import {
-  atomicWrite,
-  listDirectories,
-  readBytes,
-  readText,
-  safeFolderId,
-} from "../../src/file-state";
+import { atomicWrite, listDirectories, readBytes, readText, safeFolderId } from "../../src/file-state";
 
 test("atomic writes never expose mixed payloads or leave temporary files", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-atomic-"));
   const path = join(root, "profile.json");
-  const payloads = Array.from(
-    { length: 24 },
-    (_, index) => `${String(index).padStart(2, "0")}:${"x".repeat(8_192)}\n`
-  );
+  const payloads = Array.from({ length: 24 }, (_, index) => `${String(index).padStart(2, "0")}:${"x".repeat(8_192)}\n`);
   try {
     await Promise.all(payloads.map((payload) => atomicWrite(path, payload)));
     expect(payloads).toContain(await readFile(path, "utf8"));
@@ -91,21 +82,12 @@ test("folder identifiers reject traversal, separators, and null bytes", () => {
 
 test("routine run ledgers normalize unknown enums, order entries, and retain only 20", () => {
   const input = Array.from({ length: 25 }, (_, index) => ({
-    id: `run-${index}`,
-    trigger: index === 0 ? "future-trigger" : "manual",
-    startedAt: 25 - index,
-    status: index === 0 ? "future-status" : "running",
-    extensionField: { retained: true },
+    id: `run-${index}`, trigger: index === 0 ? "future-trigger" : "manual", startedAt: 25 - index,
+    status: index === 0 ? "future-status" : "running", extensionField: { retained: true },
   }));
   const parsed = parseAutomationRuns(JSON.stringify(input));
-  expect(parsed).toHaveLength(20);
-  expect(parsed.map((run) => run.startedAt)).toEqual(
-    Array.from({ length: 20 }, (_, index) => 25 - index)
-  );
+  expect(parsed.map((run) => run.startedAt)).toEqual(Array.from({ length: 20 }, (_, index) => 25 - index));
   const normalized = parsed.find((run) => run.id === "run-0");
-  expect(normalized).toMatchObject({
-    trigger: "schedule",
-    status: "ok",
-  });
+  expect(normalized).toMatchObject({ trigger: "schedule", status: "ok" });
   expect(normalized).not.toHaveProperty("extensionField");
 });

@@ -1736,6 +1736,12 @@ function SentPill({
       <span className="screenbot-sent-glass" data-glass="" aria-hidden="true" />
       <ScreenBotBotAvatar bot={bot} size={20} />
       <span className="screenbot-sent-text">
+        {/* The same check as a file preview's "Sent to" (it pops, draws and rings out). */}
+        <span className="screenbot-sent-check" aria-hidden="true">
+          <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
+            <path d="M5 12.5 10 17.5 19.5 7" pathLength="1" />
+          </svg>
+        </span>
         Sent to <strong>{bot.name}</strong>
       </span>
       <button type="button" className="screenbot-sent-open" onClick={onOpen}>

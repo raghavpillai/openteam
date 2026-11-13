@@ -5,11 +5,15 @@ import { isShortcut, shortcutBinding } from "./use-shortcut-bindings";
 
 /**
  * Whether the Dictate shortcut belongs to this composer: the one on screen (hidden
- * conversations keep theirs mounted), with no dialog open and no other text field focused.
+ * conversations keep theirs mounted), with no other dialog in front and no other text field
+ * focused.
  */
 const dictateHere = (editor: HTMLElement | null, focused: EventTarget | Element | null) => {
   if (!editor?.isConnected || editor.offsetParent === null) return false;
-  if (document.querySelector("[role=dialog]")) return false;
+  // A dialog in front (Search, Settings) owns the keys, unless the composer is in it: a file
+  // preview carries the chat composer along.
+  const dialogs = [...document.querySelectorAll("[role=dialog]")];
+  if (dialogs.length && !dialogs.some((dialog) => dialog.contains(editor))) return false;
   if (!(focused instanceof Element) || focused === document.body || editor.closest("form")?.contains(focused)) return true;
   return !focused.closest("input, textarea, select, [contenteditable=true]");
 };

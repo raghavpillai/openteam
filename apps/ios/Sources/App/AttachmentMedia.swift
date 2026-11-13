@@ -320,6 +320,16 @@ struct AttachmentView: View {
           .preferredColorScheme(.dark)))
       return
     }
+    if NativeFilePreview.prefersFloatingCard {
+      // The card animates itself; skip the cover's slide so the dim doesn't travel with it.
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        modals.fullScreen = .init(content: AnyView(
+          NativeFilePreview(url: file.url, mimeType: asset.mimeType, floating: true)))
+      }
+      return
+    }
     modals.sheet = .init(content: AnyView(NativeFilePreview(url: file.url, mimeType: asset.mimeType)))
   }
   private func load(open: Bool) async {

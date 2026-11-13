@@ -38,6 +38,14 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
       {...message,id:'media-files-answer',sequence:'406',content:'Got the PDF, opening it now.'});
     return snapshot;
   }
+  if(scene==='spreadsheet') {
+    const user={...message,sender:'user',senderBotId:null};
+    snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');
+    snapshot.channelMessages.push(
+      {...user,id:'sheet-question',sequence:'401',content:'What changed in these transactions?'},
+      {...user,id:'sheet-file',sequence:'402',metadata:{attachments:[{assetId:'sheet-transactions',fileName:'Transactions.csv',mimeType:'text/csv',byteSize:1450,kind:'file'}]}});
+    return snapshot;
+  }
   if(scene==='media-long') {
     const photos=Array.from({length:24},(_,index)=>({...message,id:'gallery-message-'+(index+1),sequence:String(401+index),metadata:{attachments:[{assetId:'gallery-'+(index+1),fileName:'Gallery '+(index+1)+'.png',mimeType:'image/png',byteSize:46000,kind:'image',alt:'Gallery photo '+(index+1)}]}}));
     snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(...photos);return snapshot;

@@ -22,6 +22,8 @@ describe("OpenTeam-compatible attachment previews", () => {
     expect(attachmentPreviewKind(asset("data.json", "application/json", "text"))).toBe("json");
     expect(attachmentPreviewKind(asset("clip.mp4", "video/mp4", "video"))).toBe("video");
     expect(attachmentPreviewKind(asset("voice.wav", "audio/wav", "audio"))).toBe("audio");
+    expect(attachmentPreviewKind(asset("example.py", "application/octet-stream"))).toBe("text");
+    expect(attachmentPreviewKind(asset("dashboard.html", "application/octet-stream"))).toBe("text");
   });
 
   test("formats compact binary sizes used on file cards", () => {

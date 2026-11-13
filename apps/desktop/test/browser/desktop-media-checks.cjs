@@ -18,6 +18,13 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
     checks.push({ phase, check: message });
   };
   const rect = async (l) => l.evaluate((e) => e.getBoundingClientRect().toJSON());
+  const checkFocus = async (locator, message) => {
+    await p.waitForFunction(
+      (element) => document.activeElement === element,
+      await locator.elementHandle()
+    );
+    check(true, message);
+  };
   const load = async (query, width = 1456) => {
     await p.setViewportSize({ width, height: 924 });
     await p.goto(url + "?" + query);
@@ -39,22 +46,35 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
     await pause(350);
   };
   const checkStage = async () => {
-    const main = await rect(p.locator("[data-workspace-main]")),
-      stage = await rect(p.locator("[data-attachment-stage]"));
+    await p.waitForFunction(() => {
+      const stage = document.querySelector("[data-attachment-stage]");
+      return stage && Math.abs(stage.getBoundingClientRect().y - 32) < 0.1;
+    });
+    const stage = await rect(p.locator("[data-attachment-stage]"));
     check(
-      Math.abs(main.x - stage.x) < 0.1 && Math.abs(main.width - stage.width) < 0.1,
-      "viewer occupies chat area and preserves sidebar"
+      stage.x === 24 && stage.width === p.viewportSize().width - 48,
+      "preview floats above the sidebar and details panel with a visible margin"
     );
     check(
-      Math.abs(stage.y) < 0.1 && Math.abs(stage.height - p.viewportSize().height) < 0.1,
-      "production preview fills the visible viewport vertically"
+      Math.abs(stage.y - 32) < 0.1 && Math.abs(stage.bottom - p.viewportSize().height) < 0.1,
+      "preview rises from the bottom edge, below the window controls"
     );
-    check(await p.locator("[data-composer-dock] form").isVisible(), "composer stays visible");
-    const dock = await rect(p.locator("[data-composer-dock] form"));
     check(
-      Math.abs(dock.width - Math.min(550, main.width - 32)) < 0.1 &&
-        Math.abs(dock.bottom - 911) < 0.1,
-      "composer matches reference width and bottom inset"
+      (await p.getByRole("dialog").getAttribute("aria-modal")) === "true" &&
+        (await p.getByRole("textbox", { name: "Message", exact: true }).count()) === 0,
+      "modal preview makes the underlying chat and composer inaccessible"
+    );
+    check(
+      await p.locator("[data-attachment-stage]").evaluate((stage) => {
+        const panelPoint = document.elementFromPoint(innerWidth - 40, 100);
+        const composerPoint = document.elementFromPoint(innerWidth / 2, innerHeight - 30);
+        return (
+          stage.contains(panelPoint) &&
+          stage.contains(composerPoint) &&
+          getComputedStyle(stage).boxShadow !== "none"
+        );
+      }),
+      "preview and subtle shadow sit above the right panel and composer"
     );
   };
   try {
@@ -115,6 +135,8 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       await p.screenshot({ path: out + "/ours-workbook-" + theme + ".png" });
       await p.keyboard.press("Escape");
       await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
+      check(await close.isVisible(), "closing preview restores the open details panel");
+      await checkFocus(file, "closing returns focus to the file");
       phase = theme + " Library images";
       await load("theme=" + theme + "&media=single&library=images");
       await openDetails();
@@ -130,6 +152,8 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
         (await rect(p.locator("[data-image-tile]").first())).height === 200,
         "single inline photo matches current 200px reference height"
       );
+      const editor = p.getByRole("textbox", { name: "Message", exact: true });
+      await editor.fill("A longer draft\nSecond line\nThird line");
       await image.click();
       await p.locator("[data-media-viewer] .media-stage-cell img").waitFor();
       await checkStage();
@@ -138,27 +162,21 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
           (await p.locator(".media-stage-caption").innerText()) === "image-0.png",
         "Library image title and caption use filename"
       );
-      // Opening a warm preview transitions the composer to its viewer tone.
-      await p.waitForFunction(() => {
-        const surface = document.querySelector("[data-prompt-surface]");
-        return surface && getComputedStyle(surface).backgroundColor === "rgb(31, 31, 31)";
-      }, undefined, { timeout: 2000 });
       check(
-        (await p
-          .locator("[data-prompt-surface]")
-          .evaluate((element) => getComputedStyle(element).backgroundColor)) === "rgb(31, 31, 31)",
-        "media composer uses the dark viewer tone in both app themes"
+        (await p.locator("[data-attachment-stage]").getAttribute("data-attachment-tone")) ===
+          "dark",
+        "media sheet uses its dark viewer tone in both app themes"
       );
-      const editor = p.getByRole("textbox", { name: "Message", exact: true });
-      await editor.fill("A longer draft\nSecond line\nThird line");
-      await pause(400);
+      await p.getByRole("button", { name: "Close media preview", exact: true }).focus();
+      await p.keyboard.press("Shift+Tab");
       check(
-        (await p.locator("[data-attachment-stage]").count()) === 1,
-        "editing the composer keeps viewer open"
+        await p
+          .locator("[data-attachment-stage]")
+          .evaluate((e) => e.contains(document.activeElement)),
+        "keyboard focus stays inside the modal preview"
       );
-      const caption = await rect(p.locator(".media-stage-caption")),
-        dock = await rect(p.locator("[data-composer-dock] form"));
-      check(caption.bottom < dock.y - 10, "expanded composer does not overlap the caption");
+      const caption = await rect(p.locator(".media-stage-caption"));
+      check(caption.bottom < p.viewportSize().height - 8, "caption fits within the sheet");
       await p.keyboard.press("Escape");
       await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
       check(
@@ -196,14 +214,6 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
         (await p.locator("[data-media-filmstrip]").evaluate((e) => e.scrollLeft)) > 0,
         "active thumbnail scrolls into view"
       );
-      await editor.fill("Draft");
-      const before = await p.locator(".media-stage-caption").innerText();
-      await p.keyboard.press("ArrowLeft");
-      check(
-        (await p.locator(".media-stage-caption").innerText()) === before,
-        "composer arrow keys do not change media"
-      );
-      await editor.fill("");
       await p.screenshot({ path: out + "/ours-gallery-" + theme + ".png" });
       await p.keyboard.press("Escape");
     }
@@ -247,7 +257,11 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       await load("theme=dark&media=" + mode);
       await p.locator("[data-image-tile] button").first().click();
       if (mode === "slow") {
-        await p.getByText("Loading image…", { exact: true }).waitFor();
+        await p
+          .getByText("Loading image…", { exact: true })
+          .or(p.locator(".media-stage-cell img"))
+          .first()
+          .waitFor();
         await p.locator(".media-stage-cell img").waitFor();
         check(
           await p
@@ -268,10 +282,13 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
     await load("theme=light&media=single&navigation");
     await p.locator("[data-image-tile] button").first().click();
     await p
-      .getByRole("button", { name: /Other bot/ })
+      .getByRole("button", { name: /Other bot/, includeHidden: true })
       .first()
       .evaluate((e) => e.click());
-    await p.locator("[data-message-id]").getByText("A different conversation.", { exact: true }).waitFor();
+    await p
+      .locator("[data-message-id]")
+      .getByText("A different conversation.", { exact: true })
+      .waitFor();
     await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
     check(true, "programmatic chat switching closes a warm conversation viewer");
     phase = "file formats";
@@ -294,6 +311,88 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       await p.keyboard.press("Escape");
       await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
     }
+    phase = "sheet motion";
+    await load("theme=light&files");
+    const file = p.getByRole("button", { name: "Open Project notes.txt", exact: true });
+    await file.click();
+    const motion = await p.locator("[data-attachment-stage]").evaluate(async (stage) => {
+      const animation = stage.getAnimations()[0];
+      if (!animation) return null;
+      animation.pause();
+      animation.currentTime = 0;
+      await new Promise(requestAnimationFrame);
+      const start = stage.getBoundingClientRect().top;
+      animation.currentTime = 140;
+      await new Promise(requestAnimationFrame);
+      const middle = stage.getBoundingClientRect().top;
+      animation.finish();
+      return { start, middle, height: innerHeight };
+    });
+    check(
+      motion && motion.start >= motion.height && motion.middle > 8 && motion.middle < motion.start,
+      "sheet enters from below the window and moves upward"
+    );
+    await checkStage();
+    await p.getByRole("button", { name: "Close preview", exact: true }).click();
+    await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
+    await checkFocus(file, "close button restores file focus");
+    phase = "interrupted sheet entry";
+    await file.click();
+    const interruption = await p.locator("[data-attachment-stage]").evaluate(async (stage) => {
+      const entry = stage.getAnimations()[0];
+      entry.pause();
+      entry.currentTime = 45;
+      await new Promise(requestAnimationFrame);
+      const before = stage.getBoundingClientRect().y;
+      stage.querySelector("button").click();
+      await new Promise(requestAnimationFrame);
+      const exit = stage.getAnimations()[0];
+      exit.pause();
+      exit.currentTime = 0;
+      await new Promise(requestAnimationFrame);
+      const after = stage.getBoundingClientRect().y;
+      exit.play();
+      return { before, after };
+    });
+    check(
+      interruption.before > 100 && Math.abs(interruption.after - interruption.before) < 1,
+      "dismissing during entry continues from its current position without jumping"
+    );
+    await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
+    phase = "reduced-motion sheet";
+    await p.emulateMedia({ reducedMotion: "reduce" });
+    await file.click();
+    await checkStage();
+    check(
+      await p
+        .locator("[data-attachment-stage]")
+        .evaluate((e) => getComputedStyle(e).animationName === "none"),
+      "reduced-motion preference disables sheet animation"
+    );
+    await p.keyboard.press("Escape");
+    await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
+    await p.emulateMedia({ reducedMotion: "no-preference" });
+    phase = "macOS window controls";
+    await load("theme=light&files", 512);
+    await p.evaluate(() => {
+      window.openteam = { platform: "darwin" };
+    });
+    await file.click();
+    await checkStage();
+    const closePreview = await rect(p.getByRole("button", { name: "Close preview", exact: true }));
+    const title = await rect(p.locator(".attachment-stage-title"));
+    const download = await rect(p.getByRole("button", { name: "Download file", exact: true }));
+    check(
+      // Traffic lights sit at x 16, y 15 and end near (68, 27): clear them below or to the right.
+      (closePreview.y >= 30 || closePreview.x >= 96) &&
+        closePreview.right <= title.x &&
+        title.right < download.x &&
+        download.right <= 512,
+      "preview controls clear native macOS traffic lights and fit at the minimum window width"
+    );
+    await p.locator(".attachment-stage-backdrop").click({ position: { x: 1, y: 1 } });
+    await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
+    await checkFocus(file, "clicking the backdrop restores file focus");
     check(!errors.length, "no renderer errors");
     fs.writeFileSync(
       out + "/native-interactions.json",

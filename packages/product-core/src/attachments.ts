@@ -106,6 +106,7 @@ export const attachmentPreviewKind = (attachment: AssetRef): AttachmentPreviewKi
   if (["xlsx", "xls", "csv", "tsv"].includes(extension)) return "table";
   if (extension === "json" || attachment.mimeType === "application/json") return "json";
   if (["md", "markdown", "mdx"].includes(extension)) return "markdown";
+  if (["html", "htm", "py", "js", "jsx", "ts", "tsx", "css", "sh", "bash", "yml", "yaml", "xml", "sql", "go", "rs", "c", "h", "cpp", "java", "swift", "rb", "toml", "log"].includes(extension)) return "text";
   if (attachment.kind === "text" || attachment.mimeType.startsWith("text/")) return "text";
   return "unknown";
 };

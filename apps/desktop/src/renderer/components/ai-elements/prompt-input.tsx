@@ -641,6 +641,13 @@ export function PromptInput({
       return;
     submitInFlight.current = true;
     restoreSubmitFocus.current = Boolean(surfaceRef.current?.contains(document.activeElement));
+    // Hosts that wrap the composer (such as the attachment preview) animate the send.
+    surfaceRef.current?.dispatchEvent(
+      new CustomEvent("openteam:prompt-sent", {
+        bubbles: true,
+        detail: { content, attachments: attachmentsRef.current.length },
+      })
+    );
     const pendingAttachments = attachmentsRef.current;
     let recoverableAttachments = pendingAttachments;
     const pendingRichText = richText;
@@ -703,6 +710,9 @@ export function PromptInput({
       replaceAttachments(recoverableAttachments);
       setAttachmentError(
         `Message not sent: ${clientErrorMessage(error, "Try again. Your draft is still here.")}`
+      );
+      surfaceRef.current?.dispatchEvent(
+        new CustomEvent("openteam:prompt-send-failed", { bubbles: true })
       );
     } finally {
       submitInFlight.current = false;

@@ -6,7 +6,7 @@ import {
   attachmentTextPreview,
 } from "@openteam/product-core/attachments";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, ZoomIn, ZoomOut } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -18,7 +18,11 @@ import { type AttachmentPreviewKind, attachmentPreviewKind } from "../../lib/att
 import { MessageResponse } from "../ai-elements/message";
 import { Button } from "../ui/button";
 import { LoadingOrb } from "../ui/loading-orb";
-import { AttachmentStage } from "./attachment-stage";
+import { AttachmentStage, AttachmentStageTools } from "./attachment-stage";
+import { AudioFilePreview } from "./document-preview/audio-view";
+import { VideoFilePreview } from "./document-preview/video-view";
+import { SpreadsheetPreview } from "./document-preview/spreadsheet-view";
+import { HtmlFilePreview, JsonFilePreview, TextFilePreview } from "./document-preview/text-views";
 import { ImageAttachmentPreview } from "./image-attachment";
 import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
 import {
@@ -145,9 +149,11 @@ function PreviewStatus({
 function PdfPage({
   document: pdf,
   pageNumber,
+  scale,
 }: {
   document: PDFDocumentProxy;
   pageNumber: number;
+  scale: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -158,7 +164,7 @@ function PdfPage({
       .getPage(pageNumber)
       .then((page: PDFPageProxy) => {
         if (!active || !canvasRef.current) return;
-        const viewport = page.getViewport({ scale: 1.35 });
+        const viewport = page.getViewport({ scale });
         const ratio = Math.min(window.devicePixelRatio || 1, 2);
         const canvas = canvasRef.current;
         canvas.width = Math.floor(viewport.width * ratio);
@@ -181,7 +187,7 @@ function PdfPage({
       active = false;
       renderTask?.cancel();
     };
-  }, [pageNumber, pdf]);
+  }, [pageNumber, pdf, scale]);
 
   return (
     <canvas
@@ -194,8 +200,11 @@ function PdfPage({
 function PdfPreview({ url }: { url: string }) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [baseScale, setBaseScale] = useState(1.19);
+  const [currentPage, setCurrentPage] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const estimatePageSize = useCallback(() => 1_120, []);
+  const estimatePageSize = useCallback(() => 944 * zoom, [zoom]);
   const pageKey = useCallback((index: number) => `pdf-page:${index + 1}`, []);
   const { measureElement, totalSize, virtualItems } = useVirtualWindow({
     count: document?.numPages ?? 0,
@@ -234,37 +243,94 @@ function PdfPreview({ url }: { url: string }) {
     };
   }, [url]);
 
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element || !document) return;
+    let active = true;
+    const resize = () => {
+      void document.getPage(1).then((page) => {
+        if (!active) return;
+        const width = page.getViewport({ scale: 1 }).width;
+        setBaseScale(Math.max(0.2, Math.min(728, element.clientWidth - 32) / width));
+      });
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [document]);
+
+  const loaded = document && !error ? document : null;
   return (
-    <div
-      aria-label={document ? `${document.numPages} page PDF preview` : "PDF preview"}
-      className={
-        document && !error
-          ? "bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
-          : "h-full"
-      }
-      ref={scrollRef}
-    >
-      {/* Keep the scrollport mounted while loading so the virtualizer can bind
-          its scroll and resize listeners before the document arrives. */}
-      {error ? (
-        <PreviewStatus detail={error} title="Couldn’t render this PDF" />
-      ) : !document ? (
-        <PreviewStatus loading title="Loading PDF…" />
-      ) : (
-        <div className="relative w-full" style={{ height: totalSize }}>
-          {virtualItems.map((item) => (
-            <div
-              className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
-              key={item.key}
-              ref={(node) => measureElement(item.index, item.key, node)}
-              style={{ transform: `translateY(${item.start}px)` }}
+    <>
+      {loaded && (
+        <AttachmentStageTools>
+          <span className="preview-meta">
+            {loaded.numPages} {loaded.numPages === 1 ? "page" : "pages"}
+          </span>
+          <div className="preview-zoom-controls">
+            <button
+              aria-label="Zoom out"
+              className="preview-icon-button"
+              disabled={zoom <= 0.5}
+              onClick={() => setZoom((value) => Math.max(0.5, value - 0.15))}
+              type="button"
             >
-              <PdfPage document={document} pageNumber={item.index + 1} />
-            </div>
-          ))}
-        </div>
+              <ZoomOut size={15} />
+            </button>
+            <span aria-live="polite">
+              {currentPage} / {loaded.numPages}
+            </span>
+            <button
+              aria-label="Zoom in"
+              className="preview-icon-button"
+              disabled={zoom >= 2}
+              onClick={() => setZoom((value) => Math.min(2, value + 0.15))}
+              type="button"
+            >
+              <ZoomIn size={15} />
+            </button>
+          </div>
+        </AttachmentStageTools>
       )}
-    </div>
+      <div
+        aria-label={loaded ? `${loaded.numPages} page PDF preview` : "PDF preview"}
+        className={loaded ? "pdf-preview-scroll bot-scrollbar" : "h-full"}
+        onScroll={() => {
+          const top = scrollRef.current?.scrollTop ?? 0;
+          const item = virtualItems.find((item) => item.start + item.size > top + 60);
+          if (item) setCurrentPage(item.index + 1);
+        }}
+        ref={scrollRef}
+      >
+        {/* Keep the scrollport mounted while loading so the virtualizer can bind
+            its scroll and resize listeners before the document arrives. */}
+        {error ? (
+          <PreviewStatus detail={error} title="Couldn’t render this PDF" />
+        ) : !loaded ? (
+          <PreviewStatus loading title="Loading PDF…" />
+        ) : (
+          <div className="relative w-full" style={{ height: totalSize }}>
+            {virtualItems.map((item) => (
+              <div
+                className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
+                key={item.key}
+                ref={(node) => measureElement(item.index, item.key, node)}
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                <div className="pdf-preview-page">
+                  <PdfPage document={loaded} pageNumber={item.index + 1} scale={baseScale * zoom} />
+                  <span className="pdf-page-number">{item.index + 1}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -303,7 +369,7 @@ function ProgressiveHtmlPreview({
       className={
         table
           ? "openteam-document-preview openteam-table-preview"
-          : "openteam-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+          : "openteam-document-preview document-flow-preview"
       }
       ref={articleRef}
     />
@@ -382,28 +448,10 @@ function LoadedDocumentPreview({
 
   if (kind === "pdf") return <PdfPreview url={url} />;
   if (kind === "video") {
-    return (
-      <div className="grid h-full min-h-[360px] place-items-center bg-black">
-        {/* biome-ignore lint/a11y/useMediaCaption: Attachments do not include a separate captions asset. */}
-        <video
-          className="max-h-full max-w-full"
-          controls
-          preload="metadata"
-          src={mediaSource ?? undefined}
-        />
-      </div>
-    );
+    return <VideoFilePreview source={mediaSource} fileName={attachment.fileName} />;
   }
   if (kind === "audio") {
-    return (
-      <div className="grid h-full min-h-[320px] place-items-center bg-[#f5f5f5] px-10 dark:bg-[#131313]">
-        <div className="w-full max-w-[560px] rounded-[18px] border border-black/[0.07] bg-background p-7 shadow-sm dark:border-white/[0.09]">
-          <Music2 className="mx-auto mb-6 size-12 text-foreground-tertiary" strokeWidth={1.25} />
-          {/* biome-ignore lint/a11y/useMediaCaption: Attachments do not include a separate captions asset. */}
-          <audio className="w-full" controls preload="metadata" src={mediaSource ?? undefined} />
-        </div>
-      </div>
-    );
+    return <AudioFilePreview source={mediaSource} fileName={attachment.fileName} />;
   }
   if (kind === "unknown") {
     return (
@@ -433,10 +481,20 @@ function LoadedDocumentPreview({
   if (state.kind === "error")
     return <PreviewStatus detail={state.message} title="Couldn’t read file" />;
   if (state.kind === "html") {
-    return <ProgressiveHtmlPreview source={state.value} table={kind === "table"} />;
+    return kind === "table" ? (
+      <SpreadsheetPreview source={state.value} />
+    ) : (
+      <ProgressiveHtmlPreview source={state.value} />
+    );
   }
+  if (kind === "json")
+    return <JsonFilePreview value={state.value} fileName={attachment.fileName} />;
+  if (/\.html?$/i.test(attachment.fileName) || attachment.mimeType === "text/html")
+    return <HtmlFilePreview value={state.value} />;
+  if (kind !== "markdown")
+    return <TextFilePreview value={state.value} fileName={attachment.fileName} />;
   return (
-    <div className="mx-auto min-h-full w-full max-w-[960px] bg-background px-8 py-7">
+    <div className="document-flow-preview markdown-file-preview">
       {state.truncated ? (
         <div className="mb-4 rounded-[8px] bg-amber-500/10 px-3 py-2 text-[11.5px] text-amber-800 dark:text-amber-200">
           Showing the start of this file
@@ -525,21 +583,12 @@ export function FileAttachmentPreview({
     );
   return (
     <AttachmentStage
+      dark={kind === "video"}
       onOpenChange={onOpenChange}
       open={open}
       title={attachment.fileName}
       actions={
         <>
-          {(kind === "video" || kind === "pdf") && (
-            <ButtonPrimitive
-              aria-label={kind === "video" ? "Open video full screen" : "Open preview full screen"}
-              className="desktop-elevated-control"
-              onClick={() => document.documentElement.requestFullscreen?.()}
-              type="button"
-            >
-              <Maximize2 className="size-4" />
-            </ButtonPrimitive>
-          )}
           <ButtonPrimitive
             aria-label="Download file"
             className="desktop-elevated-control"
@@ -556,12 +605,6 @@ export function FileAttachmentPreview({
       }
     >
       <div className="attachment-stage-document bot-scrollbar file-preview-dialog">
-        {kind === "table" && (
-          <div className="attachment-table-heading">
-            <span>Spreadsheet preview</span>
-            <span>Download to view the full workbook</span>
-          </div>
-        )}
         <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
       </div>
     </AttachmentStage>

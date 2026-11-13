@@ -317,8 +317,10 @@ final class VoiceMemoController: ObservableObject {
       phase = .cancelling
     }
     settleTask?.cancel()
+    // The bar closes as the can drops out of it (VoiceTrashDrop, 0.64–0.84 s), so the cancel
+    // flows into the composer's return instead of pausing on an empty bar.
     settleTask = Task { [weak self, quick = reduceMotion] in
-      try? await Task.sleep(for: .milliseconds(quick ? 250 : 880))
+      try? await Task.sleep(for: .milliseconds(quick ? 250 : 660))
       guard !Task.isCancelled, let self, phase == .cancelling else { return }
       transition { phase = .idle }
     }
@@ -865,7 +867,11 @@ struct VoiceKnob: View {
       Image(systemName: look.symbol)
         .font(.system(size: look.iconSize, weight: look.symbol == "mic.fill" ? .regular : .semibold))
         .foregroundStyle(look.ink)
-        .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace.upUp))
+        // Back to the mic, Cancel/Send shrinks away at once while the mic rises in: replace.upUp
+        // holds the old symbol first, after the bar around it has gone, and a plain crossfade
+        // passes through an X over the mic (a muted mic).
+        .contentTransition(reduceMotion ? .opacity
+          : .symbolEffect(memo.phase == .idle ? .replace.offUp : .replace.upUp))
         .frame(width: 24, height: 24).clipped()
     }
     // Discord greys Send out while a release would cancel.
@@ -1013,10 +1019,12 @@ struct VoiceBarContent: View {
   @VoiceMotionPreference private var reduceMotion
 
   /// The controls arrive once the goo has mostly formed the bar, and leave before it splits.
+  /// Leaving is front-loaded: an ease-in removal stays nearly opaque for most of its time,
+  /// right where the returning draft fades in, and the two texts smear over each other.
   private var fade: AnyTransition {
     reduceMotion ? .opacity : .asymmetric(
       insertion: .opacity.combined(with: .scale(scale: 0.94)).animation(.easeOut(duration: 0.22).delay(0.16)),
-      removal: .opacity.combined(with: .scale(scale: 0.94)).animation(.easeIn(duration: 0.12)))
+      removal: .opacity.combined(with: .scale(scale: 0.94)).animation(.timingCurve(0.2, 0, 0, 1, duration: 0.1)))
   }
 
   var body: some View {

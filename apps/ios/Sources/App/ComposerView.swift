@@ -314,9 +314,10 @@ struct ComposerView: View {
       // The draft stays mounted under the recording bar, so cancelling restores it untouched.
       .opacity(bar ? 0 : 1)
       // Reveal the draft as the glass opens; the shared mask keeps every line
-      // inside it instead of leaving an empty expanded capsule during a delay.
+      // inside it instead of leaving an empty expanded capsule during a delay. It starts a
+      // beat after the bar's own content has mostly gone, so the two never overlap.
       .animation(reduceMotion ? .easeInOut(duration: 0.2)
-        : bar ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18), value: bar)
+        : bar ? .easeOut(duration: 0.1) : .easeOut(duration: 0.2).delay(0.1), value: bar)
       .allowsHitTesting(!bar).accessibilityHidden(bar)
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }

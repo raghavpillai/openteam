@@ -144,6 +144,18 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
       { qrCodeDataUrl: "data:image/png;base64," + "A".repeat(70_001) }])
       expect(publicDeviceLink({ deviceLink: { ...link, ...change } })).toBeNull();
     expect(() => deviceLinkResult({ ...envelope({}), isError: true })).toThrow("Device linking failed");
+    // An active rotating approval survives its QR image expiring or being invalidated.
+    const rotating = { ...qr(), expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 120_000,
+      challengeGeneration: 4, instructions: "Finish approval on your phone", providerSecret: "synthetic-private" };
+    expect(publicDeviceLink({ deviceLink: rotating })).toMatchObject({
+      sessionId: rotating.sessionId, qrCodeDataUrl: null, expiresAt: rotating.expiresAt,
+      sessionExpiresAt: rotating.sessionExpiresAt, challengeGeneration: 4,
+    });
+    const invalidated = publicDeviceLink({ deviceLink: { ...rotating, expiresAt: Date.now() + 10_000, qrCodeDataUrl: null } });
+    expect(invalidated?.sessionId).toBe(rotating.sessionId);
+    expect(invalidated?.qrCodeDataUrl).toBeNull();
+    expect(invalidated).not.toHaveProperty("providerSecret");
+    expect(publicDeviceLink({ deviceLink: { ...rotating, sessionExpiresAt: Date.now() - 1 } })).toBeNull();
   });
 
   test("concurrent connects share one start; linking clears the QR and metadata hides host tools", async () => {
@@ -329,57 +341,21 @@ describe("rotating device approval challenges", () => {
     linked: false, linking: true, sessionId, ...(challenge ? { challenge } : {}),
   });
 
-  test("public projection retains an active approval after its QR image expires or is invalidated", () => {
-    const link = { ...qr(), expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 120_000,
-      challengeGeneration: 4, instructions: "Finish approval on your phone", providerSecret: "synthetic-private" };
-    expect(publicDeviceLink({ deviceLink: link })).toMatchObject({
-      sessionId: link.sessionId, qrCodeDataUrl: null, expiresAt: link.expiresAt,
-      sessionExpiresAt: link.sessionExpiresAt, challengeGeneration: 4,
-    });
-    const invalidated = publicDeviceLink({ deviceLink: { ...link, expiresAt: Date.now() + 10_000, qrCodeDataUrl: null } });
-    expect(invalidated?.sessionId).toBe(link.sessionId);
-    expect(invalidated?.qrCodeDataUrl).toBeNull();
-    expect(invalidated).not.toHaveProperty("providerSecret");
-    expect(publicDeviceLink({ deviceLink: { ...link, sessionExpiresAt: Date.now() - 1 } })).toBeNull();
-  });
-
-  test("a newer challenge replaces the image within the same session without restarting approval", async () => {
+  test("only a newer challenge for the current session replaces the image; stale, equal and foreign statuses are ignored", async () => {
     const f = rotating();
     await f.connect();
     const deadline = f.connection.credentials.deviceLink.sessionExpiresAt;
     const generation = f.connection.runtimeGeneration;
     const expiresAt = Date.now() + 60_000;
-    f.setStatus(active(f.start.sessionId, { generation: 1, qrCodeDataUrl: rotatedImage, expiresAt }));
-    await f.poll();
-    expect(publicDeviceLink(f.connection.credentials)).toMatchObject({
-      sessionId: f.start.sessionId, qrCodeDataUrl: rotatedImage, expiresAt,
-      sessionExpiresAt: deadline, challengeGeneration: 1,
-    });
-    expect(f.connection.runtimeGeneration).toBe(generation);
-    expect(f.toolCalls("start_link")).toHaveLength(1);
-    expect(f.toolCalls("finish_link")).toHaveLength(1);
-    expect(f.toolCalls("cancel_link")).toHaveLength(0);
-  });
-
-  test("equal and older challenge generations cannot overwrite a newer image or its deadline", async () => {
-    const f = rotating();
-    await f.connect();
-    const expiresAt = Date.now() + 60_000;
     f.setStatus(active(f.start.sessionId, { generation: 2, qrCodeDataUrl: rotatedImage, expiresAt }));
     await f.poll();
-    const stored = structuredClone(f.connection.credentials.deviceLink);
-    for (const generation of [2, 1, 0]) {
-      f.setStatus({ ...active(f.start.sessionId, { generation, qrCodeDataUrl: null, expiresAt }), sessionExpiresAt: Date.now() + 500_000 });
-      await f.poll();
-      expect(f.connection.credentials.deviceLink).toEqual(stored);
-    }
-  });
-
-  test("a foreign session cannot replace, complete or cancel the current approval", async () => {
-    const f = rotating();
-    await f.connect();
+    expect(publicDeviceLink(f.connection.credentials)).toMatchObject({
+      sessionId: f.start.sessionId, qrCodeDataUrl: rotatedImage, expiresAt, sessionExpiresAt: deadline, challengeGeneration: 2,
+    });
+    expect(f.connection.runtimeGeneration).toBe(generation);
     const stored = structuredClone(f.connection.credentials.deviceLink);
     for (const status of [
+      ...[2, 1, 0].map(generation => ({ ...active(f.start.sessionId, { generation, qrCodeDataUrl: null, expiresAt }), sessionExpiresAt: Date.now() + 500_000 })),
       { linked: true, sessionId: "foreign-session" },
       { linked: false, linking: false, authorizationError: "synthetic stale failure", sessionId: "foreign-session" },
       active("foreign-session", { generation: 50, qrCodeDataUrl: rotatedImage, expiresAt: Date.now() + 60_000 }),
@@ -389,6 +365,8 @@ describe("rotating device approval challenges", () => {
       expect(f.connection.status).toBe("needs_auth");
       expect(f.connection.credentials.deviceLink).toEqual(stored);
     }
+    expect(f.toolCalls("start_link")).toHaveLength(1);
+    expect(f.toolCalls("finish_link")).toHaveLength(1);
     expect(f.toolCalls("cancel_link")).toHaveLength(0);
   });
 

@@ -2,15 +2,17 @@ import { expect } from "bun:test";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
 import { dbIt, type Harness } from "../harness";
-import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
+import { startUtilityMcp } from "./fixtures/utility-plugin";
 
 /** Two bots with running turns and one connected utility plugin account. */
 async function fixture(h: Harness) {
   const service = new PluginService(h.db);
-  const definition = createUtilityPluginFixture(`test-utility-${crypto.randomUUID()}`);
+  const utility = startUtilityMcp();
+  const definition = utility.definition(`test-utility-${crypto.randomUUID()}`);
   const draft = await Effect.runPromise(service.management.importFiles({ "plugin.json": JSON.stringify(definition) }));
   h.onClose(async () => {
     await service.close();
+    utility.close();
     await h.db.pluginInstallation.deleteMany({ where: { pluginKey: definition.key } });
     await h.db.pluginDraft.deleteMany({ where: { id: draft.id } });
   });
@@ -29,8 +31,8 @@ async function fixture(h: Harness) {
 dbIt("plugin result retries cannot cross bot, run, account, or tool boundaries", async h => {
   const f = await fixture(h);
   const callId = crypto.randomUUID(), request = f.request(0, callId);
-  expect(await f.service.invoke(request)).toEqual({ text: "private fixture result" });
-  expect(await f.service.invoke(request)).toEqual({ text: "private fixture result" });
+  expect(await f.service.invoke(request)).toMatchObject({ structuredContent: { text: "private fixture result" } });
+  expect(await f.service.invoke(request)).toMatchObject({ structuredContent: { text: "private fixture result" } });
   const account = await Effect.runPromise(f.service.addAccount(request.connectionId, "Second account"));
   await Effect.runPromise(f.service.connect(account.id));
   for (const reused of [f.request(1, callId), { ...request, runId: f.request(1, callId).runId }, { ...request, toolName: "add", arguments: { a: 1, b: 2 } }, { ...request, connectionId: account.id }])
@@ -44,9 +46,9 @@ dbIt("concurrent identical plugin requests execute once and replay after complet
   expect(results.some(result => result.status === "fulfilled")).toBe(true);
   for (const result of results) {
     if (result.status === "rejected") expect(result.reason).toMatchObject({ code: "plugin_call_replayed", status: 409 });
-    else expect(result.value).toEqual({ text: "private fixture result" });
+    else expect(result.value).toMatchObject({ structuredContent: { text: "private fixture result" } });
   }
   expect(await h.db.pluginInvocation.count({ where: { callId: request.callId } })).toBe(1);
   expect(await h.db.pluginActivity.count({ where: { botId: request.botId, kind: "tool.completed" } })).toBe(1);
-  expect(await f.service.invoke(request)).toEqual({ text: "private fixture result" });
+  expect(await f.service.invoke(request)).toMatchObject({ structuredContent: { text: "private fixture result" } });
 });

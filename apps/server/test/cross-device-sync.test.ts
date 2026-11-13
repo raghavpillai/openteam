@@ -1,29 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import type {
-  ChannelClientState,
-  ChannelHistoryPage,
-  ChannelMessageView,
-  ClientBootstrapView,
-  ProductEvent,
-} from "@openteam/contracts";
-import {
-  CommittedEventCursor,
-  createLiveSyncController,
-  createOpenTeamClient,
-  shouldRefreshForEvent,
-  synchronizeClientSnapshot,
-} from "../../../packages/client-core/src";
+import { expect, test } from "bun:test";
+import type { ChannelClientState, ChannelHistoryPage, ChannelMessageView, ClientBootstrapView, ProductEvent } from "@openteam/contracts";
+import { CommittedEventCursor, createLiveSyncController, createOpenTeamClient, shouldRefreshForEvent, synchronizeClientSnapshot } from "../../../packages/client-core/src";
 import { createDurableSendController } from "../../../packages/product-core/src/durable-delivery";
 import { projectOutgoingMessages } from "../../../packages/product-core/src/outgoing-messages";
 import { type EventStreamSource, eventPoll, eventStream } from "../src/event-stream";
 
-const gate = () => {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-};
+const gate = () => Promise.withResolvers<void>();
 const until = async (predicate: () => boolean) => {
   const deadline = Date.now() + 3_000;
   while (!predicate() && Date.now() < deadline) await Bun.sleep(5);
@@ -32,35 +14,19 @@ const until = async (predicate: () => boolean) => {
 
 // Real loopback HTTP and production SSE/poll implementations, without inference or a real account.
 const fixture = () => {
-  const messages: ChannelMessageView[] = [];
-  const events: ProductEvent[] = [];
-  const wakeups = new Set<() => void>();
-  const connections = new Set<AbortController>();
-  const requests: string[] = [];
-  let acceptance: Promise<void> | null = null;
-  let acknowledgement: Promise<void> | null = null;
+  const messages: ChannelMessageView[] = [], events: ProductEvent[] = [], requests: string[] = [];
+  const wakeups = new Set<() => void>(), connections = new Set<AbortController>();
+  let acceptance: Promise<void> | null = null, acknowledgement: Promise<void> | null = null;
   const source: EventStreamSource = {
-    get eventVersion() {
-      return events.length;
-    },
-    eventWindowAfter: async (after, limit) => {
-      return {
-        oldest: events.length ? 1n : null,
-        latest: events.length ? BigInt(events.length) : null,
-        cursorExpired: false,
-        cursorAhead: false,
-        events: events.filter((event) => BigInt(event.sequence) > after).slice(0, limit),
-      };
-    },
+    get eventVersion() { return events.length; },
+    eventWindowAfter: async (after, limit) => ({
+      oldest: events.length ? 1n : null, latest: events.length ? BigInt(events.length) : null, cursorExpired: false, cursorAhead: false,
+      events: events.filter((event) => BigInt(event.sequence) > after).slice(0, limit),
+    }),
     waitForEvent: async (version, timeout, signal) => {
       if (version !== events.length || signal?.aborted) return events.length;
       return new Promise<number>((resolve) => {
-        const finish = () => {
-          clearTimeout(timer);
-          wakeups.delete(finish);
-          signal?.removeEventListener("abort", finish);
-          resolve(events.length);
-        };
+        const finish = () => { clearTimeout(timer); wakeups.delete(finish); signal?.removeEventListener("abort", finish); resolve(events.length); };
         const timer = setTimeout(finish, timeout);
         wakeups.add(finish);
         signal?.addEventListener("abort", finish, { once: true });
@@ -71,229 +37,114 @@ const fixture = () => {
     const existing = clientId ? messages.find((m) => m.clientId === clientId) : undefined;
     if (existing) return existing;
     const message: ChannelMessageView = {
-      id: crypto.randomUUID(),
-      channelId: "chat",
-      sequence: String(messages.length + 1),
-      sender,
-      senderBotId: null,
-      sourceRunId: null,
-      content,
-      ...(clientId ? { clientId } : {}),
-      metadata: { type: "text" },
-      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(), channelId: "chat", sequence: String(messages.length + 1), sender, senderBotId: null, sourceRunId: null,
+      content, ...(clientId ? { clientId } : {}), metadata: { type: "text" }, createdAt: new Date().toISOString(),
     };
     messages.push(message);
-    events.push({
-      sequence: String(events.length + 1),
-      topic: "channel.message.created",
-      entityId: message.id,
-      payload: {},
-      createdAt: message.createdAt,
-    });
+    events.push({ sequence: String(events.length + 1), topic: "channel.message.created", entityId: message.id, payload: {}, createdAt: message.createdAt });
     for (const wake of [...wakeups]) wake();
     return message;
   };
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    idleTimeout: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      requests.push(`${request.method} ${url.pathname}`);
-      if (url.pathname.startsWith("/api/v0/events")) {
-        const lifetime = new AbortController();
-        connections.add(lifetime);
-        request.signal.addEventListener(
-          "abort",
-          () => {
-            lifetime.abort();
-            connections.delete(lifetime);
-          },
-          { once: true }
-        );
-        const after = BigInt(url.searchParams.get("after") ?? "0");
-        if (url.pathname.endsWith("/poll")) {
-          try {
-            return Response.json(
-              await eventPoll(
-                source,
-                after,
-                lifetime.signal,
-                Number(url.searchParams.get("waitMs"))
-              )
-            );
-          } finally {
-            connections.delete(lifetime);
-          }
-        }
-        return new Response(eventStream(source, after, lifetime.signal), {
-          headers: { "content-type": "text/event-stream" },
-        });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
+    const url = new URL(request.url);
+    requests.push(`${request.method} ${url.pathname}`);
+    if (url.pathname.startsWith("/api/v0/events")) {
+      const lifetime = new AbortController();
+      connections.add(lifetime);
+      request.signal.addEventListener("abort", () => { lifetime.abort(); connections.delete(lifetime); }, { once: true });
+      const after = BigInt(url.searchParams.get("after") ?? "0");
+      if (url.pathname.endsWith("/poll")) {
+        try { return Response.json(await eventPoll(source, after, lifetime.signal, Number(url.searchParams.get("waitMs")))); }
+        finally { connections.delete(lifetime); }
       }
-      if (url.pathname.endsWith("/client-bootstrap"))
-        return Response.json({ cursor: String(events.length), channels: [{ id: "chat" }] });
-      if (url.pathname.endsWith("/history")) {
-        return Response.json({ channelId: "chat", revision: String(events.length), messages });
-      }
-      if (url.pathname.endsWith("/client-state"))
-        return Response.json({ channelId: "chat", revision: String(events.length) });
-      if (url.pathname.endsWith("/messages") && request.method === "POST") {
-        const input = (await request.json()) as { content: string; clientId: string };
-        await acceptance;
-        const message = commit(input.content, "user", input.clientId);
-        await acknowledgement;
-        return Response.json({ message });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-  type FixturePeer = {
-    client: ReturnType<typeof createOpenTeamClient>;
-    sync: ReturnType<typeof createLiveSyncController>;
-    readonly history: ChannelMessageView[];
-    readonly healthy: boolean;
-  };
-  const peers: FixturePeer[] = [];
-  function peer(eventTransport: "stream" | "long-poll"): FixturePeer {
+      return new Response(eventStream(source, after, lifetime.signal), { headers: { "content-type": "text/event-stream" } });
+    }
+    if (url.pathname.endsWith("/client-bootstrap")) return Response.json({ cursor: String(events.length), channels: [{ id: "chat" }] });
+    if (url.pathname.endsWith("/history")) return Response.json({ channelId: "chat", revision: String(events.length), messages });
+    if (url.pathname.endsWith("/client-state")) return Response.json({ channelId: "chat", revision: String(events.length) });
+    if (url.pathname.endsWith("/messages") && request.method === "POST") {
+      const input = (await request.json()) as { content: string; clientId: string };
+      await acceptance;
+      const message = commit(input.content, "user", input.clientId);
+      await acknowledgement;
+      return Response.json({ message });
+    }
+    return new Response("not found", { status: 404 });
+  } });
+  const syncs: Array<ReturnType<typeof createLiveSyncController>> = [];
+  function peer(eventTransport: "stream" | "long-poll") {
     const client = createOpenTeamClient({ baseUrl: server.url.toString(), eventTransport });
     const cursor = new CommittedEventCursor();
-    let history: ChannelMessageView[] = [];
-    let healthy = false;
+    let history: ChannelMessageView[] = [], healthy = false;
     const sync = createLiveSyncController({
-      cursor: () => cursor.reconnectAfter(),
-      listen: client.listenForEvents,
-      debounceMs: 5,
-      delayForReconnectAttempt: () => 10,
-      delayForSyncRetryAttempt: () => 10,
-      healthyFallbackMs: 60_000,
-      degradedFallbackMs: 60_000,
-      onHealthChange: (value) => {
-        healthy = value;
-      },
-      handleEvent: (event) => {
-        cursor.observe(event.sequence);
-        return shouldRefreshForEvent(event);
-      },
-      synchronize: async () => {
-        await synchronizeClientSnapshot({
-          readBootstrap: client.bootstrap,
-          readHistory: client.channelHistory,
-          readState: client.channelState,
-          activeChannel: () => "chat",
-          historyIdentity: () => history,
-          pendingHistory: () => null,
-          isCurrent: () => true,
-          acceptBootstrap: (bootstrap: ClientBootstrapView) => cursor.commit(bootstrap.cursor),
-          acceptHistory: (page: ChannelHistoryPage) => {
-            history = page.messages;
-          },
-          acceptState: (_state: ChannelClientState) => {},
-          defer: (pending) => {
-            if (pending) void pending.then(() => sync.requestSync());
-            else sync.requestSync();
-          },
-        });
-      },
+      cursor: () => cursor.reconnectAfter(), listen: client.listenForEvents, debounceMs: 5,
+      delayForReconnectAttempt: () => 10, delayForSyncRetryAttempt: () => 10, healthyFallbackMs: 60_000, degradedFallbackMs: 60_000,
+      onHealthChange: (value) => { healthy = value; },
+      handleEvent: (event) => { cursor.observe(event.sequence); return shouldRefreshForEvent(event); },
+      synchronize: async () => { await synchronizeClientSnapshot({
+        readBootstrap: client.bootstrap, readHistory: client.channelHistory, readState: client.channelState,
+        activeChannel: () => "chat", historyIdentity: () => history, pendingHistory: () => null, isCurrent: () => true,
+        acceptBootstrap: (bootstrap: ClientBootstrapView) => cursor.commit(bootstrap.cursor),
+        acceptHistory: (page: ChannelHistoryPage) => { history = page.messages; },
+        acceptState: (_state: ChannelClientState) => {},
+        defer: (pending) => { if (pending) void pending.then(() => sync.requestSync()); else sync.requestSync(); },
+      }); },
     });
-    const result = {
-      client,
-      sync,
-      get history() {
-        return history;
-      },
-      get healthy() {
-        return healthy;
-      },
-    };
-    peers.push(result);
+    syncs.push(sync);
     sync.setActive(true);
-    return result;
+    return { client, get history() { return history; }, get healthy() { return healthy; } };
   }
   return {
-    messages,
-    requests,
-    peer,
-    commit,
-    holdAcceptance(value: Promise<void> | null) {
-      acceptance = value;
-    },
-    holdAcknowledgement(value: Promise<void> | null) {
-      acknowledgement = value;
-    },
+    messages, requests, peer, commit,
+    holdAcceptance(value: Promise<void> | null) { acceptance = value; },
+    holdAcknowledgement(value: Promise<void> | null) { acknowledgement = value; },
     stop() {
-      for (const peer of peers) peer.sync.stop();
+      for (const sync of syncs) sync.stop();
       for (const connection of connections) connection.abort();
       server.stop(true);
     },
   };
 };
 
-describe("desktop SSE ↔ mobile long-poll delivery over HTTP", () => {
-  for (const senderTransport of ["stream", "long-poll"] as const) {
-    test(`${senderTransport} sends optimistically before disk/network ACK and both peers show one echo`, async () => {
-      const f = fixture();
-      const disk = gate(),
-        accepted = gate(),
-        ack = gate();
-      f.holdAcceptance(accepted.promise);
-      f.holdAcknowledgement(ack.promise);
-      const sender = f.peer(senderTransport),
-        receiver = f.peer(senderTransport === "stream" ? "long-poll" : "stream");
-      const delivery = createDurableSendController(
-        "http-sync-test",
-        {
-          read: async () => null,
-          write: async () => {
-            await disk.promise;
-          },
-        },
-        {
-          dispatch: (record) =>
-            sender.client.sendChannelMessage("chat", record.payload.content, [], undefined, {
-              clientId: record.nonce,
-            }),
-          resolveAcceptance: async () => ({ status: "not_found" }),
-          classifyError: () => "ambiguous",
-        }
-      );
-      try {
-        await until(() => sender.healthy && receiver.healthy);
-        await delivery.restore();
-        const enqueue = delivery.enqueue({
-          target: { channelId: "chat", conversationId: null },
-          payload: { content: "immediate local send", attachments: [] },
-        });
-        await until(() => delivery.getSnapshot().length === 1);
-        expect(projectOutgoingMessages([], delivery.getSnapshot())[0]).toMatchObject({
-          pending: true,
-          message: { content: "immediate local send" },
-        });
-        expect(f.requests.some((r) => r.startsWith("POST"))).toBe(false);
-        expect(receiver.history).toHaveLength(0);
-        disk.resolve();
-        await enqueue;
-        await until(() => f.requests.some((r) => r.startsWith("POST")));
-        expect(f.messages).toHaveLength(0);
-        accepted.resolve();
-        await until(() => sender.history.length === 1 && receiver.history.length === 1);
-        // The HTTP ACK is still held. The authoritative echo already settles the visible row.
-        const projected = projectOutgoingMessages(sender.history, delivery.getSnapshot());
-        expect(projected).toHaveLength(1);
-        expect(projected[0]?.pending).toBe(false);
-        await delivery.reconcile(sender.history);
-        ack.resolve();
-        await delivery.flush();
-        expect(projectOutgoingMessages(sender.history, delivery.getSnapshot())).toHaveLength(1);
-        f.commit("simulated incoming reply");
-        await until(() => sender.history.length === 2 && receiver.history.length === 2);
-        expect(sender.history).toEqual(receiver.history);
-      } finally {
-        disk.resolve();
-        accepted.resolve();
-        ack.resolve();
-        delivery.dispose();
-        f.stop();
-      }
-    });
+// Each run has one SSE and one long-poll peer, so both server transports reach the real client.
+test("an SSE sender sends optimistically before disk/network ACK and a long-poll peer shows one echo", async () => {
+  const f = fixture();
+  const disk = gate(), accepted = gate(), ack = gate();
+  f.holdAcceptance(accepted.promise);
+  f.holdAcknowledgement(ack.promise);
+  const sender = f.peer("stream"), receiver = f.peer("long-poll");
+  const delivery = createDurableSendController("http-sync-test", { read: async () => null, write: async () => { await disk.promise; } }, {
+    dispatch: (record) => sender.client.sendChannelMessage("chat", record.payload.content, [], undefined, { clientId: record.nonce }),
+    resolveAcceptance: async () => ({ status: "not_found" }),
+    classifyError: () => "ambiguous",
+  });
+  try {
+    await until(() => sender.healthy && receiver.healthy);
+    await delivery.restore();
+    const enqueue = delivery.enqueue({ target: { channelId: "chat", conversationId: null }, payload: { content: "immediate local send", attachments: [] } });
+    await until(() => delivery.getSnapshot().length === 1);
+    expect(projectOutgoingMessages([], delivery.getSnapshot())[0]).toMatchObject({ pending: true, message: { content: "immediate local send" } });
+    expect(f.requests.some((r) => r.startsWith("POST"))).toBe(false);
+    disk.resolve();
+    await enqueue;
+    await until(() => f.requests.some((r) => r.startsWith("POST")));
+    expect(f.messages).toHaveLength(0);
+    accepted.resolve();
+    await until(() => sender.history.length === 1 && receiver.history.length === 1);
+    // The HTTP ACK is still held. The authoritative echo already settles the visible row.
+    const projected = projectOutgoingMessages(sender.history, delivery.getSnapshot());
+    expect(projected).toHaveLength(1);
+    expect(projected[0]?.pending).toBe(false);
+    await delivery.reconcile(sender.history);
+    ack.resolve();
+    await delivery.flush();
+    expect(projectOutgoingMessages(sender.history, delivery.getSnapshot())).toHaveLength(1);
+    f.commit("simulated incoming reply");
+    await until(() => sender.history.length === 2 && receiver.history.length === 2);
+    expect(sender.history).toEqual(receiver.history);
+  } finally {
+    disk.resolve(); accepted.resolve(); ack.resolve();
+    delivery.dispose();
+    f.stop();
   }
 });

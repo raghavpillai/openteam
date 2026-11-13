@@ -19,42 +19,24 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { ca
   oauth.connections[0]!.auth = "oauth";
   oauth.connections[0]!.configuration = { oauthCallbackMode: options.callbackMode ?? "server" };
   oauth.setupFields = [];
-  const configured = structuredClone(oauth);
-  configured.key = `flow-configured-${suffix}`;
-  configured.name = "Flow Manual Setup";
-  configured.setup = {
-    kind: "oauth_client",
-    connectionKey: configured.connections[0]!.key,
-    title: "Connect your account",
-    description: "Configure the synthetic OAuth application once.",
-    documentationUrl: null,
-    requiredScopes: ["read"],
-    steps: ["Copy the callback URL to your provider."],
-    fields: [
-      { key: "clientId", label: "Client ID", required: true, secret: false },
-      { key: "clientSecret", label: "Client secret", required: true, secret: true },
-    ],
-  };
   if (options.packaged) {
-    oauth.setup = structuredClone(configured.setup);
-    for (const definition of [oauth, configured]) {
-      const connector = definition.connections[0]!;
-      connector.endpoint = "";
-      connector.configuration = { ...connector.configuration, command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
-      connector.oauth = {
-        clientType: "confidential", registration: "manual", tokenEndpointAuthMethod: "client_secret_post",
-        authorizationServer: { issuer: provider.server.url.origin, authorizationUrl: `${provider.server.url.origin}/authorize`, tokenUrl: `${provider.server.url.origin}/token` },
-        accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
-      };
-    }
+    oauth.setup = {
+      kind: "oauth_client", connectionKey: oauth.connections[0]!.key, title: "Connect your account", description: "Configure the synthetic OAuth application once.",
+      documentationUrl: null, requiredScopes: ["read"], steps: ["Copy the callback URL to your provider."],
+      fields: [{ key: "clientId", label: "Client ID", required: true, secret: false }, { key: "clientSecret", label: "Client secret", required: true, secret: true }],
+    };
+    const connector = oauth.connections[0]!;
+    connector.endpoint = "";
+    connector.configuration = { ...connector.configuration, command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
+    connector.oauth = {
+      clientType: "confidential", registration: "manual", tokenEndpointAuthMethod: "client_secret_post",
+      authorizationServer: { issuer: provider.server.url.origin, authorizationUrl: `${provider.server.url.origin}/authorize`, tokenUrl: `${provider.server.url.origin}/token` },
+      accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
+    };
   }
-  const skill = createPluginTemplate("skills", `flow-skills-${suffix}`);
-  skill.name = "Flow Skills";
-  const definitions = [oauth, configured, skill];
+  const definitions = [oauth];
   let app: AppService;
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
     async fetch(request) {
       const url = new URL(request.url);
       const headers = {
@@ -71,30 +53,13 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { ca
         const authenticatedSessionId = session && options.authSessions?.includes(session) ? session : null;
         if (options.authSessions && !authenticatedSessionId && path !== "/api/plugin-oauth/callback")
           return Response.json({ error: { code: "unauthorized", message: "Sign in to OpenTeam to continue" } }, { status: 401, headers });
-        const context = {
-          app,
-          request,
-          url,
-          path,
-          authMode: options.authSessions ? "required" as const : "disabled" as const,
-          authenticatedSessionId,
-        };
-        const response =
-          (await pluginMutationRoutes(context)) ??
-          (await pluginQueryRoutes(context)) ??
-          new Response("Not found", { status: 404 });
+        const context = { app, request, url, path, authMode: options.authSessions ? "required" as const : "disabled" as const, authenticatedSessionId };
+        const response = (await pluginMutationRoutes(context)) ?? (await pluginQueryRoutes(context)) ?? new Response("Not found", { status: 404 });
         for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
         return response;
       } catch (cause) {
-        return Response.json(
-          {
-            error: {
-              code: cause instanceof ApiError ? cause.code : "fixture_error",
-              message: cause instanceof Error ? cause.message : "Fixture error",
-            },
-          },
-          { status: cause instanceof ApiError ? cause.status : 500, headers }
-        );
+        return Response.json({ error: { code: cause instanceof ApiError ? cause.code : "fixture_error", message: cause instanceof Error ? cause.message : "Fixture error" } },
+          { status: cause instanceof ApiError ? cause.status : 500, headers });
       }
     },
   });
@@ -155,36 +120,24 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { ca
     return response.headers.get("location")!;
   };
   /** Installs a fixture plugin through the routes and returns its first account. */
-  const install = async (index = 0, session = options.authSessions?.[0]) => {
-    const key = definitions[index]!.key;
+  const install = async (session = options.authSessions?.[0]) => {
+    const key = oauth.key;
     await client(session).installPlugin(key);
     return (await client(session).pluginSettings()).installs.find(row => row.pluginKey === key)!.connections[0]!;
   };
   const row = (id: string) => db.pluginConnection.findUniqueOrThrow({ where: { id } });
   /** Marks stored tokens expired (and the provider's too) so the next use must refresh. */
-  const expireTokens = async (id: string, noRefresh = false) => {
+  const expireTokens = async (id: string) => {
     const credentials = (await row(id)).credentials as any;
-    if (noRefresh) delete credentials.oauth.tokens.refresh_token;
     await db.pluginConnection.update({ where: { id }, data: { credentials: { ...credentials, oauth: { ...credentials.oauth, tokensExpireAt: 1 } } } });
   };
   return {
-    db,
-    server,
-    service,
-    provider,
-    definitions,
-    client,
-    approve,
-    install,
-    row,
-    expireTokens,
+    db, server, service, provider, client, approve, install, row, expireTokens,
     async close() {
       await service.close();
       server.stop(true);
       provider.close();
-      await db.pluginInstallation.deleteMany({
-        where: { pluginKey: { in: definitions.map((row) => row.key) } },
-      });
+      await db.pluginInstallation.deleteMany({ where: { pluginKey: oauth.key } });
       await db.$disconnect();
     },
   };

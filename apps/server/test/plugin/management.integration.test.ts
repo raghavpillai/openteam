@@ -5,7 +5,7 @@ import { importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { pluginRuntimeContext } from "../../../worker/src/plugins";
 import { PluginService } from "../../src/services/plugin-service";
 import { dbIt } from "../harness";
-import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
+import { startUtilityMcp } from "./fixtures/utility-plugin";
 
 const run = <T>(effect: Effect.Effect<T, unknown>) => Effect.runPromise(effect);
 
@@ -13,7 +13,9 @@ dbIt("management preserves accounts, direct tool execution and snapshots through
   const prisma = h.db;
   let syncFails = true;
   const service = new PluginService(prisma, undefined, { syncPluginSkillCache: async () => { if (syncFails) throw new Error("Fixture volume unavailable"); }, writeConnectorSecret: async () => {} });
-  const key = `test-package-${crypto.randomUUID()}`, base = createUtilityPluginFixture();
+  const utility = startUtilityMcp();
+  h.onClose(async () => utility.close());
+  const key = `test-package-${crypto.randomUUID()}`, base = utility.definition();
   const definition = {
     ...base, key, name: "Parity test", components: ["mcp", "skills"] as Array<"mcp" | "skills">,
     connections: [base.connections[0]!, { ...base.connections[0]!, key: "second", name: "Second connector" }],
@@ -45,12 +47,12 @@ dbIt("management preserves accounts, direct tool execution and snapshots through
   const hasEcho = (namespaces: Awaited<ReturnType<typeof service.dynamicNamespaces>>) => namespaces.flatMap(entry => entry.tools).some(tool => tool.connectionId === first.id && tool.name === "echo");
   expect(hasEcho(await service.dynamicNamespaces(botId))).toBe(true);
   expect(hasEcho((await pluginRuntimeContext(prisma, botId)).dynamicNamespaces)).toBe(true);
-  expect(await service.invoke({ connectionId: first.id, botId, runId, callId: crypto.randomUUID(), toolName: "echo", arguments: { text: "direct read" } })).toEqual({ text: "direct read" });
+  expect(await service.invoke({ connectionId: first.id, botId, runId, callId: crypto.randomUUID(), toolName: "echo", arguments: { text: "direct read" } })).toMatchObject({ structuredContent: { text: "direct read" } });
   // A retried write with the same call id executes once; a disconnected account refuses new calls.
   const write = { connectionId: first.id, botId, runId, callId: crypto.randomUUID(), toolName: "remember_note", arguments: { note: "Direct write executes once" } };
-  expect(await service.invoke(write)).toEqual({ remembered: true });
-  expect(await service.invoke(write)).toEqual({ remembered: true });
-  const notes = () => prisma.pluginActivity.count({ where: { connectionId: first.id, kind: "fixture.note" } });
+  expect(await service.invoke(write)).toMatchObject({ structuredContent: { remembered: true } });
+  expect(await service.invoke(write)).toMatchObject({ structuredContent: { remembered: true } });
+  const notes = async () => utility.notes.length;
   expect(await notes()).toBe(1);
   await run(service.disconnect(first.id));
   await expect(service.invoke({ ...write, callId: crypto.randomUUID() })).rejects.toMatchObject({ code: "plugin_connection_not_ready" });
@@ -106,7 +108,9 @@ dbIt("plugins shipped with a release update with it and reconnect", async ({ db:
   const service = new PluginService(prisma, undefined, { syncPluginSkillCache: async () => {}, writeConnectorSecret: async () => {} });
   const key = `released-${crypto.randomUUID()}`;
   onClose(() => prisma.pluginInstallation.deleteMany({ where: { pluginKey: key } }));
-  const release = (version: string, extra: Partial<PluginDefinition> = {}): PluginDefinition => ({ ...createUtilityPluginFixture(key), version, description: `Release ${version}`, ...extra });
+  const utility = startUtilityMcp();
+  onClose(async () => utility.close());
+  const release = (version: string, extra: Partial<PluginDefinition> = {}): PluginDefinition => ({ ...utility.definition(key), version, description: `Release ${version}`, ...extra });
   let catalog: PluginDefinition[] = [release("1.0.0")];
   // The bundled catalog is the release's package list.
   (service as unknown as { marketplace: { plugins: () => Promise<PluginDefinition[]> } }).marketplace = { plugins: async () => catalog };

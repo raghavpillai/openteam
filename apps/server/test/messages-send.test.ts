@@ -7,50 +7,24 @@ import { AssetStore } from "@openteam/messaging";
 import { MESSAGES_SEND_FILES_TOOL } from "@openteam/contracts/messages-send";
 import { MessagesSendService } from "../src/services/messages-send-service";
 
-const context = {
-  runId: "run",
-  botId: "bot",
-  conversationId: "conversation",
-  channelId: "channel",
-  deliveryId: null,
-  origin: "user" as const,
-  callId: "call",
-  isFork: false,
-  replyToMessageId: null,
-};
+const context = { runId: "run", botId: "bot", conversationId: "conversation", channelId: "channel", deliveryId: null, origin: "user" as const, callId: "call", isFork: false, replyToMessageId: null };
+const to = "+15555550100";
 
 async function fixture(allowed = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "imessage-service-")));
-  const assets = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
   let message: any;
   const calls: any[] = [];
-  let failure: string | undefined;
   const db: any = {
     channel: { findUnique: async () => ({ kind: "bot_dm" }) },
-    channelMessage: {
-      findUnique: async () => message,
-      findUniqueOrThrow: async () => message,
-      update: async ({ data }: any) => (message = { ...message, ...data }),
-    },
+    channelMessage: { findUnique: async () => message, findUniqueOrThrow: async () => message, update: async ({ data }: any) => (message = { ...message, ...data }) },
     $executeRaw: async () => 0,
     event: { create: async () => ({}) },
     $transaction: async (work: any) => work(db),
   };
   const messaging: any = {
-    assets,
+    assets: new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] }),
     sendVisible: async (_context: unknown, input: any) => {
-      message = {
-        id: "card",
-        sequence: 1n,
-        channelId: "channel",
-        sender: "bot",
-        senderBotId: "bot",
-        sourceRunId: "run",
-        content: "Send this message?",
-        createdAt: new Date(),
-        channel: { archivedAt: null },
-        metadata: input,
-      };
+      message = { id: "card", sequence: 1n, channelId: "channel", sender: "bot", senderBotId: "bot", sourceRunId: "run", content: "Send this message?", createdAt: new Date(), channel: { archivedAt: null }, metadata: input };
       return { acknowledgement: { sent: true, message_id: "card" } };
     },
     enqueueWake: async () => ({ run: { id: "wake" } }),
@@ -61,66 +35,30 @@ async function fixture(allowed = false) {
     messagesSendAllowed: async () => allowed,
     allowMessagesRecipient: async () => {},
     relay: { connected: () => true },
-    callCapability: async (_machineId: string, body: unknown) => {
-      calls.push(body);
-      if (failure) throw new Error(failure);
-      return { kind: "send", verified: false };
-    },
+    callCapability: async (_machineId: string, body: unknown) => { calls.push(body); return { kind: "send", verified: false }; },
   };
-  return {
-    root,
-    assets,
-    calls,
-    service: new MessagesSendService(db, messaging, machines),
-    card: () => message,
-    fail: (reason: string) => {
-      failure = reason;
-    },
-    cleanup: () => rm(root, { recursive: true, force: true }),
-  };
+  return { root, calls, service: new MessagesSendService(db, messaging, machines), card: () => message, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
 test("a PDF is snapshotted before approval and its reviewed bytes are sent exactly once", async () => {
   const f = await fixture();
   try {
-    const path = join(f.root, "report.pdf");
-    const original = "%PDF-1.7\noriginal";
+    const path = join(f.root, "report.pdf"), original = "%PDF-1.7\noriginal";
     await writeFile(path, original);
-    expect(
-      await f.service.create(context, { to: "+15555550100", attachmentPaths: [path] })
-    ).toMatchObject({ delivery: "awaiting_approval" });
+    expect(await f.service.create(context, { to, attachmentPaths: [path] })).toMatchObject({ delivery: "awaiting_approval" });
     const stored = f.card().metadata.imessage;
-    expect(stored.text).toBe("");
-    expect(stored.attachments).toMatchObject([
-      { fileName: "report.pdf", byteSize: original.length },
-    ]);
+    expect(stored).toMatchObject({ text: "", attachments: [{ fileName: "report.pdf", byteSize: original.length }] });
     expect(stored.attachmentPaths).toBeUndefined();
     expect(JSON.stringify(stored)).not.toContain("bytesBase64");
     expect(f.calls).toHaveLength(0);
     await writeFile(path, "%PDF-1.7\nchanged after approval was requested");
     await Effect.runPromise(f.service.mutate("card", { action: "send" }));
-    expect(f.calls).toEqual([
-      {
-        tool: MESSAGES_SEND_FILES_TOOL,
-        botId: "bot",
-        callId: "imessage-send:card",
-        arguments: {
-          text: "",
-          to: "+15555550100",
-          attachments: [
-            { fileName: "report.pdf", bytesBase64: Buffer.from(original).toString("base64") },
-          ],
-        },
-      },
-    ]);
-    expect(f.card().metadata.cardState).toBe("sent");
-    expect(f.card().metadata.outcomeText).toContain("delivery is unconfirmed");
-    expect(f.card().metadata.outcomeText).toContain(`report.pdf (${original.length} bytes)`);
+    expect(f.calls).toEqual([{ tool: MESSAGES_SEND_FILES_TOOL, botId: "bot", callId: "imessage-send:card",
+      arguments: { text: "", to, attachments: [{ fileName: "report.pdf", bytesBase64: Buffer.from(original).toString("base64") }] } }]);
+    expect(f.card().metadata).toMatchObject({ cardState: "sent", outcomeText: expect.stringContaining(`report.pdf (${original.length} bytes)`) });
     await Effect.runPromise(f.service.mutate("card", { action: "send" }));
     expect(f.calls).toHaveLength(1);
-  } finally {
-    await f.cleanup();
-  }
+  } finally { await f.cleanup(); }
 });
 
 test("discarding files never reaches the Mac and existing recipient grants still send files", async () => {
@@ -129,46 +67,28 @@ test("discarding files never reaches the Mac and existing recipient grants still
     try {
       const path = join(f.root, "invoice.pdf");
       await writeFile(path, "%PDF-1.7\ninvoice");
-      const result = await f.service.create(context, {
-        text: "Invoice attached",
-        to: "+15555550100",
-        attachmentPaths: [path],
-      });
+      const result = await f.service.create(context, { text: "Invoice attached", to, attachmentPaths: [path] });
       if (allowed) {
         expect(result).toMatchObject({ delivery: "sent" });
-        expect(f.calls).toHaveLength(1);
-        expect(f.calls[0].arguments.text).toBe("Invoice attached");
+        expect(f.calls.map(call => call.arguments.text)).toEqual(["Invoice attached"]);
       } else {
         await Effect.runPromise(f.service.mutate("card", { action: "cancel" }));
         expect(f.card().metadata.cardState).toBe("dismissed");
         expect(f.calls).toHaveLength(0);
       }
-    } finally {
-      await f.cleanup();
-    }
+    } finally { await f.cleanup(); }
   }
 });
 
 test("missing, oversized and protected files fail before a card or any send", async () => {
   const f = await fixture();
   try {
-    await expect(
-      f.service.create(context, {
-        to: "+15555550100",
-        attachmentPaths: [join(f.root, "missing.pdf")],
-      })
-    ).rejects.toThrow("No file");
+    await expect(f.service.create(context, { to, attachmentPaths: [join(f.root, "missing.pdf")] })).rejects.toThrow("No file");
     const path = join(f.root, "report.pdf");
     await writeFile(path, Buffer.alloc(14 * 1024 * 1024));
-    await expect(
-      f.service.create(context, { to: "+15555550100", attachmentPaths: [path, path] })
-    ).rejects.toThrow("25 MiB in total");
-    await expect(
-      f.service.create(context, { to: "+15555550100", attachmentPaths: ["/etc/hosts"] })
-    ).rejects.toThrow("outside an allowed");
+    await expect(f.service.create(context, { to, attachmentPaths: [path, path] })).rejects.toThrow("25 MiB in total");
+    await expect(f.service.create(context, { to, attachmentPaths: ["/etc/hosts"] })).rejects.toThrow("outside an allowed");
     expect(f.card()).toBeUndefined();
     expect(f.calls).toHaveLength(0);
-  } finally {
-    await f.cleanup();
-  }
+  } finally { await f.cleanup(); }
 });

@@ -201,7 +201,7 @@ const packaged = (body: (f: Flow & { id: string; configure(id: string): Promise<
       await client.savePluginConfiguration(id, { values: { clientId: id }, secrets: { clientSecret: { action: "replace", value: "fixture-secret" } } });
     };
     const authorize = async (id: string) => client.finishManualPluginAuthentication(id, await f.approve((await client.authenticatePlugin(id, true)).authorizationUrl)).then(() => {});
-    const { id } = await f.install(0, "owner");
+    const { id } = await f.install("owner");
     await configure(id);
     await authorize(id);
     await body(Object.assign(f, { id, configure, authorize }));

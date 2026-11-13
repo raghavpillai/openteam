@@ -21,7 +21,7 @@ import XCTest
   func testCSVOpensInTheSpreadsheetPreview() async throws {
     continueAfterFailure = false
     try await control("__qa/reset", [:])
-    try await control("__qa/content", ["scene": "spreadsheet"])
+    try await control("__qa/scene", ["scene": "spreadsheet"])
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "channel-research"]
     app.launch()
@@ -59,7 +59,7 @@ import XCTest
   func testWideDisplaysUseAFloatingCard() async throws {
     continueAfterFailure = false
     try await control("__qa/reset", [:])
-    try await control("__qa/content", ["scene": "spreadsheet"])
+    try await control("__qa/scene", ["scene": "spreadsheet"])
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "channel-research"]
     app.launch()

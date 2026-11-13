@@ -312,6 +312,7 @@ const server = Bun.serve({
       const id=path.split('/').at(-1)!;
       const uploaded = uploadedAssets.get(id);
       if (uploaded) return new Response(uploaded.data, {headers: {"Content-Type": uploaded.mimeType}});
+      if(id==='sheet-transactions')return new Response(Bun.file(new URL('./fixtures/transactions.csv',import.meta.url)),{headers:{'Content-Type':'text/csv'}});
       if(id==='media-photo'||id==='media-video')return new Response(Bun.file(new URL(id==='media-photo'?'./fixtures/media-photo.jpg':'./fixtures/media-video.mp4',import.meta.url)),{headers:{'Content-Type':id==='media-photo'?'image/jpeg':'video/mp4'}});
       const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id)||/^gallery-\d+$/.test(id);
       return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':id==='layout-portrait'?'./fixtures/layout-portrait.png':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});

@@ -1,5 +1,6 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
 import { useDayClock } from "../../hooks/use-day-clock";
+import { AttachmentComposerSource } from "./attachment-composer";
 import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
@@ -1693,11 +1694,7 @@ export const ChatPane = memo(function ChatPane({
           </div>
         </div>
       ) : onboardingInProgress ? null : (
-        <div
-          className="relative z-[3] w-full shrink-0"
-          data-composer-dock=""
-          style={{ marginTop: "calc(-1 * var(--composer-overlap, 0px))" }}
-        >
+        <AttachmentComposerSource active={active} botById={botById} channel={channel}>
             <PromptInput
               focusRequest={composerFocusRequest}
               transcriptionConfigured={runtime.transcription === "configured" && !threadState?.open}
@@ -1742,7 +1739,7 @@ export const ChatPane = memo(function ChatPane({
                   : null
               }
             />
-        </div>
+        </AttachmentComposerSource>
       )}
       {threadState && (
         <ThreadTray

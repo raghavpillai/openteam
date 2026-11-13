@@ -104,6 +104,7 @@ export function ChannelLibrary({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ChannelLibraryItem | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [pins, setPins] = useState(() => readPins(channelId));
   const request = useRef<AbortController | null>(null);
   const attemptedCursor = useRef<string | null>(null);
@@ -190,7 +191,10 @@ export function ChannelLibrary({
                     <ButtonPrimitive
                       aria-label={item.attachment.fileName}
                       className="bot-library-open"
-                      onClick={() => setSelected(item)}
+                      onClick={() => {
+                        setSelected(item);
+                        setPreviewOpen(true);
+                      }}
                       type="button"
                     >
                       <LibraryFileIcon attachment={item.attachment} />
@@ -254,10 +258,8 @@ export function ChannelLibrary({
         >
           <Preview
             attachment={selected.attachment}
-            onOpenChange={(open) => {
-              if (!open) setSelected(null);
-            }}
-            open
+            onOpenChange={setPreviewOpen}
+            open={previewOpen}
           />
         </Suspense>
       )}

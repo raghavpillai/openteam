@@ -5,12 +5,61 @@ import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { api } from "../../src/renderer/client/openteam-api";
 import { API_BASE } from "../../src/renderer/client/http";
 import "../../src/renderer/styles.css";
+import previewPdf from "../fixtures/previews/sample.pdf?url";
+import previewAudio from "../fixtures/previews/sample.wav?url";
+import previewVideo from "../fixtures/previews/sample.mp4?url";
+const nativeFetch = window.fetch.bind(window);
 const visualAssetFetches: string[] = [];
 Object.assign(window, { visualAssetFetches });
 window.fetch = async (input) => {
   const url = String(input);
+  if (url.includes("/api/v0/bots/review-bot/avatar"))
+    return new Response(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#e19b45"/><path d="M16 42L32 58L64 22" fill="none" stroke="#172f46" stroke-width="9"/></svg>',
+      { headers: { "content-type": "image/svg+xml" } }
+    );
   if (url.startsWith(API_BASE + "/api/assets/")) {
     visualAssetFetches.push(url);
+    const fixture = (
+      window as Window & {
+        previewAuditFixtures?: Record<string, { data: string; mimeType: string }>;
+      }
+    ).previewAuditFixtures?.[decodeURIComponent(url.split("/").at(-1) ?? "")];
+    if (fixture)
+      return new Response(
+        Uint8Array.from(atob(fixture.data), (char) => char.charCodeAt(0)),
+        { headers: { "content-type": fixture.mimeType } }
+      );
+    if (url.endsWith(".pdf")) return nativeFetch(previewPdf);
+    if (url.endsWith(".wav") || url.endsWith(".mp3")) return nativeFetch(previewAudio);
+    if (url.endsWith(".mp4")) return nativeFetch(previewVideo);
+    if (url.endsWith(".json"))
+      return new Response(
+        JSON.stringify({
+          project: "Preview test",
+          enabled: true,
+          version: 3,
+          features: ["documents", "spreadsheets", "media"],
+          settings: { theme: "dark", keyboard: { escape: "close" } },
+        })
+      );
+    if (url.endsWith(".py"))
+      return new Response(
+        "from dataclasses import dataclass\n\n@dataclass\nclass Project:\n    name: str\n    complete: bool = False\n"
+      );
+    if (url.endsWith(".html"))
+      return new Response(
+        "<!doctype html><html><head><style>body{font:16px system-ui;padding:32px;color:#173047}section{display:flex;gap:16px}article{padding:24px;background:#eef5f8;border-radius:16px}strong{display:block;font-size:32px}</style></head><body><h1>Project overview</h1><p>A sample HTML preview.</p><section><article>Milestones<strong>12</strong></article><article>Completed<strong>8</strong></article><article>In progress<strong>4</strong></article></section></body></html>"
+      );
+    if (url.endsWith(".md"))
+      return new Response(
+        '# Project review\n\nA **formatted Markdown** preview.\n\n## Checklist\n\n- Open the file\n- Check formatting\n- Press Escape\n\n| Milestone | Status |\n| --- | --- |\n| Design | Complete |\n\n```python\ndef greet(name):\n    return f"Hello, {name}!"\n```\n'
+      );
+    if (url.endsWith(".gif") || url.endsWith(".svg"))
+      return new Response(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640"><rect width="960" height="640" fill="#173047"/><circle cx="480" cy="320" r="120" fill="#79cbbb"/></svg>',
+        { headers: { "content-type": "image/svg+xml" } }
+      );
     if (url.endsWith(".png") || url.endsWith(".jpg")) {
       if (params.get("media") === "missing") return new Response("Not found", { status: 404 });
       if (params.get("media") === "broken")
@@ -60,6 +109,15 @@ window.fetch = async (input) => {
         ]),
         "Summary"
       );
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([
+          ["Merchant", "Category", "Amount"],
+          ["Corner Coffee", "Dining", 12.5],
+          ["Fresh Market", "Groceries", 45.8],
+        ]),
+        "Transactions"
+      );
       return new Response(XLSX.write(workbook, { type: "array", bookType: "xlsx" }));
     }
     if (url.endsWith(".docx"))
@@ -93,7 +151,10 @@ const bot = {
   id: "review-bot",
   name: new URLSearchParams(location.search).get("bot") ?? "Cap c18-1",
   color: new URLSearchParams(location.search).get("botColor") ?? "#1084fe",
-  icon: "classic",
+  icon: new URLSearchParams(location.search).get("botIcon") ?? "classic",
+  ...(new URLSearchParams(location.search).has("botPhoto")
+    ? { hasAvatar: true, updatedAt: "2026-11-12T12:00:00Z" }
+    : {}),
   status: "active",
   title: "",
   description: "",
@@ -144,6 +205,56 @@ const messages = texts.map(([sender, content], i) => ({
   metadata: {},
   createdAt: new Date(Date.parse("2026-11-10T10:00:00Z") + i * 10000).toISOString(),
 })) as ChannelMessageView[];
+const previewSamples = [
+  ["Transactions.csv", "text/csv", "text"],
+  ["Budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "file"],
+  ["Project-review.pdf", "application/pdf", "pdf"],
+  [
+    "Project-review.docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "file",
+  ],
+  ["Readme.md", "text/markdown", "text"],
+  ["Notes.txt", "text/plain", "text"],
+  ["Example.py", "text/x-python", "text"],
+  ["Settings.json", "application/json", "text"],
+  ["Dashboard.html", "text/html", "text"],
+  ["Landscape.png", "image/png", "image"],
+  ["Landscape.jpg", "image/jpeg", "image"],
+  ["Motion.gif", "image/gif", "image"],
+  ["Diagram.svg", "image/svg+xml", "image"],
+  ["Video.mp4", "video/mp4", "video"],
+  ["Audio.mp3", "audio/mpeg", "audio"],
+  ["Audio.wav", "audio/wav", "audio"],
+  ["Archive.zip", "application/zip", "file"],
+].map(([fileName, mimeType, kind], index) => ({
+  assetId: (index + 30).toString(16).padStart(64, "0"),
+  fileName: fileName!,
+  mimeType: mimeType!,
+  kind: kind! as "file" | "text" | "pdf" | "image" | "video" | "audio",
+  byteSize: 2048,
+  ...(kind === "image" ? { width: 960, height: 640, alt: fileName! } : {}),
+}));
+if (new URLSearchParams(location.search).has("preview-set")) {
+  messages.splice(
+    0,
+    messages.length,
+    ...previewSamples
+      .filter((attachment) => attachment.kind !== "image")
+      .map((attachment, index) => ({
+        ...messages[1]!,
+        id: `preview-${index}`,
+        content: index === 0 ? "Document and media preview samples" : "",
+        metadata: { attachments: [attachment] },
+      })),
+    {
+      ...messages[1]!,
+      id: "preview-gallery",
+      content: "Image gallery",
+      metadata: { attachments: previewSamples.filter((attachment) => attachment.kind === "image") },
+    }
+  );
+}
 if (new URLSearchParams(location.search).has("onboarding")) {
   messages.splice(
     0,
@@ -384,6 +495,16 @@ Object.assign(api, {
   channelLibrary: async (_channelId: string, before: string | null) => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     const mode = params.get("library");
+    if (params.has("preview-set"))
+      return {
+        items: previewSamples.map((attachment) => ({
+          id: attachment.assetId,
+          messageId: "preview-samples",
+          createdAt: "2026-11-12T12:00:00Z",
+          attachment,
+        })),
+        nextCursor: null,
+      };
     if (mode === "error" && !sessionStorage.getItem("library-retried")) {
       sessionStorage.setItem("library-retried", "1");
       throw Error("Controlled Library load failure");

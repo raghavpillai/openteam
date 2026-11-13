@@ -1,10 +1,28 @@
 import { ButtonPrimitive } from "../ui/button-primitive";
 import { X } from "lucide-react";
-import { type ReactNode, useContext, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { AttachmentStageChannel } from "../../hooks/attachment-stage-channel";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { AttachmentComposer } from "./attachment-composer";
 
-/** An attachment replaces the chat stage, keeping navigation and the composer available. */
+const PreviewTools = createContext<HTMLDivElement | null>(null);
+export const AttachmentStageDismiss = createContext<() => void>(() => {});
+
+export function AttachmentStageTools({ children }: { children: ReactNode }) {
+  const target = useContext(PreviewTools);
+  return target ? createPortal(children, target) : null;
+}
+
+/** A full-window attachment sheet floats above the conversation and its panels. */
 export function AttachmentStage({
   open,
   onOpenChange,
@@ -23,50 +41,64 @@ export function AttachmentStage({
   children: ReactNode;
 }) {
   const channel = useContext(AttachmentStageChannel);
+  const [tools, setTools] = useState<HTMLDivElement | null>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const changeOpen = useCallback(
+    (next: boolean) => {
+      if (!next && content.current) {
+        // A dismissal can interrupt entry. Continue from the painted position,
+        // rather than jumping to the fully open sheet before sliding down.
+        content.current.style.setProperty(
+          "--attachment-sheet-exit-transform",
+          getComputedStyle(content.current).transform
+        );
+        const backdrop = content.current.previousElementSibling;
+        if (
+          backdrop instanceof HTMLElement &&
+          backdrop.classList.contains("attachment-stage-backdrop")
+        ) {
+          backdrop.style.setProperty(
+            "--attachment-backdrop-exit-opacity",
+            getComputedStyle(backdrop).opacity
+          );
+        }
+      }
+      onOpenChange(next);
+    },
+    [onOpenChange]
+  );
   const previousChannel = useRef(channel);
   useLayoutEffect(() => {
-    if (open && previousChannel.current !== channel) onOpenChange(false);
+    if (open && previousChannel.current !== channel) changeOpen(false);
     previousChannel.current = channel;
-  }, [channel, open, onOpenChange]);
-  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  }, [channel, open, changeOpen]);
+  const openingControl = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    if (!open || !content) return;
-    const composer = [...document.querySelectorAll<HTMLElement>("[data-composer-dock] form")].find(
-      (element) => element.getBoundingClientRect().width > 0
-    );
-    if (!composer) return;
-    const dock = composer.closest<HTMLElement>("[data-composer-dock]");
-    const originalTheme = dock?.getAttribute("data-theme");
-    if (dark) dock?.setAttribute("data-theme", "dark");
-    const update = () =>
-      content.style.setProperty(
-        "--attachment-composer-height",
-        `${composer.getBoundingClientRect().height}px`
-      );
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(composer);
-    return () => {
-      observer.disconnect();
-      if (dark && dock) {
-        if (originalTheme == null) dock.removeAttribute("data-theme");
-        else dock.setAttribute("data-theme", originalTheme);
-      }
-    };
-  }, [open, content, dark]);
+    if (open) {
+      openingControl.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+  }, [open]);
   return (
-    <Dialog modal={false} onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogContent
-        ref={setContent}
+        ref={content}
+        aria-modal="true"
         className="attachment-stage translate-none"
         data-attachment-stage=""
         data-attachment-tone={dark ? "dark" : "default"}
-        onInteractOutside={(event) => {
-          // Typing a follow-up keeps the attachment in view. Navigation outside
-          // the chat closes it through the normal nonmodal dismiss behavior.
-          if (event.target instanceof Element && event.target.closest("[data-composer-dock]"))
-            event.preventDefault();
+        data-native-platform={window.openteam?.platform}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (openingControl.current?.isConnected) {
+            openingControl.current.focus({ preventScroll: true });
+          }
         }}
+        onPointerDownOutside={(event) => {
+          const pointer = event.detail.originalEvent;
+          if (pointer.button !== 0 || pointer.ctrlKey) event.preventDefault();
+        }}
+        overlayClassName="attachment-stage-backdrop"
         showCloseButton={false}
         surface="transparent"
       >
@@ -75,9 +107,9 @@ export function AttachmentStage({
         <header className="attachment-stage-header">
           <ButtonPrimitive
             aria-label={closeLabel}
-            className="desktop-elevated-control"
-            onClick={() => onOpenChange(false)}
-            title="Back to chat"
+            className="desktop-elevated-control attachment-stage-close"
+            onClick={() => changeOpen(false)}
+            title={closeLabel}
             type="button"
           >
             <X className="size-4" strokeWidth={1.8} />
@@ -85,9 +117,17 @@ export function AttachmentStage({
           <div className="attachment-stage-title" title={title}>
             {title}
           </div>
-          <div className="attachment-stage-actions">{actions}</div>
+          <div className="attachment-stage-actions">
+            <div className="attachment-preview-tools" ref={setTools} />
+            {actions}
+          </div>
         </header>
-        {children}
+        <PreviewTools.Provider value={tools}>
+          <AttachmentStageDismiss.Provider value={() => changeOpen(false)}>
+            {children}
+          </AttachmentStageDismiss.Provider>
+        </PreviewTools.Provider>
+        <AttachmentComposer channelId={channel} dark={dark} />
       </DialogContent>
     </Dialog>
   );

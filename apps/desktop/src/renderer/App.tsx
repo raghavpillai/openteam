@@ -35,6 +35,7 @@ import { Button } from "./components/ui/button";
 import { LoadingOrb } from "./components/ui/loading-orb";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { AttachmentStageChannel } from "./hooks/attachment-stage-channel";
+import { AttachmentComposerProvider } from "./components/openteam/attachment-composer";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
 import { useRecentChannels } from "./hooks/use-recent-channels";
@@ -1317,6 +1318,7 @@ export default function App() {
 
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
             <AttachmentStageChannel value={selected?.id ?? null}>
+            <AttachmentComposerProvider>
             {!pendingBot && !landing && (
               <DesktopHeader
                 agentNameById={index.agentNameById}
@@ -1644,6 +1646,7 @@ export default function App() {
                 )}
               </div>
             )}
+            </AttachmentComposerProvider>
             </AttachmentStageChannel>
           </section>
 

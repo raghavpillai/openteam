@@ -64,7 +64,8 @@ import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./ru
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
-import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
+import { prepareDynamicToolCatalog } from "./runtime/catalog-snapshot";
+import { pinUserInfo } from "./runtime/user-info-snapshot";
 import { DiskPressureMonitor, reminderStepPersisted } from "./runtime/disk-pressure";
 import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
 import { PROCESS_NOTICE_TYPE, ProcessNotice } from "./runtime/process-notice";
@@ -396,16 +397,32 @@ export class ComputerRuntime {
       this.bindTurnStop(active, session);
       active.sessionPath = openedSessionPath;
       if (request.userInfo) {
-        const pinned = pinDynamicToolCatalog(session.sessionManager, request.userInfoEpoch ?? 0, this.tools.contextCatalog(active));
-        active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
-          cwd: active.cwd,
-          catalog: pinned.catalog,
-          taskConfiguration: active.taskConfiguration,
-          subagent: Boolean(active.subagentType),
-        }), request.userInfoEpoch ?? 0);
+        // Workers do not receive a server-side epoch; use the durable local one
+        // so their opening snapshot also refreshes after a summary.
+        const userInfoEpoch = request.userInfoEpoch ?? contextState.epoch;
+        const pinned = prepareDynamicToolCatalog(session.sessionManager, userInfoEpoch, this.tools.contextCatalog(active));
+        const userInfo = pinUserInfo(
+          session.sessionManager,
+          userInfoEpoch,
+          enrichUserInfo(request.userInfo, {
+            cwd: active.cwd,
+            catalog: null,
+            taskConfiguration: active.taskConfiguration,
+            subagent: Boolean(active.subagentType),
+          }),
+          pinned.catalog
+        );
+        active.userInfoMessage = botUserInfoMessage(userInfo.content, userInfoEpoch);
+        if (userInfo.update) {
+          await session.sendCustomMessage({
+            customType: "openteam-user-info-update", content: userInfo.update, display: false, details: { origin: "host" },
+          }, { triggerTurn: false });
+          userInfo.acknowledge();
+        }
         if (pinned.update) await session.sendCustomMessage({
           customType: "openteam-catalog-update", content: pinned.update, display: false, details: { origin: "host" },
         }, { triggerTurn: false });
+        pinned.acknowledge();
       }
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
       const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));

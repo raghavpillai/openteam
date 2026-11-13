@@ -69,3 +69,29 @@ test("malformed coordinates, unsafe links and disconnected route stops are rejec
     })
   ).toThrow();
 });
+
+test("agents may name places and routes by id; delivery requires them resolved", async () => {
+  const { PresentationSendSchema, presentationReferences, resolvePresentationReferences, parsePresentation } = await import("../src/presentation");
+  const input = {
+    version: 1,
+    places: ["google:a", { id: "google:b", notes: "Order the duck." }, { id: "web:c", name: "C", latitude: 1, longitude: 2 }],
+    blocks: [
+      { type: "place_map", placeIds: ["google:a", "google:b"], route: "route:1" },
+      { type: "ranked_media_list", items: [{ id: "1", title: "A", placeId: "google:a" }] },
+    ],
+  };
+  expect(PresentationSendSchema.safeParse({ type: "presentation", presentation: input }).success).toBe(true);
+  // Block ids must still name a listed place, reference or not.
+  expect(PresentationSendSchema.safeParse({ type: "presentation", presentation: { ...input, blocks: [{ type: "place_map", placeIds: ["google:z"] }] } }).success).toBe(false);
+  expect(presentationReferences(input)).toEqual({ places: ["google:a", "google:b"], routes: ["route:1"] });
+  expect(() => parsePresentation(input)).toThrow("Unresolved references: google:a, google:b, route:1");
+
+  const a = { id: "google:a", name: "A", latitude: 40.75, longitude: -73.99, rating: 4.6, imageUrl: "https://lh3.googleusercontent.com/a", provider: "Google Maps", sourceUrl: "https://maps.google.com/?cid=1" };
+  const b = { id: "google:b", name: "B", latitude: 40.76, longitude: -73.98, notes: "tool note" };
+  const route = { id: "route:1", mode: "walking", geometry: { type: "LineString", coordinates: [[-73.99, 40.75], [-73.98, 40.76]] }, distanceMeters: 900, durationSeconds: 700,
+    legs: [{ fromPlaceId: "google:a", toPlaceId: "google:b", distanceMeters: 900, durationSeconds: 700 }] };
+  const resolved = parsePresentation(resolvePresentationReferences(input, new Map([["google:a", a], ["google:b", b]] as any), new Map([["route:1", route]] as any)));
+  expect(resolved.places.map((place) => place.name)).toEqual(["A", "B", "C"]);
+  expect(resolved.places[1]!.notes).toBe("Order the duck."); // the agent's words win over the tool's
+  expect((resolved.blocks[0] as any).route.distanceMeters).toBe(900);
+});

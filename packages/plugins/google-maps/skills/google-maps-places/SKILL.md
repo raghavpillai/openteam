@@ -28,14 +28,14 @@ The Google Maps tools return real places with Google ratings, review counts, pri
 
 ## Routes
 
-Pass the chosen places to RoutePlaces in visit order. Put its `route` in the place_map unchanged, and state the time and distance it returns. Never draw straight lines and call them directions.
+Pass the chosen places to RoutePlaces in visit order. Pass the route's `id` as the place_map `route`, and state the time and distance it returns. Never draw straight lines and call them directions.
 
 ## Showing results
 
-- Copy each result's `place` object into the presentation's `places` unchanged. It already carries the rating, review count, open-now, today's hours, photo, `provider`, `sourceUrl` and `attribution`.
+- List places by id: `"places": ["google:ChIJ…", …]`. OpenTeam fills in each one from the tool result: rating, review count, open-now, today's hours, photo and source. To add your own line under a place, use `{"id": "google:ChIJ…", "notes": "Order the duck noodles."}`.
 - Keep `photos` on (the default) for every search or detail call whose places you will show. Pass `photos: false` only for a wide shortlist you won't display.
 - Put the picks on a `place_map`. Add the place they are near, such as the station or landmark, so the map shows the distance, and add the route when the walk or drive matters.
-- For a ranked answer ("top 3"), add a `ranked_media_list` in your order. Put the reasoning in Markdown blocks: why each place made the list and what to order.
+- For a ranked answer ("top 3"), add a `ranked_media_list` in your order, with `id`, `title`, a one-line `description` and `placeId` for each item; it shows the place's photo. Put the reasoning in Markdown blocks: why each place made the list and what to order.
 
 ## When a call fails
 

@@ -8,8 +8,8 @@ The component contract belongs in the tool schema, with short selection guidance
 
 1. Get real places from a place tool or verified research. The bundled [OpenStreetMap plugin](../../packages/plugins/openstreetmap/README.md) provides `SearchPlaces`, `SearchNearbyPlaces` and `RoutePlaces`, and its `openstreetmap-places` skill teaches the flow: geocode an area, find places of a kind near it with hours and open-now, check reviews with web search for "best", and route between stops. The core never names these tools; any plugin that returns places in this shape works.
 2. Check the city and branch of each place, even with a single result.
-3. For directions, put the route returned by a routing tool in the map unchanged. Never draw straight lines as directions. For pins alone, omit the route.
-4. Call `SendToUser` with `type: "presentation"`, a versioned payload, and the usual `end_turn`. Narrative goes in Markdown blocks in the desired order.
+3. For directions, pass the `id` of the route a routing tool returned as the map's `route`. Never draw straight lines as directions. For pins alone, omit the route.
+4. Call `SendToUser` with `type: "presentation"`, a versioned payload, and the usual `end_turn`. Name places by the ids tools returned; narrative goes in Markdown blocks in the desired order.
 
 ```json
 {
@@ -17,34 +17,21 @@ The component contract belongs in the tool schema, with short selection guidance
   "presentation": {
     "version": 1,
     "places": [
-      {
-        "id": "osm:way:34633854",
-        "name": "Empire State Building",
-        "latitude": 40.7484421,
-        "longitude": -73.9856589,
-        "address": "350 5th Avenue, New York",
-        "provider": "OpenStreetMap",
-        "sourceUrl": "https://www.openstreetmap.org/way/34633854"
-      }
+      "osm:way:34633854",
+      { "id": "osm:node:5158209121", "notes": "Lunch only; queues by noon." }
     ],
     "blocks": [
-      { "type": "markdown", "text": "Start with this landmark." },
+      { "type": "markdown", "text": "Start with this landmark, then lunch." },
       {
         "type": "place_map",
         "title": "Midtown Manhattan",
-        "placeIds": ["osm:way:34633854"],
-        "carousel": "auto"
+        "placeIds": ["osm:way:34633854", "osm:node:5158209121"],
+        "route": "route:3f1c9a2b-7d4e"
       },
       {
         "type": "ranked_media_list",
         "items": [
-          {
-            "id": "first",
-            "title": "Empire State Building",
-            "description": "An Art Deco landmark with observation decks.",
-            "placeId": "osm:way:34633854",
-            "href": "https://www.esbnyc.com/"
-          }
+          { "id": "first", "title": "Empire State Building", "description": "An Art Deco landmark with observation decks.", "placeId": "osm:way:34633854" }
         ]
       }
     ]
@@ -52,6 +39,10 @@ The component contract belongs in the tool schema, with short selection guidance
   "end_turn": true
 }
 ```
+
+### References
+
+`places` entries and a map's `route` can be ids instead of objects. Before a presentation is checked and delivered, the server fills each one from the tool results of the sending bot's runs, and its subagents' runs, from the last day. It searches results only, never arguments the agent wrote, so a referenced place is always what a tool returned. `{ "id": …, "notes": … }` (or `description`, `icon`) adds the agent's own words on top. Results reach the database a moment after a tool returns, so an id that isn't stored yet is retried for about three seconds; an unknown id is refused with a message telling the agent to use the tool's exact ids, call the tool again, or send the full object. Places verified another way, for example from a web page, are still sent as full objects. This keeps map replies short: the agent doesn't re-type coordinates, photo links or route geometry. Routing tools return an `id` on each route for this. The resolver is `apps/server/src/services/place-references.ts`.
 
 The schema and JSON-schema tool definition live in `packages/contracts/src/presentation.ts`. Limits: 50 places, 20 ordered blocks, 50 media items per list, 20,000 route vertices. Routing requests accept 2–10 stops. IDs must resolve; route legs must connect the map's stops in order. Links and image URLs use HTTPS without embedded credentials.
 

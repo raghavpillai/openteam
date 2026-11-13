@@ -89,7 +89,7 @@ export const tools: Tool[] = [
   {
     name: "RoutePlaces",
     description:
-      "Compute a real walking, cycling or driving route through 2–25 places in visit order with Google Maps. Driving uses live traffic. Returns the route for a SendToUser place_map unchanged: GeoJSON [longitude, latitude] geometry, total and per-leg distance and duration, and turn instructions.",
+      "Compute a real walking, cycling or driving route through 2–25 places in visit order with Google Maps. Driving uses live traffic. Returns the route with an id to pass as a SendToUser place_map route, plus total and per-leg distance and duration and turn instructions.",
     inputSchema: {
       type: "object",
       properties: {

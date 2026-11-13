@@ -1,6 +1,6 @@
 /** Free, keyless OpenStreetMap services: Photon for place search, Nominatim for nearby places
  * and Valhalla for routes. Results use the field names of SendToUser presentation places, so a
- * Bot can pass them to a map unchanged. Nothing is invented: OSM has no ratings or photos. */
+ * Bot can name them by id in a map. Nothing is invented: OSM has no ratings or photos. */
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type Place = {
@@ -413,6 +413,8 @@ export async function routePlaces(
     throw new Error("The routing service could not resolve every stop");
   return {
     route: {
+      // Pass this id as a place_map route instead of copying the geometry.
+      id: `route:${crypto.randomUUID().slice(0, 13)}`,
       mode: input.mode,
       geometry: { type: "LineString", coordinates: coordinates.slice(0, 20_000).map((point: number[]) => [point[0], point[1]]) },
       distanceMeters: Math.max(0, Number(candidate.distance) || 0),

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "google-maps",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Google Maps",
   "description": "Find places with Google ratings, reviews, photos and live opening hours, and plan walking, cycling and driving routes, using your own Google Maps Platform API key.",
   "publisher": "OpenTeam",

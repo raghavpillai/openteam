@@ -782,3 +782,42 @@ test('progress acknowledgements start a fresh row after other chat messages, idl
   await publish(await f.create(5)); expect(await f.visible()).toHaveLength(6);
  } finally { await f.cleanup(); }
 });
+
+test('a change during platform-context preparation cannot authorize a reply based on the old context', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ const { Projection } = await import('../../worker/src/projection');
+ const failures: unknown[] = []; let dispatched = false;
+ const computer = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+  const path = new URL(request.url).pathname;
+  if (path.startsWith('/v1/context-sessions/')) return Response.json({ type: 'context.state', contextSessionId: path.split('/').at(-1), epoch: 0, archives: [] });
+  if (path === '/v1/task-capabilities') return Response.json({ desktopAvailable: false, boxAvailable: true });
+  const input = await request.json() as any; dispatched = true;
+  const rejected = await f.messaging.sendVisible({ ...f.context(input.runId), draftStateRevision: input.draftStateRevision },
+   { type: 'text', content: 'Would you like revisions to the remaining drafts?', end_turn: true });
+  expect(rejected.acknowledgement).toMatchObject({ sent: false, reason: 'draft_state_changed', draft_state: { pending: 0 } });
+  return new Response([
+   { type: 'turn.started', turnId: input.runId }, { type: 'prompt.delivered', turnId: input.runId },
+   { type: 'turn.completed', turnId: input.runId, status: 'completed' },
+  ].map(event => JSON.stringify(event)).join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
+ } });
+ try {
+  for (let i = 0; i < 3; i++) await f.create(i);
+  await f.messaging.agentData.writeInferenceSettings({ providerId: 'openai-codex', modelId: 'synthetic-fixture', reasoning: 'low' });
+  await f.settle(f.ids[0]!, 'cancel'); await f.ready();
+  const original = f.messaging.platformPrompt.bind(f.messaging);
+  f.messaging.platformPrompt = async (...args: Parameters<typeof original>) => {
+   const prompt = await original(...args);
+   await Promise.all(f.ids.slice(1).map(id => f.settle(id, 'cancel')));
+   return prompt;
+  };
+  const worker = Object.assign(f.worker(), { agentData: f.messaging.agentData, computerUrl: computer.url.origin,
+   controlToken: 'synthetic', projection: new Projection(f.prisma, f.messaging.agentData), pushNotifications: { drain: async () => {} } });
+  const originalFail = worker.fail.bind(worker);
+  worker.fail = async (...args: any[]) => { failures.push(args[1]); return originalFail(...args); };
+  const claimed = await worker.claim(f.botId); await worker.execute(claimed);
+  expect(failures).toEqual([]); expect(dispatched).toBe(true);
+  expect((await f.visible()).some(m => m.content.includes('Would you like revisions'))).toBe(false);
+  expect(f.mailSends()).toBe(0);
+ } finally { computer.stop(true); await f.cleanup(); }
+});

@@ -8,8 +8,8 @@
     "apps/computer/test/runtime/draft-state.test.ts": "fa6c43e55253d446d39c8f49fc2a0af5804800d6f60b32dd3da8dbfa1b62a2b6",
     "apps/server/src/services/external-draft-service.ts": "de9520a620ec147d16adad2374e3bf380eb5e252120fbcdbacbfa9ba34e542e7",
     "apps/server/src/services/internal-tool-service.ts": "8c9272a76e8378fcb7dffb33b2e09abf9896434c3c664a9dffbfbc325a434667",
-    "apps/server/test/external-draft.integration.test.ts": "70a2145138f35a2256b174f17b0ec62b74c49afc9cfb9df03a73174a03c0531a",
-    "apps/worker/src/worker.ts": "fafabf48740ca755d5573cc8a2ba84c68047091a968cee76f470280fddf01b7f",
+    "apps/server/test/external-draft.integration.test.ts": "ff92886c939d28190f59ac0917541da478a497ae5a6844dbf9d552072c868f1e",
+    "apps/worker/src/worker.ts": "872a07b294abbde50445c11b322963f43377834e163d7627cd5f04c2cf40acda",
     "packages/contracts/src/index.ts": "cdd16d36680985f02f3c317a525c2c96fd06997bd995d6c43ce4b9da7a165fbd",
     "packages/contracts/src/tool-results.ts": "0a8788d203709da4609a7eea6a65e3e834c423d581aac135b7434abb550e0760",
     "packages/messaging/src/draft-notifications.ts": "23b694a52ed4cbe976343c5a0c5ec8148f33f4c35baebfb442bd5bdb0c64a6dd",
@@ -17,10 +17,10 @@
     "packages/messaging/src/notifications.ts": "dfafb6dc0e19ce1675ea3576ad27fc1731bf3eb139fee8dd7b9a48b68148e37b"
   },
   "summary": {
-    "automatedTests": 177,
-    "assertions": 3208,
-    "liveScenarios": 15,
-    "liveCards": 111,
+    "automatedTests": 178,
+    "assertions": 3213,
+    "liveScenarios": 17,
+    "liveCards": 123,
     "staleRevisionQuestionsDelivered": 0,
     "streamTrials": 3,
     "streamCardsPerTrial": 120,
@@ -569,6 +569,71 @@
       "uniquePlatformOutcomeReceipts": 6,
       "externalMailSendAttempts": 0,
       "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "recovery-live",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 1,
+      "visibleOutcomeMessages": [
+        "6 email drafts settled: 6 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [],
+      "deliveredWarning": false,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "late-warning",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "mechanical_checks_passed",
+      "staleRevisionQuestions": 0,
+      "platformStatusRows": 2,
+      "visibleOutcomeMessages": [
+        "Discarded the draft to draft-qa@example.com (\u201cEXPANDED-SAME\u201d). Nothing was sent for that draft. Drafts in this chat: 5 awaiting review.",
+        "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+        "5 email drafts settled: 5 discarded without sending. Drafts in this chat: none awaiting review."
+      ],
+      "truthfulReceipts": true,
+      "blockedOldSnapshotCalls": [
+        {
+          "content": "DISK-SMOKE-WARNING: disk check failed; please pause large downloads.",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        },
+        {
+          "content": "Would you like revisions to the remaining drafts?",
+          "sent": false,
+          "reason": "draft_state_changed",
+          "freshCounts": {
+            "sent": 0,
+            "dismissed": 6,
+            "pending": 0,
+            "sending": 0,
+            "unknown": 0,
+            "failed": 0
+          }
+        }
+      ],
+      "deliveredWarning": true,
+      "settledCards": 6,
+      "uniquePlatformOutcomeReceipts": 6,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
     }
   ],
   "computerUse": {
@@ -590,7 +655,7 @@
     ]
   },
   "validation": {
-    "serverIntegration": "17 pass / 343 assertions, including update rollback, scoped push outbox, cancellation, retries and unrelated chat boundaries",
+    "serverIntegration": "18 pass / 348 assertions, including update rollback, scoped push outbox, cancellation, retries and unrelated chat boundaries",
     "runtime": "92 pass / 824 assertions in actual Pi-loop, reaction, draft-state and follow-up suites",
     "focusedContractsAndWorker": "22 pass / 188 assertions",
     "streams": "3 pass / 753 assertions",
@@ -606,6 +671,7 @@
     ],
     "toolSurfacesAndAttachments": "43 pass / 1100 assertions",
     "architecture": "workspace, contract enum, iOS bundle and client duplication checks passed",
+    "negativeControl": "Moving snapshot capture back after context preparation delivered a stale reply and failed the targeted regression, as expected. Restoring capture before context preparation passed all 18 database tests.",
     "setupCorrections": [
       "The first component harness could not build standalone Vite-specific PDF imports; the check was run using the actual Vite dependency pipeline instead.",
       "An existing concurrent-send test assumed lock acquisition order; review edits are now saved before racing sends.",

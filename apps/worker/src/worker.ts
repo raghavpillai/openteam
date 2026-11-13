@@ -1555,6 +1555,9 @@ export class WakeWorker {
       const taskConfiguration = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
+      // Capture before reading context: a change during that read must invalidate its later reply too.
+      const draftSnapshot = claimed.inboxType === "draft.response"
+        ? await this.messaging.draftReplySnapshot(claimed) : null;
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
         pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration, claimed.origin);
       // Replay failed user inputs whose durable-session delivery was never
@@ -1573,9 +1576,6 @@ export class WakeWorker {
         if (!payload.content || !payload.clientId) continue;
         missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
       }
-      // Recovered turns must use current card state, not the old published acknowledgement.
-      const draftSnapshot = claimed.inboxType === "draft.response"
-        ? await this.messaging.draftReplySnapshot(claimed) : null;
       let draftContent = claimed.content;
       if (draftStatusText) draftContent += `\n\nThe platform already delivered this status, computed from stored card states at publication time:\n${draftStatusText}\nDo not repeat it. Those counts are historical; use the current draft state below for any outstanding request.`;
       if (draftSnapshot) draftContent += `\n\nCurrent draft state at dispatch: ${JSON.stringify(draftSnapshot.counts)}. Do not ask about revisions when pending is zero. If SendToUser reports draft_state_changed, nothing was delivered: reconsider with its fresh counts and retry any still-useful warning, question, or other requested information. Finish silently when only an obsolete draft question remains.`;

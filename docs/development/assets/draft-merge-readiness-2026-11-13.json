@@ -197,5 +197,34 @@
     "Already-dispatched sends may complete after timeout; unknown does not cancel/recall remote work.",
     "No signed release package/device runtime validation; this is source/build/simulator readiness.",
     "Finite tests are evidence, not a100percent production reliability guarantee."
-  ]
+  ],
+  "ciRunnerFollowup": {
+    "affectedHead": "216a954297fccd210daa355e6ad040af0cb10f1f",
+    "jobs": [
+      132007622929,
+      132017159285
+    ],
+    "cause": "Both macos-latest attempts expired without a hosted runner assignment (runner_id0, no steps); GitHub annotations report macOS ARM capacity constraints.",
+    "change": "Pin the same macOS installer suite to macos-15-intel. Commands, assertions, permissions and timeout remain unchanged. Linux and Windows remain in the matrix.",
+    "runnerReference": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners",
+    "localAppleSilicon": {
+      "architecture": "arm64",
+      "bun": "1.4.2",
+      "installerRendering": {
+        "pass": 27,
+        "fail": 0,
+        "skip": 0
+      },
+      "fullCliAndBrowserCache": {
+        "pass": 757,
+        "fail": 0,
+        "skip": 0
+      },
+      "logPaths": [
+        "/tmp/draft-cli-macos-render.log",
+        "/tmp/draft-cli-macos-full.log"
+      ]
+    },
+    "scope": "CI runner configuration only; hosted Intel results remain pending until the new check completes."
+  }
 }

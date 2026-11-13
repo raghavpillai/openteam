@@ -205,3 +205,7 @@ bun test packages/messaging/test/draft-notifications.test.ts \
 ```
 
 The A/B fixtures inject each variant directly without mutating the process environment. Pure tests verify stable cohort assignment and the default-off boundary. The database harness expires actual leases to simulate worker recovery, uses a new messaging instance after a lost response, injects a transaction failure before commit, and deliberately supplies silent or incorrect model behavior to both arms.
+
+## CI runner capacity follow-up
+
+Both hosted `macos-latest` attempts for head `216a954` expired without acquiring a runner or executing any test step. GitHub reported macOS ARM capacity constraints. The CLI installer matrix now pins the documented `macos-15-intel` image, retaining every test command, assertion, permission and timeout. Linux and Windows stay in the matrix. The identical rendering and full CLI/browser-cache commands also pass locally on Apple Silicon with Bun 1.4.2; hosted Intel results are evaluated separately before merge. The current [readiness evidence](assets/draft-merge-readiness-2026-11-13.json) records both infrastructure failures and local ARM results.

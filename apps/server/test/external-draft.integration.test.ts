@@ -1021,3 +1021,164 @@ test('queued cancellation waits for a concurrent draft-outcome claim and then st
   expect((await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: inbox.id } })).status).toBe('processing');
  } finally { release(); await claiming?.catch(() => {}); await cancellation?.catch(() => {}); await f.cleanup(); }
 }, 30_000);
+
+
+test('discard state and its durable outcome wake roll back together when queueing fails', async () => {
+ if (!databaseUrl) return;
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  const enqueue = f.messaging.enqueueDraftOutcome.bind(f.messaging);
+  try {
+   const id = await f.create(0);
+   const updateEvents = () => f.prisma.event.count({ where: { topic: 'channel.message.updated', entityId: id } });
+   const beforeEvents = await updateEvents();
+   f.messaging.enqueueDraftOutcome = async (...args: Parameters<typeof enqueue>) => { await enqueue(...args); throw new Error('injected outcome queue outage'); };
+   await expect(f.settle(id, 'cancel')).rejects.toThrow('injected outcome queue outage');
+   expect((await f.card(id)).cardState ?? 'pending').toBe('pending');
+   expect(await updateEvents()).toBe(beforeEvents);
+   expect(await f.prisma.run.count({ where: { botId: f.botId } })).toBe(1);
+   expect(await f.prisma.message.count({ where: { botId: f.botId } })).toBe(1);
+   expect((await f.card(id)).outcomeId).toBeUndefined();
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(0);
+   f.messaging.enqueueDraftOutcome = enqueue;
+   await f.settle(id, 'cancel'); await f.settle(id, 'cancel');
+   expect(await f.card(id)).toMatchObject({ cardState: 'dismissed', outcomeId: expect.any(String) });
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+   // The same rollback boundary holds when another outcome wake is already queued.
+   const second = await f.create(1);
+   f.messaging.enqueueDraftOutcome = async (...args: Parameters<typeof enqueue>) => { await enqueue(...args); throw new Error('injected coalescing outage'); };
+   await expect(f.settle(second, 'cancel')).rejects.toThrow('injected coalescing outage');
+   expect((await f.card(second)).cardState ?? 'pending').toBe('pending');
+   expect((await f.card(second)).outcomeId).toBeUndefined();
+   expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } })).toBe(1);
+   expect(f.mailSends()).toBe(0);
+  } finally { f.messaging.enqueueDraftOutcome = enqueue; await f.cleanup(); }
+ }
+});
+
+test('a duplicate draft creation receipt names the stored card recipient rather than different retry arguments', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  const input = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Synthetic retry', body: 'Review only.', waitForReview: true };
+  const context = f.context((await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id, 'same-creation-call');
+  const first = await f.service.create(context, input) as any;
+  const retry = await f.service.create(context, { ...input, to: ['bob@example.com'] }) as any;
+  expect(retry).toMatchObject({ sent: true, duplicate: true, message_id: first.message_id, target: 'ann@example.com' });
+  expect((await f.card(first.message_id)).draft.to).toEqual(['ann@example.com']);
+  expect(await f.prisma.channelMessage.count({ where: { senderBotId: f.botId, metadata: { path: ['type'], equals: 'external-draft' } } })).toBe(1);
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
+
+test('a lost draft creation response is recoverable during a connector outage and preserves later review edits', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment'); let attempts = 0;
+ try {
+  const input = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Synthetic lost response', body: 'Review only.', waitForReview: true };
+  const context = f.context((await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id, 'lost-creation-response');
+  const first = await f.service.create(context, input) as any;
+  await Effect.runPromise(f.service.mutate(first.message_id, { action: 'save', edits: { to: ['reviewed@example.com'] } }));
+  const offline = new ExternalDraftService(f.prisma, f.messaging, { invoke: async () => { attempts++; throw new Error('Synthetic connector unavailable'); } } as never);
+  const retry = await offline.create(context, input) as any;
+  expect(retry).toMatchObject({ sent: true, duplicate: true, message_id: first.message_id, target: 'reviewed@example.com' });
+  expect(attempts).toBe(0);
+  expect((await f.card(first.message_id)).draft.to).toEqual(['reviewed@example.com']);
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
+
+test('concurrent creation retries agree with the single stored card and do not recreate discarded cards', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  const context = f.context((await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } })).id, 'concurrent-creation');
+  const results = await Promise.all(Array.from({ length: 8 }, (_, i) => f.service.create(context, {
+   platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: [`recipient${i}@example.com`], subject: 'Concurrent retry', body: 'Review only.', waitForReview: true,
+  }) as Promise<any>));
+  const ids = new Set(results.map(r => r.message_id)); expect(ids.size).toBe(1);
+  const id = results[0]!.message_id, stored = await f.card(id);
+  for (const result of results) expect(result.target).toBe(stored.draft.to.join(', '));
+  await f.settle(id, 'cancel');
+  const offline = new ExternalDraftService(f.prisma, f.messaging, { invoke: async () => { throw new Error('Connector should not be called'); } } as never);
+  const retried = await offline.create(context, stored.draft) as any;
+  expect(retried).toMatchObject({ duplicate: true, message_id: id, target: stored.draft.to.join(', '), delivery: 'dismissed' });
+  const { renderControlResult } = await import('@openteam/contracts/tool-results');
+  const readable = renderControlResult('DraftExternalMessage', retried, { ...stored.draft, to: ['wrong-retry@example.com'] });
+  expect(readable).toContain('was discarded without sending'); expect(readable).not.toContain('wrong-retry@example.com');
+  expect(readable).not.toContain('editable card');
+  expect((await f.card(id)).cardState).toBe('dismissed');
+  expect(await f.prisma.channelMessage.count({ where: { senderBotId: f.botId, metadata: { path: ['type'], equals: 'external-draft' } } })).toBe(1);
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
+test('room draft creation retries recover their private card while the connector is offline', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-room-retry'); let roomId: string | undefined, calls = 0;
+ try {
+  const room = await f.prisma.channel.create({ data: { kind: 'group', name: 'Synthetic draft room', members: { create: { botId: f.botId, ordinal: 0 } } } }); roomId = room.id;
+  const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async () => { calls++; return { identity: 'me@example.com' }; } } as never);
+  const context = { ...f.context('room-create'), channelId: room.id };
+  const draft = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Private room retry', body: 'Review only.', waitForReview: true };
+  const first = await service.create(context, draft) as any; expect(first.in_dm).toBe(true);
+  const before = calls;
+  const offline = new ExternalDraftService(f.prisma, f.messaging, { invoke: async () => { calls++; throw new Error('Connector unavailable'); } } as never);
+  expect(await offline.create(context, draft)).toMatchObject({ duplicate: true, message_id: first.message_id, target: 'ann@example.com', in_dm: true });
+  expect(calls).toBe(before);
+  expect((await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: first.message_id } })).channelId).toBe(f.context('').channelId);
+ } finally { if (roomId) await f.prisma.channel.deleteMany({ where: { id: roomId } }); await f.cleanup(); }
+});
+
+test('tampered attachment bytes prevent a send, preserve review, and remain discardable', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-tampered'); let sends = 0;
+ const { writeFile } = await import('node:fs/promises');
+ const service = new ExternalDraftService(f.prisma, f.messaging, { invoke: async (input: any) => input.arguments.action === 'verify' ? { identity: 'me@example.com' } : { id: `mock-${++sends}` } } as never);
+ try {
+  const path = join((await f.prisma.bot.findUniqueOrThrow({ where: { id: f.botId } })).defaultDirectory, 'review.txt'); await writeFile(path, 'Reviewed immutable bytes.');
+  const card = await service.create(f.context('tamper-create'), { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Tamper test', body: 'Review only.', attachments: [path], waitForReview: true }) as any;
+  const asset = (await f.card(card.message_id)).draft.verification.attachments[0];
+  await writeFile(f.messaging.assets.contentPath(asset.assetId), 'X'.repeat(asset.byteSize));
+  const blocked = await Effect.runPromise(service.mutate(card.message_id, { action: 'send' }));
+  expect(blocked.message.metadata).toMatchObject({ cardState: 'pending', sendError: expect.stringContaining('Attachment content') });
+  expect(sends).toBe(0); expect((await f.card(card.message_id)).outcomeId).toBeUndefined();
+  await Effect.runPromise(service.mutate(card.message_id, { action: 'cancel' }));
+  expect((await f.card(card.message_id)).cardState).toBe('dismissed');
+  expect(sends).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
+
+test('progress updates do not requeue or rewrite a push already delivering or delivered', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment'), userId = crypto.randomUUID(); let deviceId: string | undefined;
+ try {
+  for (let i = 0; i < 3; i++) await f.create(i);
+  await f.prisma.user.create({ data: { id: userId, name: 'Synthetic notification QA', email: `${userId}@openteam.invalid` } });
+  const session = await f.prisma.session.create({ data: { id: crypto.randomUUID(), userId, token: crypto.randomUUID(), expiresAt: new Date(Date.now() + 60_000) } });
+  const device = await f.prisma.pushDevice.create({ data: { installationId: crypto.randomUUID(), platform: 'ios', pushToken: crypto.randomUUID(), authSessionId: session.id, authRequired: process.env.OPENTEAM_AUTH_MODE?.trim().toLowerCase() !== 'disabled' } }); deviceId = device.id;
+  const where = { target: device.id, payload: { path: ['channelId'], equals: f.context('').channelId } };
+  const publish = async (id: string) => { await f.settle(id, 'cancel'); await f.ready(); const turn = await f.worker().claim(f.botId); await f.messaging.flushDraftNotification(f.context(turn.runId)); await f.release(turn); };
+  await publish(f.ids[0]!);
+  const outbox = await f.prisma.outboxDelivery.findFirstOrThrow({ where }); const body = (outbox.payload as any).body;
+  const progressId = (await f.visible())[0]!.id;
+  for (const [index, status] of (['delivering', 'delivered'] as const).entries()) {
+   await f.prisma.outboxDelivery.update({ where: { id: outbox.id }, data: { status } });
+   await publish(f.ids[index + 1]!);
+   const stored = await f.prisma.outboxDelivery.findUniqueOrThrow({ where: { id: outbox.id } });
+   expect(stored.status).toBe(status); expect((stored.payload as any).body).toBe(body);
+   expect(await f.prisma.outboxDelivery.count({ where })).toBe(1);
+   expect(await f.visible()).toHaveLength(1); expect((await f.visible())[0]!.id).toBe(progressId);
+  }
+  const final = (await f.visible())[0]!; expect(final.content).toContain('none awaiting review');
+  expect(((await f.prisma.channelNotification.findUniqueOrThrow({ where: { key: `message:${progressId}` } })).payload as any).body).toBe(final.content);
+  expect((final.metadata as any).draftOutcomeNotification.outcomeIds).toHaveLength(3);
+  expect(f.mailSends()).toBe(0);
+ } finally {
+  if (deviceId) { await f.prisma.outboxDelivery.deleteMany({ where: { target: deviceId } }); await f.prisma.pushDevice.deleteMany({ where: { id: deviceId } }); }
+  await f.prisma.user.deleteMany({ where: { id: userId } }); await f.cleanup();
+ }
+}, 15_000);

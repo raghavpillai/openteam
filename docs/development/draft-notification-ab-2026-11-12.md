@@ -92,6 +92,18 @@ Five further cancellation stress cycles passed all 30 case executions; these rep
 
 Four final live-model scenarios on Bun 1.4.2 passed with 24 synthetic cards: double refresh, obsolete widget suppression, useful widget retry, and lease recovery. Native Chrome computer-use checks of six real card components covered invalid Cc, empty To, long TLDs, forwarding/reply context, editable revision highlights, exact attachment preview bytes, discard, read-only reopening, and reload persistence. Pauses correctly created a new progress row; rapid subsequent discards updated it. No real email or APNs was sent, and production treatment remains off. The [full evidence and limits](assets/draft-lifecycle-stress-2026-11-12.json) distinguish these diagnostic checks from a production reliability guarantee.
 
+## Durable discard and truthful retry receipts
+
+A subsequent fault-injection pass found a split commit: discard saved `dismissed` before saving its outcome and wake. A queue failure could therefore leave the agent unaware of a discarded card. The state change, receipt, wake and update events now commit together. Tests inject failure after queue writes, check rollback of the run/message/wake as well as card state, exercise an already queued outcome, and retry in both variants.
+
+Creation retries now recover their existing receipt before connector verification or attachment ingestion. The receipt reports the stored recipient and delivery state, including later review edits. This fixes changed retry arguments naming the wrong recipient and connector outages preventing recovery of a lost response. The model-facing formatter also distinguishes an existing pending, sending, sent, discarded, unknown or failed card from a newly created one. It preserves refusal and no-resend instructions. Eight concurrent retries produce one card, and a discarded card is not recreated.
+
+Native computer-use testing additionally reproduced a successful discard displaying an error after its response was lost. The desktop card now checks the server result after discard errors and clears stale errors for confirmed terminal states. Delayed-response, real queue-failure, retry, normal discard and read-only reopening checks passed through the actual component. This UI correction is verified by native fault-injection; no new automated UI test was added.
+
+The refreshed matrix passes **3,742 unique tests**, with **74 environment-specific checks skipped**. The draft integration suite contains 31 cases, including seven new cases; formatter coverage adds six recovered delivery states plus a legacy fallback in one test. Three further cycles passed all 21 fault-case executions without counting repetitions again. Full server, worker, computer, messaging, desktop, contracts and client/product-core checks were run, with isolated file reruns replacing failures caused by concurrent cold-build load. Separately enabled startup/dispatch recovery checks passed. A helper-output race in a host-bridge test was corrected to wait for complete JSON; production bridge behavior is unchanged.
+
+Two final live-model cases passed in control/treatment with twelve synthetic cards after the production changes were complete. Four preceding exploratory live cases passed with another 37 cards. Builds and typechecks passed for server, worker, computer and desktop renderer, alongside all architecture checks. No external mail or real APNs was sent. [Evidence, test accounting and limits](assets/draft-durability-retries-2026-11-12.json) include the failing probes and final results; earlier reports remain historical.
+
 ## Reproduction
 
 Use an isolated PostgreSQL database initialized with the workspace schema:

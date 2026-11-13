@@ -199,7 +199,7 @@ export function ExternalDraftCard({
   };
   useEffect(() => {
     setState(String(metadata.cardState ?? "pending"));
-    if (metadata.cardState === "sent") setError("");
+    if (metadata.cardState === "sent" || metadata.cardState === "dismissed") setError("");
   }, [metadata.cardState]);
   useLayoutEffect(() => {
     const element = body.current ?? highlightedBody.current;
@@ -251,14 +251,16 @@ export function ExternalDraftCard({
             action === "send" ? "Couldn't send this draft" : "Couldn't discard this draft. Try again."
           )
         );
-        if (action !== "send") return;
         // The server decides whether anything went out; never guess.
         try {
           const checked = await api.mutateExternalDraft(message.id, "refresh");
-          acceptResult(checked.message);
+          const next = acceptResult(checked.message);
+          if (next.cardState === "sent" || next.cardState === "dismissed") setError("");
         } catch {
-          setState("sending");
-          setLost(true);
+          if (action === "send") {
+            setState("sending");
+            setLost(true);
+          }
         }
       }
     });

@@ -15,7 +15,7 @@ import {
   type ExternalDraftVerification,
 } from "@openteam/contracts";
 import { draftRevision } from "@openteam/contracts/external-draft-revision";
-import { type PrismaClient } from "@openteam/db";
+import { type Prisma, type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY, draftNotificationVariant, lockDraftNotifications } from "@openteam/messaging";
 import { loadConnectionNamespaces } from "./plugin/namespaces";
 import type { PluginService } from "./plugin-service";
@@ -230,6 +230,16 @@ export class ExternalDraftService {
   }
   async create(context: ToolContext, raw: unknown): Promise<string | Record<string, unknown>> {
     const draft = parseExternalDraft(raw);
+    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
+    const destination = room
+      ? await this.prisma.channel.findFirst({ where: { kind: "bot_dm", archivedAt: null, members: { some: { botId: context.botId } } }, select: { id: true } })
+      : { id: context.channelId };
+    // A lost response must be recoverable without another connector request or
+    // reading mutable source attachments again. The stored card owns this receipt.
+    const previous = destination && await this.prisma.channelMessage.findFirst({ where: {
+      channelId: destination.id, clientId: `tool:${context.callId}`, senderBotId: context.botId,
+    } });
+    if (previous) return this.creationReceipt(previous, room);
     const verification = await this.verify(context.botId, context.runId, draft, `draft-verify:${context.callId}`).catch((error: unknown) => {
       // A connector that fails or answers unreadably leaves the routing unverified too; the
       // draft's own refusals (wrong account, wrong from) keep their sentences.
@@ -282,7 +292,6 @@ export class ExternalDraftService {
         : mode === "always-allow"
           ? { rule: `Allow recipient ${externalDraftRecipients(draft).join(", ")}` }
           : undefined;
-    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
     const result = await this.messaging.sendVisible(context, {
       type: "external-draft",
       draft: { ...draft, verification, runId: context.runId },
@@ -292,6 +301,12 @@ export class ExternalDraftService {
         ? { cardState: "sending", sendStartedAt: new Date().toISOString(), sentUnder }
         : {}),
     } as Parameters<AgentMessaging["sendVisible"]>[1]);
+    if (typeof result.acknowledgement !== "string" && result.acknowledgement.duplicate) {
+      const existing = await this.prisma.channelMessage.findUniqueOrThrow({
+        where: { id: String(result.acknowledgement.message_id) },
+      });
+      return this.creationReceipt(existing, room);
+    }
     const acknowledgement: string | Record<string, unknown> =
       typeof result.acknowledgement === "string"
         ? result.acknowledgement
@@ -310,6 +325,16 @@ export class ExternalDraftService {
             ? `It couldn't be sent automatically (${String(metadataRecord(delivered.message.metadata).sendError)}), so it waits for the user to press Send.`
             : "Check the destination before trying again; it will not be retried automatically.",
     };
+  }
+  private creationReceipt(message: { id: string; metadata: unknown }, room: boolean) {
+    const metadata = metadataRecord(message.metadata);
+    if (metadata.type !== "external-draft")
+      return fail("This tool call already delivered a different kind of message. Nothing was drafted; call this tool again.");
+    const draft = parseExternalDraft(metadata.draft);
+    return { sent: true, duplicate: true, message_id: message.id, message_address: metadata.address,
+      platform: draft.platform, from: draft.platform === "email" ? draft.from : undefined,
+      target: draft.platform === "email" ? draft.to!.join(", ") : draft.target!, delivery: metadata.cardState ?? "pending",
+      note: "This is the existing card; no new draft or send was performed.", ...(room ? { in_dm: true } : {}) };
   }
   mutate = (messageId: string, raw: unknown) =>
     serviceEffect(async () => {
@@ -361,8 +386,14 @@ export class ExternalDraftService {
           channelId: message.channelId,
           messageId,
         });
-        return { message: updated, claimed: input.action === "send" };
+        // A persisted discard must always carry the durable outcome/wake. A crash
+        // or queue failure cannot leave a terminal card that the agent never hears.
+        const settled = input.action === "cancel"
+          ? await this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME, true, false, tx)
+          : undefined;
+        return { message: updated, claimed: input.action === "send", settled };
       });
+      if ("settled" in claim && claim.settled) return claim.settled;
       const metadata = metadataRecord(claim.message.metadata);
       if (metadata.cardState === "dismissed" && !metadata.outcomeId)
         return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME);
@@ -548,8 +579,8 @@ export class ExternalDraftService {
     });
   }
   /** wake: start a turn for the outcome now. echoed: the outcome was already reported, so it is not repeated next turn. */
-  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake) {
-    return this.prisma.$transaction(async (tx) => {
+  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake, transaction?: Prisma.TransactionClient) {
+    const apply = async (tx: Prisma.TransactionClient) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
       const metadata = metadataRecord(message.metadata);
@@ -601,6 +632,7 @@ export class ExternalDraftService {
       });
       await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId!]);
       return { accepted: true, message: toChannelMessageView(updated), runId: wakeRun?.run.id ?? null };
-    });
+    };
+    return transaction ? apply(transaction) : this.prisma.$transaction(apply);
   }
 }

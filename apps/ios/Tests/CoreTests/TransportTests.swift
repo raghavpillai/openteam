@@ -52,6 +52,13 @@ private final class MockProtocol: URLProtocol, @unchecked Sendable {
   override func stopLoading() {}
 }
 
+private final class ImageRequestCount: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+  func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
+  var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 final class TransportTests: XCTestCase, @unchecked Sendable {
   func testPresentationPhotosUseOnlySelectedServerWithScopedCredentials() async throws {
     let image = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=")!
@@ -263,5 +270,37 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     XCTAssertThrowsError(try reopened.fileURL(malformed))
     try reopened.clear()
     XCTAssertFalse(FileManager.default.fileExists(atPath: disk.attachmentDirectory.path))
+  }
+  func testSupportedPhotoBurstRetriesOnlyTemporaryAdmissionWithOriginalSession() async throws {
+    let count = ImageRequestCount()
+    let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=")!
+    MockProtocol.stub.set { request in
+      XCTAssertEqual(request.url?.path, "/team/api/v0/presentation-image")
+      XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-session")
+      let index = count.next()
+      if index > 36 && index <= 50 { return (503, ["Retry-After": "1"], Data()) }
+      return (200, ["Content-Type": "image/png"], png)
+    }
+    let client = try api(token: "fixture-session")
+    let photos = try await withThrowingTaskGroup(of: Data.self) { group in
+      for i in 0..<50 { group.addTask { try await client.presentationImage("https://photos.example.com/\(i)") } }
+      var values: [Data] = []
+      for try await value in group { values.append(value) }
+      return values
+    }
+    XCTAssertEqual(photos.count, 50)
+    XCTAssertTrue(photos.allSatisfy { $0 == png })
+    XCTAssertGreaterThan(count.count, 50)
+  }
+  func testCancellingPhotoAdmissionWaitDoesNotRetryOldSession() async throws {
+    let count = ImageRequestCount()
+    MockProtocol.stub.set { _ in _ = count.next(); return (503, ["Retry-After": "1"], Data()) }
+    let client = try api(token: "fixture-session")
+    let pending = Task { try await client.presentationImage("https://photos.example.com/a") }
+    while count.count == 0 { try await Task.sleep(for: .milliseconds(1)) }
+    try await Task.sleep(for: .milliseconds(20))
+    pending.cancel()
+    do { _ = try await pending.value; XCTFail("Cancelled old photo accepted") } catch { }
+    XCTAssertEqual(count.count, 1)
   }
 }

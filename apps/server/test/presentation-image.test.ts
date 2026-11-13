@@ -128,7 +128,10 @@ test("global concurrency and queue are bounded; queued cancellation releases wai
   const controller = new AbortController();
   const pending = Array.from({ length: 45 }, (_, i) => load(request(`https://photo.example.com/${i}`, controller.signal), "a"));
   await new Promise(done => setTimeout(done, 10)); controller.abort();
-  expect((await Promise.all(pending)).every(r => r.status === 422)).toBe(true);
+  const responses = await Promise.all(pending);
+  expect(responses.filter(r => r.status === 503)).toHaveLength(9);
+  expect(responses.filter(r => r.status === 422)).toHaveLength(36);
+  expect(responses.filter(r => r.status === 503).every(r => r.headers.get("retry-after") === "1")).toBe(true);
   expect(peak).toBe(4); expect(active).toBe(0);
 });
 

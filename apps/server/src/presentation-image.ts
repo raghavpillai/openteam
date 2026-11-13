@@ -4,6 +4,7 @@ import { createPublicHttpFetch } from "@openteam/plugin-sdk/public-http";
 export const IMAGE_BYTE_LIMIT = 5 * 1024 * 1024;
 const MAX_PIXELS = 16_000_000;
 const MAX_SIDE = 8192;
+class ImageBusy extends Error {}
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 /** Raster headers only: SVG/HTML and mismatched MIME never reach a decoder. */
@@ -75,7 +76,7 @@ export function createPresentationImages(options: {
     };
     if (signal.aborted) { abort(); return; }
     if (active < 4) { start(); return; }
-    if (waiting.size >= 32) { reject(new Error("Image busy")); return; }
+    if (waiting.size >= 32) { reject(new ImageBusy()); return; }
     waiting.add(start);
     signal.addEventListener("abort", abort, { once: true });
   });
@@ -124,7 +125,10 @@ export function createPresentationImages(options: {
         }
         throw new Error("Invalid presentation image");
       } finally { clearTimeout(timer); release?.(); }
-    } catch {
+    } catch (error) {
+      if (error instanceof ImageBusy) return new Response(null, { status: 503, headers: {
+        "retry-after": "1", "cache-control": "no-store",
+      } });
       // Do not echo/log upstream URLs, DNS answers, provider query tokens or errors.
       return new Response(null, { status: 422, headers: { "cache-control": "no-store" } });
     }

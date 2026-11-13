@@ -60,11 +60,26 @@ public struct API: Sendable {
   }
   /// Only the selected server receives authorization. No server redirect is followed.
   public func presentationImage(_ source: String) async throws -> Data {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(25))
+    for attempt in 0..<12 {
+      try Task.checkCancellation()
+      let remaining = ContinuousClock.now.duration(to: deadline)
+      guard remaining > .zero else { throw URLError(.timedOut) }
+      let parts = remaining.components
+      let timeout = min(15, Double(parts.seconds) + Double(parts.attoseconds) / 1e18)
+      do { return try await presentationImageAttempt(source, timeout: timeout) }
+      catch let error as APIError where error.status == 503 && attempt < 11 {
+        try await Task.sleep(for: min(.seconds(1), max(.zero, ContinuousClock.now.duration(to: deadline))))
+      }
+    }
+    throw APIError("Image unavailable.")
+  }
+  private func presentationImageAttempt(_ source: String, timeout: TimeInterval) async throws -> Data {
     guard source.utf8.count <= 8192, let url = URL(string: source),
       url.scheme == "https", url.user == nil, url.password == nil else { throw APIError("Invalid image.") }
     let limit = 5 * 1024 * 1024
     #if canImport(FoundationNetworking)
-      let (data, response) = try await raw("/api/v0/presentation-image", query: ["url": source])
+      let (data, response) = try await raw("/api/v0/presentation-image", query: ["url": source], timeout: timeout)
       guard data.count <= limit, ["image/png", "image/jpeg", "image/webp"].contains(response.mimeType ?? "") else { throw APIError("Invalid image.") }
       return data
     #else
@@ -74,12 +89,16 @@ public struct API: Sendable {
       let configuration = session.configuration
       configuration.httpShouldSetCookies = false
       configuration.urlCache = nil
-      configuration.timeoutIntervalForRequest = 15
-      configuration.timeoutIntervalForResource = 15
+      configuration.timeoutIntervalForRequest = timeout
+      configuration.timeoutIntervalForResource = timeout
       // A dedicated session bounds the resource deadline and disables redirects.
       let bounded = URLSession(configuration: configuration, delegate: RedirectPolicy(), delegateQueue: nil)
       defer { bounded.invalidateAndCancel() }
       let (bytes, response) = try await bounded.bytes(for: request)
+      if let http = response as? HTTPURLResponse, http.statusCode == 503,
+        http.value(forHTTPHeaderField: "Retry-After") == "1" {
+        throw APIError("Image busy.", status: 503)
+      }
       guard let http = response as? HTTPURLResponse, http.statusCode == 200,
         ["image/png", "image/jpeg", "image/webp"].contains(http.mimeType ?? ""),
         http.expectedContentLength <= Int64(limit) else { throw APIError("Invalid image.") }

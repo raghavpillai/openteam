@@ -233,6 +233,37 @@ import XCTest
     XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
     capture("question-moved-on", app)
   }
+  func testStaleQuestionHistoryDoesNotReopenDismissedCard() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    let done = app.buttons["widget-submit-content-fixture"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    done.tap()
+    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    let before = try await state()["requests"] as? [[String: Any]] ?? []
+    let beforeHistory = before.filter { (($0["path"] as? String) ?? "").hasSuffix("/history") }.count
+    // The fixture now returns the pre-dismissal card, like a delayed replica/page.
+    try await control("/__qa/content", ["scene": "widget-pending-stale"])
+    let back = app.buttons["chat-back"]
+    if back.exists { back.tap() } else { app.buttons["chat-sidebar"].tap() }
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    waitForArrival(row); row.tap()
+    var refreshed = false
+    for _ in 0..<50 {
+      let requests = try await state()["requests"] as? [[String: Any]] ?? []
+      if requests.filter({ (($0["path"] as? String) ?? "").hasSuffix("/history") }).count > beforeHistory {
+        refreshed = true; break
+      }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    XCTAssertTrue(refreshed, "The stale history response was not requested")
+    XCTAssertTrue(app.staticTexts["Stale history replay"].waitForExistence(timeout: 10))
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    XCTAssertFalse(done.exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
+  }
   func testEmptyQuestionDoneDismissesWithoutAnAnswer() async throws {
     let app = try await launch("widget-pending", dark: true)
     defer { app.terminate() }

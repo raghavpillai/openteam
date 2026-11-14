@@ -48,3 +48,49 @@ public enum QuestionLifecycle {
     }
   }
 }
+
+/// Session-local receipts outlive a visible history window, without retaining card bodies.
+public struct QuestionReceiptCache: Sendable {
+  private static let keys = ["respondedValue", "respondedLabel", "widgetDismissed",
+    "widgetDismissalReason", "widgetDismissClientId", "widgetResponseClientId"]
+  private var receipts: [String: [String: JSON]] = [:]
+  private var sizes: [String: Int] = [:]
+  private var order: [String] = []
+  public private(set) var bytes = 0
+  public var count: Int { receipts.count }
+  private let limit: Int
+  private let maxBytes: Int
+  public init(limit: Int = 500, maxBytes: Int = 256 * 1024) {
+    self.limit = max(0, limit); self.maxBytes = max(0, maxBytes)
+  }
+  public mutating func observe(_ messages: [Message]) {
+    for message in messages {
+      let key = message.channelId + ":" + message.id
+      guard receipts[key] == nil, message.metadata["type"].string == "widget" else { continue }
+      let metadata = message.metadata.object
+      guard metadata["respondedValue"].map({ if case .string = $0 { return true }; return false }) == true
+        || message.metadata["widgetDismissed"].bool else { continue }
+      let receipt = metadata.filter { Self.keys.contains($0.key) }
+      let size = 128 + key.utf16.count * 2 + ((try? JSONEncoder().encode(JSON.object(receipt)).count) ?? 0) * 2
+      receipts[key] = receipt; sizes[key] = size; order.append(key); bytes += size
+      while order.count > limit || bytes > maxBytes {
+        let oldest = order.removeFirst()
+        bytes -= sizes.removeValue(forKey: oldest) ?? 0
+        receipts.removeValue(forKey: oldest)
+      }
+    }
+  }
+  public func restore(_ message: Message) -> Message {
+    guard let receipt = receipts[message.channelId + ":" + message.id] else { return message }
+    if Self.keys.allSatisfy({ message.metadata[$0] == (receipt[$0] ?? .null) }) { return message }
+    var next = message, metadata = message.metadata.object
+    for key in Self.keys { metadata.removeValue(forKey: key) }
+    for (key, value) in receipt { metadata[key] = value }
+    next.metadata = .object(metadata)
+    return next
+  }
+  public mutating func merge(_ existing: [Message], _ incoming: [Message], remembering: [Message] = []) -> [Message] {
+    observe(remembering + existing + incoming)
+    return MessageMerge.merge(existing, incoming).map(restore)
+  }
+}

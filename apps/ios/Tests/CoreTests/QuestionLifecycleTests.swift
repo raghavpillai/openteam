@@ -74,4 +74,63 @@ final class QuestionLifecycleTests: XCTestCase {
     XCTAssertEqual(QuestionLifecycle.current(projected)?.id, fresh.id)
     XCTAssertFalse(older.metadata["widgetDismissed"].bool)
   }
+  func testReceiptSurvivesWindowReplacementAndStaleContext() {
+    var receipts = QuestionReceiptCache()
+    var answered = row("1")
+    answered.metadata["respondedValue"] = .string("Blue")
+    _ = receipts.merge([], [answered])
+    _ = receipts.merge([], []) // A new context evicts the old visible window.
+    var stale = row("1")
+    stale.metadata["reactions"] = .array([.string("new")])
+    let restored = receipts.merge([], [stale])
+    XCTAssertEqual(restored[0].metadata["respondedValue"], .string("Blue"))
+    XCTAssertEqual(restored[0].metadata["reactions"], stale.metadata["reactions"])
+    XCTAssertNil(QuestionLifecycle.current(restored))
+  }
+  func testSeededDelayedDuplicatePagesNeverReopenReceipts() {
+    for seed in 1...100 {
+      var randomState = UInt32(seed)
+      func random(_ n: UInt32) -> Int {
+        randomState ^= randomState << 13; randomState ^= randomState >> 17; randomState ^= randomState << 5
+        return Int(randomState % n)
+      }
+      var receipts = QuestionReceiptCache()
+      var canonical: [String: JSON] = [:]
+      var known: [String: JSON] = [:]
+      var window: [Message] = []
+      for step in 0..<80 {
+        let id = String(random(12) + 1)
+        var incoming = row(id)
+        if random(3) == 0 {
+          if canonical[id] == nil {
+            canonical[id] = random(2) == 0 ? .object(["respondedValue": .string("Blue")])
+              : .object(["widgetDismissed": .bool(true), "widgetDismissalReason": .string("dismissed")])
+          }
+          for (key, value) in canonical[id]!.object { incoming.metadata[key] = value }
+          known[id] = canonical[id]
+        }
+        window = receipts.merge(random(3) == 0 ? [] : window, [incoming, incoming])
+        for message in window {
+          for (key, value) in known[message.id]?.object ?? [:] {
+            XCTAssertEqual(message.metadata[key], value, "seed=\(seed) step=\(step)")
+          }
+        }
+      }
+      XCTAssertLessThanOrEqual(receipts.count, 500)
+      XCTAssertLessThanOrEqual(receipts.bytes, 256 * 1024)
+    }
+  }
+  func testReceiptBoundsAndChannelIsolation() {
+    var receipts = QuestionReceiptCache(limit: 3, maxBytes: 1800)
+    for i in 1...20 {
+      var answered = row(String(i))
+      answered.metadata["respondedValue"] = .string(String(repeating: "x", count: 100))
+      receipts.observe([answered])
+    }
+    XCTAssertLessThanOrEqual(receipts.count, 3)
+    XCTAssertLessThanOrEqual(receipts.bytes, 1800)
+    var other = row("20"); other.channelId = "other"
+    XCTAssertEqual(receipts.restore(other), other)
+  }
+
 }

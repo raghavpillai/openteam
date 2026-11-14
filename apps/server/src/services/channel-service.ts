@@ -168,6 +168,18 @@ export class ChannelService {
           where: { id: conversationId }, select: { botId: true },
         });
         if (owner) await lockAgentLifecycle(tx, owner.botId);
+        // A concurrent retry may have committed while this request waited for
+        // the lifecycle lock. Reuse its receipt before creating or retiring anything.
+        const duplicate = await tx.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (duplicate) {
+          if (duplicate.requestHash !== requestHash)
+            throw new ApiError(409, "idempotency_conflict", "The idempotency key was already used for different content");
+          if (!duplicate.response)
+            throw new ApiError(409, "request_in_progress", "This message is already being accepted");
+          return { response: serialize(duplicate.response), bootstrapRunId: null, interruptRunId: null };
+        }
         const conversation = await tx.conversation.findUnique({
           where: { id: conversationId },
           include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },

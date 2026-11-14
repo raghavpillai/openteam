@@ -40,7 +40,7 @@ describe("durable message acceptance boundary", () => {
           bot: { id: "bot-1", status: "active", subagentIdentity: null },
         }),
       },
-      idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
+      idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
       channel: {
         findUnique: async () => ({ id: channelId, archivedAt: null }),
         update: async () => ({}),

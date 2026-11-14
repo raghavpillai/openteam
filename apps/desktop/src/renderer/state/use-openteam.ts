@@ -12,6 +12,7 @@ import {
   type LoadedChannelHistory,
   loadingChannelHistory,
 } from "@openteam/product-core/history";
+import { createQuestionReceiptStore } from "@openteam/product-core/questions";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDesktopLiveSyncController, shouldRefreshForEvent } from "../client/event-stream";
@@ -34,6 +35,8 @@ import {
   patchRetainedMessageWindow,
   resetToLatestTail,
   retainedMessageWindowStats,
+  reconcileQuestionWindow,
+  type MessageWindowTransition,
   setContextLoading,
 } from "../lib/message-history-window";
 import { recordPerformance } from "../lib/performance";
@@ -118,6 +121,18 @@ export function useOpenTeam() {
   const contextNewerLoadStartedAt = useRef(new Map<string, number>());
   const historyViewportAtBottom = useRef(new Map<string, boolean>());
   const historyViewports = useRef(new Map<string, MessageViewportRetention>());
+  const questionReceipts = useRef(new Map<string, ReturnType<typeof createQuestionReceiptStore>>());
+  const installHistoryTransition = useCallback((channelId: string,
+    next: Pick<MessageWindowTransition, "history" | "window">,
+    observed: readonly ChannelMessageView[] = []) => {
+    let receipts = questionReceipts.current.get(channelId);
+    if (!receipts) { receipts = createQuestionReceiptStore(); questionReceipts.current.set(channelId, receipts); }
+    const history = histories.current.get(channelId), window = historyWindows.current.get(channelId);
+    const accepted = reconcileQuestionWindow(receipts, next,
+      history && window ? { history, window } : undefined, historyViewports.current.get(channelId), observed);
+    histories.current.set(channelId, accepted.history);
+    historyWindows.current.set(channelId, accepted.window);
+  }, []);
   const searchContextRequests = useRef(createKeyedRequestCoordinator());
   const historyLru = useRef<string[]>([]);
   // Cached chats that were only read in the background and never opened.
@@ -191,6 +206,7 @@ export function useOpenTeam() {
     historyRequests.current.invalidate(channelId);
     searchContextRequests.current.invalidate(channelId);
     histories.current.delete(channelId);
+    questionReceipts.current.delete(channelId);
     historyWindows.current.delete(channelId);
     channelStates.current.delete(channelId);
     historyLoadStartedAt.current.delete(channelId);
@@ -287,8 +303,7 @@ export function useOpenTeam() {
               atBottom: historyViewportAtBottom.current.get(channelId) ?? true,
               viewport: historyViewports.current.get(channelId),
             });
-            histories.current.set(channelId, transition.history);
-            historyWindows.current.set(channelId, transition.window);
+            installHistoryTransition(channelId, transition, [...page.messages, ...page.threadContext]);
             const retained = retainedMessageWindowStats(transition.history, transition.window);
             const viewport = historyViewports.current.get(channelId);
             recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
@@ -360,7 +375,7 @@ export function useOpenTeam() {
       channelLoads.current.set(channelId, { task, background });
       return task;
     },
-    [bumpHistoryRevision, publishBootstrap, readMessageState]
+    [bumpHistoryRevision, installHistoryTransition, publishBootstrap, readMessageState]
   );
 
   // Replies keep landing in chats that are not open, usually with a notification.
@@ -453,14 +468,13 @@ export function useOpenTeam() {
       ) {
         const transition = clearMessageContext(existing, window);
         existing = transition.history;
-        histories.current.set(channelId, transition.history);
-        historyWindows.current.set(channelId, transition.window);
+        installHistoryTransition(channelId, transition);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
       }
       await fetchChannel(channelId, !existing || existing.loadedAt === 0, true);
     },
-    [fetchChannel, publishBootstrap, touchHistory]
+    [fetchChannel, installHistoryTransition, publishBootstrap, touchHistory]
   );
 
   const loadContextPage = useCallback(
@@ -541,8 +555,7 @@ export function useOpenTeam() {
           direction,
           viewport: currentViewport ? { ...currentViewport, fill } : undefined,
         });
-        histories.current.set(channelId, transition.history);
-        historyWindows.current.set(channelId, transition.window);
+        installHistoryTransition(channelId, transition, [...page.messages, ...page.threadContext]);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
         const retained = retainedMessageWindowStats(transition.history, transition.window);
@@ -579,7 +592,7 @@ export function useOpenTeam() {
         }
       }
     },
-    [publishBootstrap, readMessageState, setHistoryViewport]
+    [installHistoryTransition, publishBootstrap, readMessageState, setHistoryViewport]
   );
 
   const loadOlder = useCallback(
@@ -625,8 +638,7 @@ export function useOpenTeam() {
           atBottom: false,
           viewport: historyViewports.current.get(channelId),
         });
-        histories.current.set(channelId, transition.history);
-        historyWindows.current.set(channelId, transition.window);
+        installHistoryTransition(channelId, transition, [...page.messages, ...page.threadContext]);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
         const retained = retainedMessageWindowStats(transition.history, transition.window);
@@ -654,7 +666,7 @@ export function useOpenTeam() {
         }
       }
     },
-    [loadContextPage, publishBootstrap, readMessageState, setHistoryViewport]
+    [installHistoryTransition, loadContextPage, publishBootstrap, readMessageState, setHistoryViewport]
   );
 
   const loadNewer = useCallback(
@@ -673,8 +685,7 @@ export function useOpenTeam() {
             cached,
             historyWindows.current.get(channelId) ?? emptyChannelMessageWindow()
           );
-          histories.current.set(channelId, transition.history);
-          historyWindows.current.set(channelId, transition.window);
+          installHistoryTransition(channelId, transition);
           setHistoryRevision((value) => value + 1);
           publishBootstrap(true);
         }
@@ -687,8 +698,7 @@ export function useOpenTeam() {
       );
       const reset = cached && window && tailHasTarget ? resetToLatestTail(cached, window) : null;
       if (reset) {
-        histories.current.set(channelId, reset.history);
-        historyWindows.current.set(channelId, reset.window);
+        installHistoryTransition(channelId, reset);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(false);
         return true;
@@ -710,8 +720,7 @@ export function useOpenTeam() {
           historyWindows.current.get(channelId) ?? emptyChannelMessageWindow(),
           context
         );
-        histories.current.set(channelId, transition.history);
-        historyWindows.current.set(channelId, transition.window);
+        installHistoryTransition(channelId, transition, [...context.messages, ...context.threadContext]);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
         // Activity hydration runs independently of revealing the target. The
@@ -724,7 +733,7 @@ export function useOpenTeam() {
         throw cause;
       }
     },
-    [fetchChannel, publishBootstrap, readMessageState, touchHistory]
+    [fetchChannel, installHistoryTransition, publishBootstrap, readMessageState, touchHistory]
   );
 
   const clearSearchContext = useCallback(
@@ -740,12 +749,11 @@ export function useOpenTeam() {
       )
         return;
       const transition = clearMessageContext(current, window);
-      histories.current.set(channelId, transition.history);
-      historyWindows.current.set(channelId, transition.window);
+      installHistoryTransition(channelId, transition);
       setHistoryRevision((value) => value + 1);
       publishBootstrap(true);
     },
-    [publishBootstrap]
+    [installHistoryTransition, publishBootstrap]
   );
 
   const jumpToLatest = useCallback(
@@ -758,8 +766,7 @@ export function useOpenTeam() {
       channelLoads.current.delete(channelId);
       const cached = current && window ? resetToLatestTail(current, window) : null;
       if (cached) {
-        histories.current.set(channelId, cached.history);
-        historyWindows.current.set(channelId, cached.window);
+        installHistoryTransition(channelId, cached);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(false);
         recordPerformance("history.latest.jump", 0, { source: "cache" });
@@ -772,7 +779,7 @@ export function useOpenTeam() {
         source: "network",
       });
     },
-    [fetchChannel, publishBootstrap]
+    [fetchChannel, installHistoryTransition, publishBootstrap]
   );
 
   const setHistoryViewportAtBottom = useCallback((channelId: string, atBottom: boolean) => {
@@ -799,8 +806,7 @@ export function useOpenTeam() {
         historyRequests.current.invalidate(channelId);
         searchContextRequests.current.invalidate(channelId);
         channelLoads.current.delete(channelId);
-        histories.current.set(channelId, transition.history);
-        historyWindows.current.set(channelId, transition.window);
+        installHistoryTransition(channelId, transition);
         changed = true;
       }
       const bootstrap = bootstrapRef.current;
@@ -819,7 +825,7 @@ export function useOpenTeam() {
       setHistoryRevision((value) => value + 1);
       publishBootstrap(true);
     },
-    [publishBootstrap]
+    [installHistoryTransition, publishBootstrap]
   );
 
   const refresh = useCallback(

@@ -103,7 +103,11 @@ final class AppStore {
   private var unreadIntents: [String: UUID] = [:]
   @ObservationIgnored private var sidebarWrite: (id: UUID, task: Task<JSON?, Never>)?
   private var needsIdentityRefresh = false
-  private var generation = UUID()
+  @ObservationIgnored private var questionReceiptCaches: [String: QuestionReceiptCache] = [:]
+  @ObservationIgnored private var questionReceiptOrder: [String] = []
+  private var generation = UUID() {
+    didSet { questionReceiptCaches.removeAll(); questionReceiptOrder.removeAll() }
+  }
   private var sending = false
   private var flushRequested = false
   private(set) var activeSendID: String?
@@ -144,8 +148,18 @@ final class AppStore {
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
   func questionMessages(_ channelID: String) -> [Message] {
     let latest = state.bootstrap?.latestMessages.filter { $0.channelId == channelID } ?? []
-    return QuestionLifecycle.project(MessageMerge.merge(messages(channelID), latest),
+    return QuestionLifecycle.project(questionAwareMerge(messages(channelID), latest, channel: channelID),
       pending: state.outbox.filter { $0.channelId == channelID })
+  }
+  private func questionAwareMerge(_ existing: [Message], _ incoming: [Message], channel: String,
+    observed: [Message] = []) -> [Message] {
+    questionReceiptOrder = [channel] + questionReceiptOrder.filter { $0 != channel }
+    questionReceiptOrder = Array(questionReceiptOrder.prefix(4))
+    questionReceiptCaches = questionReceiptCaches.filter { questionReceiptOrder.contains($0.key) }
+    var receipts = questionReceiptCaches[channel] ?? QuestionReceiptCache()
+    let result = receipts.merge(existing, incoming, remembering: messages(channel) + observed)
+    questionReceiptCaches[channel] = receipts
+    return result
   }
   /// The channel's newest known message, for previews. Bootstrap can know a
   /// newer one than a loaded transcript, which receives it with its next page.
@@ -560,6 +574,10 @@ final class AppStore {
     decideOnboarding()
     if !testing, directoryChanged { TeamAppShortcuts.updateAppShortcutParameters() }
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
+      if var receipts = questionReceiptCaches[channel] {
+        receipts.observe(messages)
+        questionReceiptCaches[channel] = receipts
+      }
       // Bootstrap carries only each channel's newest message. A loaded
       // transcript takes new messages from its next history page instead, so
       // earlier ones never appear above a newer one already on screen.
@@ -575,7 +593,7 @@ final class AppStore {
           if updates.contains(where: { !known.contains($0.id) }) {
             state.incompleteHistoryChannels = (state.incompleteHistoryChannels ?? []).union([channel])
           }
-          state.messages[channel] = MessageMerge.merge(self.messages(channel), updates)
+          state.messages[channel] = questionAwareMerge(self.messages(channel), updates, channel: channel)
         }
       } else {
         merge(messages, channel: channel)
@@ -1035,7 +1053,7 @@ final class AppStore {
       state.incompleteHistoryChannels?.remove(id)
     }
     if before != nil {
-      state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
+      state.messages[id] = questionAwareMerge(messages(id), page.threadContext + page.messages, channel: id)
       historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)
       histories[id] = page
     } else if histories[id] == nil {
@@ -1053,7 +1071,7 @@ final class AppStore {
     let visible = incoming.filter {
       ids.contains($0.id) || historyWindows[channel]?.contains($0) != false
     }
-    state.messages[channel] = MessageMerge.merge(existing, visible)
+    state.messages[channel] = questionAwareMerge(existing, visible, channel: channel, observed: incoming)
     confirmDelivery(incoming)
   }
   private func confirmDelivery(_ incoming: [Message]) {
@@ -1069,7 +1087,7 @@ final class AppStore {
     histories[page.channelId] = page
     historyWindows[page.channelId] = HistoryWindow(
       messages: page.messages, hasEarlier: page.hasMore, hasLater: false)
-    state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
+    state.messages[page.channelId] = questionAwareMerge(page.threadContext, page.messages, channel: page.channelId)
   }
   @discardableResult
   func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
@@ -1096,12 +1114,12 @@ final class AppStore {
       }
       confirmDelivery(page.threadContext + page.messages)
       if preservingTimeline {
-        state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+        state.messages[channelID] = questionAwareMerge(messages(channelID), page.threadContext + page.messages, channel: channelID)
         persist()
         return true
       }
       historyLoadFailures.remove(channelID)
-      state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
+      state.messages[channelID] = questionAwareMerge(page.threadContext, page.messages, channel: page.channelId)
       historyWindows[channelID] = HistoryWindow(
         messages: page.messages, hasEarlier: page.hasMoreBefore, hasLater: page.hasMoreAfter)
       histories[channelID] = History(
@@ -1136,7 +1154,7 @@ final class AppStore {
         historyOpenings[channelID] == opening else { return }
       guard page.channelId == channelID else { throw APIError("The conversation changed.") }
       confirmDelivery(page.threadContext + page.messages)
-      state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+      state.messages[channelID] = questionAwareMerge(messages(channelID), page.threadContext + page.messages, channel: channelID)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
       persist()
     } catch {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { AgentDataStore, AgentMessaging, type ToolContext } from "@openteam/messaging";
+import { AgentDataStore, AgentMessaging, lockQuestions, dismissQuestions, type ToolContext } from "@openteam/messaging";
 import { RichMessageService } from "../src/services/rich-message-service";
 import { ChannelService } from "../src/services/channel-service";
 
@@ -173,6 +173,74 @@ test.skipIf(!url)(
         ).toBe(true);
         expect(response.accepted).toBe(metadata.respondedValue === "blue");
       }
+      // A failure after settlement/event insertion must roll back both writes.
+      const rollback = await card();
+      await expect(db.$transaction(async tx => {
+        await lockQuestions(tx, channelId);
+        await dismissQuestions(tx, channelId, null, "moved-on");
+        throw new Error("Injected failure after question settlement");
+      })).rejects.toThrow("Injected failure");
+      expect(await read(rollback.id)).not.toHaveProperty("widgetDismissed");
+      expect(await db.event.count({ where: { entityId: rollback.id, topic: "channel.message.updated" } })).toBe(0);
+      await Effect.runPromise(rich.dismissWidget(rollback.id, { clientId: crypto.randomUUID() }));
+
+      for (let attempt = 0; attempt < 16; attempt++) {
+        const q = await card(), nonce = crypto.randomUUID(), responseNonce = crypto.randomUUID();
+        const before = await db.inboxEvent.count({ where: { botId, type: "widget.response" } });
+        const results = await Promise.all([
+          Effect.runPromise(rich.respondToWidget(q.id, { value: "blue", clientId: responseNonce })),
+          Effect.runPromise(rich.respondToWidget(q.id, { value: "blue", clientId: responseNonce })),
+          Effect.runPromise(rich.dismissWidget(q.id, { clientId: crypto.randomUUID() })),
+          send("Chaos move on", { clientId: nonce }),
+          send("Chaos move on", { clientId: nonce }),
+        ]);
+        const metadata = await read(q.id);
+        expect([results[0], results[1], results[2]].filter(result => result.accepted)).toHaveLength(
+          metadata.widgetDismissalReason === "moved-on" ? 0 : 1);
+        expect((typeof metadata.respondedValue === "string") !== (metadata.widgetDismissed === true)).toBe(true);
+        expect(await db.channelMessage.count({ where: { channelId, clientId: nonce } })).toBe(1);
+        expect(await db.inboxEvent.count({ where: { botId, type: "widget.response" } })).toBe(
+          before + (metadata.respondedValue === "blue" ? 1 : 0));
+        // Simulate losing the first response after commit, then retrying its nonce.
+        const retried = await Effect.runPromise(rich.respondToWidget(q.id, { value: "blue", clientId: responseNonce }));
+        expect(retried.accepted).toBe(false);
+        expect(retried.message.metadata).toMatchObject(metadata);
+      }
+
+      const publicationContext = async (): Promise<ToolContext> => {
+        const run = await db.run.create({ data: {
+          botId, conversationId, channelId, userMessageId: crypto.randomUUID(), status: "running",
+        } });
+        return { ...context, runId: run.id, callId: crypto.randomUUID() };
+      };
+      const publications = [await publicationContext(), await publicationContext()];
+      const published = await Promise.all(publications.map(ctx => messaging.sendVisible(ctx, { type: "widget", widget })));
+      const ids = published.map(result => (result.acknowledgement as { message_id: string }).message_id);
+      const ordered = await db.channelMessage.findMany({ where: { id: { in: ids } }, orderBy: { sequence: "asc" } });
+      expect(await read(ordered[0]!.id)).toHaveProperty("widgetDismissed", true);
+      expect(await read(ordered[1]!.id)).not.toHaveProperty("widgetDismissed");
+      // Retrying an older tool call must not retire the newer question.
+      await messaging.sendVisible(publications[ids.indexOf(ordered[0]!.id)]!, { type: "widget", widget });
+      expect(await read(ordered[1]!.id)).not.toHaveProperty("widgetDismissed");
+
+      const freshContext = await publicationContext();
+      const [fresh, oldResponse] = await Promise.all([
+        messaging.sendVisible(freshContext, { type: "widget", widget }),
+        Effect.runPromise(rich.respondToWidget(ordered[1]!.id, { value: "red", clientId: crypto.randomUUID() })),
+      ]);
+      const freshId = (fresh.acknowledgement as { message_id: string }).message_id;
+      expect(await read(freshId)).not.toHaveProperty("widgetDismissed");
+      const oldMetadata = await read(ordered[1]!.id);
+      expect(oldResponse.accepted).toBe(oldMetadata.respondedValue === "red");
+      expect((typeof oldMetadata.respondedValue === "string") !== (oldMetadata.widgetDismissed === true)).toBe(true);
+
+      const forked = await messaging.sendVisible({ ...await publicationContext(),
+        isFork: true, replyToMessageId: first.id }, { type: "widget", widget });
+      const forkId = (forked.acknowledgement as { message_id: string }).message_id;
+      await Effect.runPromise(rich.respondToWidget(forkId, { value: "blue", clientId: crypto.randomUUID() }));
+      expect(await read(freshId)).not.toHaveProperty("widgetDismissed");
+      expect(await read(approval.id)).toMatchObject({ cardState: "pending" });
+
       expect(
         await db.event.count({ where: { entityId: first.id, topic: "channel.message.updated" } })
       ).toBe(1);
@@ -188,5 +256,5 @@ test.skipIf(!url)(
       await rm(root, { recursive: true, force: true });
     }
   },
-  30000
+  60000
 );

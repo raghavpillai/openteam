@@ -39,6 +39,7 @@ import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
 import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
 import { resolvePlaceReferences } from "./place-references";
+import { readUserLocation } from "./user-location";
 
 export class InternalToolService {
   constructor(
@@ -175,6 +176,10 @@ export class InternalToolService {
       ]);
       if (childIdentity && parentOnlyTools.has(request.tool)) {
         throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
+      }
+      if (request.tool === "GetUserLocation") {
+        if (childIdentity) throw new ApiError(403, "user_location_unavailable", "Only the user's bot can read their location");
+        return readUserLocation(this.prisma);
       }
       if (request.tool === "ReadTranscript") return readTranscript(this.prisma, context, request.arguments);
       if (request.tool === "ReadAgentActivity") return readAgentActivity(this.prisma, { botId: childIdentity?.parentBotId ?? request.botId }, request.arguments);

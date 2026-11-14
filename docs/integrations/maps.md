@@ -2,6 +2,12 @@
 
 Add **OpenStreetMap** or **Google Maps** from **Marketplace** to let bots find real places and plan routes. On iPhone and iPad, open **Settings → Plugins**. Both plugins provide read-only tools; they do not make bookings or change listings. Bots can present the results as [maps and ranked places](../usage/conversations.md#maps-and-ranked-places) in a private bot chat.
 
+## Your location
+
+Turn on **Share location** (desktop: **Settings → General**; iPhone and iPad: **Settings**) to let bots answer questions such as "coffee near me". It is off until you turn it on, and each device has its own switch. The first time, the system asks for permission.
+
+While it is on, each message you send from that device includes the device's current location. The server keeps only the newest one, from whichever device sent the latest message, and a bot reads it when it needs to know where you are. It can then search for places near that point. The location is not added to the message text. A computer's location usually comes from Wi-Fi and is less precise than a phone's GPS, and the bot is told how old and how precise the location is. Turning the switch off on any device deletes the saved location.
+
 ## OpenStreetMap
 
 Choose **Add**, then **Connect**. No account or API key is needed. Bots can search for an address or landmark, find nearby places, and request walking, cycling, or driving routes through 2–10 stops.
@@ -22,6 +28,8 @@ Bots can search for places, get nearby results, read place details, check the ke
 Google bills requests against your project after any applicable allowance. Photos require separate requests, and richer place fields can use higher billing tiers. Check the project's quotas and billing controls before use; consult the [Google Maps plugin guide](../../packages/plugins/google-maps/README.md#cost) for the API fields and pricing link. Identical requests are reused for five minutes. Photo links can expire, so an older card may show a placeholder.
 
 ## Privacy and map display
+
+Your shared location stays on your OpenTeam server. When a bot uses it, the coordinates reach your model provider and any places service the bot searches with.
 
 OpenStreetMap search sends place names and queries to Photon and Nominatim; routes send stop coordinates to Valhalla. Google Maps sends queries, search areas, and route stops to Google with your API key. The key stays on your server and is not shown to bots.
 

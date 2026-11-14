@@ -4,6 +4,7 @@ import { SettingsSelectContent } from "./select-content";
 import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
 import { TimeZoneSettings } from "./time-zone";
+import { LocationSettings } from "./location";
 import { Copy } from "lucide-react";
 import { type ComponentProps, Suspense, useState, useSyncExternalStore } from "react";
 import { signOut } from "../../../client/auth";
@@ -153,6 +154,8 @@ export default function GeneralSettings() {
       </SettingsGroup>
 
       <TimeZoneSettings />
+
+      <LocationSettings />
 
       <SmartNotificationSettings />
 

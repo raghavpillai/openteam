@@ -297,6 +297,26 @@ public struct Routine: Codable, Identifiable, Sendable {
     scheduleKind != "event" && (schedules?.count ?? 0) <= 1 && trigger?["type"].string != "group"
   }
 }
+/// A location fix sent with a message while Share location is on in Settings.
+public struct DeviceLocation: Codable, Sendable, Equatable {
+  public var latitude: Double
+  public var longitude: Double
+  public var accuracyMeters: Double?
+  /// When the device took the fix, ISO 8601.
+  public var capturedAt: String
+  /// phone or computer.
+  public var device: String
+  public init(
+    latitude: Double, longitude: Double, accuracyMeters: Double?, capturedAt: Date,
+    device: String = "phone"
+  ) {
+    self.latitude = latitude
+    self.longitude = longitude
+    self.accuracyMeters = accuracyMeters
+    self.capturedAt = ISO8601DateFormatter().string(from: capturedAt)
+    self.device = device
+  }
+}
 public struct SendInput: Codable, Sendable, Equatable {
   public var content: String
   public var clientId: String
@@ -304,6 +324,8 @@ public struct SendInput: Codable, Sendable, Equatable {
   public var replyToMessageId: String?
   public var isFork: Bool?
   public var timeZone: String
+  /// Added when the message is sent, never stored in the outbox.
+  public var location: DeviceLocation?
   public init(
     content: String, clientId: String = UUID().uuidString, attachments: [Asset] = [],
     replyToMessageId: String? = nil, isFork: Bool? = nil

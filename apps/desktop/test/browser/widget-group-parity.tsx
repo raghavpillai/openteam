@@ -6,6 +6,9 @@ import { api } from "../../src/renderer/client/openteam-api";
 import { ChatPane } from "../../src/renderer/components/openteam/chat-pane";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import "../../src/renderer/styles.css";
+// The card's motion loads with the first question card. Load it up front so the first
+// card's arrival does not depend on how fast the dev server transforms the module.
+await import("../../src/renderer/components/openteam/question-card-motion");
 const pause = (ms = 50) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const check = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
@@ -144,6 +147,11 @@ const setInput = async (node: HTMLTextAreaElement, value: string) => {
   node.dispatchEvent(new Event("input", { bubbles: true }));
   await pause();
 };
+/** Script-driven motion on a card's tiles (CSS transitions are not part of it). */
+const tileMotion = (id: string) =>
+  [...(card(id)?.querySelectorAll(".widget-option") ?? [])].flatMap((tile) =>
+    tile.getAnimations().filter((animation) => !(animation instanceof CSSTransition))
+  );
 const animationEvents: { id: string; name: string; at: number }[] = [];
 document.addEventListener("animationstart", (event) => {
   const target = event.target as HTMLElement,
@@ -187,6 +195,15 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   const first = msg("", widget("Widget parity — pick any options", true));
   messages.push(first);
   draw();
+  // A question that arrives live places its tiles one after another.
+  await until(
+    () => tileMotion(first.id).length === 4,
+    "Live question did not stagger its tiles in"
+  );
+  check(
+    new Set(tileMotion(first.id).map((animation) => animation.effect!.getTiming().delay)).size === 4,
+    "Arriving tiles must be staggered"
+  );
   await pause(450);
   const bounds = card(first.id).getBoundingClientRect();
   const available = 745 - 32 - (kind === "group" ? 30 : 0);
@@ -234,10 +251,13 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
     "Multiselect lost selection"
   );
   check(button(first.id, "Send answer")?.disabled === false, "Selecting must enable Send answer");
+  // The fill is a blob that grows from the centre of the box; wait for it to land.
+  const fillOf = (option: HTMLElement) =>
+    getComputedStyle(option.querySelector(".question-control")!, "::before").transform;
+  await until(() => fillOf(options[0]!) === "none" || fillOf(options[0]!) === "matrix(1, 0, 0, 1, 0, 0)", "Selected checkbox never filled");
   check(
-    getComputedStyle(options[0]!.querySelector(".question-control")!).backgroundColor !==
-      getComputedStyle(options[2]!.querySelector(".question-control")!).backgroundColor,
-    "Selected options must show a filled checkbox"
+    fillOf(options[2]!) === "matrix(0, 0, 0, 0, 0, 0)",
+    "Selected options must show a filled checkbox, and unselected ones an empty box"
   );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-selected`);
   await pause(200);
@@ -249,17 +269,19 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
     card(first.id).querySelector("textarea")!,
     "Custom answer\nSecond line\nThird line"
   );
-  await pause(150);
+  // The focus ring eases in.
   const fieldStyle = getComputedStyle(card(first.id).querySelector(".widget-custom")!);
-  check(
-    fieldStyle.borderTopColor === (theme === "dark" ? "rgb(28, 139, 254)" : "rgb(12, 100, 193)") &&
-      fieldStyle.transitionDuration === "0.12s",
+  check(fieldStyle.transitionDuration === "0.2s, 0.2s", "Custom answer focus ring must ease");
+  await until(
+    () => fieldStyle.borderTopColor === (theme === "dark" ? "rgb(28, 139, 254)" : "rgb(12, 100, 193)"),
     "Custom answer focus border mismatch"
   );
   render(null);
   await pause();
   draw();
-  await pause(400);
+  await pause(60);
+  check(tileMotion(first.id).length === 0, "Remounting a question replayed its arrival");
+  await pause(340);
   let input = card(first.id).querySelector<HTMLTextAreaElement>("textarea")!;
   check(
     input.value.includes("Third line") && input.clientHeight >= input.scrollHeight,
@@ -452,7 +474,7 @@ const heightAnimation = (frame: HTMLElement) =>
     );
 const midpoint = (frame: HTMLElement, animation: Animation) => {
   const duration = Number(animation.effect!.getTiming().duration);
-  check(duration > 0 && duration <= 300, "Card motion must be brief");
+  check(duration > 0 && duration <= 550, "Card motion must be brief");
   animation.pause();
   animation.currentTime = duration / 2;
   return frame.getBoundingClientRect().height;
@@ -490,6 +512,21 @@ async function motionScenario() {
         ];
         draw();
         await until(() => Boolean(heightAnimation(frame)), `Missing ${reason} height transition`);
+        // The card that was there leaves on screen, under the one that replaced it,
+        // and what carries over travels instead of being swapped.
+        check(
+          Boolean(frame.querySelector(".question-fx")) && frame.hasAttribute("data-flying"),
+          `${reason} swapped the card instead of morphing it`
+        );
+        const carried = card(question.id).querySelector(
+          reason === "answer" ? ".question-answer .widget-option-label" : ".widget-dismissed-pill"
+        )!;
+        check(carried.getAnimations().length > 0, `${reason} did not animate what carries over`);
+        check(
+          !frame.querySelector(".question-fx[data-rich-widget-state], form.question-fx [id]") &&
+            frame.querySelector<HTMLElement>("form.question-fx")?.inert === true,
+          "The leaving copy must be inert and anonymous"
+        );
         const animation = heightAnimation(frame)!;
         const target = frame.firstElementChild!.getBoundingClientRect().height;
         const middle = midpoint(frame, animation);
@@ -498,11 +535,19 @@ async function motionScenario() {
           `${reason} snapped instead of interpolating: ${expanded}/${middle}/${target}`
         );
         animation.finish();
+        for (const running of frame.getAnimations({ subtree: true })) running.finish();
         await pause(25);
         const final = frame.getBoundingClientRect().height;
         check(
           Math.abs(final - target) <= 1 && frame.style.height === "",
           "Collapse left a stale fixed height"
+        );
+        check(
+          !frame.querySelector(".question-fx, [style]") &&
+            !frame.hasAttribute("data-flying") &&
+            !document.querySelector('filter[id^="question-goo"]') &&
+            frame.getAnimations({ subtree: true }).length === 0,
+          `${reason} left motion scaffolding behind`
         );
         check(
           animationEvents.filter((event) => event.id === question.id).length <= 1,
@@ -550,10 +595,19 @@ async function motionScenario() {
     recoveredMiddle > interrupted + 1 && recoveredMiddle < recoveryTarget - 1,
     "Failure recovery snapped instead of expanding"
   );
+  check(
+    Boolean(card(retry.id).querySelector('[role="alert"]')?.getAnimations().length),
+    "The failure reason must ease in"
+  );
   recovery.finish();
+  for (const running of frame.getAnimations({ subtree: true })) running.finish();
   fail = false;
   replyGate = undefined;
   await pause(25);
+  check(
+    !frame.querySelector(".question-fx, [style]") && !frame.hasAttribute("data-flying"),
+    "Recovery left motion scaffolding behind"
+  );
   check(
     Math.abs(frame.getBoundingClientRect().height - recoveryTarget) <= 1,
     "Recovery left clipped controls"
@@ -573,6 +627,11 @@ async function motionScenario() {
   await until(
     () => !heightAnimation(reducedFrame),
     "Reduced motion did not cancel an active collapse"
+  );
+  check(
+    !reducedFrame.querySelector(".question-fx") &&
+      reducedFrame.getAnimations({ subtree: true }).every((animation) => animation instanceof CSSTransition),
+    "Reduced motion left a flight running"
   );
   check(
     Math.abs(
@@ -595,6 +654,7 @@ async function motionScenario() {
   );
   await pause(25);
   check(!heightAnimation(frameFor(noMotion.id)), "Reduced motion still animated the card height");
+  check(!frameFor(noMotion.id).querySelector(".question-fx"), "Reduced motion still morphed the card");
   await emulateMotion("no-preference");
   return { transitions, interruption: true, reducedMotion: true };
 }

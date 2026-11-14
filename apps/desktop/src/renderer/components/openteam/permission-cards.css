@@ -164,7 +164,8 @@
   color: #38d591;
 }
 /* Question cards: tile options with a real selection control, an inline custom
-   answer, and one footer for Skip / Send. Closed cards shrink to a receipt. */
+   answer, and one footer for Skip / Send. Closed cards shrink to a receipt.
+   Their motion is in question-card-motion.css, which loads with the first card. */
 .permission-widget {
   --question-fill: #1c1c1c0d;
   --question-fill-hover: #1c1c1c17;
@@ -174,7 +175,6 @@
   --question-green: #00854a;
   --question-green-fill: #14c16f24;
   --question-danger: #cd2834;
-  --question-ease: cubic-bezier(0.2, 0.8, 0.3, 1);
   max-width: none;
   gap: 12px;
   line-height: 20px;
@@ -188,6 +188,10 @@
   --question-green: #00ba69;
   --question-green-fill: #14c37026;
   --question-danger: #ff6463;
+}
+/* A question that arrives live waits for its motion to place the tiles. */
+.message-row[data-enter="new"] [data-rich-widget-frame]:not([data-live]) :is(.widget-option, .question-footer) {
+  opacity: 0;
 }
 .question-prompt {
   min-width: 0;
@@ -214,6 +218,7 @@
   width: 100%;
 }
 .widget-option {
+  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
@@ -227,10 +232,6 @@
   color: var(--permission-text);
   font: inherit;
   text-align: left;
-  transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    transform 140ms var(--question-ease);
 }
 button.widget-option {
   cursor: pointer;
@@ -239,7 +240,7 @@ button.widget-option:hover:not(:disabled) {
   background: var(--question-fill-hover);
 }
 button.widget-option:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: scale(0.97);
 }
 button.widget-option:focus-visible {
   outline: 2px solid var(--ring);
@@ -252,8 +253,10 @@ button.widget-option[aria-pressed="true"] {
 .widget-option[data-tone="danger"] .widget-option-label {
   color: var(--question-danger);
 }
-/* Checkbox for multi-select, radio for single-select. */
+/* Checkbox for multi-select, radio for single-select. The fill is a blob that
+   grows from the centre: ::before for a checkbox, ::after for a radio's dot. */
 .question-control {
+  position: relative;
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -262,10 +265,14 @@ button.widget-option[aria-pressed="true"] {
   border: 1.5px solid var(--question-control);
   border-radius: 6px;
   color: var(--permission-input);
-  transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    transform 220ms var(--question-ease);
+}
+[data-question-mode="multi"] button .question-control::before {
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 50%;
+  background: var(--permission-text);
+  content: "";
+  transform: scale(0);
 }
 [data-question-mode="single"] .question-control {
   border-radius: 999px;
@@ -278,9 +285,6 @@ button.widget-option[aria-pressed="true"] {
   content: "";
   opacity: 0;
   transform: scale(0.4);
-  transition:
-    opacity 140ms ease,
-    transform 180ms var(--question-ease);
 }
 [data-question-mode="single"] button.widget-option:hover:not(:disabled) .question-control::after {
   opacity: 0.35;
@@ -291,6 +295,7 @@ button.widget-option[aria-pressed="true"] {
   transform: none;
 }
 .question-control svg {
+  position: relative;
   width: 14px;
   height: 14px;
   stroke-width: 2;
@@ -298,11 +303,13 @@ button.widget-option[aria-pressed="true"] {
 .question-control svg path {
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  transition: stroke-dashoffset 200ms var(--question-ease);
 }
 button.widget-option[aria-pressed="true"] .question-control {
-  border-color: var(--permission-text);
-  background: var(--permission-text);
+  border-color: transparent;
+}
+button.widget-option[aria-pressed="true"] .question-control::before {
+  border-radius: 6px;
+  transform: none;
 }
 button.widget-option[aria-pressed="true"] .question-control svg path {
   stroke-dashoffset: 0;
@@ -357,7 +364,6 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
 .widget-custom {
   align-items: flex-start;
   cursor: text;
-  transition: border-color 120ms ease;
 }
 .widget-custom:hover {
   background: var(--question-fill-hover);
@@ -393,19 +399,21 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
 .widget-custom textarea::placeholder {
   color: var(--permission-secondary);
 }
+/* Single choice: the send button sits over the shortcut letter's place, at the
+   field's trailing edge, once there is something to send. */
 .question-send-inline {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: grid;
   place-items: center;
-  flex-shrink: 0;
   width: 24px;
   height: 24px;
-  margin: -1px 0;
   border: 0;
   border-radius: 999px;
   background: var(--permission-text);
   color: var(--permission-input);
   cursor: pointer;
-  animation: question-pop 200ms var(--question-ease);
 }
 .question-send-inline svg {
   width: 14px;
@@ -415,11 +423,8 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
 .question-send-inline:disabled {
   opacity: 0.5;
 }
-@keyframes question-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.6);
-  }
+.widget-custom:not([data-filled]) .question-send-inline {
+  visibility: hidden;
 }
 .question-error {
   font-size: 12.5px;
@@ -455,11 +460,6 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
   font: inherit;
   font-size: 13.5px;
   font-weight: 500;
-  transition:
-    background-color 140ms ease,
-    color 140ms ease,
-    opacity 140ms ease,
-    transform 140ms var(--question-ease);
 }
 .question-skip {
   background: transparent;
@@ -469,17 +469,31 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
   background: var(--question-fill-hover);
   color: var(--permission-text);
 }
+/* Send answer: the fill is a blob behind the label, there once it can send. */
 .widget-submit {
-  background: var(--permission-text);
+  position: relative;
+  isolation: isolate;
+  background: var(--question-fill-selected);
   color: var(--permission-input);
+}
+.widget-submit::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--permission-text);
+  content: "";
 }
 .widget-submit:hover:not(:disabled) {
   opacity: 0.88;
 }
 .widget-submit:disabled {
-  background: var(--question-fill-selected);
   color: var(--permission-faded);
   cursor: default;
+}
+.widget-submit:disabled::before {
+  opacity: 0;
+  transform: scale(0.5);
 }
 .question-skip:active:not(:disabled),
 .widget-submit:active:not(:disabled) {
@@ -540,19 +554,6 @@ button.widget-option[aria-pressed="true"] .question-control svg path {
 .widget-dismissed-pill svg {
   width: 13px;
   height: 13px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .widget-option,
-  .question-control,
-  .question-control svg path,
-  .question-control::after,
-  .question-skip,
-  .widget-submit {
-    transition: none;
-  }
-  .question-send-inline {
-    animation: none;
-  }
 }
 
 .permission-secondary {

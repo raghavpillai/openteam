@@ -9,13 +9,9 @@ extension JSON {
 }
 
 struct RichMessageCard: View {
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let message: Message
-  private var selected: Set<String> {
-    Set(store.draft(message.channelId).widgetSelections?[message.id] ?? [])
-  }
   @State private var secret = ""
   @State private var formValues: [String: JSON] = [:]
   @State private var bodyText = ""
@@ -35,23 +31,7 @@ struct RichMessageCard: View {
   @State private var saveToVault = false
   @State private var requestID = UUID().uuidString
   @State private var lastAction = ""
-  @State private var pickedOption: String?
-  @FocusState private var customFocused: Bool
-  private var meta: JSON {
-    guard message.metadata["type"].string == "widget" else { return message.metadata }
-    return store.questionMessages(message.channelId).first { $0.id == message.id }?.metadata ?? message.metadata
-  }
-  private var customAnswer: String {
-    store.draft(message.channelId).widgetCustomAnswers?[message.id] ?? ""
-  }
-  private var widgetAnswer: String {
-    let widget = meta["widget"]
-    let values = widget["multiSelect"].bool ? widget["options"].array.map {
-      $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-    }.filter(selected.contains) : []
-    return (values + (customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? [] : [customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)])).joined(separator: "\n")
-  }
+  private var meta: JSON { message.metadata }
   private var type: String { meta["type"].string }
   private var state: String {
     meta["cardState"].string.isEmpty ? "pending" : meta["cardState"].string
@@ -70,10 +50,10 @@ struct RichMessageCard: View {
         .padding(12)
         .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 22))
     } else if supported {
-      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : isDraftLike ? 10 : 13) {
+      VStack(alignment: .leading, spacing: isDraftLike ? 10 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {
-        case "widget": widget
+        case "widget": QuestionCard(message: message)
         case "secret-request": secretRequest
         case "computer-handoff": handoff
         case "user-form": form
@@ -85,10 +65,6 @@ struct RichMessageCard: View {
       }.padding(type == "widget" ? 0 : isDraftLike ? 12 : 16).background(
         type == "widget" ? Color.clear : NativePalette.surface, in: RoundedRectangle(cornerRadius: isDraftLike ? 16 : 18)
       )
-      .animation(type == "widget" && !reduceMotion ? .smooth(duration: 0.3) : nil,
-        value: meta["respondedValue"])
-      .animation(type == "widget" && !reduceMotion ? .smooth(duration: 0.3) : nil,
-        value: meta["widgetDismissed"])
       .task(id: message.id) {
         if type == "user-form", state == "pending" {
           do {
@@ -108,7 +84,6 @@ struct RichMessageCard: View {
         requestID = UUID().uuidString
         failure = nil
       }
-      .onChange(of: selected) { _, _ in requestID = UUID().uuidString }
       .onChange(of: bodyText) { _, value in
         requestID = UUID().uuidString
         if value != meta["draft"]["body"].string { draftRevisionEditing = true }
@@ -126,7 +101,7 @@ struct RichMessageCard: View {
         requestID = UUID().uuidString
         if value != meta["draft"]["subject"].string { draftRevisionEditing = true }
       }
-      .disabled(busy || store.busy.contains("/api/v0/channel-messages/\(API.segment(message.id))/widget-response"))
+      .disabled(busy)
       .onAppear { resetDraftFields() }
       .onChange(of: meta["draft"]) { previous, incoming in
         if type == "external-draft" { syncDraftFields(from: previous, to: incoming) }
@@ -169,183 +144,6 @@ struct RichMessageCard: View {
         handoffID: type == "computer-handoff" ? message.id : nil)))
     }
   }
-  private func widgetOptionValue(_ option: JSON) -> String {
-    option["value"].string.isEmpty ? option["label"].string : option["value"].string
-  }
-  private func toggleWidgetOption(_ value: String) {
-    NativeHaptics.play(.selection, source: "widget.selection")
-    var values = selected
-    if values.contains(value) { values.remove(value) } else { values.insert(value) }
-    var draft = store.draft(message.channelId)
-    if draft.widgetSelections == nil { draft.widgetSelections = [:] }
-    draft.widgetSelections?[message.id] = meta["widget"]["options"].array.map(widgetOptionValue)
-      .filter(values.contains)
-    store.saveDraft(draft, channel: message.channelId)
-  }
-  @ViewBuilder var widget: some View {
-    let widget = meta["widget"]
-    let multi = widget["multiSelect"].bool
-    let dismissed = meta["widgetDismissed"].bool
-    let answered = meta["respondedValue"] != .null
-    let open = !answered && !dismissed
-    let motion: Animation? = reduceMotion ? nil : .snappy(duration: 0.22)
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .center, spacing: 10) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(widget["prompt"].string)
-            .font(.body.weight(.medium))
-            .foregroundStyle(open ? QuestionPalette.text : QuestionPalette.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-          if open, !widget["helpText"].string.isEmpty {
-            Text(widget["helpText"].string).font(.subheadline)
-              .foregroundStyle(QuestionPalette.secondary)
-              .fixedSize(horizontal: false, vertical: true)
-              .transition(.opacity)
-          }
-        }
-        Spacer(minLength: 0)
-        if dismissed {
-          let reason = meta["widgetDismissalReason"].string
-          HStack(spacing: 5) {
-            Image(systemName: reason == "moved-on" ? "bubble.left"
-              : reason == "superseded" ? "arrow.left.arrow.right" : "forward.end")
-              .font(.system(size: 11, weight: .semibold)).accessibilityHidden(true)
-            Text(reason == "moved-on" ? "Continued in chat" : reason == "superseded" ? "Replaced" : "Skipped")
-              .font(.footnote.weight(.medium))
-              .accessibilityIdentifier("widget-dismissed-" + message.id)
-              .accessibilityHint(reason == "moved-on" ? "This question closed when you sent a message."
-                : reason == "superseded" ? "A newer question took its place."
-                : "No answer was sent from this card.")
-          }.foregroundStyle(QuestionPalette.secondary)
-            .padding(.leading, 8).padding(.trailing, 10).padding(.vertical, 4)
-            .background(QuestionPalette.fill, in: Capsule())
-            .fixedSize()
-            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
-        }
-      }
-      if case .string(let response) = meta["respondedValue"] {
-        let answers = WidgetAnswer.resolve(widget: widget, response: response)
-        VStack(alignment: .leading, spacing: 8) {
-          ForEach(Array(answers.enumerated()), id: \.offset) { index, answer in
-            HStack(alignment: .top, spacing: 10) {
-              QuestionCheck().stroke(QuestionPalette.green,
-                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                .frame(width: 11, height: 11).frame(width: 22, height: 22)
-                .background(QuestionPalette.greenFill, in: Circle())
-                .accessibilityHidden(true)
-              Text(answer.label).font(.body).foregroundStyle(QuestionPalette.text)
-                .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
-              Spacer(minLength: 0)
-            }.accessibilityElement(children: .combine)
-              .accessibilityValue("Selected")
-              .accessibilityIdentifier("widget-answer-\(message.id)-\(index)")
-          }
-        }.transition(.opacity)
-      } else if !dismissed {
-        VStack(spacing: 6) {
-          ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { _, option in
-            let value = widgetOptionValue(option)
-            let on = selected.contains(value) || pickedOption == value
-            Button {
-              if multi { toggleWidgetOption(value) } else {
-                pickedOption = value
-                act("widget-response", body: ["value": .string(value)])
-              }
-            } label: {
-              HStack(alignment: .center, spacing: 11) {
-                QuestionControl(multi: multi, on: on, motion: motion)
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(option["label"].string).font(.body)
-                    .foregroundStyle(option["style"].string == "danger"
-                      ? NativePalette.widgetDanger : QuestionPalette.text)
-                  if !option["description"].string.isEmpty {
-                    Text(option["description"].string).font(.subheadline)
-                      .foregroundStyle(QuestionPalette.secondary)
-                  }
-                }.fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-              }.modifier(QuestionTile(on: on, motion: motion))
-            }.buttonStyle(QuestionPressStyle(motion: motion))
-              .accessibilityLabel(option["label"].string)
-              .accessibilityValue(on ? "Selected" : "")
-          }
-          if widget["allowCustom"].bool {
-            HStack(alignment: .center, spacing: 11) {
-              Image(systemName: "pencil").font(.system(size: 15, weight: .medium))
-                .foregroundStyle(QuestionPalette.secondary).frame(width: 22, height: 22)
-                .accessibilityHidden(true)
-              TextField("Something else", text: Binding(get: { customAnswer }, set: { value in
-                var draft = store.draft(message.channelId)
-                if draft.widgetCustomAnswers == nil { draft.widgetCustomAnswers = [:] }
-                draft.widgetCustomAnswers?[message.id] = value
-                store.saveDraft(draft, channel: message.channelId)
-                requestID = UUID().uuidString
-              }), axis: .vertical)
-                .font(.body).foregroundStyle(QuestionPalette.text).tint(QuestionPalette.text)
-                .focused($customFocused)
-                .accessibilityIdentifier("widget-custom-" + message.id)
-              if !multi, !widgetAnswer.isEmpty {
-                Button { act("widget-response", body: ["value": .string(widgetAnswer)]) } label: {
-                  Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(QuestionPalette.inverted).frame(width: 26, height: 26)
-                    .background(QuestionPalette.text, in: Circle())
-                    .contentShape(Circle().inset(by: -9))
-                }.buttonStyle(QuestionPressStyle(motion: motion))
-                  .accessibilityLabel("Send answer")
-                  .accessibilityIdentifier("widget-submit-" + message.id)
-                  .transition(.scale(scale: 0.5).combined(with: .opacity))
-              }
-            }.modifier(QuestionTile(on: false, focused: customFocused, motion: motion))
-              .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-              .onTapGesture { customFocused = true }
-              .animation(motion, value: widgetAnswer.isEmpty)
-          }
-        }.transition(.opacity)
-        let actions = HStack(spacing: 6) {
-          Button { act("widget-dismiss") } label: {
-            Text("Skip").font(.subheadline.weight(.medium))
-              .foregroundStyle(QuestionPalette.secondary)
-              .padding(.horizontal, 13).frame(height: 34)
-              .contentShape(Capsule())
-          }.buttonStyle(QuestionPressStyle(motion: motion))
-            .accessibilityLabel("Skip question")
-            .accessibilityIdentifier("widget-dismiss-" + message.id)
-          if multi {
-            Button { act("widget-response", body: ["value": .string(widgetAnswer)]) } label: {
-              Text("Send answer").font(.subheadline.weight(.semibold))
-                .foregroundStyle(widgetAnswer.isEmpty ? QuestionPalette.tertiary : QuestionPalette.inverted)
-                .padding(.horizontal, 14).frame(height: 34)
-                .background(widgetAnswer.isEmpty ? QuestionPalette.fillSelected : QuestionPalette.text,
-                  in: Capsule())
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: widgetAnswer.isEmpty)
-            }.buttonStyle(QuestionPressStyle(motion: motion)).disabled(widgetAnswer.isEmpty)
-              .accessibilityIdentifier("widget-submit-" + message.id)
-          }
-        }.lineLimit(1).fixedSize()
-        // The hint yields on narrow cards; the composer placeholder says the same thing.
-        ViewThatFits(in: .horizontal) {
-          HStack(spacing: 6) {
-            Text("Or reply in chat").font(.footnote).foregroundStyle(QuestionPalette.tertiary)
-              .lineLimit(1).fixedSize()
-            Spacer(minLength: 8)
-            actions
-          }
-          HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            actions
-          }
-        }.transition(.opacity)
-      }
-    }.accessibilityElement(children: .contain)
-      .accessibilityIdentifier("widget-card-" + message.id)
-      .padding(14)
-      .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-      .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-        .stroke(NativePalette.separator, lineWidth: 0.5))
-      .onChange(of: failure) { _, value in if value != nil { pickedOption = nil } }
-  }
-
   @ViewBuilder var secretRequest: some View {
     let request = meta["secretRequest"] == .null ? meta["secret"] : meta["secretRequest"]
     Text(request["label"].string.isEmpty ? "Secure input" : request["label"].string).font(.headline)
@@ -888,12 +686,10 @@ struct RichMessageCard: View {
   }
   func act(_ suffix: String, body: [String: JSON] = [:], clearSecrets: Bool = false) {
     guard !busy else { return }
-    if suffix.hasPrefix("widget") { NativeHaptics.play(.light, source: "widget.submit") }
     busy = true
     failure = nil
     var payload = body
     let action = suffix + ":" + (body["action"]?.string ?? "") + ":" + (body["mode"]?.string ?? "")
-      + (suffix == "widget-response" ? ":" + (body["value"]?.string ?? "") : "")
     if lastAction != action {
       lastAction = action
       requestID = UUID().uuidString
@@ -1103,78 +899,5 @@ struct DraftStatusBadge: View {
     .foregroundStyle(ink)
     .padding(.horizontal, ready ? 8 : 7).padding(.vertical, 2)
     .background(sent ? DraftPalette.greenFill : warning ? DraftPalette.yellowFill : DraftPalette.fillFaint, in: Capsule())
-  }
-}
-
-/// Question card colors: the draft card's ink at the alphas the desktop card uses.
-enum QuestionPalette {
-  static let text = DraftPalette.text
-  static let secondary = DraftPalette.secondary
-  static let tertiary = DraftPalette.tertiary
-  static let inverted = DraftPalette.inverted
-  static let fill = DraftPalette.color("1c1c1c0d", "f5f5f50d")
-  static let fillPressed = DraftPalette.color("1c1c1c17", "f5f5f517")
-  static let fillSelected = DraftPalette.color("1c1c1c1c", "f5f5f51f")
-  static let outline = DraftPalette.color("1c1c1c33", "f5f5f538")
-  static let control = DraftPalette.color("1c1c1c4d", "f5f5f552")
-  static let green = DraftPalette.green
-  static let greenFill = DraftPalette.color("14c16f24", "14c37026")
-}
-
-private struct QuestionCheck: Shape {
-  func path(in rect: CGRect) -> Path {
-    var path = Path()
-    path.move(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.55))
-    path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.36, y: rect.maxY - rect.height * 0.08))
-    path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12))
-    return path
-  }
-}
-
-/// A checkbox for multi-select questions and a radio for single-select ones.
-private struct QuestionControl: View {
-  let multi: Bool
-  let on: Bool
-  let motion: Animation?
-  var body: some View {
-    let shape = RoundedRectangle(cornerRadius: multi ? 7 : 11, style: .continuous)
-    ZStack {
-      shape.fill(on ? QuestionPalette.text : Color.clear)
-      shape.strokeBorder(on ? QuestionPalette.text : QuestionPalette.control, lineWidth: 1.5)
-      if multi {
-        QuestionCheck().trim(from: 0, to: on ? 1 : 0)
-          .stroke(QuestionPalette.inverted, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-          .frame(width: 11, height: 11)
-      } else {
-        Circle().fill(QuestionPalette.inverted).frame(width: 8, height: 8)
-          .scaleEffect(on ? 1 : 0.3).opacity(on ? 1 : 0)
-      }
-    }.frame(width: 22, height: 22).animation(motion, value: on).accessibilityHidden(true)
-  }
-}
-
-private struct QuestionTile: ViewModifier {
-  let on: Bool
-  var focused = false
-  let motion: Animation?
-  func body(content: Content) -> some View {
-    let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
-    content.padding(.horizontal, 12).padding(.vertical, 10)
-      .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-      .background(on ? QuestionPalette.fillSelected : QuestionPalette.fill, in: shape)
-      .overlay(shape.strokeBorder(focused ? QuestionPalette.secondary
-        : on ? QuestionPalette.outline : Color.clear, lineWidth: 1))
-      .contentShape(shape)
-      .animation(motion, value: on).animation(motion, value: focused)
-  }
-}
-
-private struct QuestionPressStyle: ButtonStyle {
-  let motion: Animation?
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed && motion != nil ? 0.975 : 1)
-      .opacity(configuration.isPressed ? 0.75 : 1)
-      .animation(motion, value: configuration.isPressed)
   }
 }

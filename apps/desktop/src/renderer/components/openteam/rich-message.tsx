@@ -29,10 +29,11 @@ import {
 import { MonitorUp } from "lucide-react";
 import { PermissionIcon } from "./permission-icon";
 import {
+  Component,
+  createRef,
   type ReactNode,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -145,78 +146,48 @@ function QuestionGlyph({ name }: { name: keyof typeof questionGlyphs }) {
   );
 }
 
+type QuestionMotion = typeof import("./question-card-motion");
+let questionMotion: QuestionMotion | undefined;
+let questionMotionLoad: Promise<unknown> | undefined;
+
 /**
- * Answering a card collapses its options. In a transcript pinned to the bottom
- * that instantly shifted every message above it; animating the height turns
- * the shift into a short slide, and the receipt fades in as the frame closes
- * around it. The first layout is never animated.
+ * The frame is the card's visible surface. Its motion (arrival, the answer and
+ * skip morphs, the closing height) loads with the first question card, so it
+ * stays out of startup; until then, and under Reduce Motion, cards just change.
+ * `state` is the card's lifecycle state: a change is what gets animated.
  */
-function AnimatedCardHeight({ children }: { children: ReactNode }) {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
-    const stateOf = () =>
-      inner.querySelector<HTMLElement>("[data-rich-widget-state]")?.dataset.richWidgetState;
-    let height = inner.offsetHeight;
-    let state = stateOf();
-    let animation: Animation | null = null;
-    let fade: Animation | null = null;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const syncMotion = () => {
-      if (reducedMotion.matches) {
-        animation?.cancel();
-        fade?.cancel();
-        animation = fade = null;
-      }
+class QuestionFrame extends Component<{ children: ReactNode; state: number }> {
+  frame = createRef<HTMLDivElement>();
+  motion: ReturnType<QuestionMotion["attachQuestionMotion"]> | undefined;
+  componentDidMount() {
+    const attach = () => {
+      const frame = this.frame.current;
+      if (frame && !this.motion) this.motion = questionMotion?.attachQuestionMotion(frame);
     };
-    reducedMotion.addEventListener("change", syncMotion);
-    // Resize observations arrive after layout and before paint, so the frame
-    // that would have shown the new height starts from the old one instead.
-    const observer = new ResizeObserver(() => {
-      const next = inner.offsetHeight;
-      if (next === height) return;
-      const from = animation ? outer.getBoundingClientRect().height : height;
-      const nextState = stateOf();
-      const settled = nextState !== state;
-      height = next;
-      state = nextState;
-      animation?.cancel();
-      animation = null;
-      if (reducedMotion.matches) return;
-      const current = outer.animate([{ height: `${from}px` }, { height: `${next}px` }], {
-        duration: settled ? 260 : 180,
-        easing: "cubic-bezier(0.2, 0.8, 0.3, 1)",
-      });
-      animation = current;
-      current.onfinish = () => {
-        if (animation === current) animation = null;
-      };
-      if (!settled) return;
-      fade?.cancel();
-      fade = inner.animate(
-        [
-          { opacity: 0, transform: "translateY(-4px)" },
-          { opacity: 1, transform: "none" },
-        ],
-        { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" }
-      );
-    });
-    observer.observe(inner);
-    return () => {
-      observer.disconnect();
-      reducedMotion.removeEventListener("change", syncMotion);
-      animation?.cancel();
-      fade?.cancel();
-    };
-  }, []);
-  return (
-    <div data-rich-widget-frame className="w-full max-w-[520px] min-w-0 overflow-hidden rounded-2xl" ref={outerRef}>
-      <div ref={innerRef}>{children}</div>
-    </div>
-  );
+    if (questionMotion) return attach();
+    questionMotionLoad ??= import("./question-card-motion").then(
+      (motion) => (questionMotion = motion),
+      () => undefined
+    );
+    void questionMotionLoad.then(attach);
+  }
+  getSnapshotBeforeUpdate(previous: { state: number }) {
+    return (previous.state !== this.props.state && this.motion?.before()) || null;
+  }
+  componentDidUpdate(previous: { state: number }, _state: unknown, shot: unknown) {
+    if (previous.state !== this.props.state) this.motion?.after(shot);
+  }
+  componentWillUnmount() {
+    this.motion?.detach();
+    this.motion = undefined;
+  }
+  render() {
+    return (
+      <div data-rich-widget-frame className="w-full max-w-[520px] min-w-0 overflow-hidden rounded-2xl" ref={this.frame}>
+        <div>{this.props.children}</div>
+      </div>
+    );
+  }
 }
 
 function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: Widget }) {
@@ -226,8 +197,8 @@ function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: 
     <section className={cn(cardClass, "permission-widget question-card")} data-rich-widget-state="resolved" role="group">
       <p className="question-prompt question-prompt-settled">{widget.prompt}</p>
       <div aria-label="Your answer" className="question-answers" role="group">
-        {answers.map(({ value, label }) => (
-          <div className="question-answer" key={value}>
+        {answers.map(({ value, label, optionIndex }) => (
+          <div className="question-answer" data-option={optionIndex ?? undefined} key={value}>
             <span className="question-answer-check">
               <QuestionGlyph name="check" />
             </span>
@@ -293,8 +264,9 @@ function WidgetCard({
     setLocalMetadata(metadata);
     setError("");
   }, [metadata]);
-  const settled =
-    typeof localMetadata.respondedValue === "string" || localMetadata.widgetDismissed === true;
+  // 0 while it waits, 1 answered, 2 closed without an answer.
+  const state = typeof localMetadata.respondedValue === "string" ? 1 : localMetadata.widgetDismissed === true ? 2 : 0;
+  const settled = state > 0;
   useEffect(() => {
     if (settled && !pending) widgetDrafts.clear(draftKey);
     else widgetDrafts.write(draftKey, custom, selected);
@@ -370,128 +342,130 @@ function WidgetCard({
     return registerRichWidgetShortcut(root, (event) => shortcutHandlerRef.current(event));
   }, [settled]);
 
-  if (typeof localMetadata.respondedValue === "string") {
-    return <ResolvedWidget metadata={localMetadata} widget={widget} />;
-  }
-  if (localMetadata.widgetDismissed === true) return <DismissedWidget metadata={localMetadata} widget={widget} />;
-
   const multi = widget.multiSelect === true;
   const customLetter = widgetOptionLetter(widget.options.length);
   return (
-    <form
-      aria-labelledby={titleId}
-      className={cn(cardClass, "permission-widget question-card")}
-      data-question-mode={multi ? "multi" : "single"}
-      data-rich-widget-state="pending"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit(multi ? selectedValue : custom.trim());
-      }}
-      ref={rootRef}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="question-prompt" id={titleId}>
-          {widget.prompt}
-        </p>
-        {widget.helpText ? <p className="question-help">{widget.helpText}</p> : null}
-      </div>
-      <div className="widget-options">
-        {widget.options.map((option, index) => {
-          const value = optionValue(option);
-          const active = selected.has(value);
-          return (
+    <QuestionFrame state={state}>
+      {state === 1 ? (
+        <ResolvedWidget metadata={localMetadata} widget={widget} />
+      ) : state ? (
+        <DismissedWidget metadata={localMetadata} widget={widget} />
+      ) : (
+        <form
+          aria-labelledby={titleId}
+          className={cn(cardClass, "permission-widget question-card")}
+          data-question-mode={multi ? "multi" : "single"}
+          data-rich-widget-state="pending"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit(multi ? selectedValue : custom.trim());
+          }}
+          ref={rootRef}
+        >
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <p className="question-prompt" id={titleId}>
+              {widget.prompt}
+            </p>
+            {widget.helpText ? <p className="question-help">{widget.helpText}</p> : null}
+          </div>
+          <div className="widget-options">
+            {widget.options.map((option, index) => {
+              const value = optionValue(option);
+              const active = selected.has(value);
+              return (
+                <ButtonPrimitive
+                  aria-keyshortcuts={widgetOptionLetter(index).toLowerCase()}
+                  aria-pressed={multi ? active : undefined}
+                  className="widget-option"
+                  data-tone={option.style === "danger" ? "danger" : undefined}
+                  disabled={pending}
+                  key={`${value}-${index}`}
+                  onClick={() => choose(value)}
+                  type="button"
+                >
+                  <span aria-hidden="true" className="question-control">
+                    {multi ? <QuestionGlyph name="check" /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="widget-option-label">{option.label}</span>
+                    {option.description ? (
+                      <span className="widget-option-description">{option.description}</span>
+                    ) : null}
+                  </span>
+                  <kbd aria-hidden="true" className="widget-option-key">
+                    {widgetOptionLetter(index)}
+                  </kbd>
+                </ButtonPrimitive>
+              );
+            })}
+            {widget.allowCustom ? (
+              <label className="widget-option widget-custom" data-filled={custom.trim() ? "" : undefined}>
+                <span aria-hidden="true" className="question-control question-control-pencil">
+                  <QuestionGlyph name="pencil" />
+                </span>
+                <textarea
+                  aria-label="Custom answer"
+                  aria-keyshortcuts={customLetter.toLowerCase()}
+                  autoComplete="off"
+                  disabled={pending}
+                  onChange={(event) => {
+                    setCustom(event.currentTarget.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      void submit(multi ? selectedValue : custom.trim());
+                    }
+                  }}
+                  placeholder="Something else"
+                  ref={customRef}
+                  rows={1}
+                  spellCheck={false}
+                  value={custom}
+                />
+                <kbd aria-hidden="true" className="widget-option-key">
+                  {customLetter}
+                </kbd>
+                {multi ? null : (
+                  <ButtonPrimitive
+                    aria-label="Send answer"
+                    className="question-send-inline"
+                    disabled={pending || !custom.trim()}
+                    title="Send answer"
+                    type="submit"
+                  >
+                    <QuestionGlyph name="send" />
+                  </ButtonPrimitive>
+                )}
+              </label>
+            ) : null}
+          </div>
+          {error ? (
+            <p role="alert" className="question-error">
+              {error}
+            </p>
+          ) : null}
+          <div className="question-footer">
+            <span className="question-hint">Or reply in chat</span>
             <ButtonPrimitive
-              aria-keyshortcuts={widgetOptionLetter(index).toLowerCase()}
-              aria-pressed={multi ? active : undefined}
-              className="widget-option"
-              data-tone={option.style === "danger" ? "danger" : undefined}
+              aria-label="Skip question"
+              className="question-skip"
               disabled={pending}
-              key={`${value}-${index}`}
-              onClick={() => choose(value)}
+              onClick={() => void dismiss()}
+              title="Skip without answering"
               type="button"
             >
-              <span aria-hidden="true" className="question-control">
-                {multi ? <QuestionGlyph name="check" /> : null}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="widget-option-label">{option.label}</span>
-                {option.description ? (
-                  <span className="widget-option-description">{option.description}</span>
-                ) : null}
-              </span>
-              <kbd aria-hidden="true" className="widget-option-key">
-                {widgetOptionLetter(index)}
-              </kbd>
+              Skip
             </ButtonPrimitive>
-          );
-        })}
-        {widget.allowCustom ? (
-          <label className="widget-option widget-custom" data-filled={custom.trim() ? "" : undefined}>
-            <span aria-hidden="true" className="question-control question-control-pencil">
-              <QuestionGlyph name="pencil" />
-            </span>
-            <textarea
-              aria-label="Custom answer"
-              aria-keyshortcuts={customLetter.toLowerCase()}
-              autoComplete="off"
-              disabled={pending}
-              onChange={(event) => {
-                setCustom(event.currentTarget.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  void submit(multi ? selectedValue : custom.trim());
-                }
-              }}
-              placeholder="Something else"
-              ref={customRef}
-              rows={1}
-              spellCheck={false}
-              value={custom}
-            />
-            {!multi && custom.trim() ? (
-              <ButtonPrimitive
-                aria-label="Send answer"
-                className="question-send-inline"
-                disabled={pending}
-                title="Send answer"
-                type="submit"
-              >
-                <QuestionGlyph name="send" />
+            {multi ? (
+              <ButtonPrimitive className="widget-submit" disabled={pending || !selectedValue} type="submit">
+                Send answer
               </ButtonPrimitive>
-            ) : (
-              <kbd aria-hidden="true" className="widget-option-key">
-                {customLetter}
-              </kbd>
-            )}
-          </label>
-        ) : null}
-      </div>
-      {error ? (
-        <p role="alert" className="question-error">
-          {error}
-        </p>
-      ) : null}
-      <div className="question-footer">
-        <span className="question-hint">Or reply in chat</span>
-        <ButtonPrimitive
-          aria-label="Skip question"
-          className="question-skip"
-          disabled={pending}
-          onClick={() => void dismiss()}
-          title="Skip without answering"
-          type="button"
-        >
-          Skip
-        </ButtonPrimitive>
-        {multi ? (
-          <ButtonPrimitive className="widget-submit" disabled={pending || !selectedValue} type="submit">
-            Send answer
-          </ButtonPrimitive>
-        ) : null}
-      </div>
-    </form>
+            ) : null}
+          </div>
+        </form>
+      )}
+    </QuestionFrame>
   );
 }
 
@@ -730,11 +704,7 @@ export function RichMessage({ message, bot }: { message: ChannelMessageView; bot
   }
   if (metadata.type === "widget") {
     const widget = widgetFrom(metadata.widget);
-    return widget ? (
-      <AnimatedCardHeight>
-        <WidgetCard message={message} metadata={metadata} widget={widget} />
-      </AnimatedCardHeight>
-    ) : null;
+    return widget ? <WidgetCard message={message} metadata={metadata} widget={widget} /> : null;
   }
   if (metadata.type === "secret-request") {
     const request = secretFrom(metadata.secretRequest ?? metadata.secret);

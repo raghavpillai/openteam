@@ -38,41 +38,15 @@ final class InboxPresentationTests: XCTestCase {
       InboxPresentation.activity(latest: nil, runs: [run("completed"), run("running")]), .working)
   }
 
-  func testPendingQuestionTakesPriorityOverRunningWork() {
-    XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: []), .needsAnswer)
-    XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: [run("running")]), .needsAnswer)
-    var pending = question()
-    pending.metadata["cardState"] = .string("pending")
-    XCTAssertEqual(InboxPresentation.activity(latest: pending, runs: []), .needsAnswer)
-  }
-
-  func testPendingHistoryQuestionTakesPriorityWhilePreviewUsesLatestUserOrAgentMessage() {
-    let pending = question()
-    var latest = message("The latest update")
+  func testQuestionsUseCardsAndUnreadStateRatherThanPersistentAttentionBadges() {
+    XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: []), .idle)
+    XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: [run("running")]), .working)
+    var latest = message("Moved on")
     latest.id = "latest"
     latest.sequence = "11"
-    for sender in ["user", "agent"] {
-      latest.sender = sender
-      XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [run("running")],
-        messages: [pending, latest]), .needsAnswer)
-      XCTAssertEqual(InboxPresentation.preview(latest), "The latest update")
-      XCTAssertNil(InboxPresentation.previewSymbol(latest))
-    }
-    XCTAssertEqual(InboxPresentation.activity(latest: nil, runs: [], messages: [pending]), .needsAnswer)
-  }
-
-  func testResolvedHistoryQuestionAndAuthoritativeLatestCopyClearWaiting() {
-    let pending = question()
-    var latest = message("The latest update")
-    latest.id = "latest"
-    for (key, value) in [("respondedValue", JSON.string("yes")), ("widgetDismissed", .bool(true))] {
-      var resolved = pending
-      resolved.metadata[key] = value
-      XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [run("running")],
-        messages: [resolved, latest]), .working)
-      XCTAssertEqual(InboxPresentation.activity(latest: resolved, runs: [], messages: [pending]), .idle)
-      XCTAssertEqual(InboxPresentation.activity(latest: pending, runs: [], messages: [resolved]), .needsAnswer)
-    }
+    XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [], messages: [question(), latest]), .idle)
+    let approval = message(metadata: .object(["type": .string("external-draft"), "cardState": .string("pending")]))
+    XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [], messages: [approval, latest]), .needsAnswer)
   }
 
   func testAnsweredDismissedAndTerminalQuestionsClearWaiting() {
@@ -105,7 +79,7 @@ final class InboxPresentationTests: XCTestCase {
     noActions.metadata["widget"]["allowCustom"] = .bool(false)
     XCTAssertEqual(InboxPresentation.activity(latest: noActions, runs: []), .idle)
     noActions.metadata["widget"]["allowCustom"] = .bool(true)
-    XCTAssertEqual(InboxPresentation.activity(latest: noActions, runs: []), .needsAnswer)
+    XCTAssertEqual(InboxPresentation.activity(latest: noActions, runs: []), .idle)
   }
 
   func testPendingCardsAndTheirDurableOutcomes() {

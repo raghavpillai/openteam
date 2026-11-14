@@ -29,7 +29,8 @@
     "./channel-history": "./src/channel-history.ts",
     "./outgoing-messages": "./src/outgoing-messages.ts",
     "./read-receipts": "./src/read-receipts.ts",
-    "./bot-avatar": "./src/bot-avatar.ts"
+    "./bot-avatar": "./src/bot-avatar.ts",
+    "./questions": "./src/questions.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

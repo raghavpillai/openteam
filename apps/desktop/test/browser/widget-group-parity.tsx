@@ -301,21 +301,23 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   await pause(450);
   check(
     card(third.id).dataset.richWidgetState === "resolved" &&
-      card(second.id).dataset.richWidgetState === "pending",
-    "Shortcut chose wrong pending card"
+      card(second.id).dataset.richWidgetState === "dismissed",
+    "Settling the newest card must also retire older unanswered questions"
   );
+  const retryCard = msg("", widget("Dismissal retry"));
+  messages.push(retryCard); draw(); await pause(200);
   fail = true;
-  card(second.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
+  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
   await pause(450);
   check(
-    card(second.id).dataset.richWidgetState === "pending" &&
-      !!card(second.id).querySelector('[role="alert"]'),
+    card(retryCard.id).dataset.richWidgetState === "pending" &&
+      !!card(retryCard.id).querySelector('[role="alert"]'),
     "Failed dismissal lost card"
   );
   fail = false;
-  card(second.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
+  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
   await pause(450);
-  check(card(second.id).dataset.richWidgetState === "dismissed", "Dismiss did not settle");
+  check(card(retryCard.id).dataset.richWidgetState === "dismissed", "Dismiss did not settle");
   reports.push({
     theme,
     kind,
@@ -335,6 +337,26 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   });
   console.log(`WIDGET_CAPTURE ${theme}-${kind}`);
   await pause(200);
+  if (kind === "bot_dm") {
+    const q = msg("", widget("Lifecycle question", true));
+    messages = [q]; draw(); await pause(200);
+    const composerHint = document.querySelector<HTMLElement>('[role="textbox"][aria-label="Message"]');
+    check(composerHint?.dataset.placeholder === "Type your answer, or talk about something else", "Question hint missing");
+    await setInput(card(q.id).querySelector("textarea")!, "Draft answer");
+    card(q.id).querySelector<HTMLButtonElement>("button.widget-option")!.click(); await pause();
+    const beforeMoveOn = calls.length;
+    const user = { ...msg("Unrelated message"), sender: "user" as const, senderBotId: null };
+    messages.push(user); draw(); await pause(200);
+    check(card(q.id).dataset.richWidgetState === "dismissed", "New user message left old question active");
+    check(calls.length === beforeMoveOn, "Moving on submitted a draft card answer");
+    check(!card(q.id).querySelector("textarea"), "Abandoned custom field remained editable");
+    render(null); await pause(); draw(); await pause(200);
+    check(card(q.id).dataset.richWidgetState === "dismissed", "Remount revived old question");
+    check(document.querySelector<HTMLElement>('[role="textbox"][aria-label="Message"]')?.dataset.placeholder !== "Type your answer, or talk about something else", "Stale composer hint");
+    const fresh = msg("", widget("Ask again")); messages.push(fresh); draw(); await pause(200);
+    check(card(fresh.id).dataset.richWidgetState === "pending", "Fresh question was dismissed by older history");
+    check(card(q.id).dataset.richWidgetState === "dismissed", "Fresh question revived old card");
+  }
   if (kind === "bot_dm") {
     messages = [
       msg("Incoming exchange", { fromAgent: { id: bots[1]!.id, name: bots[1]!.name } }),

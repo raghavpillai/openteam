@@ -33,6 +33,7 @@ describe("durable message acceptance boundary", () => {
     let runtimeContent="";
     const tx = {
       $executeRaw: async () => 0,
+      $queryRaw: async () => [],
       conversation: {
         findUnique: async () => ({
           botId: "bot-1",
@@ -88,6 +89,7 @@ describe("durable message acceptance boundary", () => {
     const message = acceptedMessage(channelId, clientId);
     const tx = {
       $executeRaw: async () => 0,
+      $queryRaw: async () => [],
       channel: {
         findUnique: async () => ({
           id: channelId,

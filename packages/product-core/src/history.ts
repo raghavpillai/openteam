@@ -128,7 +128,19 @@ const preservingClientDelivery = (
   previous: ChannelMessageView,
   incoming: ChannelMessageView
 ): ChannelMessageView => {
-  const clientDelivery = metadataFor(previous).clientDelivery;
+  const previousMetadata = metadataFor(previous);
+  if (previousMetadata.type === "widget" &&
+      (typeof previousMetadata.respondedValue === "string" || previousMetadata.widgetDismissed === true)) {
+    // Settlement is immutable for a question ID. A stale page/HTTP response may
+    // update reactions or other fields, but cannot reopen or change the answer.
+    const metadata = { ...metadataFor(incoming) };
+    for (const key of ["respondedValue", "respondedLabel", "widgetDismissed", "widgetDismissalReason", "widgetDismissClientId", "widgetResponseClientId"]) {
+      delete metadata[key];
+      if (key in previousMetadata) metadata[key] = previousMetadata[key];
+    }
+    incoming = { ...incoming, metadata };
+  }
+  const clientDelivery = previousMetadata.clientDelivery;
   if (!clientDelivery || typeof clientDelivery !== "object" || Array.isArray(clientDelivery)) {
     return incoming;
   }

@@ -142,6 +142,11 @@ final class AppStore {
   }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
+  func questionMessages(_ channelID: String) -> [Message] {
+    let latest = state.bootstrap?.latestMessages.filter { $0.channelId == channelID } ?? []
+    return QuestionLifecycle.project(MessageMerge.merge(messages(channelID), latest),
+      pending: state.outbox.filter { $0.channelId == channelID })
+  }
   /// The channel's newest known message, for previews. Bootstrap can know a
   /// newer one than a loaded transcript, which receives it with its next page.
   func latestMessage(_ id: String) -> Message? {
@@ -1338,8 +1343,6 @@ final class AppStore {
       !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || !current.attachments.isEmpty || !(current.stagedFiles ?? []).isEmpty
     else { return }
-    if threadRootID == nil, replyRootID == nil,
-      await answerWidgetFromComposer(channel, draftKey: key) { return }
     #if canImport(UIKit)
       NativeHaptics.play(.light, source: "message.send")
     #endif

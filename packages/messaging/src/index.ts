@@ -1,3 +1,5 @@
+export { lockQuestions, dismissQuestions, questionScopeForReply } from "./question-lifecycle";
+import { lockQuestions, dismissQuestions, questionScopeForReply } from "./question-lifecycle";
 export { lockAgentLifecycle } from "./agent-lifecycle";
 import { canonicalAgentId, lockAgentLifecycle } from "./agent-lifecycle";
 export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-agent-cleanup";
@@ -464,7 +466,7 @@ export const buildDismissedQuestionsNote = (prompts: readonly string[]): string 
 export const buildUnansweredQuestionNote = (prompt: string, repliedInChat: boolean): string =>
   repliedInChat
     ? `You asked the user a question (${JSON.stringify(prompt)}) and they replied in chat instead of answering on the card. Their message below may be the answer or may be about something else; decide from what they wrote. If it answers the question, act on it without asking again. If not, treat the question as skipped: continue with what you already know, and only ask again if you still genuinely need it.`
-    : `You asked the user (${JSON.stringify(prompt)}) and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card has closed. Don't put the question on a new card; if it still matters, say in your update that it's waiting on them, and they can answer in chat.`;
+    : `You asked the user (${JSON.stringify(prompt)}) and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card is still available. Don't repeat it or block unrelated work; wait for an explicit answer if this task needs one.`;
 
 export const GROUP_AGENT_MESSAGE_LIMIT = 8_000;
 
@@ -2176,6 +2178,10 @@ export class AgentMessaging {
       }
       if (metadata.type === "widget") {
         if (metadata.widgetDismissed === true) {
+          if (metadata.widgetDismissalReason === "moved-on") {
+            return [buildUnansweredQuestionNote(message.content, true)];
+          }
+          if (metadata.widgetDismissalReason === "superseded") return [];
           dismissedWidgetPrompts.push(message.content);
           return [];
         }
@@ -2768,6 +2774,7 @@ export class AgentMessaging {
             })
           : activeChannel;
       if (!channel) throw new Error("The agent's home chat is unavailable");
+      await lockQuestions(tx, channel.id);
       const inheritsFork = context.isFork && !privateDm;
       const replyAddress =
         input.reply_to?.trim() ||
@@ -2848,6 +2855,10 @@ export class AgentMessaging {
         }, GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE);
         return { acknowledgement: { sent: true, queued: true, channel_id: channel.id, channel_type: "group", message_id: buffered.id, message_address: buffered.id }, interruptRunId: null };
       }
+      const questionScopeId = questionScopeForReply(inheritsFork, replyTarget);
+      if (input.type === "widget") {
+        await dismissQuestions(tx, channel.id, questionScopeId, "superseded");
+      }
       const { reply_to: _replyTo, ...visibleInput } = persistedInput;
       let routineRootMessageId: string | undefined;
       if (channel.kind === "group") {
@@ -2874,7 +2885,7 @@ export class AgentMessaging {
             ...(routineRootMessageId ? { routineRootMessageId } : {}),
             address,
             ...(replyTarget ? { replyTo: replyTarget.id } : {}),
-            ...(inheritsFork ? { branched: true } : {}),
+            ...(inheritsFork ? { branched: true, questionScopeId } : {}),
             timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))),
           }),
         },
@@ -3068,6 +3079,7 @@ const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {
             ? { respondedLabel: record.respondedLabel }
             : {}),
           ...(record.widgetDismissed === true ? { widgetDismissed: true } : {}),
+          ...(typeof record.widgetDismissalReason === "string" ? { widgetDismissalReason: record.widgetDismissalReason } : {}),
         }
       : {}),
     ...(secretRequest

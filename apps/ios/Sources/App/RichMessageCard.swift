@@ -35,7 +35,21 @@ struct RichMessageCard: View {
   @State private var saveToVault = false
   @State private var requestID = UUID().uuidString
   @State private var lastAction = ""
-  private var meta: JSON { message.metadata }
+  private var meta: JSON {
+    guard message.metadata["type"].string == "widget" else { return message.metadata }
+    return store.questionMessages(message.channelId).first { $0.id == message.id }?.metadata ?? message.metadata
+  }
+  private var customAnswer: String {
+    store.draft(message.channelId).widgetCustomAnswers?[message.id] ?? ""
+  }
+  private var widgetAnswer: String {
+    let widget = meta["widget"]
+    let values = widget["multiSelect"].bool ? widget["options"].array.map {
+      $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
+    }.filter(selected.contains) : []
+    return (values + (customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? [] : [customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)])).joined(separator: "\n")
+  }
   private var type: String { meta["type"].string }
   private var state: String {
     meta["cardState"].string.isEmpty ? "pending" : meta["cardState"].string
@@ -206,7 +220,6 @@ struct RichMessageCard: View {
                 var values = selected
                 if values.contains(value) { values.remove(value) } else { values.insert(value) }
                 var draft = store.draft(message.channelId)
-                draft.widgetResponse = nil
                 if draft.widgetSelections == nil { draft.widgetSelections = [:] }
                 draft.widgetSelections?[message.id] = widget["options"].array.map {
                   $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
@@ -249,19 +262,26 @@ struct RichMessageCard: View {
           Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
             .accessibilityIdentifier("widget-dismissed-" + message.id)
         } else {
-          if widget["multiSelect"].bool {
+          if widget["allowCustom"].bool {
+            TextField("Something else", text: Binding(get: { customAnswer }, set: { value in
+              var draft = store.draft(message.channelId)
+              if draft.widgetCustomAnswers == nil { draft.widgetCustomAnswers = [:] }
+              draft.widgetCustomAnswers?[message.id] = value
+              store.saveDraft(draft, channel: message.channelId)
+              requestID = UUID().uuidString
+            }), axis: .vertical)
+              .textFieldStyle(.roundedBorder).accessibilityIdentifier("widget-custom-" + message.id)
+          }
+          if widget["multiSelect"].bool || widget["allowCustom"].bool {
             Button {
-              let values = widget["options"].array.map {
-                $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-              }.filter(selected.contains)
-              act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
+              act("widget-response", body: ["value": .string(widgetAnswer)])
             } label: {
               Text("Submit").font(.system(size: 15, weight: .medium))
-                .foregroundStyle(selected.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
+                .foregroundStyle(widgetAnswer.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
                 .frame(maxWidth: .infinity).frame(height: 38)
-                .background(selected.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
+                .background(widgetAnswer.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
                   in: RoundedRectangle(cornerRadius: 9))
-            }.buttonStyle(WidgetSubmitStyle()).disabled(selected.isEmpty)
+            }.buttonStyle(WidgetSubmitStyle()).disabled(widgetAnswer.isEmpty)
               .accessibilityIdentifier("widget-submit-" + message.id)
           }
         }
@@ -270,11 +290,8 @@ struct RichMessageCard: View {
       .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
       .overlay(RoundedRectangle(cornerRadius: 18)
         .stroke(NativePalette.separator, lineWidth: 0.5))
-    if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool && widget["allowCustom"].bool {
-      Text("Or answer in the chat below").font(.system(size: 14))
-        .foregroundStyle(NativePalette.chatFaint).padding(.leading, 14)
-    }
   }
+
   @ViewBuilder var secretRequest: some View {
     let request = meta["secretRequest"] == .null ? meta["secret"] : meta["secretRequest"]
     Text(request["label"].string.isEmpty ? "Secure input" : request["label"].string).font(.headline)

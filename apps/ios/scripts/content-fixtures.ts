@@ -22,6 +22,7 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
     );
     return snapshot;
   }
+  if(scene==='widget-pending')Object.assign(message,{sender:'agent',metadata:{type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true}}});
   if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
   if(scene==='type-size')message.content='Hello';
   if(scene==='plain-link')message.content="Here's one: [Wikipedia's random article page](https://en.wikipedia.org/wiki/Special:Random). It opens a different article every time you click it.";

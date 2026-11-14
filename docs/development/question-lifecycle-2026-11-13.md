@@ -1,0 +1,54 @@
+# Question lifecycle in Grok Bot and OpenTeam
+
+Ordinary question cards stop being actionable when the user sends another message. The message remains normal conversation: it can answer the question in context or change the subject. Only submitting the card records a structured answer. OpenTeam applies this rule durably on the server and projects it immediately on desktop and iOS.
+
+## Native Grok Bot observations
+
+The macOS Grok Bot 1.0.1 app was exercised on November 13, 2026 in the isolated bot `Question Lifecycle QA Nov13`. All choices were synthetic; the bot was instructed not to use connectors, send external messages, run commands, create files, save memories, or delegate.
+
+| Interaction | Observed result |
+| --- | --- |
+| Ignore a Red/Blue card and ask what 2 + 2 is | The card immediately becomes Dismissed, loses its buttons, and the composer returns to its normal prompt. The bot answers 4. |
+| Leave an unanswered Circle/Square card, switch to another chat, and return | The card remains actionable and the question composer hint remains. The earlier dismissed card stays dismissed. |
+| Send another unrelated message after returning | The Circle/Square card immediately becomes Dismissed. |
+| Ask to revisit the earlier color question | A fresh card appears. The original remains dismissed. Selecting Blue on the fresh card displays Your answer: Blue. |
+| Type Blue into the main composer while a Red/Blue card is open, then press Enter | Blue appears as a normal user message. The old card becomes Dismissed, without a structured answer. The bot replies that Blue was selected based on the conversation. |
+| Select Alpha and draft Gamma in a multi-select card, then send an unrelated chat message | The card becomes Dismissed. The selected option and unfinished custom answer are not submitted. |
+| Type Skip that sample choice | The card becomes Dismissed as the normal message is sent. |
+| Inspect the sidebar while a question is pending | A blue unread dot appears; no orange star is shown. The composer says Type your answer, or talk about something else. |
+
+The final synthetic choice remained actionable for roughly eleven minutes before the final skip message. This establishes neither a days-long lifetime nor a universal age timeout.
+
+The tested single-choice card's context menu offered reply, copy and request-ID actions. No separate dismiss control appeared in that card's accessibility tree or screenshot. The installed renderer nevertheless has an explicit dismissal path. OpenTeam retains its existing explicit Dismiss control.
+
+## Installed client behavior
+
+Read-only inspection of the installed `app.asar` agrees with the native observations. In the renderer bundle `index.eager-app-C1EubAxZ.js`, `WH` computes historical dismissed widgets by scanning backward across real user-message boundaries and settled widgets. `KJt` selects the current question, stopping at those same boundaries. `RR` distinguishes active, resolved and dismissed presentation. Synthetic system notices are excluded from ordinary user boundaries by `HJt`.
+
+A card submission goes through `respondToWidget`; explicit dismissal uses `dismissWidget`. Normal composer sends go through `sendPrompt`. The renderer also contains an opportunistic answer-settlement path with per-card deduplication; the live typed-Blue test did not display a structured answer on its card. These findings describe the shipped client, not the private server implementation.
+
+## Different request lifetimes
+
+Question cards are distinct from approvals, drafts, credentials, forms and computer handoffs. Grok's [troubleshooting documentation](https://docs.x.ai/grok-bot/troubleshooting#an-approval-expired-or-is-blocked) says approvals from background work expire after about 30 minutes, while approvals from a chat the user is participating in wait for the user. The [November 6 changelog](https://x.ai/changelog/bot) says abandoned computer handoffs stop showing Waiting for you after 24 hours. Neither rule establishes an age timeout for ordinary questions.
+
+## OpenTeam implementation
+
+Every newly accepted normal message retires outstanding questions in that conversation scope, including typed answers, attachments and replies. Retries of an already accepted message do not dismiss a question published afterward. Answering a retired question from a stale client returns the authoritative card without waking a bot.
+
+Question publication, normal messages, answers and dismissals share a per-channel transaction lock. Publication retires an earlier open question in the same scope, giving OpenTeam one active question per scope. This is an OpenTeam invariant; concurrent background Grok questions were not exercised. Main conversations and fork roots have independent scopes. A fresh card never revives its predecessor.
+
+The database preserves `respondedValue` for explicit card answers. Dismissal preserves the question and records `widgetDismissalReason`: `moved-on`, `dismissed`, or `superseded`. Model context distinguishes moving on from an explicit decline: a normal message may supply the answer, while silence and skipped questions never grant permission. Dismissal does not generate a separate conversational wake.
+
+Desktop and iOS derive the same historical presentation without rewriting cached messages. Optimistic sends close questions immediately; removing a definitely rejected send can restore the still-pending card. Server settlement prevents history paging, relaunches and reconnects from reactivating retired questions. Structured answers remain visible after later messages.
+
+iOS custom answers live inside the card and have an explicit Submit button, separate from the normal composer. Both clients show the contextual question hint. Ordinary questions no longer create iOS's persistent orange star; requests such as pending drafts and credentials retain their independent attention state.
+
+The opt-in `dismissOnMoveOn` tool field and iOS's composer-to-widget answer path were removed. There is no compatibility mode or data backfill. Existing unanswered cards settle on the next accepted message; presentation also respects later messages already in loaded history. No new age-based expiration is inferred for ordinary questions.
+
+## Validation
+
+The isolated PostgreSQL tests cover normal typed replies, rejected stale answers, idempotent message retries, explicit answers and dismissals, fresh publication, fork isolation and eight answer-versus-send races. The wider direct-message, attachment and group-supersession checks pass as well.
+
+All 301 Swift core tests pass. The Xcode 27.3 simulator build passes, and a native UI test on a fresh iOS 27.1 Duo simulator verifies that an unfinished multi-select/custom card is dismissed when a normal message is sent, with no widget-response or widget-dismiss request. The existing Electron fixture passes in light and dark themes for direct and group presentation, including navigation, abandoned custom input, keyboard shortcuts and dismissal retry behavior. TypeScript checks and architecture boundaries pass.
+
+The signed-in startup closure measures 1,336,098 bytes versus 1,334,586 in an untouched build of the same main commit, an increase of 1,512 bytes. Its budget gains a bounded 2 KB allowance. The size gate still reports two identical pre-existing failures in both builds: preload is 10,008 bytes against a 10,000-byte limit, and the voice-memo closure is 67,330 against 64,900. Those ceilings and modules are unchanged.

@@ -63,10 +63,9 @@ public enum InboxPresentation {
     guard state.isEmpty || state == "pending" else { return false }
     switch metadata["type"].string {
     case "widget":
-      let widget = metadata["widget"]
-      return metadata["respondedValue"] == .null && !metadata["widgetDismissed"].bool
-        && !MessagePreview.trim(widget["prompt"].string).isEmpty
-        && (!widget["options"].array.isEmpty || widget["allowCustom"].bool)
+      // Ordinary questions use their card, composer hint, and unread state.
+      // Persistent attention badges belong to requests that still need an action.
+      return false
     case "secret-request":
       return !metadata["secretProvided"].bool
     case "user-form", "external-draft", "imessage-send":

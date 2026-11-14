@@ -210,6 +210,30 @@ import XCTest
     XCTAssertTrue(done.waitForNonExistence(timeout: 5), "Closing the in-app browser did not dismiss it")
     XCTAssertTrue(link.waitForExistence(timeout: 5), "Closing the browser did not return to the chat")
   }
+  func testNormalComposerMovesPastQuestionWithoutSubmittingCardDraft() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 10))
+    app.buttons["Alpha"].tap()
+    let custom = app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch
+    XCTAssertTrue(custom.exists)
+    custom.tap()
+    custom.typeText("Unsubmitted Gamma")
+    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    composer.tap()
+    composer.typeText("New topic")
+    app.buttons["send-button"].tap()
+    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["widget-submit-content-fixture"].exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
+    let snapshot = try await state()
+    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
+    capture("question-moved-on", app)
+  }
+
   func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
     for dark in [true, false] {
       let app = try await launch("widget-completed", dark: dark)

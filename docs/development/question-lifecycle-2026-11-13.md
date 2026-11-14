@@ -49,7 +49,7 @@ The same isolated bot was exercised with fresh `PARITY-Q6` through `PARITY-Q9` c
 | Select Alpha, draft Gamma, navigate to a different chat and back | Both unfinished inputs remain; the card is still actionable | Desktop session drafts and iOS channel drafts already preserve navigation state |
 | Reload the desktop app with those unfinished inputs | The question remains open; the selection and custom text reset | Matches OpenTeam desktop's session-only question draft store |
 | Press the next letter after the option shortcuts | Focuses the inline custom answer field | Added this desktop shortcut and the Something else placeholder |
-| Press Done on a multi-select card with nothing selected or typed | Card becomes Dismissed, with no structured answer; no new bot reply appeared before the next user message | Added always-available Done on desktop/iOS; an empty Done uses explicit dismissal |
+| Press Done on a multi-select card with nothing selected or typed | Card becomes Dismissed, with no structured answer; no new bot reply appeared before the next user message | The always-available desktop/iOS action uses explicit dismissal when empty; its final UI label is Skip question, changing to Send answer when populated |
 | Submit Alpha plus custom Gamma | Your answer displays Alpha and Gamma, and the bot acknowledges both | Existing combined answer construction matches; Electron regression covers it |
 | Press Enter in an empty single-choice custom field | Card remains open and no answer is submitted | Existing empty-answer guard matches |
 | Send later normal messages after structured answers | Earlier Your answer receipts remain resolved | Covered by both client projections and history tests |
@@ -76,6 +76,14 @@ TypeScript and Swift each run 100 deterministic seeds with 80 transitions: 8,000
 PostgreSQL fault coverage adds rollback after settlement/event insertion, sixteen five-request races (duplicate structured responses, explicit dismissal, duplicate normal sends), retry after a lost acknowledgement, questions published by independent worker runs, replay of an older publication nonce, publication racing the previous answer, and fork isolation. Only one terminal outcome and one normal message persist; only a winning structured answer produces its response wake. The existing same-run pending-question guard remains enforced. Durable approval state remains independent.
 
 These caches protect canonical receipts actually observed by the client. They do not retain unlimited history, fabricate answers from projected dismissal, or replace the server's durable authority after eviction/relaunch. Optimistic sends still depend on their existing local timestamp ordering; local clock skew before acceptance was not established as equivalent to Grok. Real two-client Grok races, process death inside Grok's server, and arbitrary multi-day behavior remain unverified.
+
+### Clearer OpenTeam question UI
+
+The interaction contract remains the same, with deliberately clearer UI copy than Grok. An empty multi-select action says **Skip question** and uses a secondary style; selecting options or entering a custom answer changes it to **Send answer**. Single custom-answer submission uses the same Send answer label. The close control is accessible as Skip question.
+
+Pending cards explain: “Reply in chat to answer or move on. This card will close.” Closed cards show their actual reason: **Continued in chat** (“This question closed when you sent a message.”), **Skipped** (“No answer was sent from this card.”), or **Replaced** (“A newer question took its place.”). A typed chat answer is never mislabeled as a structured card submission, and moving on is no longer presented as an unexplained dismissal. No question icon, toast, or confirmation step is added.
+
+Desktop light/dark and direct/group interaction tests cover the action-label transition, skip versus answer endpoints, and distinct closure reasons. Native iOS checks cover the same label transition and verify the explanation after a normal chat message. Desktop captures were inspected in both themes.
 
 ## Installed client behavior
 
@@ -108,7 +116,7 @@ The opt-in `dismissOnMoveOn` tool field and iOS's composer-to-widget answer path
 - **168 TypeScript tests** pass across product-core and question-notification coverage, including 12 chaos tests. **305 Swift core tests** pass, including the seeded receipt-history fault suite.
 - **Four PostgreSQL tests / 159 assertions** pass across question lifecycle, widget integration and durable message acceptance. This includes the original eight answer/send races and sixteen additional mixed races.
 - **Six Electron scenarios** pass: four direct/group/light/dark interaction cases and two real state-hook history replay cases (answered/dismissed). Run the latter with `bun --filter @openteam/desktop test:question-history:chaos`.
-- **Three native iOS UI tests** pass: empty Done dismisses without an answer; a normal composer send abandons an unfinished card draft without a widget action; stale history does not reopen a dismissed card. The strengthened history test waits for a visible marker from the replayed page. Xcode 27.3 builds the app and tests for the isolated iOS 27.1 simulator.
+- **Three native iOS UI tests** pass: empty Skip question dismisses without an answer; a normal composer send abandons an unfinished card draft without a widget action; stale history does not reopen a dismissed card. The strengthened history test waits for a visible marker from the replayed page. Xcode 27.3 builds the app and tests for the isolated iOS 27.1 simulator.
 - Desktop, server and product-core TypeScript checks, architecture boundaries and the desktop build pass.
 
-The final workspace startup closure measures **1,338,466 B**, versus **1,334,586 B** in the untouched same-base build (+3,880 B), within a bounded 4 KB feature allowance. The size gate retains only the two independently reproduced baseline failures: preload 10,008 > 10,000 B and voice memo 67,330 > 64,900 B. Their modules and ceilings remain unchanged.
+The final workspace startup closure measures **1,339,057 B**, versus **1,334,586 B** in the untouched same-base build (+4,471 B), within a bounded 5 KB feature allowance. The size gate retains only the two independently reproduced baseline failures: preload 10,008 > 10,000 B and voice memo 67,330 > 64,900 B. Their modules and ceilings remain unchanged.

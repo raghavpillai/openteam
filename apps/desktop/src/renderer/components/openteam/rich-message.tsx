@@ -194,20 +194,26 @@ function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: 
   );
 }
 
-function DismissedWidget({ widget }: { widget: Widget }) {
+function DismissedWidget({ widget, metadata }: { widget: Widget; metadata: RichMetadata }) {
+  const [label, explanation] = metadata.widgetDismissalReason === "moved-on"
+    ? ["Continued in chat", "This question closed when you sent a message."]
+    : metadata.widgetDismissalReason === "superseded"
+      ? ["Replaced", "A newer question took its place."]
+      : ["Skipped", "No answer was sent from this card."];
   return (
     <section
       aria-disabled="true"
-      className={cn(cardClass, "permission-widget flex-row items-start gap-2")}
+      className={cn(cardClass, "permission-widget")}
       data-rich-widget-state="dismissed"
       role="group"
     >
-      <p className={cn("m-0 min-w-0 flex-1 text-[14px] font-medium leading-5", secondaryText)}>
-        {widget.prompt}
-      </p>
-      <span className="widget-dismissed-pill">
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-current" /> <span>Dismissed</span>
-      </span>
+      <div className="flex min-w-0 items-start gap-2">
+        <p className={cn("m-0 min-w-0 flex-1 text-[14px] font-medium leading-5", secondaryText)}>
+          {widget.prompt}
+        </p>
+        <span className="widget-dismissed-pill">{label}</span>
+      </div>
+      <p className={cn("m-0 text-xs leading-5", secondaryText)}>{explanation}</p>
     </section>
   );
 }
@@ -259,7 +265,7 @@ function WidgetCard({
     const previous = authoritative.current;
     setPending(true);
     setError("");
-    setLocalMetadata({ ...previous, ...(value === undefined ? { widgetDismissed: true } : { respondedValue: value }) });
+    setLocalMetadata({ ...previous, ...(value === undefined ? { widgetDismissed: true, widgetDismissalReason: "dismissed" } : { respondedValue: value }) });
     try {
       const result =
         value === undefined
@@ -274,12 +280,12 @@ function WidgetCard({
           typeof next.respondedValue !== "string" &&
           next.widgetDismissed !== true
         )
-          setError("We couldn't confirm your answer. Check this card before trying again.");
+          setError("We couldn't confirm this change. Check the card before trying again.");
       }
     } catch {
       if (authoritative.current === previous) {
         setLocalMetadata(previous);
-        setError("We couldn't confirm your answer. Check the card in a moment before trying again.");
+        setError("We couldn't confirm this change. Check the card in a moment before trying again.");
       }
     } finally {
       inFlight.current = false;
@@ -322,7 +328,7 @@ function WidgetCard({
   if (typeof localMetadata.respondedValue === "string") {
     return <ResolvedWidget metadata={localMetadata} widget={widget} />;
   }
-  if (localMetadata.widgetDismissed === true) return <DismissedWidget widget={widget} />;
+  if (localMetadata.widgetDismissed === true) return <DismissedWidget metadata={localMetadata} widget={widget} />;
 
   return (
     <form
@@ -346,11 +352,11 @@ function WidgetCard({
           ) : null}
         </div>
         <ButtonPrimitive
-          aria-label="Dismiss question"
+          aria-label="Skip question"
           className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 dark:text-[#f0f0f0]/60 hover:bg-black/[0.06] disabled:opacity-40 dark:hover:bg-white/[0.07]"
           disabled={pending}
           onClick={() => void dismiss()}
-          title="Dismiss without answering"
+          title="Skip without answering"
           type="button"
         >
           <PermissionIcon name="close" className="size-3" />
@@ -418,7 +424,7 @@ function WidgetCard({
               disabled={pending}
               type="submit"
             >
-              Submit
+              Send answer
             </ButtonPrimitive>
           ) : null}
         </div>
@@ -432,13 +438,17 @@ function WidgetCard({
         <div className="flex w-full justify-end">
           <ButtonPrimitive
             className="widget-submit disabled:opacity-40"
+            data-question-action={selectedValue ? "answer" : "skip"}
             disabled={pending}
             type="submit"
           >
-            Done
+            {selectedValue ? "Send answer" : "Skip question"}
           </ButtonPrimitive>
         </div>
       ) : null}
+      <p className={cn("m-0 text-xs leading-5", secondaryText)}>
+        Reply in chat to answer or move on. This card will close.
+      </p>
     </form>
   );
 }

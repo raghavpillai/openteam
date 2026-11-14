@@ -225,6 +225,8 @@ import XCTest
     app.buttons["send-button"].tap()
     let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
     XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    XCTAssertEqual(dismissed.label, "Continued in chat")
+    XCTAssertTrue(app.staticTexts["This question closed when you sent a message."].exists)
     XCTAssertFalse(app.buttons["widget-submit-content-fixture"].exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
     let snapshot = try await state()
@@ -264,15 +266,22 @@ import XCTest
     XCTAssertFalse(done.exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
   }
-  func testEmptyQuestionDoneDismissesWithoutAnAnswer() async throws {
+  func testEmptyQuestionActionClearlySkipsWithoutAnAnswer() async throws {
     let app = try await launch("widget-pending", dark: true)
     defer { app.terminate() }
     let done = app.buttons["widget-submit-content-fixture"]
     XCTAssertTrue(done.waitForExistence(timeout: 10))
-    XCTAssertEqual(done.label, "Done")
+    XCTAssertEqual(done.label, "Skip question")
+    XCTAssertTrue(app.staticTexts["Reply in chat to answer or move on. This card will close."].exists)
+    app.buttons["Alpha"].tap()
+    XCTAssertEqual(done.label, "Send answer")
+    app.buttons["Alpha"].tap()
+    XCTAssertEqual(done.label, "Skip question")
     XCTAssertTrue(done.isEnabled)
     done.tap()
     XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["widget-dismissed-content-fixture"].label, "Skipped")
+    XCTAssertTrue(app.staticTexts["No answer was sent from this card."].exists)
     let snapshot = try await state()
     let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
     XCTAssertTrue(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })

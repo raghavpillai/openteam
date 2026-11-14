@@ -306,6 +306,10 @@ button.widget-option[aria-pressed="true"] {
   background: #fafafa;
   color: #141414;
 }
+.widget-submit[data-question-action="skip"] {
+  background: var(--permission-tint);
+  color: var(--permission-secondary);
+}
 .widget-dismissed-pill {
   display: inline-flex;
   flex-shrink: 0;

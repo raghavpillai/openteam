@@ -179,7 +179,7 @@ struct RichMessageCard: View {
             Image(systemName: "xmark").font(.system(size: 15, weight: .regular))
               .foregroundStyle(NativePalette.chatFaint).frame(width: 20, height: 20)
               .contentShape(Rectangle().inset(by: -10))
-          }.buttonStyle(.plain).accessibilityLabel("Dismiss")
+          }.buttonStyle(.plain).accessibilityLabel("Skip question")
             .accessibilityIdentifier("widget-dismiss-" + message.id)
         }
       }
@@ -259,8 +259,16 @@ struct RichMessageCard: View {
           }
         }.opacity(dismissed ? 0.35 : 1)
         if dismissed {
-          Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
-            .accessibilityIdentifier("widget-dismissed-" + message.id)
+          let reason = meta["widgetDismissalReason"].string
+          VStack(alignment: .leading, spacing: 4) {
+            Text(reason == "moved-on" ? "Continued in chat" : reason == "superseded" ? "Replaced" : "Skipped")
+              .font(.system(size: 12, weight: .medium))
+              .accessibilityIdentifier("widget-dismissed-" + message.id)
+            Text(reason == "moved-on" ? "This question closed when you sent a message."
+              : reason == "superseded" ? "A newer question took its place."
+              : "No answer was sent from this card.")
+              .font(.system(size: 12))
+          }.foregroundStyle(NativePalette.chatFaint)
         } else {
           if widget["allowCustom"].bool {
             TextField("Something else", text: Binding(get: { customAnswer }, set: { value in
@@ -278,14 +286,17 @@ struct RichMessageCard: View {
               if widgetAnswer.isEmpty { act("widget-dismiss") }
               else { act("widget-response", body: ["value": .string(widgetAnswer)]) }
             } label: {
-              Text(widget["multiSelect"].bool ? "Done" : "Submit").font(.system(size: 15, weight: .medium))
-                .foregroundStyle(canSubmit ? NativePalette.onPrimary : NativePalette.chatFaint)
+              Text(widget["multiSelect"].bool && widgetAnswer.isEmpty ? "Skip question" : "Send answer")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(widgetAnswer.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
                 .frame(maxWidth: .infinity).frame(height: 38)
-                .background(canSubmit ? NativePalette.text : NativePalette.widgetDisabled,
+                .background(widgetAnswer.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
                   in: RoundedRectangle(cornerRadius: 9))
             }.buttonStyle(WidgetSubmitStyle()).disabled(!canSubmit)
               .accessibilityIdentifier("widget-submit-" + message.id)
           }
+          Text("Reply in chat to answer or move on. This card will close.")
+            .font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
         }
       }
     }.padding(14)

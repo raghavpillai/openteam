@@ -209,6 +209,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-pending`);
   await pause(200);
+  check(card(first.id).textContent?.includes("Reply in chat to answer or move on. This card will close."), "Missing chat alternative explanation");
+  check(button(first.id, "Skip question")?.dataset.questionAction === "skip", "Empty action must clearly skip");
   const options = card(first.id).querySelectorAll<HTMLButtonElement>("button.widget-option");
   options[0]!.click();
   await pause();
@@ -219,7 +221,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       options[1]!.getAttribute("aria-pressed") === "true",
     "Multiselect lost selection"
   );
-  check(!!button(first.id, "Done"), "Multiselect Done action missing");
+  check(!!button(first.id, "Send answer"), "Multiselect Send answer action missing");
+  check(button(first.id, "Send answer")?.dataset.questionAction === "answer", "Selected action must clearly send an answer");
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-selected`);
   await pause(200);
   check(
@@ -256,8 +259,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   draw();
   await pause(100);
   const before = calls.length;
-  button(first.id, "Done").click();
-  button(first.id, "Done")?.click();
+  button(first.id, "Send answer").click();
+  button(first.id, "Send answer")?.click();
   await pause(450);
   check(calls.length === before + 1, "Double click submitted twice");
   check(
@@ -318,10 +321,11 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       card(second.id).dataset.richWidgetState === "dismissed",
     "Settling the newest card must also retire older unanswered questions"
   );
+  check(card(second.id).textContent?.includes("A newer question took its place."), "Replaced question must explain why it closed");
   const retryCard = msg("", widget("Dismissal retry"));
   messages.push(retryCard); draw(); await pause(200);
   fail = true;
-  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
+  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Skip question"]')!.click();
   await pause(450);
   check(
     card(retryCard.id).dataset.richWidgetState === "pending" &&
@@ -329,17 +333,18 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
     "Failed dismissal lost card"
   );
   fail = false;
-  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
+  card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Skip question"]')!.click();
   await pause(450);
   check(card(retryCard.id).dataset.richWidgetState === "dismissed", "Dismiss did not settle");
-  const empty = msg("", widget("Empty Done skips the question", true));
+  const empty = msg("", widget("Empty Skip question skips the question", true));
   messages.push(empty); draw(); await pause(200);
   const beforeEmpty = calls.length;
-  button(empty.id, "Done").click();
+  button(empty.id, "Skip question").click();
   await pause(450);
   check(calls.length === beforeEmpty + 1 && calls.at(-1)!.value === undefined,
-    "Empty Done submitted an answer instead of dismissing");
-  check(card(empty.id).dataset.richWidgetState === "dismissed", "Empty Done did not settle");
+    "Empty Skip question submitted an answer instead of dismissing");
+  check(card(empty.id).dataset.richWidgetState === "dismissed", "Empty Skip question did not settle");
+  check(card(empty.id).textContent?.includes("Skipped") && card(empty.id).textContent?.includes("No answer was sent from this card."), "Explicit skip must not look like an answer");
   reports.push({
     theme,
     kind,
@@ -352,7 +357,7 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       "single submit/echo",
       "latest shortcut/composer isolation",
       "custom shortcut focus/IME isolation",
-      "empty Done dismissal",
+      "explicit empty skip",
       "failure/retry",
       "dismissal",
       "group attribution",
@@ -372,6 +377,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
     const user = { ...msg("Unrelated message"), sender: "user" as const, senderBotId: null };
     messages.push(user); draw(); await pause(200);
     check(card(q.id).dataset.richWidgetState === "dismissed", "New user message left old question active");
+    check(card(q.id).textContent?.includes("Continued in chat") && card(q.id).textContent?.includes("This question closed when you sent a message."), "Chat continuation must explain the closed card without claiming an answer");
+    console.log(`WIDGET_CAPTURE ${theme}-${kind}-continued`);
     check(calls.length === beforeMoveOn, "Moving on submitted a draft card answer");
     check(!card(q.id).querySelector("textarea"), "Abandoned custom field remained editable");
     render(null); await pause(); draw(); await pause(200);

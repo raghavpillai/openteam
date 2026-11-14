@@ -477,7 +477,7 @@ describe("durable state tools", () => {
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
     await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
-      "UpdateMemory only writes or forgets memory"
+      "UpdateMemory only writes, replaces or forgets memory"
     );
     const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
     const namespaced: Array<[string, Record<string, unknown>]> = [

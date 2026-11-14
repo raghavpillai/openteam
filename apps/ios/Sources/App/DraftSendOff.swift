@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The draft card's send-off, played only on the device that pressed Send: the Send pill gathers
 /// into a blob and waits; on the confirmation it swallows the letter, the card closes around it,
-/// and it slings at full speed into the Sending badge, where it bursts gold and is the Sent badge.
+/// and it slings at full speed into the Sending badge, where it bursts green and is the Sent badge.
 /// The summary is written in its wake.
 ///
 /// Discard is its quiet opposite, on the same clock through the gulp and the close: the Discard
@@ -15,7 +15,7 @@ enum DraftSendOff: Equatable {
   case reverting
   /// The letter goes into the blob and the card closes. The date is the confirmation.
   case swallowing(Date)
-  /// Wind-up, sling and the gold burst, on the same clock.
+  /// Wind-up, sling and the green burst, on the same clock.
   case slinging(Date)
 
   /// The blob is held this long after the tap, so a fast server can't skip the press.
@@ -27,7 +27,7 @@ enum DraftSendOff: Equatable {
   static let windUp = 0.29
   static let sling = 0.37
   static let hit = 0.53
-  /// The solid gold stamp holds this long after the hit, then relaxes into the badge.
+  /// The solid green stamp holds this long after the hit, then relaxes into the badge.
   static let stamp = 0.3
   static let relax = 0.2
   static let end = hit + stamp + relax + 0.01
@@ -166,7 +166,7 @@ private struct DraftSendBlob: View {
 }
 
 /// Wind-up, sling and burst. The head and the strand of goo trailing it share a blurred,
-/// alpha-thresholded layer, and so do the gold splat and its drops, so they neck and merge; the
+/// alpha-thresholded layer, and so do the green splat and its drops, so they neck and merge; the
 /// card's own shape clips it. Discard's blob is tossed through the same layer, out of the bottom
 /// of the card, and nothing bursts.
 private struct DraftSendSling: View {
@@ -299,7 +299,7 @@ private struct DraftSendSling: View {
     }
     guard since >= 0 else { return }
 
-    // The hit: the blob bursts gold over the Sending badge. The splat pulls itself into the
+    // The hit: the blob bursts green over the Sending badge. The splat pulls itself into the
     // badge's shape, stamped "Sent", while drops fly off it; then the stamp relaxes into the badge.
     let fade = Self.unit((since - DraftSendOff.stamp) / DraftSendOff.relax)
     let solid = 1 - fade * fade * (3 - 2 * fade)
@@ -310,20 +310,20 @@ private struct DraftSendSling: View {
       var step = b.0 > a.0 ? (at - a.0) / (b.0 - a.0) : 1
       step = next == 1 ? 1 - pow(1 - step, 3) : step * step * (3 - 2 * step)
       let width = badge.width * Self.mix(a.1, b.1, step), height = badge.height * Self.mix(a.2, b.2, step)
-      var gold = [Path(
+      var green = [Path(
         roundedRect: CGRect(x: to.x - width / 2, y: to.y - height / 2, width: width, height: height),
         cornerRadius: min(width, height) / 2)]
       for (index, drop) in Self.drops.enumerated() {
         let flown = since / (0.28 + Double(index % 3) * 0.05)
         guard flown < 1 else { continue }
         let reach = drop.1 * (1 - pow(1 - flown, 3)), width = drop.2 * (1 - pow(flown, 1.6))
-        gold.append(Path(ellipseIn: CGRect(
+        green.append(Path(ellipseIn: CGRect(
           x: to.x + cos(drop.0) * reach - width / 2, y: to.y + sin(drop.0) * reach - width / 2, width: width, height: width)))
       }
-      goo(&context, gold, DraftPalette.sentSolid)
+      goo(&context, green, DraftPalette.green)
     } else {
       context.opacity = solid
-      context.fill(Path(roundedRect: badge, cornerRadius: badge.height / 2), with: .color(DraftPalette.sentSolid))
+      context.fill(Path(roundedRect: badge, cornerRadius: badge.height / 2), with: .color(DraftPalette.green))
     }
     if let stamp = context.resolveSymbol(id: "stamp") {
       let shown = Self.unit((since - 0.04) / 0.2)

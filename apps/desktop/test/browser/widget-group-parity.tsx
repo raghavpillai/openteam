@@ -212,8 +212,17 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-pending`);
   await pause(200);
-  check(card(first.id).textContent?.includes("Reply in chat to answer or move on. This card will close."), "Missing chat alternative explanation");
-  check(button(first.id, "Skip question")?.dataset.questionAction === "skip", "Empty action must clearly skip");
+  check(card(first.id).textContent?.includes("Or reply in chat"), "Missing chat alternative hint");
+  check(
+    button(first.id, "Skip")?.getAttribute("aria-label") === "Skip question" &&
+      button(first.id, "Send answer")?.disabled === true,
+    "An empty card must offer Skip and keep Send answer unavailable"
+  );
+  check(
+    card(first.id).querySelectorAll("button.widget-option .question-control").length === 3 &&
+      !!card(first.id).querySelector("label.widget-custom textarea"),
+    "Options must be selectable tiles with an inline custom answer"
+  );
   const options = card(first.id).querySelectorAll<HTMLButtonElement>("button.widget-option");
   options[0]!.click();
   await pause();
@@ -224,8 +233,12 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       options[1]!.getAttribute("aria-pressed") === "true",
     "Multiselect lost selection"
   );
-  check(!!button(first.id, "Send answer"), "Multiselect Send answer action missing");
-  check(button(first.id, "Send answer")?.dataset.questionAction === "answer", "Selected action must clearly send an answer");
+  check(button(first.id, "Send answer")?.disabled === false, "Selecting must enable Send answer");
+  check(
+    getComputedStyle(options[0]!.querySelector(".question-control")!).backgroundColor !==
+      getComputedStyle(options[2]!.querySelector(".question-control")!).backgroundColor,
+    "Selected options must show a filled checkbox"
+  );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-selected`);
   await pause(200);
   check(
@@ -342,7 +355,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   const empty = msg("", widget("Empty Skip question skips the question", true));
   messages.push(empty); draw(); await pause(200);
   const beforeEmpty = calls.length;
-  button(empty.id, "Skip question").click();
+  check(button(empty.id, "Send answer").disabled, "Empty multi-select must not send an answer");
+  button(empty.id, "Skip").click();
   await pause(450);
   check(calls.length === beforeEmpty + 1 && calls.at(-1)!.value === undefined,
     "Empty Skip question submitted an answer instead of dismissing");
@@ -511,7 +525,7 @@ async function motionScenario() {
     release = resolve;
   });
   fail = true;
-  button(retry.id, "Skip question").click();
+  button(retry.id, "Skip").click();
   await until(() => Boolean(heightAnimation(frame)), "Missing optimistic skip transition");
   const closing = heightAnimation(frame)!;
   const interrupted = midpoint(frame, closing);

@@ -226,7 +226,6 @@ import XCTest
     let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
     XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
     XCTAssertEqual(dismissed.label, "Continued in chat")
-    XCTAssertTrue(app.staticTexts["This question closed when you sent a message."].exists)
     XCTAssertFalse(app.buttons["widget-submit-content-fixture"].exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
     let snapshot = try await state()
@@ -238,7 +237,7 @@ import XCTest
   func testStaleQuestionHistoryDoesNotReopenDismissedCard() async throws {
     let app = try await launch("widget-pending", dark: true)
     defer { app.terminate() }
-    let done = app.buttons["widget-submit-content-fixture"]
+    let done = app.buttons["widget-dismiss-content-fixture"]
     XCTAssertTrue(done.waitForExistence(timeout: 10))
     done.tap()
     let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
@@ -269,22 +268,25 @@ import XCTest
   private func verifyQuestionSkip(reducedMotion: Bool) async throws {
     let app = try await launch("widget-pending", dark: true, reducedMotion: reducedMotion)
     defer { app.terminate() }
-    let done = app.buttons["widget-submit-content-fixture"]
-    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let send = app.buttons["widget-submit-content-fixture"]
+    let skip = app.buttons["widget-dismiss-content-fixture"]
+    XCTAssertTrue(skip.waitForExistence(timeout: 10))
     let card = app.otherElements["widget-card-content-fixture"]
     XCTAssertTrue(card.exists)
     let expandedHeight = card.frame.height
-    XCTAssertEqual(done.label, "Skip question")
-    XCTAssertTrue(app.staticTexts["Reply in chat to answer or move on. This card will close."].exists)
+    XCTAssertEqual(skip.label, "Skip question")
+    XCTAssertEqual(send.label, "Send answer")
+    XCTAssertFalse(send.isEnabled, "An empty card must not send an answer")
     app.buttons["Alpha"].tap()
-    XCTAssertEqual(done.label, "Send answer")
+    XCTAssertEqual(app.buttons["Alpha"].value as? String, "Selected")
+    XCTAssertTrue(send.isEnabled)
     app.buttons["Alpha"].tap()
-    XCTAssertEqual(done.label, "Skip question")
-    XCTAssertTrue(done.isEnabled)
-    done.tap()
+    XCTAssertFalse(send.isEnabled)
+    XCTAssertTrue(skip.isEnabled)
+    skip.tap()
     XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.staticTexts["widget-dismissed-content-fixture"].label, "Skipped")
-    XCTAssertTrue(app.staticTexts["No answer was sent from this card."].exists)
+    XCTAssertFalse(skip.exists)
     XCTAssertFalse(app.buttons["Alpha"].exists)
     XCTAssertLessThan(card.frame.height, expandedHeight - 50, "Skipping must minimize the card")
     capture(reducedMotion ? "question-skipped-reduced-motion" : "question-skipped-collapsed", app)
@@ -333,7 +335,7 @@ import XCTest
         XCTAssertEqual(row.value as? String, "Selected")
         // AX may expose the text bounds rather than the padded row. Measure
         // the distance between rows, which also catches a collapsed option list.
-        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 40) }
+        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 24) }
         previous = row.frame
       }
       XCTAssertFalse(app.buttons["Submit"].exists)

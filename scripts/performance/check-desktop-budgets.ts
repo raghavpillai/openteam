@@ -139,7 +139,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Question lifecycle and immutable history receipts: 1,339,214 B versus the same
 // untouched main build's 1,334,586 B (+4,628 B). Action/status copy and motion handling stay within this allowance.
 // Keep the 5 KB feature allowance bounded.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_340_000);
+// Question card redesign (option tiles with checkbox/radio controls, inline custom
+// answer, Skip/Send footer, receipts, settle fade): 1,342,897 B (+3,683 B of styles and markup).
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_343_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);

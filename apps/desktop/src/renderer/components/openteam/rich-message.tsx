@@ -29,7 +29,6 @@ import {
 import { MonitorUp } from "lucide-react";
 import { PermissionIcon } from "./permission-icon";
 import {
-  Fragment,
   type ReactNode,
   useEffect,
   useId,
@@ -118,14 +117,39 @@ const registerRichWidgetShortcut = (root: HTMLElement, handle: RichWidgetShortcu
 const cardClass =
   "permission-surface rich-message-card flex w-full max-w-[520px] min-w-0 flex-col gap-2.5 overflow-hidden rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
 const secondaryText = "permission-secondary";
-const optionGroupClass = "widget-options";
-const optionRowClass = "widget-option";
-const optionKeyClass = "widget-option-key";
+
+const questionGlyphs = {
+  check: ["M3.5 8.4l3 3 6-6.6"],
+  pencil: ["M10.4 3l2.6 2.6", "M2.8 13.2l.6-3.1L11 2.5a1.3 1.3 0 0 1 1.8 0l.7.7a1.3 1.3 0 0 1 0 1.8l-7.6 7.6-3.1.6z"],
+  send: ["M8 12.8V3.2", "M4 7.2l4-4 4 4"],
+  skip: ["M3.5 3.8l6 4.2-6 4.2V3.8z", "M12.5 3.8v8.4"],
+  chat: ["M2.5 8a5.5 5.5 0 1 1 2.6 4.67L2.5 13.5l.83-2.6A5.47 5.47 0 0 1 2.5 8z"],
+  replace: ["M3 5.5h9.5", "M10.2 3.2l2.3 2.3-2.3 2.3", "M13 10.5H3.5", "M5.8 8.2L3.5 10.5l2.3 2.3"],
+} as const;
+
+function QuestionGlyph({ name }: { name: keyof typeof questionGlyphs }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      viewBox="0 0 16 16"
+    >
+      {questionGlyphs[name].map((d) => (
+        <path d={d} key={d} pathLength={name === "check" ? 1 : undefined} />
+      ))}
+    </svg>
+  );
+}
 
 /**
  * Answering a card collapses its options. In a transcript pinned to the bottom
  * that instantly shifted every message above it; animating the height turns
- * the shift into a short slide. The first layout is never animated.
+ * the shift into a short slide, and the receipt fades in as the frame closes
+ * around it. The first layout is never animated.
  */
 function AnimatedCardHeight({ children }: { children: ReactNode }) {
   const outerRef = useRef<HTMLDivElement>(null);
@@ -134,13 +158,18 @@ function AnimatedCardHeight({ children }: { children: ReactNode }) {
     const outer = outerRef.current;
     const inner = innerRef.current;
     if (!outer || !inner) return;
+    const stateOf = () =>
+      inner.querySelector<HTMLElement>("[data-rich-widget-state]")?.dataset.richWidgetState;
     let height = inner.offsetHeight;
+    let state = stateOf();
     let animation: Animation | null = null;
+    let fade: Animation | null = null;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
       if (reducedMotion.matches) {
         animation?.cancel();
-        animation = null;
+        fade?.cancel();
+        animation = fade = null;
       }
     };
     reducedMotion.addEventListener("change", syncMotion);
@@ -150,24 +179,37 @@ function AnimatedCardHeight({ children }: { children: ReactNode }) {
       const next = inner.offsetHeight;
       if (next === height) return;
       const from = animation ? outer.getBoundingClientRect().height : height;
+      const nextState = stateOf();
+      const settled = nextState !== state;
       height = next;
+      state = nextState;
       animation?.cancel();
       animation = null;
       if (reducedMotion.matches) return;
       const current = outer.animate([{ height: `${from}px` }, { height: `${next}px` }], {
-        duration: 180,
+        duration: settled ? 260 : 180,
         easing: "cubic-bezier(0.2, 0.8, 0.3, 1)",
       });
       animation = current;
       current.onfinish = () => {
         if (animation === current) animation = null;
       };
+      if (!settled) return;
+      fade?.cancel();
+      fade = inner.animate(
+        [
+          { opacity: 0, transform: "translateY(-4px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" }
+      );
     });
     observer.observe(inner);
     return () => {
       observer.disconnect();
       reducedMotion.removeEventListener("change", syncMotion);
       animation?.cancel();
+      fade?.cancel();
     };
   }, []);
   return (
@@ -181,48 +223,42 @@ function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: 
   const answer = String(metadata.respondedValue ?? "");
   const answers = resolvedWidgetAnswers(widget, answer);
   return (
-    <section className={cn(cardClass, "permission-widget")} data-rich-widget-state="resolved" role="group">
-      <p className="m-0 min-w-0 text-[14px] font-medium leading-5">{widget.prompt}</p>
-      <div aria-label="Your answer" className={optionGroupClass} role="group">
-        {answers.map(({ value, label, optionIndex }, index) => {
-          return (
-            <Fragment key={value}>
-            {index > 0 && <div className="widget-divider" />}
-            <div className="widget-option widget-option-resolved">
-              {optionIndex !== null ? (
-                <span aria-hidden="true" className={optionKeyClass}><span>{widgetOptionLetter(optionIndex)}</span></span>
-              ) : null}
-              <span className="widget-option-label min-w-0 flex-1">{label}</span>
-              <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span>
-            </div>
-            </Fragment>
-          );
-        })}
+    <section className={cn(cardClass, "permission-widget question-card")} data-rich-widget-state="resolved" role="group">
+      <p className="question-prompt question-prompt-settled">{widget.prompt}</p>
+      <div aria-label="Your answer" className="question-answers" role="group">
+        {answers.map(({ value, label }) => (
+          <div className="question-answer" key={value}>
+            <span className="question-answer-check">
+              <QuestionGlyph name="check" />
+            </span>
+            <span className="widget-option-label min-w-0 flex-1">{label}</span>
+          </div>
+        ))}
       </div>
     </section>
   );
 }
 
 function DismissedWidget({ widget, metadata }: { widget: Widget; metadata: RichMetadata }) {
-  const [label, explanation] = metadata.widgetDismissalReason === "moved-on"
-    ? ["Continued in chat", "This question closed when you sent a message."]
+  const [label, explanation, glyph] = metadata.widgetDismissalReason === "moved-on"
+    ? (["Continued in chat", "This question closed when you sent a message.", "chat"] as const)
     : metadata.widgetDismissalReason === "superseded"
-      ? ["Replaced", "A newer question took its place."]
-      : ["Skipped", "No answer was sent from this card."];
+      ? (["Replaced", "A newer question took its place.", "replace"] as const)
+      : (["Skipped", "No answer was sent from this card.", "skip"] as const);
   return (
     <section
       aria-disabled="true"
-      className={cn(cardClass, "permission-widget")}
+      className={cn(cardClass, "permission-widget question-card question-closed")}
       data-rich-widget-state="dismissed"
       role="group"
+      title={explanation}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        <p className={cn("m-0 min-w-0 flex-1 text-[14px] font-medium leading-5", secondaryText)}>
-          {widget.prompt}
-        </p>
-        <span className="widget-dismissed-pill">{label}</span>
-      </div>
-      <p className={cn("m-0 text-xs leading-5", secondaryText)}>{explanation}</p>
+      <p className="question-prompt question-prompt-settled min-w-0 flex-1">{widget.prompt}</p>
+      <span className="widget-dismissed-pill">
+        <QuestionGlyph name={glyph} />
+        {label}
+      </span>
+      <span className="sr-only">{explanation}</span>
     </section>
   );
 }
@@ -339,77 +375,65 @@ function WidgetCard({
   }
   if (localMetadata.widgetDismissed === true) return <DismissedWidget metadata={localMetadata} widget={widget} />;
 
+  const multi = widget.multiSelect === true;
+  const customLetter = widgetOptionLetter(widget.options.length);
   return (
     <form
       aria-labelledby={titleId}
-      className={cn(cardClass, "permission-widget")}
+      className={cn(cardClass, "permission-widget question-card")}
+      data-question-mode={multi ? "multi" : "single"}
       data-rich-widget-state="pending"
       onSubmit={(event) => {
         event.preventDefault();
-        if (widget.multiSelect && !selectedValue) void dismiss();
-        else void submit(widget.multiSelect ? selectedValue : custom.trim());
+        void submit(multi ? selectedValue : custom.trim());
       }}
       ref={rootRef}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <p className="m-0 min-w-0 text-[14px] font-medium leading-5" id={titleId}>
-            {widget.prompt}
-          </p>
-          {widget.helpText ? (
-            <p className={cn("m-0 min-w-0 leading-5", secondaryText)}>{widget.helpText}</p>
-          ) : null}
-        </div>
-        <ButtonPrimitive
-          aria-label="Skip question"
-          className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 dark:text-[#f0f0f0]/60 hover:bg-black/[0.06] disabled:opacity-40 dark:hover:bg-white/[0.07]"
-          disabled={pending}
-          onClick={() => void dismiss()}
-          title="Skip without answering"
-          type="button"
-        >
-          <PermissionIcon name="close" className="size-3" />
-        </ButtonPrimitive>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="question-prompt" id={titleId}>
+          {widget.prompt}
+        </p>
+        {widget.helpText ? <p className="question-help">{widget.helpText}</p> : null}
       </div>
-      <div className={optionGroupClass}>
+      <div className="widget-options">
         {widget.options.map((option, index) => {
           const value = optionValue(option);
           const active = selected.has(value);
           return (
-            <Fragment key={`${value}-${index}`}>
-            {index > 0 && <div className="widget-divider" />}
             <ButtonPrimitive
               aria-keyshortcuts={widgetOptionLetter(index).toLowerCase()}
-              aria-pressed={widget.multiSelect ? active : undefined}
-              className={optionRowClass}
+              aria-pressed={multi ? active : undefined}
+              className="widget-option"
+              data-tone={option.style === "danger" ? "danger" : undefined}
               disabled={pending}
               key={`${value}-${index}`}
               onClick={() => choose(value)}
               type="button"
             >
-              <span aria-hidden="true" className={optionKeyClass}><span>{widgetOptionLetter(index)}</span></span>
+              <span aria-hidden="true" className="question-control">
+                {multi ? <QuestionGlyph name="check" /> : null}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="widget-option-label">{option.label}</span>
                 {option.description ? (
-                  <span className="widget-option-description">
-                    {option.description}
-                  </span>
+                  <span className="widget-option-description">{option.description}</span>
                 ) : null}
               </span>
-              {active ? <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span> : null}
+              <kbd aria-hidden="true" className="widget-option-key">
+                {widgetOptionLetter(index)}
+              </kbd>
             </ButtonPrimitive>
-            </Fragment>
           );
         })}
-      </div>
-      {widget.allowCustom ? (
-        <div className="flex w-full min-w-0 items-start gap-2">
-          <div className="widget-custom">
+        {widget.allowCustom ? (
+          <label className="widget-option widget-custom" data-filled={custom.trim() ? "" : undefined}>
+            <span aria-hidden="true" className="question-control question-control-pencil">
+              <QuestionGlyph name="pencil" />
+            </span>
             <textarea
               aria-label="Custom answer"
-              aria-keyshortcuts={widgetOptionLetter(widget.options.length).toLowerCase()}
+              aria-keyshortcuts={customLetter.toLowerCase()}
               autoComplete="off"
-
               disabled={pending}
               onChange={(event) => {
                 setCustom(event.currentTarget.value);
@@ -417,7 +441,7 @@ function WidgetCard({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
-                  void submit(widget.multiSelect ? selectedValue : custom.trim());
+                  void submit(multi ? selectedValue : custom.trim());
                 }
               }}
               placeholder="Something else"
@@ -426,38 +450,47 @@ function WidgetCard({
               spellCheck={false}
               value={custom}
             />
-          </div>
-          {custom.trim() && !widget.multiSelect ? (
-            <ButtonPrimitive
-              className="rich-message-submit widget-submit shrink-0 disabled:opacity-40"
-              disabled={pending}
-              type="submit"
-            >
-              Send answer
-            </ButtonPrimitive>
-          ) : null}
-        </div>
-      ) : null}
+            {!multi && custom.trim() ? (
+              <ButtonPrimitive
+                aria-label="Send answer"
+                className="question-send-inline"
+                disabled={pending}
+                title="Send answer"
+                type="submit"
+              >
+                <QuestionGlyph name="send" />
+              </ButtonPrimitive>
+            ) : (
+              <kbd aria-hidden="true" className="widget-option-key">
+                {customLetter}
+              </kbd>
+            )}
+          </label>
+        ) : null}
+      </div>
       {error ? (
-        <p role="alert" className="m-0 text-xs text-red-600">
+        <p role="alert" className="question-error">
           {error}
         </p>
       ) : null}
-      {widget.multiSelect ? (
-        <div className="flex w-full justify-end">
-          <ButtonPrimitive
-            className="widget-submit disabled:opacity-40"
-            data-question-action={selectedValue ? "answer" : "skip"}
-            disabled={pending}
-            type="submit"
-          >
-            {selectedValue ? "Send answer" : "Skip question"}
+      <div className="question-footer">
+        <span className="question-hint">Or reply in chat</span>
+        <ButtonPrimitive
+          aria-label="Skip question"
+          className="question-skip"
+          disabled={pending}
+          onClick={() => void dismiss()}
+          title="Skip without answering"
+          type="button"
+        >
+          Skip
+        </ButtonPrimitive>
+        {multi ? (
+          <ButtonPrimitive className="widget-submit" disabled={pending || !selectedValue} type="submit">
+            Send answer
           </ButtonPrimitive>
-        </div>
-      ) : null}
-      <p className={cn("m-0 text-xs leading-5", secondaryText)}>
-        Reply in chat to answer or move on. This card will close.
-      </p>
+        ) : null}
+      </div>
     </form>
   );
 }

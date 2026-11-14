@@ -138,14 +138,20 @@ export class DurableStateService {
         return existing.response as Record<string, unknown>;
       }
     } else {
-      await this.prisma.idempotencyRecord.create({
-        data: {
-          scope,
-          key: callId,
-          requestHash,
-          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000),
-        },
-      });
+      try {
+        await this.prisma.idempotencyRecord.create({
+          data: { scope, key: callId, requestHash, expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000) },
+        });
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
+        // A concurrent identical request won creation. Return its completed
+        // receipt, or a retryable conflict rather than leaking a database error.
+        const winner = await this.prisma.idempotencyRecord.findUnique({ where: { scope_key: { scope, key: callId } } });
+        if (winner && winner.requestHash !== requestHash)
+          throw new ApiError(409, "state_call_conflict", `This ${tool} call id was already used with different arguments`);
+        if (winner?.status === "completed" && winner.response) return winner.response as Record<string, unknown>;
+        throw new ApiError(409, "state_call_in_progress", `This ${tool} call is in progress. Retry the same call id.`);
+      }
     }
 
     try {

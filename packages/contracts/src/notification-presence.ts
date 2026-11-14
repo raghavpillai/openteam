@@ -7,7 +7,7 @@ export interface NotificationPresenceInput {
   /** A new ID for each client lifecycle; sequence orders overlapping requests. */
   clientId: string;
   sequence: number;
-  platform: "macos" | "ios";
+  platform: "macos" | "ios" | "android";
   active: boolean;
   idleSeconds?: number;
 }
@@ -21,7 +21,7 @@ export interface NotificationRouting {
 
 export function notificationPresenceLifetime(input: NotificationPresenceInput): number {
   if (!input.active) return 0;
-  if (input.platform === "ios") return NOTIFICATION_PRESENCE_TTL_MS;
+  if (input.platform === "ios" || input.platform === "android") return NOTIFICATION_PRESENCE_TTL_MS;
   return Math.max(
     0,
     Math.min(

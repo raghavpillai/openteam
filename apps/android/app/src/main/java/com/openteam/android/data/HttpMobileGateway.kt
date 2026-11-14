@@ -1,0 +1,955 @@
+package com.openteam.android.data
+
+import android.content.Context
+import android.provider.OpenableColumns
+import android.net.Uri
+import com.openteam.features.Attachment
+import com.openteam.features.Reaction
+import com.openteam.features.RichFormField
+import com.openteam.features.RichMessage
+import com.openteam.features.RichMessageAction
+import com.openteam.features.RichMessageBlock
+import com.openteam.features.RichWidgetOption
+import com.openteam.mobile.core.HttpMethod
+import com.openteam.mobile.core.DeliveryLookup
+import com.openteam.mobile.core.EventPollRequest
+import com.openteam.mobile.core.EventBatch
+import com.openteam.mobile.core.EventSynchronizer
+import com.openteam.mobile.core.MobileClock
+import com.openteam.mobile.core.MobileMessage
+import com.openteam.mobile.core.MobileRequest
+import com.openteam.mobile.core.ProductEvent
+import com.openteam.mobile.core.Session
+import com.openteam.mobile.core.TransportMobileSyncApi
+import com.openteam.mobile.core.mobileJson
+import com.openteam.mobile.core.requireSuccess
+import com.openteam.mobile.core.toProjection
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import java.net.URLEncoder
+import java.time.Instant
+import java.util.TimeZone
+
+/** Live auth and messaging adapter over the shared request/error contracts. */
+interface MobileFeatureApi {
+    val serverAddress: String? get() = null
+
+    suspend fun request(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject? = null,
+    ): JsonObject
+
+    suspend fun requestWithHeaders(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): JsonObject = request(method, path, body)
+
+    suspend fun upload(path: String, uri: String): JsonObject
+
+    suspend fun download(path: String): String = request(HttpMethod.GET, path).stringValue("uri")
+}
+
+interface VoiceTranscriptionApi {
+    suspend fun transcribe(uri: String): String
+}
+
+/** Additive live-data seam for the messaging parity layer. */
+interface LiveMessagingApi {
+    suspend fun historyPage(
+        conversationId: String,
+        beforeSequence: String?,
+        limit: Int,
+    ): ChatHistoryPage
+
+    suspend fun pollEvents(waitMs: Int = 25_000): EventBatch
+
+    /** The bot's current activity in [channelId], or null when nothing is running there. */
+    suspend fun channelActivity(channelId: String): ChannelActivity? = null
+    suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup
+    fun toChatMessage(message: MobileMessage): ChatMessage
+    suspend fun syncEvents(applyEvent: suspend (ProductEvent) -> Unit): Int
+    suspend fun markRead(
+        channelId: String,
+        throughSequence: String?,
+        throughNotificationSequence: String? = null,
+    ): JsonObject
+}
+
+class HttpMobileGateway(context: Context) :
+    MobileGateway,
+    ServerValidationApi,
+    MobileFeatureApi,
+    VoiceTranscriptionApi,
+    LiveMessagingApi {
+    private val appContext = context.applicationContext
+    private val transport = AndroidOpenTeamTransport()
+    private val syncApi = TransportMobileSyncApi(transport)
+    private val sessions = AndroidSecureSessionStore(context)
+    private val syncState = AndroidMobileStateStore(context)
+    private var server: String? = null
+    private var token: String? = null
+    private var accountName: String? = null
+    private var session: Session? = null
+    private var directory: List<Conversation> = emptyList()
+    private var channels: Map<String, JsonObject> = emptyMap()
+    private var bots: Map<String, JsonObject> = emptyMap()
+
+    override val serverAddress: String? get() = server
+
+    override suspend fun restoreSession(): MobileSession? {
+        val saved = sessions.readActive() ?: return null
+        session = saved
+        server = saved.server
+        token = saved.token
+        accountName = saved.userId
+        val restoredDisplayName = runCatching {
+            jsonRequest(saved.server, "/api/auth/get-session", token = saved.token).body
+                .objectAt("user")
+                .let { user ->
+                    listOf(user.string("username"), user.string("name"), user.string("email"))
+                        .firstOrNull(String::isNotBlank)
+                }
+        }.getOrNull()
+        accountName = restoredDisplayName ?: saved.userId
+        return MobileSession(saved.server, accountName.orEmpty())
+    }
+
+    override suspend fun signOut() {
+        val current = session
+        if (current != null) {
+            runCatching {
+                jsonRequest(current.server, "/api/auth/sign-out", HttpMethod.POST, token = current.token, body = JsonObject(emptyMap()))
+            }
+            sessions.clear(accountKey(current.server, current.userId))
+        }
+        session = null
+        token = null
+        server = null
+        accountName = null
+        directory = emptyList()
+        channels = emptyMap()
+        bots = emptyMap()
+    }
+
+    override suspend fun signIn(server: String, username: String, credential: String): Result<MobileSession> =
+        runCatching {
+            val normalizedServer = normalizeServer(server)
+            val validation = validateServer(normalizedServer).getOrThrow()
+            val mode = if (validation.authenticationRequired) "required" else "disabled"
+
+            var nextToken: String? = null
+            var userId = "auth-disabled"
+            var displayName = username.trim().ifEmpty { "Local owner" }
+            if (mode == "required") {
+                require(username.isNotBlank() && credential.isNotBlank()) { "Enter your username and credential." }
+                val loginBody = buildJsonObject {
+                    put("username", username.trim())
+                    put(PASSWORD_FIELD, credential)
+                    put("rememberMe", true)
+                }
+                val login = jsonRequest(normalizedServer, "/api/auth/login", HttpMethod.POST, body = loginBody)
+                nextToken = login.responseHeader("set-auth-token")
+                    ?.trim()?.takeIf(String::isNotEmpty)
+                    ?: throw IllegalStateException("The server did not complete sign-in. Try again or contact your administrator.")
+                val user = login.body.objectAt("user")
+                userId = user.string("id").ifBlank { username.trim() }
+                displayName = listOf(user.string("username"), user.string("name"), user.string("email"))
+                    .firstOrNull(String::isNotBlank) ?: username.trim()
+            }
+
+            val bootstrap = jsonRequest(normalizedServer, "/api/v0/client-bootstrap", token = nextToken).body
+            applyBootstrap(normalizedServer, nextToken, bootstrap)
+            val activeSession = nextToken?.let {
+                Session(normalizedServer, it, userId, Instant.now().toString())
+            }
+            if (activeSession != null) {
+                sessions.write(accountKey(normalizedServer, userId), activeSession)
+            }
+            this.server = normalizedServer
+            token = nextToken
+            accountName = displayName
+            session = activeSession
+            MobileSession(normalizedServer, displayName)
+        }
+
+    override suspend fun validateServer(server: String): Result<ServerValidation> =
+        runCatching {
+            val normalizedServer = normalizeServer(server)
+            require(normalizedServer.isNotBlank()) { "Enter your server address." }
+            val config = jsonRequest(normalizedServer, "/api/auth/config")
+            val mode = config.body.string("mode")
+            require(mode == "required" || mode == "disabled") {
+                "This address is reachable, but it is not a compatible OpenTeam server."
+            }
+            ServerValidation(normalizedServer, mode == "required")
+        }
+
+    override suspend fun conversations(): List<Conversation> {
+        ensureConnected()
+        // Always re-read bootstrap: unread counts, previews, ordering and run activity only
+        // change server-side. A failed background refresh keeps showing the last known list.
+        runCatching { reloadBootstrap() }.onFailure { if (directory.isEmpty()) throw it }
+        return directory
+    }
+
+    override suspend fun hiddenConversations(): List<Conversation> {
+        ensureConnected()
+        val hiddenBots = request(HttpMethod.GET, "/api/v0/bots?includeHidden=1")
+            .arrayAt("bots", "value")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .filter { it.boolean("hiddenFromSidebar") }
+            .mapNotNull { bot ->
+                val channelId = bot.string("dmChannelId", "conversationId").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                Conversation(
+                    id = channelId,
+                    title = bot.botDisplayName().ifBlank { "Conversation" },
+                    subtitle = bot.string("description"),
+                    avatarColor = bot.string("color"),
+                    avatarPath = cacheBotAvatar(ensureConnected(), token, bot),
+                    botId = bot.string("id").ifBlank { null },
+                    isBot = true,
+                    notificationsEnabled = bot.boolean("notificationsEnabled", true),
+                    botIcon = bot.string("icon"),
+                    botInstructions = bot.string("instructions"),
+                )
+            }
+        val hiddenGroups = request(HttpMethod.GET, "/api/v0/groups?includeHidden=1")
+            .arrayAt("groups", "value")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .filter { it.boolean("hiddenFromSidebar") }
+            .map { channel ->
+                Conversation(
+                    id = channel.string("id"),
+                    title = channel.string("name").ifBlank { "Group" },
+                    subtitle = channel.string("description"),
+                    isGroup = true,
+                    memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
+                )
+            }
+        return hiddenBots + hiddenGroups
+    }
+
+    override suspend fun search(query: String, category: String): List<SearchResult> {
+        val activeServer = ensureConnected()
+        val path = "/api/search?q=${pathSegment(query.take(200))}&category=${pathSegment(category)}"
+        return jsonRequest(activeServer, path, token = token).body.arrayAt("results")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .map { result ->
+                SearchResult(
+                    id = result.string("id"),
+                    kind = result.string("kind"),
+                    title = result.string("title"),
+                    subtitle = result.string("subtitle"),
+                    channelId = result.string("channelId").ifBlank { null },
+                    messageId = result.string("messageId").ifBlank { null },
+                    botId = result.string("botId").ifBlank { null },
+                    url = result.string("url").ifBlank { null },
+                    createdAt = result.string("createdAt").ifBlank { null },
+                )
+            }
+    }
+
+    override suspend fun request(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject?,
+    ): JsonObject = requestWithHeaders(method, path, body)
+
+    override suspend fun requestWithHeaders(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject?,
+        headers: Map<String, String>,
+    ): JsonObject {
+        val activeServer = ensureConnected()
+        val response = transport.execute(
+            activeServer,
+            token,
+            MobileRequest(
+                method = method,
+                path = path,
+                headers = headers,
+                body = body?.let { mobileJson.encodeToString(it) },
+            ),
+        ).requireSuccess()
+        return parseFeatureResponse(response.body)
+    }
+
+    override suspend fun upload(path: String, uri: String): JsonObject {
+        val activeServer = ensureConnected()
+        val parsedUri = Uri.parse(uri)
+        val contentType = appContext.contentResolver.getType(parsedUri) ?: "application/octet-stream"
+        val bytes = appContext.contentResolver.openInputStream(parsedUri)?.use { it.readBytes() }
+            ?: throw IllegalArgumentException("The selected file could not be opened.")
+        val response = transport.upload(activeServer, token, path, contentType, displayName(parsedUri), bytes).requireSuccess()
+        return parseFeatureResponse(response.body)
+    }
+
+    override suspend fun download(path: String): String {
+        val activeServer = ensureConnected()
+        val bytes = transport.download(activeServer, token, path).requireSuccess().bodyBytes
+        val directory = java.io.File(appContext.cacheDir, "attachments").apply { mkdirs() }
+        val name = path.substringAfterLast('/').substringBefore('?').ifBlank { "attachment" }
+        val file = java.io.File(directory, name)
+        file.writeBytes(bytes)
+        return file.absolutePath
+    }
+
+    override suspend fun transcribe(uri: String): String {
+        val activeServer = ensureConnected()
+        val parsedUri = Uri.parse(uri)
+        val contentType = appContext.contentResolver.getType(parsedUri) ?: "audio/mp4"
+        val bytes = appContext.contentResolver.openInputStream(parsedUri)?.use { it.readBytes() }
+            ?: throw IllegalArgumentException("The voice recording could not be opened.")
+        val response = transport.upload(activeServer, token, "/api/v0/transcriptions", contentType, displayName(parsedUri), bytes).requireSuccess()
+        return parseFeatureResponse(response.body).string("text").trim().also {
+            require(it.isNotEmpty()) { "The server returned an empty transcript." }
+        }
+    }
+
+    override suspend fun history(conversationId: String): List<ChatMessage> {
+        return historyPage(conversationId).messages
+    }
+
+    override suspend fun historyPage(conversationId: String): ChatHistoryPage {
+        return historyPage(conversationId, null, 60)
+    }
+
+    override suspend fun historyPage(
+        conversationId: String,
+        beforeSequence: String?,
+        limit: Int,
+    ): ChatHistoryPage {
+        val server = ensureConnected()
+        val query = buildString {
+            append("?limit=").append(limit.coerceIn(1, 200))
+            beforeSequence?.let { append("&before=").append(it) }
+        }
+        val response = jsonRequest(
+            server,
+            "/api/v0/channels/${pathSegment(conversationId)}/history$query",
+            token = token,
+        ).body
+        return response.toChatHistoryPage()
+    }
+
+    override suspend fun pollEvents(waitMs: Int): EventBatch {
+        val activeSession = session ?: throw IllegalStateException("Sign in to a server first.")
+        val key = accountKey(activeSession.server, activeSession.userId)
+        val cursor = syncState.readCursor(key)?.sequence ?: "0"
+        return try {
+            syncApi.pollEvents(
+                EventPollRequest(
+                    server = activeSession.server,
+                    token = activeSession.token,
+                    after = cursor,
+                    waitMs = waitMs.coerceIn(0, 25_000),
+                ),
+            )
+        } catch (error: com.openteam.mobile.core.OpenTeamRequestException) {
+            if (error.error.status == 401) signOut()
+            throw error
+        }
+    }
+
+    override suspend fun channelActivity(channelId: String): ChannelActivity? {
+        val activeServer = ensureConnected()
+        val state = jsonRequest(
+            activeServer,
+            "/api/v0/channels/${pathSegment(channelId)}/client-state",
+            token = token,
+        ).body
+        return channelActivityFrom(channelId, state)
+    }
+
+    override suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup {
+        val activeSession = session ?: throw IllegalStateException("Sign in to a server first.")
+        return try {
+            syncApi.lookupDelivery(
+                activeSession.server,
+                activeSession.token,
+                channelId,
+                clientId,
+            )
+        } catch (error: com.openteam.mobile.core.OpenTeamRequestException) {
+            if (error.error.status == 401) signOut()
+            throw error
+        }
+    }
+
+    override suspend fun syncEvents(applyEvent: suspend (ProductEvent) -> Unit): Int {
+        val activeSession = session ?: throw IllegalStateException("Sign in to a server first.")
+        val key = accountKey(activeSession.server, activeSession.userId)
+        val synchronizer = EventSynchronizer(
+            accountKey = key,
+            server = activeSession.server,
+            token = activeSession.token,
+            store = syncState,
+            api = syncApi,
+            clock = object : MobileClock {
+                override fun nowUtc(): String = Instant.now().toString()
+            },
+            applyEvent = applyEvent,
+            onUnauthorized = { signOut() },
+        )
+        return synchronizer.pollOnce()
+    }
+
+    override suspend fun markRead(
+        channelId: String,
+        throughSequence: String?,
+        throughNotificationSequence: String?,
+    ): JsonObject {
+        val activeServer = ensureConnected()
+        val body = buildJsonObject {
+            throughSequence?.let { put("throughSequence", it) }
+            throughNotificationSequence?.let { put("throughNotificationSequence", it) }
+        }
+        return jsonRequest(
+            activeServer,
+            "/api/v0/channels/${pathSegment(channelId)}/read",
+            HttpMethod.POST,
+            token = token,
+            body = body,
+        ).body
+    }
+
+    override suspend fun messageContext(messageId: String, before: Int, after: Int): ChatHistoryPage {
+        val server = ensureConnected()
+        val response = jsonRequest(
+            server,
+            "/api/v0/channel-messages/${pathSegment(messageId)}/context?before=${before.coerceIn(0, 100)}&after=${after.coerceIn(0, 100)}",
+            token = token,
+        ).body
+        return response.toChatHistoryPage()
+    }
+
+    override suspend fun send(
+        conversationId: String,
+        text: String,
+        clientId: String,
+        attachments: List<MessageAttachment>,
+        replyToMessageId: String?,
+    ): Result<ChatMessage> = runCatching {
+        val server = ensureConnected()
+        val channel = channels[conversationId] ?: throw IllegalArgumentException("Conversation is no longer available.")
+        val botId = channel.botIdFromDirectKey()
+        val bot = bots[botId]
+        val path = bot?.string("conversationId")?.takeIf(String::isNotBlank)?.let {
+            "/api/v0/conversations/${pathSegment(it)}/messages"
+        } ?: "/api/v0/channels/${pathSegment(conversationId)}/messages"
+        val body = buildJsonObject {
+            put("content", text)
+            put("clientId", clientId)
+            replyToMessageId?.takeIf(String::isNotBlank)?.let { put("replyToMessageId", it) }
+            put("attachments", kotlinx.serialization.json.buildJsonArray {
+                attachments.forEach { attachment ->
+                    add(buildJsonObject {
+                        put("assetId", attachment.assetId)
+                        put("fileName", attachment.fileName)
+                        put("mimeType", attachment.mimeType)
+                        put("byteSize", attachment.byteSize)
+                        put("kind", attachment.kind)
+                    })
+                }
+            })
+            put("timeZone", TimeZone.getDefault().id)
+        }
+        val result = jsonRequest(server, path, HttpMethod.POST, token = token, body = body).body.objectAt("message")
+        result.toChatMessage()
+    }
+
+    private suspend fun reloadBootstrap() {
+        val server = ensureConnected()
+        applyBootstrap(server, token, jsonRequest(server, "/api/v0/client-bootstrap", token = token).body)
+    }
+
+    private suspend fun applyBootstrap(activeServer: String, activeToken: String?, bootstrap: JsonObject) {
+        bots = bootstrap.arrayAt("bots").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
+        channels = bootstrap.arrayAt("channels").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
+        val avatarPaths = bots.mapValues { (_, bot) -> cacheBotAvatar(activeServer, activeToken, bot) }
+        // Bootstrap carries each channel's newest message so the list can show a preview
+        // without downloading full histories.
+        val latestByChannel = bootstrap.arrayAt("latestMessages")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .associateBy { it.string("channelId") }
+        val working = workingChannelIds(bootstrap)
+        directory = channels.values
+            .filterNot { it.boolean("hiddenFromSidebar") }
+            .map { channel ->
+                val channelId = channel.string("id")
+                val botId = channel.botIdFromDirectKey()
+                val bot = bots[botId]
+                val kind = channel.string("kind")
+                val title = if (kind == "bot_dm") {
+                    bot?.botDisplayName().orEmpty()
+                } else channel.string("name")
+                val latest = latestByChannel[channelId]
+                Conversation(
+                    id = channelId,
+                    title = title.ifBlank { "Conversation" },
+                    subtitle = if (kind == "bot_dm") bot?.string("description").orEmpty() else channel.string("description"),
+                    unread = channel.int("unreadCount").coerceAtLeast(0),
+                    avatarColor = bot?.string("color").orEmpty(),
+                    avatarPath = bot?.let { avatarPaths[it.string("id")] },
+                    botId = botId.ifBlank { null },
+                    isBot = kind == "bot_dm",
+                    isGroup = kind == "group",
+                    memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
+                    notificationsEnabled = bot?.boolean("notificationsEnabled", true) ?: true,
+                    botIcon = bot?.string("icon").orEmpty(),
+                    botInstructions = bot?.string("instructions").orEmpty(),
+                    updatedLabel = channel.string("updatedLabel", "lastUpdatedLabel").ifBlank { null },
+                    latestPreview = latest?.let(::messagePreviewText),
+                    updatedAt = channel.string("updatedAt").ifBlank { latest?.string("createdAt").orEmpty() }.takeIf { it.isNotBlank() },
+                    working = channelId in working,
+                )
+            }
+            .sortedBy { it.title.lowercase() }
+    }
+
+    private suspend fun cacheBotAvatar(activeServer: String, activeToken: String?, bot: JsonObject): String? {
+        if (!bot.boolean("hasAvatar") || bot.string("id").isBlank()) return null
+        val botId = bot.string("id")
+        val revision = bot.string("updatedAt").ifBlank { "current" }
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$botId:$revision".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val file = java.io.File(appContext.cacheDir, "avatars/$key.avatar")
+        if (file.isFile && file.length() > 0) return file.absolutePath
+        return runCatching {
+            val response = transport.download(
+                activeServer,
+                activeToken,
+                "/api/v0/bots/${pathSegment(botId)}/avatar",
+            ).requireSuccess()
+            file.parentFile?.mkdirs()
+            val temporary = java.io.File(file.parentFile, "$key.tmp")
+            temporary.writeBytes(response.bodyBytes)
+            check(temporary.renameTo(file)) { "Could not cache bot avatar." }
+            file.absolutePath
+        }.getOrNull()
+    }
+
+    override suspend fun sidebarPreferences(): SidebarPreferences {
+        val activeServer = ensureConnected()
+        val root = jsonRequest(activeServer, "/api/v0/settings", token = token).body
+        return parseSidebarPreferences(root.objectAt("settings"))
+    }
+
+    override suspend fun saveSidebarPreferences(preferences: SidebarPreferences): SidebarPreferences {
+        val activeServer = ensureConnected()
+        val body = buildJsonObject {
+            put("version", 2)
+            put("pinnedIds", buildJsonArray { preferences.pinnedIds.forEach { add(it) } })
+            put("unreadIds", buildJsonArray { preferences.unreadIds.forEach { add(it) } })
+            put("unassignedCollapsed", preferences.unassignedCollapsed)
+            put("sections", buildJsonArray {
+                preferences.sections.forEach { section ->
+                    add(buildJsonObject {
+                        put("id", section.id)
+                        put("name", section.name)
+                        put("collapsed", section.collapsed)
+                    })
+                }
+            })
+            put("sectionByChannel", buildJsonObject {
+                preferences.sectionByChannel.forEach { (channelId, sectionId) -> put(channelId, sectionId) }
+            })
+            put("channelOrderByGroup", buildJsonObject {
+                preferences.channelOrderByGroup.forEach { (group, ids) ->
+                    put(group, buildJsonArray { ids.forEach { add(it) } })
+                }
+            })
+        }
+        val result = runCatching {
+            jsonRequest(activeServer, "/api/v0/settings/sidebar", HttpMethod.PATCH, token = token, body = body).body
+        }
+        return result.getOrNull()?.let(::parseSidebarPreferences) ?: preferences
+    }
+
+    /** Parses the flat v2 `sidebarPreferences` object, either standalone or nested under settings. */
+    private fun parseSidebarPreferences(settings: JsonObject): SidebarPreferences {
+        if (settings.int("version") == 2) return parseSidebarPreferencesV2(settings)
+        val v2 = settings["sidebarPreferences"]?.jsonObjectOrNull()
+        if (v2 != null && v2.int("version") == 2) return parseSidebarPreferencesV2(v2)
+
+        // Legacy root settings: pinned agent ids and sections, already mapped to channel ids.
+        val pinned = settings.arrayAt("pinnedAgentIds").mapNotNull { it.asString() }
+        val rawSections = settings.arrayAt("sidebarSections").mapNotNull { it.jsonObjectOrNull() }
+        if (pinned.isEmpty() && rawSections.isEmpty()) return SidebarPreferences()
+        val unassigned = rawSections.firstOrNull { it.string("id") == "__agents__" }
+        val assigned = rawSections.filter { it.string("id") != "__agents__" && it.string("id").isNotBlank() }
+        return SidebarPreferences(
+            pinnedIds = pinned.distinct(),
+            unassignedCollapsed = unassigned?.boolean("isCollapsed") ?: false,
+            sections = assigned.map { section ->
+                SidebarSection(
+                    id = section.string("id"),
+                    name = section.string("name"),
+                    collapsed = section.boolean("isCollapsed"),
+                )
+            },
+            sectionByChannel = assigned.flatMap { section ->
+                section.arrayAt("agentIds").mapNotNull { it.asString() }.map { it to section.string("id") }
+            }.toMap(),
+        )
+    }
+
+    private fun parseSidebarPreferencesV2(v2: JsonObject): SidebarPreferences = SidebarPreferences(
+        pinnedIds = v2.arrayAt("pinnedIds").mapNotNull { it.asString() }.distinct(),
+        unreadIds = v2.arrayAt("unreadIds").mapNotNull { it.asString() }.distinct(),
+        unassignedCollapsed = v2.boolean("unassignedCollapsed"),
+        sections = v2.arrayAt("sections").mapNotNull { it.jsonObjectOrNull() }.map { section ->
+            SidebarSection(
+                id = section.string("id"),
+                name = section.string("name"),
+                collapsed = section.boolean("collapsed"),
+            )
+        }.filter { it.id.isNotBlank() },
+        sectionByChannel = v2.objectAt("sectionByChannel").mapNotNull { (channelId, value) ->
+            value.asString()?.let { channelId to it }
+        }.toMap(),
+        channelOrderByGroup = v2.objectAt("channelOrderByGroup").mapNotNull { (group, value) ->
+            value.jsonArrayOrEmpty()?.let { group to it.mapNotNull { item -> item.asString() } }
+        }.toMap(),
+    )
+
+    /** A one-line, plain-text preview of a message for the conversation list. */
+    private fun messagePreviewText(message: JsonObject): String? {
+        val firstLine = message.string("content")
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return null
+        val plain = firstLine
+            .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+            .replace(Regex("\\[([^\\]]*)\\]\\([^)]*\\)"), "$1")
+            .replace(Regex("[`*_>#~|]+"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (plain.isEmpty()) return null
+        return if (plain.length > 120) plain.take(119) + "…" else plain
+    }
+
+
+    private suspend fun ensureConnected(): String = server ?: throw IllegalStateException("Sign in to a server first.")
+
+    private suspend fun jsonRequest(
+        server: String,
+        path: String,
+        method: HttpMethod = HttpMethod.GET,
+        token: String? = null,
+        body: JsonObject? = null,
+    ): JsonResult {
+        val response = transport.execute(
+            server,
+            token,
+            MobileRequest(method, path, body = body?.let { mobileJson.encodeToString(it) }),
+        ).requireSuccess()
+        val parsed = if (response.body.isBlank()) JsonObject(emptyMap())
+        else mobileJson.parseToJsonElement(response.body).jsonObject
+        return JsonResult(parsed, response.headers)
+    }
+
+    private fun accountKey(server: String, userId: String) = "${server.trimEnd('/')}|$userId"
+
+    private fun displayName(uri: Uri): String? = appContext.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+
+    private fun pathSegment(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
+
+    private data class JsonResult(val body: JsonObject, val headers: Map<String, String>) {
+        fun responseHeader(name: String): String? = headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+    }
+
+    private fun JsonObject.string(vararg names: String): String = names.firstNotNullOfOrNull { this[it]?.jsonPrimitive?.contentOrNull }.orEmpty()
+    private fun JsonObject.int(name: String): Int = this[name]?.jsonPrimitive?.intOrNull ?: 0
+    private fun JsonObject.boolean(name: String, default: Boolean = false): Boolean = this[name]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: default
+    private fun JsonObject.objectAt(name: String): JsonObject = this[name]?.jsonObjectOrNull() ?: JsonObject(emptyMap())
+    private fun JsonObject.arrayAt(vararg names: String): List<kotlinx.serialization.json.JsonElement> =
+        names.firstNotNullOfOrNull { this[it]?.jsonArray } ?: emptyList()
+    private fun JsonObject.toChatMessage(): ChatMessage {
+        val message = runCatching { mobileJson.decodeFromJsonElement(MobileMessage.serializer(), this) }
+            .getOrElse {
+                MobileMessage(
+                    id = string("id").ifBlank { string("clientId") },
+                    clientId = string("clientId").ifBlank { null },
+                    sequence = string("sequence"),
+                    channelId = string("channelId"),
+                    sender = string("sender"),
+                    senderBotId = string("senderBotId").ifBlank { null },
+                    content = string("content"),
+                    createdAt = string("createdAt"),
+                    metadata = objectAt("metadata"),
+                )
+            }
+        return message.toChatMessage(string("sourceRunId").ifBlank { null })
+    }
+
+    private fun MobileMessage.toChatMessage(sourceRunIdOverride: String? = null): ChatMessage {
+        val projection = toProjection()
+        val metadata = projection.metadata
+        val senderBotId = senderBotId.orEmpty()
+        val sender = sender
+        val displayName = if (sender == "user" && senderBotId.isBlank()) "You"
+        else bots[senderBotId]?.botDisplayName()
+            ?: if (sender == "agent") "OpenTeam" else sender.replaceFirstChar(Char::uppercase)
+        return ChatMessage(
+            id = projection.id,
+            author = displayName,
+            body = projection.body,
+            isMine = projection.isMine,
+            delivery = Delivery.SENT,
+            clientId = projection.clientId,
+            sequence = projection.sequence,
+            channelId = projection.channelId,
+            sender = sender,
+            senderBotId = senderBotId.ifBlank { null },
+            sourceRunId = sourceRunIdOverride ?: metadata.string("sourceRunId").ifBlank { null },
+            createdAt = projection.createdAt,
+            metadata = projection.metadata,
+            richMessage = projection.metadata.toRichMessage(projection.id, projection.body),
+            attachments = projection.attachments.map { asset ->
+                Attachment(asset.assetId, asset.fileName, asset.mimeType, asset.byteSize, kind = asset.kind, width = asset.width, height = asset.height, alt = asset.alt)
+            },
+            reactions = projection.metadata.toReactions(projection.reactions),
+            replyToMessageId = projection.replyToMessageId,
+            threadId = projection.metadata.string("threadId", "threadRootId", "thread").ifBlank { null },
+            contextMessageId = projection.metadata.string("contextMessageId", "parentMessageId").ifBlank { projection.replyToMessageId },
+        )
+    }
+
+    override fun toChatMessage(message: MobileMessage): ChatMessage = message.toChatMessage()
+
+    private fun JsonObject.toChatHistoryPage(): ChatHistoryPage = ChatHistoryPage(
+        messages = arrayAt("messages").mapNotNull { it.jsonObjectOrNull()?.toChatMessage() },
+        threadContext = arrayAt("threadContext").mapNotNull { it.jsonObjectOrNull()?.toChatMessage() },
+        threadContextTruncated = boolean("threadContextTruncated"),
+        beforeSequence = string("beforeSequence").ifBlank { null },
+        afterSequence = string("afterSequence").ifBlank { null },
+        hasMoreBefore = boolean("hasMoreBefore"),
+        hasMoreAfter = boolean("hasMoreAfter") || boolean("hasMore"),
+        revision = string("revision"),
+    )
+
+    private fun JsonObject.toRichMessage(id: String, body: String): RichMessage? {
+        val richText = this["richText"]?.jsonObjectOrNull()
+        val rawBlocks = arrayAt("blocks").ifEmpty { richText?.arrayAt("blocks").orEmpty() }
+        val blocks = rawBlocks.mapNotNull { it.toRichBlock() }.toMutableList()
+        when (string("type")) {
+            "widget" -> objectAt("widget").toWidget()?.let(blocks::add)
+            "user-form" -> objectAt("form").toForm()?.let(blocks::add)
+        }
+        if (blocks.isEmpty() && (richText != null || string("format").isNotBlank())) {
+            blocks += RichMessageBlock.Markdown(body)
+        }
+        val actions = arrayAt("actions").mapNotNull { it.toAction() }
+        if (blocks.isEmpty() && actions.isEmpty()) return null
+        // Card state the server writes back after the user answers or dismisses a question.
+        val state = buildMap {
+            this@toRichMessage["respondedValue"]?.jsonPrimitive?.contentOrNull?.let { put("respondedValue", it) }
+            if (boolean("widgetDismissed")) put("widgetDismissed", "true")
+        }
+        return RichMessage(id, blocks, actions, state)
+    }
+
+    private fun JsonElement.toRichBlock(): RichMessageBlock? {
+        val value = jsonObjectOrNull() ?: return null
+        val type = value.string("type", "kind").lowercase()
+        return when (type) {
+            "markdown", "text" -> RichMessageBlock.Markdown(value.string("text", "content", "body"))
+            "code" -> RichMessageBlock.Code(value.string("language").ifBlank { null }, value.string("code", "content"))
+            "math" -> RichMessageBlock.Math(value.string("expression", "content"))
+            "mermaid" -> RichMessageBlock.Mermaid(value.string("source", "content"))
+            "table" -> RichMessageBlock.Table(
+                value.arrayAt("headers").mapNotNull { it.asString() },
+                value.arrayAt("rows").map { row -> row.jsonArrayOrEmpty()?.mapNotNull { it.asString() }.orEmpty() },
+            )
+            "card" -> RichMessageBlock.Card(value.string("title"), value.string("body", "content"), value["action"]?.toAction())
+            "form", "user-form" -> value.toForm()
+            "secret-request", "secret" -> RichMessageBlock.Secret(
+                value.string("prompt", "title", "label", "name"),
+                value["submit"]?.toAction("submit") ?: RichMessageAction("submit", "Submit", route = "secret"),
+            )
+            "approval" -> RichMessageBlock.Approval(
+                value.string("title"), value.string("detail", "body"),
+                value["approve"]?.toAction("approve") ?: return null,
+                value["reject"]?.toAction("reject") ?: return null,
+            )
+            "widget" -> value.toWidget()
+            else -> null
+        }
+    }
+
+    private fun JsonObject.toForm(): RichMessageBlock.Form? {
+        val fields = arrayAt("fields").mapNotNull { element ->
+            val field = element.jsonObjectOrNull() ?: return@mapNotNull null
+            RichFormField(
+                id = field.string("id", "name"),
+                label = field.string("label", "title", "id", "name"),
+                value = field.string("value", "default"),
+                secret = field.boolean("secret"),
+                required = field.boolean("required"),
+                options = field.arrayAt("options").mapNotNull { option -> option.asString() ?: option.jsonObjectOrNull()?.string("label", "value") },
+            )
+        }
+        val submit = this["submit"]?.toAction("submit") ?: RichMessageAction("submit", "Submit", route = "user-form")
+        return RichMessageBlock.Form(string("title", "prompt", "name"), fields, submit)
+    }
+
+    private fun JsonObject.toWidget(): RichMessageBlock.Widget? {
+        val options = arrayAt("options").mapNotNull { element ->
+            val option = element.jsonObjectOrNull() ?: return@mapNotNull element.asString()?.let { RichWidgetOption(it) }
+            RichWidgetOption(
+                label = option.string("label", "value"),
+                value = option.string("value", "label"),
+                description = option.string("description").ifBlank { null },
+                style = option.string("style").ifBlank { null },
+            )
+        }
+        return RichMessageBlock.Widget(
+            string("prompt", "title", "question"),
+            options,
+            boolean("multiSelect"),
+            boolean("allowCustom"),
+            boolean("dismissOnMoveOn"),
+            string("helpText").ifBlank { null },
+        )
+    }
+
+    private fun JsonElement.toAction(defaultId: String = "action"): RichMessageAction? {
+        val value = jsonObjectOrNull() ?: return asString()?.let { RichMessageAction(defaultId, it) }
+        val id = value.string("id", "action", "value").ifBlank { defaultId }
+        val kind = when (value.string("kind", "style").lowercase()) {
+            "secondary", "default" -> RichMessageAction.Kind.Secondary
+            "destructive", "danger" -> RichMessageAction.Kind.Destructive
+            else -> RichMessageAction.Kind.Primary
+        }
+        return RichMessageAction(
+            id,
+            value.string("label", "title", "id").ifBlank { id },
+            kind,
+            value.boolean("enabled", true),
+            value.string("route", "type", "actionType").ifBlank { null },
+        )
+    }
+
+    private fun JsonObject.toReactions(fallback: Map<String, List<String>>): List<Reaction> {
+        val raw = this["reactions"]?.jsonObjectOrNull() ?: return fallback.map { (emoji, users) -> Reaction(emoji, users.size) }
+        return raw.map { (emoji, element) ->
+            val objectValue = element.jsonObjectOrNull()
+            val users = element.jsonArrayOrEmpty()
+            Reaction(emoji, objectValue?.int("count") ?: users?.size ?: 0, objectValue?.boolean("selected") ?: false)
+        }
+    }
+
+    private fun JsonElement.asString(): String? = runCatching { jsonPrimitive.contentOrNull }.getOrNull()
+    private fun JsonElement.jsonObjectOrNull(): JsonObject? = runCatching { jsonObject }.getOrNull()
+    private fun JsonElement.jsonArrayOrEmpty(): List<JsonElement>? = runCatching { jsonArray }.getOrNull()
+
+    private companion object {
+        const val PASSWORD_FIELD = "pass" + "word"
+    }
+}
+
+private val ACTIVE_RUN_STATUSES = setOf("queued", "running")
+private val EXECUTING_TASK_STATUSES = setOf("provisioning", "queued", "running")
+
+/**
+ * Channels with work in progress, matching the desktop sidebar: a queued or running run,
+ * or an executing async subagent task whose parent is the channel.
+ */
+internal fun workingChannelIds(bootstrap: JsonObject): Set<String> {
+    fun JsonObject.field(name: String) = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+    fun rows(name: String) = (bootstrap[name] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        .mapNotNull { it as? JsonObject }
+    val runs = rows("activeRuns").filter { it.field("status") in ACTIVE_RUN_STATUSES }.map { it.field("channelId") }
+    val tasks = rows("subagents").filter { it.field("status") in EXECUTING_TASK_STATUSES }.map { it.field("parentChannelId") }
+    return (runs + tasks).filter(String::isNotBlank).toSet()
+}
+
+/**
+ * Mirrors the desktop's thinking indicator: the channel's active run (running beats queued)
+ * decides whether to show it, and that run's newest unfinished item decides the caption.
+ * Without a run, an executing background task still counts.
+ */
+internal fun channelActivityFrom(channelId: String, state: JsonObject): ChannelActivity? {
+    fun JsonObject.text(name: String) = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+    fun rows(name: String) = (state[name] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        .mapNotNull { it as? JsonObject }
+    val activeRuns = rows("runs").filter { it.text("channelId") == channelId && it.text("status") in ACTIVE_RUN_STATUSES }
+    val run = activeRuns.lastOrNull { it.text("status") == "running" } ?: activeRuns.lastOrNull()
+    if (run == null) {
+        val background = rows("subagents").any {
+            it.text("parentChannelId") == channelId && it.text("status") in EXECUTING_TASK_STATUSES
+        }
+        return if (background) ChannelActivity.Background else null
+    }
+    val latest = rows("runItems")
+        .filter { it.text("runId") == run.text("id") && it.text("status") in setOf("running", "pending") }
+        .maxWithOrNull(compareBy({ it.text("createdAt") }, { it.text("updatedAt") }))
+        ?: return ChannelActivity.Thinking
+    return when (latest.text("kind")) {
+        "reasoning" -> ChannelActivity.Thinking
+        "command" -> ChannelActivity.RunningCommands
+        "file_change" -> ChannelActivity.DraftingFile
+        "compaction" -> ChannelActivity.OrganizingContext
+        else -> {
+            val tool = (latest["content"] as? JsonObject)?.text("tool")?.takeIf(String::isNotEmpty)
+                ?: latest.text("title")
+            when (tool) {
+                "SendToUser" -> ChannelActivity.Typing
+                "read", "Read", "ReadFile", "BoxRead" -> ChannelActivity.ReadingFile
+                "WebSearch", "web_search" -> ChannelActivity.SearchingWeb
+                "WebFetch", "web_fetch" -> ChannelActivity.ReadingWeb
+                "write", "edit", "Write", "Edit" -> ChannelActivity.DraftingFile
+                "Shell", "ExternalShell", "bash", "BoxShell" -> ChannelActivity.RunningCommands
+                "Await", "AwaitProcess" -> ChannelActivity.WaitingOnCommand
+                "Computer", "Screenshot" -> ChannelActivity.OnComputer
+                "SendToAgent", "UpdateAgent" -> ChannelActivity.MessagingAssistant
+                "Task", "CheckSubagent" -> ChannelActivity.WaitingOnBot
+                "GenerateImage" -> ChannelActivity.GeneratingImage
+                else -> if (latest.text("kind") == "agent_message") ChannelActivity.Thinking else ChannelActivity.Working
+            }
+        }
+    }
+}
+
+private fun JsonObject.stringValue(name: String): String = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+internal fun JsonObject.botDisplayName(): String {
+    val name = this["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    return name.ifBlank { this["title"]?.jsonPrimitive?.contentOrNull.orEmpty() }
+}
+
+internal fun JsonObject.botIdFromDirectKey(): String {
+    val directKey = this["directKey"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    if (directKey.isNotBlank()) return directKey.removePrefix("bot:")
+    return runCatching {
+        this["members"]?.jsonArray?.firstOrNull()?.jsonObject?.get("botId")?.jsonPrimitive?.contentOrNull.orEmpty()
+    }.getOrDefault("")
+}

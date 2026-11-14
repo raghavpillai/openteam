@@ -136,7 +136,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // messages; the map renderer itself stays on demand): 1,329,632.
 // v0.0.18: the reviewed account fences and authenticated photo resources measure
 // 1,332,858 B; maps and the ScreenBot bridge retain their lazy boundaries.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_335_000);
+// Main at 030746c2 measures 1,341,722. Live bot avatars (motion specs, expressions and
+// activity states for every avatar on screen; gaze and pokes stay lazy): 1,380,834.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_385_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -205,7 +207,8 @@ atMost("startup CSS bytes", startupCssBytes, 222_000);
 // plugin move and the presentation polish: 17,867,243 B.
 // v0.0.18 after separating Settings Switch: 17,890,302 B / 4,478,603 gzip.
 // Includes generation-fenced photo loading and ScreenBot ownership; no new dependency.
-atMost("renderer bytes", result.renderer.bytes, 17_892_000);
+// Live bot avatars: 17,937,753 B / 4,491,991 gzip.
+atMost("renderer bytes", result.renderer.bytes, 17_942_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -235,7 +238,7 @@ atMost("renderer bytes", result.renderer.bytes, 17_892_000);
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_480_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_496_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -271,7 +274,8 @@ if (result.renderer.violations.wasm.length > 0) {
 // Measured shell/initial: 19,493 / 54,628 B; microphone stays below its unchanged
 // 12 KB limit. Adjust only measured feature closures; retain all boundary audits.
 const lazyBudgets: Record<string, number> = {
-  workspace: 800_000,
+  // Live bot avatars measure 825,163 B.
+  workspace: 830_000,
   largeCode: 600_000,
   // Sign-in recovery (Start again, session-mismatch guidance) and plugin setup
   // secrets for Bot processes bring the measured October closure to 51,380 bytes.

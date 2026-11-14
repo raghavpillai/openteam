@@ -2054,6 +2054,7 @@ final class AppStore {
     systemOpenGeneration = UUID()
     systemVoiceRequestID = nil
     botVoiceLaunch.reset()
+    VoiceMemoSessions.reset()
     SystemDiscovery.shared.clear(removeTransfers: true)
     systemScope = nil
     systemDiscoveryEnabled = false

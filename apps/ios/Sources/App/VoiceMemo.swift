@@ -377,6 +377,19 @@ final class VoiceMemoController: ObservableObject {
     }
   }
 
+  /// The composer left the screen: another chat, a thread or the chat list. A note being
+  /// transcribed carries on and is sent, and a take kept for review waits for its chat.
+  /// Anything still recording is discarded, as before. Returns whether the note lives on.
+  func leave() -> Bool {
+    touchStart = nil
+    touchPhase = .idle
+    guard phase == .transcribing || phase == .review else {
+      tearDown()
+      return false
+    }
+    return true
+  }
+
   /// The app went to the background: keep what was recorded for review.
   func suspend() {
     recordingSession = UUID()
@@ -490,6 +503,37 @@ final class VoiceMemoController: ObservableObject {
       heldLevel: frame.heldLevel)
     lastGlowMotion = motion
     return motion
+  }
+}
+
+/// Voice notes outlive the composer that recorded them. Leaving a chat while its note is
+/// transcribing must not drop it: the transcript is still sent, and reopening the chat shows
+/// the note's progress, or the take kept after a failed transcription. Keyed like drafts.
+@MainActor
+enum VoiceMemoSessions {
+  private static var kept: [String: VoiceMemoController] = [:]
+
+  /// The controller for a composer that is about to appear for `key`.
+  static func controller(for key: String) -> VoiceMemoController {
+    if let memo = kept.removeValue(forKey: key), memo.phase != .idle { return memo }
+    return VoiceMemoController()
+  }
+
+  /// The composer is back on screen with its own controller.
+  static func resume(_ memo: VoiceMemoController, key: String) {
+    if kept[key] === memo { kept[key] = nil }
+  }
+
+  /// The composer left the screen.
+  static func leave(_ memo: VoiceMemoController, key: String) {
+    kept = kept.filter { $0.value.phase != .idle }
+    if memo.leave() { kept[key] = memo }
+  }
+
+  /// Sign-out or another server: nothing recorded for one account reaches the next.
+  static func reset() {
+    for memo in kept.values { memo.tearDown() }
+    kept = [:]
   }
 }
 

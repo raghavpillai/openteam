@@ -190,6 +190,82 @@ final class VoiceLifecycleTests: XCTestCase {
     XCTAssertEqual(memo.phase, .locked)
   }
 
+  /// Holds a transcription open until the test answers it.
+  @MainActor private final class TranscriptGate {
+    private var continuation: CheckedContinuation<String?, Error>?
+    var waiting: Bool { continuation != nil }
+    func wait() async throws -> String? { try await withCheckedThrowingContinuation { continuation = $0 } }
+    func finish(_ result: Result<String?, Error>) { continuation?.resume(with: result); continuation = nil }
+  }
+
+  func testLeavingTheChatWhileTranscribingStillSendsTheNote() async throws {
+    let memo = memo(), gate = TranscriptGate(), key = "leave-" + UUID().uuidString
+    defer { VoiceMemoSessions.reset(); memo.tearDown() }
+    var delivered: [String] = []
+    memo.transcribe = { _ in try await gate.wait() }
+    memo.deliver = { delivered.append($0) }
+    try await start(memo)
+    memo.send()
+    try await waitUntil { gate.waiting }
+    VoiceMemoSessions.leave(memo, key: key)
+    XCTAssertEqual(memo.phase, .transcribing, "Leaving the chat must not cancel the transcription")
+    XCTAssertTrue(VoiceMemoSessions.controller(for: key) === memo, "Reopening the chat shows the note's progress")
+    VoiceMemoSessions.leave(memo, key: key)
+    gate.finish(.success("Sent after leaving"))
+    try await waitUntil { memo.phase == .idle }
+    XCTAssertEqual(delivered, ["Sent after leaving"])
+    XCTAssertFalse(VoiceMemoSessions.controller(for: key) === memo, "A sent note is not kept")
+  }
+
+  func testFailedTranscriptionAfterLeavingKeepsTheTakeForItsChat() async throws {
+    let memo = memo(), gate = TranscriptGate(), key = "leave-" + UUID().uuidString
+    defer { VoiceMemoSessions.reset(); memo.tearDown() }
+    var reports = 0, deliveries = 0
+    memo.transcribe = { _ in try await gate.wait() }
+    memo.deliver = { _ in deliveries += 1 }
+    memo.report = { _ in reports += 1 }
+    try await start(memo)
+    memo.send()
+    try await waitUntil { gate.waiting }
+    VoiceMemoSessions.leave(memo, key: key)
+    gate.finish(.failure(APIError("Transcription is unavailable.")))
+    try await waitUntil { memo.phase == .review }
+    XCTAssertEqual(reports, 1)
+    XCTAssertEqual(deliveries, 0)
+    let url = try XCTUnwrap(memo.recorder.pendingURL)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    XCTAssertTrue(VoiceMemoSessions.controller(for: key) === memo, "The kept take waits in its chat")
+  }
+
+  func testLeavingWhileRecordingStillDiscardsTheTake() async throws {
+    let memo = memo(), key = "leave-" + UUID().uuidString
+    defer { VoiceMemoSessions.reset(); memo.tearDown() }
+    try await start(memo)
+    VoiceMemoSessions.leave(memo, key: key)
+    XCTAssertEqual(memo.phase, .idle)
+    XCTAssertFalse(memo.recorder.recording)
+    XCTAssertNil(memo.recorder.pendingURL)
+    XCTAssertFalse(VoiceMemoSessions.controller(for: key) === memo)
+  }
+
+  func testSignOutDropsNotesStillTranscribingElsewhere() async throws {
+    let memo = memo(), gate = TranscriptGate(), key = "leave-" + UUID().uuidString
+    defer { VoiceMemoSessions.reset(); memo.tearDown() }
+    var deliveries = 0
+    memo.transcribe = { _ in try await gate.wait() }
+    memo.deliver = { _ in deliveries += 1 }
+    try await start(memo)
+    memo.send()
+    try await waitUntil { gate.waiting }
+    VoiceMemoSessions.leave(memo, key: key)
+    VoiceMemoSessions.reset()
+    XCTAssertEqual(memo.phase, .idle)
+    gate.finish(.success("From the previous account"))
+    try await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(deliveries, 0)
+    XCTAssertFalse(VoiceMemoSessions.controller(for: key) === memo)
+  }
+
   func testTeardownIgnoresLatePermissionDenial() async throws {
     let gate = PermissionGate()
     let recorder = VoiceRecorder(permission: { await gate.request() })

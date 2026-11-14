@@ -396,6 +396,59 @@ import XCTest
     XCTAssertEqual(after, 1)
   }
 
+  /// Sends a note, then goes back to the chat list before the transcript arrives.
+  private func sendAndLeaveWhileTranscribing(_ app: XCUIApplication, transcribingFor delay: Int = 8000) async throws {
+    try await fixture("/__qa/control", ["failures": ["POST /api/v0/transcriptions": ["delayMs": delay]]])
+    mic(app).tap()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 4))
+    app.buttons["Send voice note"].tap()
+    XCTAssertTrue(app.buttons["Cancel transcription"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 3))
+    app.chatBackButton.tap()
+  }
+  private func open(_ app: XCUIApplication, _ channel: String) {
+    let row = app.buttons["channel-" + channel]
+    XCTAssertTrue(row.waitForExistence(timeout: 8))
+    let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: row)
+    XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed)
+    row.tap()
+  }
+
+  func testNoteLeftTranscribingIsSentFromAnotherChat() async throws {
+    let app = try await launch()
+    defer { app.terminate() }
+    try await sendAndLeaveWhileTranscribing(app)
+    open(app, "channel-ops")
+    let deadline = Date().addingTimeInterval(15)
+    while try await sentMessages(transcript).isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(250)) }
+    let sent = try await sentMessages(transcript)
+    XCTAssertEqual(sent.count, 1, "The transcript must be sent once, while another chat is open")
+    XCTAssertEqual(sent.first?["channelId"] as? String, "channel-research")
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 3))
+    app.chatBackButton.tap()
+    open(app, "channel-research")
+    XCTAssertTrue(app.staticTexts[transcript].waitForExistence(timeout: 10))
+    XCTAssertTrue(mic(app).waitForExistence(timeout: 5), "The composer is idle again")
+    let count = try await uploads()
+    XCTAssertEqual(count, 1)
+  }
+
+  func testReopeningAChatMidTranscriptionShowsTheNoteThenSendsIt() async throws {
+    let app = try await launch()
+    defer { app.terminate() }
+    // Long enough to leave and reopen the chat on a loaded simulator.
+    try await sendAndLeaveWhileTranscribing(app, transcribingFor: 15000)
+    open(app, "channel-research")
+    XCTAssertTrue(app.buttons["Cancel transcription"].waitForExistence(timeout: 5),
+      "The reopened chat shows the note still transcribing")
+    XCTAssertTrue(app.descendants(matching: .any)["Transcribing"].exists)
+    capture("transcribing-after-reopening", app)
+    try await waitForMessage(app, transcript)
+    XCTAssertTrue(mic(app).waitForExistence(timeout: 5), "The composer returns after sending")
+    let count = try await uploads()
+    XCTAssertEqual(count, 1)
+  }
+
   func testFailedTranscriptionKeepsTheRecordingForRetry() async throws {
     let app = try await launch()
     try await fixture("/__qa/control", ["failures": ["POST /api/v0/transcriptions": ["status": 503, "count": 1]]])

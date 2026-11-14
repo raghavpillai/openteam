@@ -602,7 +602,7 @@ struct RichMessageCard: View {
         .opacity(animating && draftStep >= (draftDiscards ? 1 : 3) ? 0 : 1)
         .animation(discarding ? .easeOut(duration: DraftSendOff.close.duration) : nil, value: draftStep >= 1)
         .overlay(alignment: .trailing) {
-          // The real Sent badge comes up under the gold stamp the send-off leaves on it; the
+          // The real Sent badge comes up under the green stamp the send-off leaves on it; the
           // Discarded one fades in with the summary.
           if animating {
             DraftStatusBadge(state: draftDiscards ? "dismissed" : "sent", anchorsFrame: true)
@@ -965,7 +965,7 @@ struct RichMessageCard: View {
             Image(systemName: "message.fill").font(.system(size: 13)).foregroundStyle(icon)
             Text(verbatim: "Messages").font(.system(size: 15, weight: .medium)).kerning(-0.15).foregroundStyle(DraftPalette.text)
             Spacer(minLength: 0)
-            // The Sent badge comes up under the gold stamp the send-off leaves there.
+            // The Sent badge comes up under the green stamp the send-off leaves there.
             DraftStatusBadge(state: animating ? (draftDiscards ? "dismissed" : "sent") : state, anchorsFrame: animating)
               .opacity(animating && draftStep < (draftDiscards ? 2 : 4) ? 0 : 1)
           }.transition(.opacity)
@@ -1260,12 +1260,8 @@ enum DraftPalette {
   static let primary = color("1c1c1c", "f5f5f5")
   static let primaryPressed = color("1c1c1cad", "f5f5f5a8")
   static let primaryDisabled = color("1c1c1c26", "f5f5f521")
-  /// Sent is gold: the badge's text and dot, and its background.
-  static let sent = color("8a6800", "e3b341")
-  static let sentFill = color("d9a51c26", "e3b3411a")
-  /// The send-off's burst, drops and solid stamp, and the "Sent" written on the stamp.
-  static let sentSolid = color("e2b033", "e3b341")
-  static let sentInk = color("1a1405", "1a1405")
+  static let green = color("00854a", "00ba69")
+  static let greenFill = color("14c16f17", "14c37012")
   static let yellow = color("aa6300", "e28600")
   static let yellowFill = color("da830e38", "c8770c38")
   static let danger = color("cd2834", "ff6463")
@@ -1425,7 +1421,7 @@ struct DraftStatusBadge: View {
   let state: String
   /// Publishes the badge's frame for the send-off, which lands on it.
   var anchorsFrame = false
-  /// The send-off's stamp: the label alone, in dark ink for the solid gold under it.
+  /// The send-off's stamp: the label alone, knocked out of solid green.
   var stamped = false
   static func label(_ state: String) -> String {
     switch state {
@@ -1441,10 +1437,10 @@ struct DraftStatusBadge: View {
     let ready = state == "pending" || state == "sending"
     let sent = state == "sent"
     let warning = ["failed", "draft-created"].contains(state)
-    let ink = stamped ? DraftPalette.sentInk : sent ? DraftPalette.sent : warning ? DraftPalette.yellow : ready ? DraftPalette.secondary : DraftPalette.tertiary
+    let ink = stamped ? DraftPalette.inverted : sent ? DraftPalette.green : warning ? DraftPalette.yellow : ready ? DraftPalette.secondary : DraftPalette.tertiary
     HStack(spacing: ready ? 6 : 4) {
       if state != "unknown" {
-        Circle().fill(stamped ? ink : sent ? DraftPalette.sent : warning ? DraftPalette.yellow : DraftPalette.tertiary)
+        Circle().fill(stamped ? ink : sent ? DraftPalette.green : warning ? DraftPalette.yellow : DraftPalette.tertiary)
           .frame(width: 6, height: 6)
       }
       Text(Self.label(state)).font(.system(size: 12, weight: .medium))
@@ -1452,7 +1448,7 @@ struct DraftStatusBadge: View {
     .foregroundStyle(ink)
     .padding(.horizontal, ready ? 8 : 7).padding(.vertical, 2)
     .background(
-      stamped ? Color.clear : sent ? DraftPalette.sentFill : warning ? DraftPalette.yellowFill : DraftPalette.fillFaint,
+      stamped ? Color.clear : sent ? DraftPalette.greenFill : warning ? DraftPalette.yellowFill : DraftPalette.fillFaint,
       in: Capsule())
     .background {
       if anchorsFrame { Color.clear.anchorPreference(key: DraftSendAnchors.self, value: .bounds) { ["badge": $0] } }

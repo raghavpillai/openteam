@@ -19,12 +19,7 @@
   --draft-primary-disabled: #1c1c1c26;
   --draft-muted: #bdbdbd;
   --draft-green: #00854a;
-  /* Sent is gold: `sent` is the badge's text and dot on `sent-fill`; the send-off
-     bursts and stamps in `sent-solid`, with `sent-ink` text on it. */
-  --draft-sent: #8a6800;
-  --draft-sent-fill: #d9a51c26;
-  --draft-sent-solid: #e2b033;
-  --draft-sent-ink: #1a1405;
+  --draft-green-fill: #14c16f17;
   --draft-yellow: #aa6300;
   --draft-yellow-fill: color-mix(in srgb, #da830e 22%, transparent);
   --draft-danger: #cd2834;
@@ -68,9 +63,7 @@
   --draft-primary: #f5f5f5;
   --draft-primary-disabled: #f5f5f521;
   --draft-green: #00ba69;
-  --draft-sent: #e3b341;
-  --draft-sent-fill: #e3b3411a;
-  --draft-sent-solid: #e3b341;
+  --draft-green-fill: #14c37012;
   --draft-yellow: #e28600;
   --draft-yellow-fill: color-mix(in srgb, #c8770c 22%, transparent);
   --draft-danger: #ff6463;
@@ -139,8 +132,8 @@
   color: var(--draft-text-secondary);
 }
 .draft-status[data-tone="sent"] {
-  background: var(--draft-sent-fill);
-  color: var(--draft-sent);
+  background: var(--draft-green-fill);
+  color: var(--draft-green);
 }
 .draft-status[data-tone="warning"] {
   background: var(--draft-yellow-fill);
@@ -154,7 +147,7 @@
   background: var(--draft-text-tertiary);
 }
 .draft-status[data-tone="sent"] .draft-status-dot {
-  background: var(--draft-sent);
+  background: var(--draft-green);
 }
 .draft-status[data-tone="warning"] .draft-status-dot {
   background: var(--draft-yellow);
@@ -605,10 +598,10 @@ a.draft-field:hover {
   position: absolute;
   opacity: 1;
 }
-/* "Sent", written on the solid gold splat. */
+/* "Sent", knocked out of the solid green splat. */
 .draft-card[data-fx] .draft-fx-stamp {
   background: none;
-  color: var(--draft-sent-ink);
+  color: var(--draft-text-inverted);
   opacity: 0;
 }
 .draft-card[data-fx] .draft-fx-stamp .draft-status-dot {

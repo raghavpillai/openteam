@@ -1,6 +1,6 @@
 /** The send-off, once this device's send is confirmed: the Send blob swallows
     the letter, the card closes around it, and the blob slings at full speed
-    into the "Sending" badge, where it bursts gold and is the "Sent" badge.
+    into the "Sending" badge, where it bursts green and is the "Sent" badge.
     The summary is written in its wake.
     A discard is the quiet opposite: the grey Discard blob swallows the letter,
     the card closes, and the blob drips out through the bottom edge.
@@ -10,7 +10,7 @@ const CLOSE = { delay: 130, duration: 220 };
 const WIND = 290;
 const SLING = 370;
 const HIT = 530;
-// The solid gold stamp holds this long after the hit, then relaxes into the badge.
+// The solid green stamp holds this long after the hit, then relaxes into the badge.
 const STAMP = 300;
 const RELAX = 200;
 const END = HIT + STAMP + RELAX + 10;
@@ -70,7 +70,7 @@ export function playDraftSendFlight(card: HTMLElement, done: () => void, discard
   };
   const styles = getComputedStyle(card);
   const ink = styles.getPropertyValue(discard ? "--draft-muted" : "--draft-primary").trim();
-  const gold = styles.getPropertyValue("--draft-sent-solid").trim();
+  const green = styles.getPropertyValue("--draft-green").trim();
   const badge = local(status);
   const header = local(status.parentElement!);
   const line = header.y + header.height + Number.parseFloat(styles.rowGap || "10");
@@ -267,7 +267,7 @@ export function playDraftSendFlight(card: HTMLElement, done: () => void, discard
     });
 
     if (ghost) play(ghost, [{ opacity: 1 }, { opacity: 0 }], { delay: HIT - 20, duration: 40, fill: "forwards" });
-    // The hit: the blob bursts gold over the "Sending" badge. The splat pulls
+    // The hit: the blob bursts green over the "Sending" badge. The splat pulls
     // itself into the badge's shape, stamped "Sent", while drops fly off it.
     const splat: Keyframe[] = [
       { opacity: 1, transform: at(to, 0, 0.75, 1.9), easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
@@ -277,7 +277,7 @@ export function playDraftSendFlight(card: HTMLElement, done: () => void, discard
       { opacity: 1, transform: at(to, 0, 1) },
     ];
     const pill = (parent: HTMLElement) => {
-      const element = add(parent, "draft-fx-blob", gold);
+      const element = add(parent, "draft-fx-blob", green);
       Object.assign(element.style, {
         top: `${-badge.height / 2}px`,
         left: `${-badge.width / 2}px`,
@@ -306,7 +306,7 @@ export function playDraftSendFlight(card: HTMLElement, done: () => void, discard
         const point = { x: to.x + Math.cos(angle) * reach, y: to.y + Math.sin(angle) * reach };
         return { opacity: 1, transform: at(point, 0, (size / 32) * (1 - time ** 1.6)) };
       });
-      play(add(gooLayer, "draft-fx-blob", gold), frames, { delay: HIT, duration: 280 + (index % 3) * 50 });
+      play(add(gooLayer, "draft-fx-blob", green), frames, { delay: HIT, duration: 280 + (index % 3) * 50 });
     });
     const label = add(stage, "draft-status draft-fx-ghost draft-fx-stamp");
     label.innerHTML = `<span class="draft-status-dot"></span>Sent`;

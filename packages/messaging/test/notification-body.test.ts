@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { agentNotificationPresentation } from "@openteam/contracts";
 import { messageNotificationBody } from "../src/notifications";
 
 const message = (content: string, metadata: Record<string, unknown> = {}) => ({
@@ -19,6 +20,26 @@ const asset = (fileName: string, mimeType: string, kind: string) => ({
 });
 
 describe("messageNotificationBody", () => {
+  test("matches the actual Grok question notification title and body", () => {
+    // Read from macOS usernoted history for the isolated Grok Bot 1.0.1 test.
+    const { title, body } = agentNotificationPresentation({
+      kind: "message",
+      botName: "Question Lifecycle QA Nov13",
+      body: messageNotificationBody(message("Fallback content", {
+        type: "widget",
+        widget: {
+          prompt: "BANNER TEST: Which sample animal?",
+          helpText: "Extra help text for the card.",
+          options: [{ label: "Cat", value: "Cat" }, { label: "Dog", value: "Dog" }],
+        },
+      })),
+    });
+    expect({ title, body }).toEqual({
+      title: "Question Lifecycle QA Nov13",
+      body: "BANNER TEST: Which sample animal?",
+    });
+  });
+
   test("shows the first line with text as plain text, never Markdown", () => {
     expect(
       messageNotificationBody(

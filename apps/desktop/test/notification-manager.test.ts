@@ -174,10 +174,10 @@ describe("DesktopNotificationManager", () => {
     expect(delivered.map(({ body }) => body)).toEqual(["Message 3"]);
   });
 
-  test("suppresses the focused conversation without replaying or starting a throttle window", () => {
+  test("suppresses all chats while focused without replaying or starting a throttle window", () => {
     let focused = true;
     const { manager, ids, advance } = harness({ focused: () => focused });
-    manager.setVisibleChannel("chat");
+    manager.setVisibleChannel("another-chat");
     manager.sync({ channels: [channel([])] });
     manager.sync({ channels: [channel([alert(1)])] });
     expect(ids()).toEqual([]);
@@ -187,13 +187,17 @@ describe("DesktopNotificationManager", () => {
     expect(ids()).toEqual(["chat:2"]);
   });
 
-  test("delivers an unread question in another chat while the app has focus", () => {
-    const { manager, delivered } = harness({ focused: () => true });
+  test("shows unread questions as banners only when the app is in the background", () => {
+    let focused = true;
+    const { manager, delivered } = harness({ focused: () => focused });
     manager.setVisibleChannel("another-chat");
     manager.sync({ channels: [channel([])] });
     manager.sync({ channels: [channel([alert(1, { title: "Question QA", body: "Which sample color?" })])] });
+    expect(delivered).toEqual([]);
+    focused = false;
+    manager.sync({ channels: [channel([alert(2, { title: "Question QA", body: "Which sample animal?" })])] });
     expect(delivered.map(({ title, body }) => ({ title, body }))).toEqual([
-      { title: "Question QA", body: "Which sample color?" },
+      { title: "Question QA", body: "Which sample animal?" },
     ]);
   });
 

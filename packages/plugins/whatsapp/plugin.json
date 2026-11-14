@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "whatsapp",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "name": "WhatsApp",
   "description": "Link your WhatsApp account to search conversations, read history, send messages and attachments, and manage chats.",
   "publisher": "OpenTeam",
@@ -16,45 +16,15 @@
   "setup": {
     "kind": "none",
     "connectionKey": "whatsapp",
-    "title": "Link your WhatsApp account",
-    "description": "Connect this account and scan the QR in OpenTeam account settings using WhatsApp’s Linked devices scanner. Requires a Linux bot computer; no Meta developer account or API key is needed.",
+    "title": "Connect WhatsApp",
+    "description": "Link WhatsApp on your phone by scanning a QR code. OpenTeam handles setup automatically.",
     "documentationUrl": "https://github.com/openclaw/wacli/blob/v0.26.0/docs/auth.md",
     "steps": [
-      "Save this account’s settings and choose Connect. OpenTeam shows the current QR in account settings.",
-      "On your phone, open WhatsApp → Linked devices → Link a device and scan the code. Keep WhatsApp open while linking and initial history sync finish. Rotating QR codes update automatically; Get new code starts a new attempt.",
-      "Once the account is ready, ask a Bot to check connection status and search for a known conversation. History is limited to what WhatsApp supplies and what the local archive retains.",
-      "For attachments, place files in the configured folder on the bot computer. Downloaded media also goes there. Default: /workspace.",
-      "Use a separate OpenTeam account for each WhatsApp identity. Disconnect preserves private state. Removing the account deletes its managed session and archive; remove its linked-device entry on your phone to revoke it there."
+      "Choose Connect to display a QR code.",
+      "On your phone, open WhatsApp → Linked devices → Link a device, then scan the code.",
+      "Keep WhatsApp open while linking and initial history sync finish. New codes appear automatically."
     ],
-    "fields": [
-      {
-        "key": "WHATSAPP_READ_ONLY",
-        "label": "Read-only access",
-        "type": "boolean",
-        "default": false,
-        "required": false,
-        "secret": false,
-        "helpText": "Hide messaging and chat-change tools. Account-settings linking, sync, and local attachment downloads remain available."
-      },
-      {
-        "key": "WHATSAPP_MEDIA_ROOT",
-        "label": "Attachment folder",
-        "type": "string",
-        "default": "/workspace",
-        "required": false,
-        "secret": false,
-        "helpText": "Absolute folder on the bot computer. Uploads and downloads stay within it; WhatsApp session files cannot be sent."
-      },
-      {
-        "key": "WHATSAPP_MAX_MESSAGES",
-        "label": "Maximum stored messages",
-        "type": "integer",
-        "default": 100000,
-        "required": false,
-        "secret": false,
-        "helpText": "Between 1,000 and 1,000,000. Sync stops at this limit or 512 MB of message database storage; existing history is retained."
-      }
-    ],
+    "fields": [],
     "requiredScopes": []
   },
   "connections": [
@@ -68,13 +38,8 @@
       "configuration": {
         "command": "bun",
         "args": [
-          "${PLUGIN_ROOT}/connector/server.mjs",
-          "--read-only=${WHATSAPP_READ_ONLY}",
-          "--max-messages=${WHATSAPP_MAX_MESSAGES}"
-        ],
-        "env": {
-          "WHATSAPP_MEDIA_ROOT": "${WHATSAPP_MEDIA_ROOT}"
-        }
+          "${PLUGIN_ROOT}/connector/server.mjs"
+        ]
       },
       "persistentState": true,
       "deviceLink": {
@@ -83,7 +48,7 @@
         "statusTool": "whatsapp_link_status",
         "cancelTool": "whatsapp_cancel_link",
         "removeTool": "whatsapp_remove_account",
-        "instructions": "Open WhatsApp → Linked devices → Link a device on your phone and scan this QR. Keep WhatsApp open while linking and initial sync finish. QR updates appear here automatically. If WhatsApp cannot link devices right now, cancel and wait for its restriction to clear."
+        "instructions": "In WhatsApp on your phone, open Settings → Linked devices → Link a device, then scan this code. Keep WhatsApp open while linking finishes."
       }
     }
   ],
@@ -100,9 +65,8 @@
     }
   ],
   "installationSteps": [
-    "Install WhatsApp and connect an account in Marketplace.",
-    "Scan the current QR in OpenTeam account settings using WhatsApp → Linked devices → Link a device.",
-    "Wait for ready status, then check connection status and search for a known conversation.",
-    "Configure tool access and add a separate account for each additional WhatsApp number."
+    "Install WhatsApp and choose Connect.",
+    "Scan the QR code using WhatsApp → Linked devices → Link a device on your phone.",
+    "Keep WhatsApp open until the account says Connected."
   ]
 }

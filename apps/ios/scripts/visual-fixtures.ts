@@ -181,6 +181,17 @@ export function visualFixture(base: any, scene: string) {
     const name=isMotion?"Memory Deep 914 Box copy":isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
     const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions||isMotion?"#00B8A9":"#FF6600",isDark||isLong||isActions||isMotion?"cloud":"hexagon");
     if (isDark) { snapshot.bots[0].title=""; }
+    // Around a draft card: another chat to switch to and, in the "-long" scenes, enough history
+    // above the card to scroll its row out of the list and back.
+    const draftSendSurroundings = (long: boolean) => {
+      const other = bot("visual-other", "Other Bot", "#00B8A9", "cloud");
+      message(other.channel.id, "user", "Anything new on the Friday order?", 1);
+      message(other.channel.id, "agent", "Nothing yet — I'll tell you when it ships.", 2);
+      sidebar.channelOrderByGroup.unassigned = [channel.id, other.channel.id];
+      if (long) for (let i = 1; i <= 30; i++) message(channel.id, i % 2 ? "user" : "agent", `Earlier message ${i}. ${"Some context from before the draft. ".repeat(1 + i % 3)}`, i);
+      // The card's rows follow at this offset.
+      return long ? 30 : 0;
+    };
     if (scene === "delivery-spacing") {
       message(channel.id, "agent", "Ready when you are.", 1);
       message(channel.id, "user", "Why is the return address Irving, Texas? That doesn't make sense.", 2);
@@ -257,6 +268,19 @@ export function visualFixture(base: any, scene: string) {
     } else if(scene === "background-activity") {
       message(channel.id, "user", "Can you check the shipping receipt?", 1);
       message(channel.id, "agent", "I’m checking the receipt. I’ll send you the tracking number when it’s ready.", 2);
+    } else if(scene === "draft-send" || scene === "draft-send-long") {
+      // A pending email reply; the fixture server answers its Send after ~900 ms.
+      const at = draftSendSurroundings(scene.endsWith("-long"));
+      message(channel.id, "user", "Tell Austin Monday at noon works and ask for the Teams invite.", at + 1);
+      message(channel.id, "agent", "", at + 2, {type:"external-draft", cardState:"pending", draft:{platform:"email", from:"raghav@example.com", to:["austin@example.com"], cc:["colo-sales@example.com","noc@example.com"], subject:"RE: Month-to-month colocation inquiry — one server, 4kW", body:"Hi Austin,\n\nThanks! Monday, November 16 at 12:00pm EST works for me. Please send over the Teams invite.\n\nThanks,\nRaghav", replyToMessageId:"fixture-thread-message", verification:{identity:"raghav@example.com", sendingAddresses:["raghav@example.com"], thread:"RE: Month-to-month colocation inquiry — one server, 4kW"}}});
+    } else if(scene === "imessage-send" || scene === "imessage-send-files" || scene === "imessage-send-long") {
+      // A text waiting for approval with all three buttons, or files alone with Send and Discard on one row.
+      // The fixture server answers Send after ~900 ms.
+      const files = scene === "imessage-send-files";
+      const at = draftSendSurroundings(scene.endsWith("-long"));
+      message(channel.id, "user", files ? "Send Maya the two floor plans." : "Text Maya that I'm running ten minutes late.", at + 1);
+      message(channel.id, "agent", "", at + 2, {type:"imessage-send", cardState:"pending", imessage:{text:files ? "" : "Running ten minutes late — grab a table and I'll find you!", to:"+1 (415) 555-0134", recipientName:"Maya Chen", recipientLabel:"Maya Chen", machineLabel:"Raghav's MacBook Pro", allowable:!files,
+        ...(files ? {attachments:[{assetId:"1".repeat(64), fileName:"floor-plan-level-1.pdf", byteSize:412000}, {assetId:"2".repeat(64), fileName:"floor-plan-level-2.pdf", byteSize:388000}]} : {})}});
     } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {

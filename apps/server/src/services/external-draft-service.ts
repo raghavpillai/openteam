@@ -15,13 +15,14 @@ import {
   type ExternalDraftVerification,
 } from "@openteam/contracts";
 import { draftRevision } from "@openteam/contracts/external-draft-revision";
-import { type PrismaClient } from "@openteam/db";
-import { type AgentMessaging, type ToolContext, PRIORITY, draftNotificationVariant, lockDraftNotifications } from "@openteam/messaging";
+import { type Prisma, type PrismaClient } from "@openteam/db";
+import { type AgentMessaging, type ToolContext, PRIORITY, draftNotificationVariant, lockDraftNotifications, lockAgentLifecycle } from "@openteam/messaging";
 import { loadConnectionNamespaces } from "./plugin/namespaces";
 import type { PluginService } from "./plugin-service";
 import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView } from "./view-mappers";
+import { connectorRecord, reviewedSendResult } from "./external-draft-result";
 
 // An unconfirmed card is read on the next turn; discards resume the bot immediately.
 const DISCARDED_DRAFT_OUTCOME =
@@ -36,34 +37,6 @@ const fail = (message: string): never => {
 const unverified = (reason: string): never => {
   throw new ApiError(409, "draft_route_unverified", reason);
 };
-function connectorRecord(raw: unknown): Record<string, any> {
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed !== raw) return connectorRecord(parsed);
-    } catch {
-      /* Some connectors return the created ID directly. */
-    }
-    if (/^[A-Za-z0-9_-]{1,200}$/.test(raw)) return { id: raw };
-  }
-  if (!raw || typeof raw !== "object") return fail("The connector returned an unreadable result");
-  const result = raw as Record<string, any>;
-  if (result.isError || result.error || result.ok === false)
-    return fail("The connector did not complete the operation");
-  if (result.structuredContent) return connectorRecord(result.structuredContent);
-  if (Array.isArray(result.content)) {
-    const text = result.content
-      .filter((part: any) => part.type === "text")
-      .map((part: any) => part.text)
-      .join("\n");
-    try {
-      return connectorRecord(JSON.parse(text));
-    } catch {
-      return fail("The connector returned an unreadable result");
-    }
-  }
-  return result;
-}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The fields a connector's reviewed-send tool receives. */
 const emailFields = (draft: ExternalDraft) => ({
@@ -126,6 +99,41 @@ export class ExternalDraftService {
       (connector) => connector.key === connection.connectorKey
     )?.drafts;
     return { id: connection.id, sendTool: drafts?.platform === draft.platform ? drafts.tool : undefined };
+  }
+  /** Old cards stored a renameable namespace. Recover its original account only
+   * from that card's durable verification calls, never from today's name mapping. */
+  private async boundDraft(draft: ExternalDraft, message: { clientId: string | null; senderBotId: string | null }, runId: string) {
+    if (UUID.test(draft.providerIdentifier)) return draft;
+    const prefix = message.clientId?.startsWith("tool:") ? `draft-verify:${message.clientId.slice(5)}:` : null;
+    const calls = prefix ? await this.prisma.pluginInvocation.findMany({
+      where: { botId: message.senderBotId!, runId, status: "completed",
+        callId: { startsWith: prefix } },
+      select: { connectionId: true, callId: true, toolName: true, arguments: true, result: true },
+    }) : [];
+    const verified = await Promise.all(calls.map(async call => {
+      if (call.callId !== `${prefix}${call.toolName}`) return null;
+      const args = metadataRecord(call.arguments);
+      if (draft.platform === "email") {
+        const connection = await this.connection({ ...draft, providerIdentifier: call.connectionId });
+        if (call.toolName !== connection?.sendTool || args.action !== "verify") return null;
+      } else if (!["slack_read_channel", "slack_read_user_profile", "slack_read_thread"].includes(call.toolName)) return null;
+      let result: Record<string, any>;
+      try { result = connectorRecord(call.result); } catch { return null; }
+      if (draft.platform === "email") {
+        if (typeof result.identity !== "string" || !result.identity.trim()) return null;
+      } else if (call.toolName === "slack_read_user_profile") {
+        if (typeof result.result !== "string" || !/^Organization Name:\s*\S+/m.test(result.result) || !/^Email:\s*\S+@\S+/m.test(result.result)) return null;
+      } else {
+        if (args.channel_id !== draft.channelId || typeof result.messages !== "string") return null;
+        if (call.toolName === "slack_read_channel" && !result.messages.startsWith("Channel:")) return null;
+        if (call.toolName === "slack_read_thread" && (args.message_ts !== draft.threadTs || !result.messages.includes(`Message TS: ${draft.threadTs}`))) return null;
+      }
+      return call.connectionId;
+    }));
+    const connections = [...new Set(verified.filter((id): id is string => id !== null))];
+    if (connections.length !== 1)
+      return fail("The original account for this draft could not be verified. Nothing was sent; create a new draft for the intended account.");
+    return { ...draft, providerIdentifier: connections[0]! };
   }
   private async verify(
     botId: string,
@@ -230,6 +238,20 @@ export class ExternalDraftService {
   }
   async create(context: ToolContext, raw: unknown): Promise<string | Record<string, unknown>> {
     const draft = parseExternalDraft(raw);
+    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
+    const destination = room
+      ? await this.prisma.channel.findFirst({ where: { kind: "bot_dm", archivedAt: null, members: { some: { botId: context.botId } } }, select: { id: true } })
+      : { id: context.channelId };
+    // A lost response must be recoverable without another connector request or
+    // reading mutable source attachments again. The stored card owns this receipt.
+    const previous = destination && await this.prisma.channelMessage.findFirst({ where: {
+      channelId: destination.id, clientId: `tool:${context.callId}`, senderBotId: context.botId,
+    } });
+    if (previous) return this.creationReceipt(previous, room, context);
+    // Account names can change while the card waits for review. Store the
+    // verified connection's stable identity, never a namespace to resolve again.
+    const connection = await this.connection(draft);
+    if (connection) draft.providerIdentifier = connection.id;
     const verification = await this.verify(context.botId, context.runId, draft, `draft-verify:${context.callId}`).catch((error: unknown) => {
       // A connector that fails or answers unreadably leaves the routing unverified too; the
       // draft's own refusals (wrong account, wrong from) keep their sentences.
@@ -261,7 +283,11 @@ export class ExternalDraftService {
       if (message.sender === "user") { if (++turn > 3) break; continue; }
       const metadata = metadataRecord(message.metadata);
       if (turn && message.senderBotId === context.botId && message.sourceRunId !== context.runId && metadata.type === "external-draft") {
-        try { candidates.push({ id: message.id, turn, draft: parseExternalDraft(metadata.draft) }); } catch { /* Ignore old or malformed cards. */ }
+        try {
+          const previous = parseExternalDraft(metadata.draft);
+          candidates.push({ id: message.id, turn,
+            draft: await this.boundDraft(previous, message, String(metadataRecord(metadata.draft).runId)) });
+        } catch { /* Ignore old, malformed or unverifiable routes. */ }
       }
     }
     verification.revision = draftRevision(draft, candidates);
@@ -282,16 +308,21 @@ export class ExternalDraftService {
         : mode === "always-allow"
           ? { rule: `Allow recipient ${externalDraftRecipients(draft).join(", ")}` }
           : undefined;
-    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
     const result = await this.messaging.sendVisible(context, {
       type: "external-draft",
       draft: { ...draft, verification, runId: context.runId },
       end_turn: false,
       ...(room ? { to: "dm" } : {}),
       ...(sentUnder
-        ? { cardState: "sending", sendStartedAt: new Date().toISOString(), sentUnder }
+        ? { cardState: "sending", sendStartedAt: new Date().toISOString(), sendAttemptId: randomUUID(), sentUnder }
         : {}),
     } as Parameters<AgentMessaging["sendVisible"]>[1]);
+    if (typeof result.acknowledgement !== "string" && result.acknowledgement.duplicate) {
+      const existing = await this.prisma.channelMessage.findUniqueOrThrow({
+        where: { id: String(result.acknowledgement.message_id) },
+      });
+      return this.creationReceipt(existing, room, context);
+    }
     const acknowledgement: string | Record<string, unknown> =
       typeof result.acknowledgement === "string"
         ? result.acknowledgement
@@ -299,7 +330,8 @@ export class ExternalDraftService {
     if (!sentUnder || typeof acknowledgement === "string" || acknowledgement.duplicate)
       return acknowledgement;
     const delivered = await this.deliver(String(acknowledgement.message_id), false);
-    const state = String(metadataRecord(delivered.message.metadata).cardState);
+    const deliveredMetadata = metadataRecord(delivered.message.metadata);
+    const state = String(deliveredMetadata.cardState);
     return {
       ...acknowledgement,
       delivery: state,
@@ -307,9 +339,23 @@ export class ExternalDraftService {
         state === "sent"
           ? `${sentUnder.rule ? `The user allowed ${externalDraftRecipients(draft).join(", ")} for you` : "Your drafts are off"}, so it skipped the review card. Don't send it again.`
           : state === "pending"
-            ? `It couldn't be sent automatically (${String(metadataRecord(delivered.message.metadata).sendError)}), so it waits for the user to press Send.`
-            : "Check the destination before trying again; it will not be retried automatically.",
+            ? `It couldn't be sent automatically (${String(deliveredMetadata.sendError)}), so it waits for the user to press Send.`
+            : state === "failed" || state === "unknown"
+              ? String(deliveredMetadata.outcomeText ?? (state === "unknown" ? UNCONFIRMED_DRAFT_OUTCOME : "The draft was not delivered.")).split("\n\n", 1)[0]
+              : "Check the destination before trying again; it will not be retried automatically.",
     };
+  }
+  private creationReceipt(message: { id: string; metadata: unknown; senderBotId: string | null; sourceRunId: string | null }, room: boolean, context: ToolContext) {
+    if (message.senderBotId !== context.botId || message.sourceRunId !== context.runId)
+      return fail("This draft receipt belongs to another run or bot. Nothing was drafted; call this tool again with a new call ID.");
+    const metadata = metadataRecord(message.metadata);
+    if (metadata.type !== "external-draft")
+      return fail("This tool call already delivered a different kind of message. Nothing was drafted; call this tool again.");
+    const draft = parseExternalDraft(metadata.draft);
+    return { sent: true, duplicate: true, message_id: message.id, message_address: metadata.address,
+      platform: draft.platform, from: draft.platform === "email" ? draft.from : undefined,
+      target: draft.platform === "email" ? draft.to!.join(", ") : draft.target!, delivery: metadata.cardState ?? "pending",
+      note: "This is the existing card; no new draft or send was performed.", ...(room ? { in_dm: true } : {}) };
   }
   mutate = (messageId: string, raw: unknown) =>
     serviceEffect(async () => {
@@ -318,6 +364,8 @@ export class ExternalDraftService {
       if (!["save", "send", "cancel", "refresh"].includes(String(input.action)))
         return fail("Choose send, cancel, refresh or approval");
       const claim = await this.prisma.$transaction(async (tx) => {
+        const owner = await tx.channelMessage.findUnique({ where: { id: messageId }, select: { senderBotId: true } });
+        if (owner?.senderBotId) await lockAgentLifecycle(tx, owner.senderBotId);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
         const message = await tx.channelMessage.findUnique({
           where: { id: messageId },
@@ -332,6 +380,7 @@ export class ExternalDraftService {
           return fail("Draft card not found");
         if (metadata.cardState && metadata.cardState !== "pending")
           return { message, claimed: false };
+        await lockDraftNotifications(tx, message.senderBotId, message.channelId);
         const stored = metadataRecord(metadata.draft);
         const draft =
           input.edits === undefined
@@ -352,7 +401,7 @@ export class ExternalDraftService {
               ...rest,
               draft: { ...stored, ...draft },
               cardState: state,
-              ...(state === "sending" ? { sendStartedAt: new Date().toISOString() } : {}),
+              ...(state === "sending" ? { sendStartedAt: new Date().toISOString(), sendAttemptId: randomUUID() } : {}),
             }),
           },
         });
@@ -360,26 +409,41 @@ export class ExternalDraftService {
           channelId: message.channelId,
           messageId,
         });
-        return { message: updated, claimed: input.action === "send" };
+        // A persisted discard must always carry the durable outcome/wake. A crash
+        // or queue failure cannot leave a terminal card that the agent never hears.
+        const settled = input.action === "cancel"
+          ? await this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME, true, false, { transaction: tx })
+          : undefined;
+        return { message: updated, claimed: input.action === "send", settled };
       });
+      if ("settled" in claim && claim.settled) return claim.settled;
       const metadata = metadataRecord(claim.message.metadata);
       if (metadata.cardState === "dismissed" && !metadata.outcomeId)
         return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME);
       if (!claim.claimed) {
         if (metadata.cardState === "sending") {
+          const sendingAttempt = { startedAt: metadata.sendStartedAt, id: metadata.sendAttemptId };
           const call = await this.prisma.pluginInvocation.findUnique({
             where: { callId: `draft-send:${messageId}:send` },
           });
           if (call?.status === "completed") {
             try {
-              connectorRecord(call.result);
-              return this.settle(messageId, "sent", "The user sent the reviewed message.");
+              const stored = metadataRecord(metadata.draft);
+              const draft = await this.boundDraft(parseExternalDraft(stored), claim.message, String(stored.runId));
+              const connection = await this.connection(draft);
+              if (!connection || call.botId !== claim.message.senderBotId || call.runId !== stored.runId ||
+                  call.connectionId !== connection.id || call.toolName !== (draft.platform === "email" ? connection.sendTool : "slack_send_message"))
+                throw new Error("The saved connector result does not belong to this draft's bot, run, account and send tool");
+              reviewedSendResult(call.result, draft.platform, externalDraftRecipients(draft));
+              return this.settle(messageId, "sent", "The user sent the reviewed message.", true, false, { sendingAttempt });
             } catch {
-              return this.settle(messageId, "failed", "The connector reported a send failure.");
+              // Completion records persist connector replies, including unreadable
+              // ones. As in live delivery, that cannot establish that nothing sent.
+              return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false, { sendingAttempt });
             }
           }
           if (Date.now() - Date.parse(String(metadata.sendStartedAt)) > 180_000)
-            return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false);
+            return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false, { sendingAttempt });
         }
         return { accepted: false, message: toChannelMessageView(claim.message), runId: null };
       }
@@ -390,7 +454,7 @@ export class ExternalDraftService {
     const message = await this.prisma.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
     const metadata = metadataRecord(message.metadata);
     const stored = metadataRecord(metadata.draft);
-    const draft = parseExternalDraft(stored);
+    let draft = parseExternalDraft(stored);
     const verification = metadataRecord(stored.verification) as Partial<ExternalDraftVerification>;
     const botId = message.senderBotId!;
     const runId = String(stored.runId);
@@ -402,6 +466,7 @@ export class ExternalDraftService {
         : "The user sent the reviewed message.";
     let enteredSend = false;
     try {
+      draft = await this.boundDraft(draft, message, runId);
       const verified = await this.verify(
         botId,
         runId,
@@ -416,9 +481,20 @@ export class ExternalDraftService {
           wake
         );
       const connection = (await this.connection(draft))!;
-      const invoke = async (toolName: string, args: unknown, hostTool = false) =>
-        connectorRecord(
-          await this.plugins.invoke({
+      const invoke = async (toolName: string, args: unknown, hostTool = false) => {
+        // Verification and attachment reads can outlive the sending timeout. Claim
+        // dispatch under the same lock as refresh; a terminal outcome that wins
+        // first must prevent the external operation from starting.
+        const blocked = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
+          const current = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId }, include: { channel: true } });
+          const state = metadataRecord(current.metadata);
+          return state.cardState !== "sending" || state.outcomeId || current.channel.archivedAt ||
+            state.sendAttemptId !== metadata.sendAttemptId ? current : null;
+        });
+        if (blocked) return blocked;
+        enteredSend = true;
+        reviewedSendResult(await this.plugins.invoke({
             connectionId: connection.id,
             botId,
             runId,
@@ -426,8 +502,10 @@ export class ExternalDraftService {
             toolName,
             arguments: args,
             hostTool,
-          })
-        );
+          }), draft.platform, externalDraftRecipients(draft));
+        return null;
+      };
+      let blocked;
       if (draft.platform === "email") {
         const sendTool = connection.sendTool!;
         const signatureHtml = verified.signatures?.[draft.from!.toLowerCase()];
@@ -445,8 +523,7 @@ export class ExternalDraftService {
             return fail("Attachment content cannot be verified. Create a new draft with the intended files.");
           files.push({ filename: file.fileName, mimeType: file.mimeType, content: bytes.toString("base64") });
         }
-        enteredSend = true;
-        await invoke(
+        blocked = await invoke(
           sendTool,
           {
             action: "send",
@@ -460,13 +537,13 @@ export class ExternalDraftService {
           true
         );
       } else {
-        enteredSend = true;
-        await invoke("slack_send_message", {
+        blocked = await invoke("slack_send_message", {
           channel_id: draft.channelId,
           message: draft.body,
           ...(draft.threadTs ? { thread_ts: draft.threadTs } : {}),
         });
       }
+      if (blocked) return { accepted: false, message: toChannelMessageView(blocked), runId: null };
       return this.settle(messageId, "sent", sent, wake);
     } catch (error) {
       if (enteredSend) return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, !wake);
@@ -481,7 +558,11 @@ export class ExternalDraftService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
-      const { sendStartedAt: _started, sentUnder: _sentUnder, ...metadata } = metadataRecord(message.metadata);
+      await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
+      const current = metadataRecord(message.metadata);
+      if (current.outcomeId || current.cardState !== "sending")
+        return { accepted: false, message: toChannelMessageView(message), runId: null };
+      const { sendStartedAt: _started, sendAttemptId: _attempt, sentUnder: _sentUnder, ...metadata } = current;
       const updated = await tx.channelMessage.update({
         where: { id: messageId },
         data: {
@@ -546,16 +627,28 @@ export class ExternalDraftService {
     });
   }
   /** wake: start a turn for the outcome now. echoed: the outcome was already reported, so it is not repeated next turn. */
-  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake) {
-    return this.prisma.$transaction(async (tx) => {
+  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake,
+    options: { transaction?: Prisma.TransactionClient; sendingAttempt?: { startedAt: unknown; id: unknown } } = {}) {
+    const apply = async (tx: Prisma.TransactionClient) => {
+      // Retirement's cancellation snapshot must serialize before or after the
+      // complete settlement/wake, using lifecycle -> card -> notification order.
+      const owner = await tx.channelMessage.findUnique({ where: { id: messageId }, select: { senderBotId: true } });
+      if (owner?.senderBotId) await lockAgentLifecycle(tx, owner.senderBotId);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
-      const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
+      const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId }, include: { channel: true } });
       const metadata = metadataRecord(message.metadata);
-      if (metadata.outcomeId)
+      // A refresh may have read an earlier sending attempt before verification
+      // reopened it. Recheck both state and attempt under the mutation lock.
+      if (metadata.outcomeId || (state !== "dismissed" && metadata.cardState !== "sending") ||
+          (options.sendingAttempt && (metadata.sendStartedAt !== options.sendingAttempt.startedAt ||
+            metadata.sendAttemptId !== options.sendingAttempt.id)))
         return { accepted: false, message: toChannelMessageView(message), runId: null };
       const outcomeId = createHash("sha256").update(`${messageId}:${state}`).digest("hex");
-      const treatment = wake && draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent) === "treatment";
-      if (treatment) await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
+      const bot = await tx.bot.findUnique({ where: { id: message.senderBotId! }, select: { status: true } });
+      const shouldWake = wake && bot?.status === "active" && !message.channel.archivedAt;
+      const variant = draftNotificationVariant(message.senderBotId!, this.experiment.treatmentPercent);
+      const treatment = shouldWake && variant === "treatment";
+      await lockDraftNotifications(tx, message.senderBotId!, message.channelId);
       const stored = metadataRecord(metadata.draft);
       const draft = parseExternalDraft(stored);
       // Carry identity in the wake itself, even if another turn already consumed ambient outcomes.
@@ -571,7 +664,7 @@ export class ExternalDraftService {
             ...metadata,
             cardState: state,
             outcomeId,
-            ...(treatment ? { draftNotification: { variant: "treatment" } } : {}),
+            ...(shouldWake ? { draftNotification: { variant } } : {}),
             outcomeText: `${outcome}\n\n${describeDraft(
               draft,
               metadataRecord(stored.verification)
@@ -581,7 +674,7 @@ export class ExternalDraftService {
           }),
         },
       });
-      const wakeRun = wake
+      const wakeRun = shouldWake
         ? await this.messaging.enqueueDraftOutcome(tx, {
             botId: message.senderBotId!,
             channelId: message.channelId,
@@ -599,6 +692,7 @@ export class ExternalDraftService {
       });
       await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId!]);
       return { accepted: true, message: toChannelMessageView(updated), runId: wakeRun?.run.id ?? null };
-    });
+    };
+    return options.transaction ? apply(options.transaction) : this.prisma.$transaction(apply);
   }
 }

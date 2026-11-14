@@ -522,12 +522,13 @@ var BOT_COLORS = [
 var BOT_MARK_COLORS = BOT_COLORS.map(({ id }) => id);
 
 var memoryParameters = external_exports.object({
-  action: external_exports.enum(["write", "forget"], {
+  action: external_exports.enum(["write", "forget", "replace"], {
     errorMap: () => ({
-      message: `${UPDATE_MEMORY_TOOL_NAME} only writes or forgets memory. ${OTHER_STATE_TOOLS}`
+      message: `${UPDATE_MEMORY_TOOL_NAME} only writes, replaces or forgets memory. ${OTHER_STATE_TOOLS}`
     })
   }),
-  fact: external_exports.string().trim().min(1).describe("One self-contained sentence. For forget, the exact recorded text."),
+  id: external_exports.string().uuid().optional().describe("For replace, use the editable id from RecallMemory when shown; otherwise your own active fact id."),
+  fact: external_exports.string().trim().min(1).describe("One self-contained sentence. For replace, the corrected fact. For forget, the exact recorded text."),
   type: external_exports.enum(MEMORY_TYPE_NAMES, {
     errorMap: () => ({
       message: `${UPDATE_MEMORY_TOOL_NAME}: pick the memory type it belongs in: ${MEMORY_TYPE_NAMES.join(", ")}.`
@@ -1471,6 +1472,7 @@ var RECALL_MEMORY_MAX_LIMIT = 50;
 var RECALL_MEMORY_DEFAULT_LIMIT = 20;
 
 var recallMemoryParameters = external_exports.object({
+  includeHistory: external_exports.boolean().optional().describe("Include superseded facts, labeled as historical. Default false."),
   query: external_exports.string().trim().min(1).describe(
     "What to look for. Facts sharing distinctive words with the query rank first; when nothing overlaps (short identifiers like a ticket id or an acronym) a literal case-insensitive substring match is used instead."
   ),

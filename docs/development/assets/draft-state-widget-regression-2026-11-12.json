@@ -1,0 +1,192 @@
+{
+  "testedAfterHead": "cf639f86e9de2e775be122ec2c5d045f30d1c23f",
+  "sourceFileSHA256": {
+    "packages/messaging/src/index.ts": "4d4acbcc13893a55d8eacc08e315040a5ec9ee2f2313d5aeae6b7b45aff33f33",
+    "apps/server/test/external-draft.integration.test.ts": "8aef6658119073d2c52dd71b6a6d60acd09c22b74a39276635744117466c11ff",
+    "apps/computer/test/runtime/parity-loop.test.ts": "c909472b1bb3b9aa812677c1d6781a1bcde98375fa846e6095d00eec0330b5cd"
+  },
+  "summary": {
+    "additionalLiveScenarios": 10,
+    "additionalLiveCards": 65,
+    "externalMailSendAttempts": 0
+  },
+  "finding": {
+    "problem": "Structured question widgets bypassed the draft snapshot guard and could be delivered after all remaining drafts were discarded.",
+    "before": "The diagnostic database regression delivered the obsolete widget with sent:true; 4 of 5 cases passed and the stale-widget case failed.",
+    "fix": "Apply the existing pre-delivery snapshot check to SendToUser widgets as well as text. Existing call-ID receipt recovery still runs first.",
+    "after": "No obsolete widget delivered with zero pending drafts; one useful replacement widget delivered after refresh when one draft remained."
+  },
+  "liveCases": [
+    {
+      "scenario": "partial-late",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 1,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "double-refresh",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 2,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "partial-late",
+      "variant": "control",
+      "cards": 6,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 1,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "double-refresh",
+      "variant": "control",
+      "cards": 6,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 4,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "interrupt",
+      "variant": "treatment",
+      "cards": 6,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 0,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "busy",
+      "variant": "treatment",
+      "cards": 4,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 0,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "idempotency",
+      "variant": "treatment",
+      "cards": 1,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 0,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "burst24",
+      "variant": "treatment",
+      "cards": 24,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 0,
+      "blockedWidgetCalls": 0,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "widget-all",
+      "variant": "treatment",
+      "cards": 3,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 1,
+      "blockedWidgetCalls": 1,
+      "deliveredWidgets": [],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    },
+    {
+      "scenario": "widget-remaining",
+      "variant": "treatment",
+      "cards": 3,
+      "result": "pass",
+      "blockedOldSnapshotCalls": 1,
+      "blockedWidgetCalls": 1,
+      "deliveredWidgets": [
+        {
+          "prompt": "Which remaining draft should I revise?",
+          "pendingBeforeDelivery": 1,
+          "pendingAfterDelivery": 1,
+          "receiptMatchesAtDelivery": true
+        }
+      ],
+      "truthfulReceipts": true,
+      "externalMailSendAttempts": 0,
+      "credentialConfigRemoved": true
+    }
+  ],
+  "databaseDiagnostics": {
+    "method": "real PostgreSQL, real draft/messaging/worker code; synthetic connector calls only",
+    "findings": [
+      {
+        "scenario": "equal pending count, changed identities",
+        "result": "pass"
+      },
+      {
+        "scenario": "stale widget question",
+        "result": "pass"
+      },
+      {
+        "scenario": "sending completion + discard progress",
+        "result": "pass"
+      },
+      {
+        "scenario": "unconfirmed send + later discard",
+        "result": "pass"
+      },
+      {
+        "scenario": "completed turn replay + later outcome",
+        "result": "pass"
+      }
+    ]
+  },
+  "validation": {
+    "rerunServerIntegration": "19 pass / 358 assertions",
+    "rerunRealPiAndRuntime": "93 pass / 831 assertions",
+    "additionalTemporaryDatabaseDiagnostics": "5 pass / 24 assertions; executed together with the 19 server tests: 24 pass / 382 assertions",
+    "retainedUnchangedChecksFromPriorPass": [
+      "43 tool-surface and attachment tests / 1100 assertions",
+      "22 focused contracts, worker and messaging tests / 188 assertions",
+      "3 sustained stream tests / 753 assertions"
+    ],
+    "permanentMatrixTotal": "180 tests / 3230 assertions, combining the rerun suites and unchanged checks listed above; not a full workspace test run",
+    "buildAndTypecheck": "Server, worker and computer typechecks and builds passed; all four architecture checks passed."
+  },
+  "limits": [
+    "Live model: configured openrouter/x-ai/grok-4.7, low reasoning; real runtime/worker/PostgreSQL with synthetic drafts, synthetic mail transport and harness-driven queue claims.",
+    "This additional pass is not a fresh native Grokbot comparison or deployed full-app UI test. Earlier native comparisons remain in the preceding evidence.",
+    "Small diagnostic samples are not production reliability estimates.",
+    "Freshness checks detect card identity and delivery-state changes; they do not classify factual errors in model text.",
+    "No real mailbox send, APNs delivery, deployment or production flag change. Treatment remains at its existing zero-percent default."
+  ]
+}

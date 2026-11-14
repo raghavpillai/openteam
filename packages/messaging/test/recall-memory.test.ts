@@ -45,3 +45,18 @@ test("recall keeps the first long fact, limits later facts and preserves note ma
   expect(result).toContain("[journal] [note] alpha");
   expect(result).toEndWith("(1 more matches not shown. Narrow the query.)");
 });
+
+test("superseded facts are excluded before scoring and limiting, and explicitly labeled in history", () => {
+  const candidates = [
+    { ...fact("Favourite football player is Ronaldo.", 1), id: "old", supersededAt: new Date("2026-09-02"), supersededById: "new" },
+    { ...fact("Favourite player is Messi.", 2), id: "new" },
+  ];
+  const current = recallMemoryResult({ query: "favourite football player", limit: 1 }, candidates);
+  expect(current).toContain("Messi");
+  expect(current).not.toContain("Ronaldo");
+  expect(current).toContain("id: new; active");
+  const history = recallMemoryResult({ query: "favourite football player", includeHistory: true }, candidates);
+  expect(history).toContain("Ronaldo");
+  expect(history).toContain("superseded 2026-09-02 by new");
+  expect(recallMemoryResult({ query: "Ronaldo" }, candidates)).toContain("No facts");
+});

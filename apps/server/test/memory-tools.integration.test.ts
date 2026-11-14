@@ -96,7 +96,7 @@ databaseTest(
       expect(await room.call("UpdateMemory", { ...request, type: "shared_profile", fact: "Lives in Lyon." })).toBe(SHARED_REFUSAL);
       expect(await room.call("UpdateMemory", { action: "forget", type: "shared_journal", fact: "Lives in Lyon." })).toBe(SHARED_REFUSAL);
       await store.writeMemory(botId, { scope: "user", tier: "profile", fact: "Personal heliotrope choice." });
-      expect(await room.call("RecallMemory", { query: "COBALT" })).toBe(
+      expect((await room.call("RecallMemory", { query: "COBALT" }) as string).replace(/ \[id: [^\]]+\]/g, "")).toBe(
         [
           'Top 2 matches for "COBALT" in your memory and the shared user memory (2 facts searched):',
           `- (${new Date().toISOString().slice(0, 10)}) [journal] Shipped the COBALT beta.`,
@@ -149,6 +149,22 @@ databaseTest(
         "Not saved: no fact with exactly that text is recorded in shared user memory. Call RecallMemory for the exact wording first."
       );
 
+      // Corrections are atomic tool operations; recall supplies the stable revision id.
+      await home.call("UpdateMemory", { action: "write", type: "profile", fact: "My favourite football player is Ronaldo." });
+      const old = await prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact: "My favourite football player is Ronaldo." } });
+      const corrected = { action: "replace", type: "profile", id: old.id, fact: "My favourite player is now Messi." };
+      const correctionCallId = crypto.randomUUID();
+      const result = await home.call("UpdateMemory", corrected, correctionCallId);
+      expect(result).toContain("Corrected in your memory (profile)");
+      expect(await home.call("UpdateMemory", corrected, correctionCallId)).toBe(result);
+      const recalled = await home.call("RecallMemory", { query: "favourite football player", limit: 1 });
+      expect(recalled).toContain("Messi");
+      expect(recalled).not.toContain("Ronaldo");
+      expect(await home.call("RecallMemory", { query: "favourite", includeHistory: true })).toContain("superseded");
+      await expect(home.call("UpdateMemory", { ...corrected, id: undefined })).rejects.toThrow("id");
+      expect(await room.call("UpdateMemory", { ...corrected, type: "shared_profile" })).toBe(SHARED_REFUSAL);
+      expect(await room.call("RecallMemory", { query: "Lyon", includeHistory: true })).not.toContain("shared_profile");
+
       await expect(room.call("RecallMemory", { query: " " })).rejects.toThrow("String must contain at least 1 character");
       await expect(room.call("RequestMemory", { query: "COBALT" })).rejects.toThrow("Unknown tool");
       await expect(room.call("update_state", { target: "memory", ...request })).rejects.toThrow("Unknown tool update_state");
@@ -166,3 +182,41 @@ databaseTest(
     }
   }
 );
+
+databaseTest("retrying a correction after a lost tool receipt reuses the committed revision", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const root = await mkdtemp(join(tmpdir(), "memory-receipt-recovery-"));
+  const botId = crypto.randomUUID();
+  const options = { root: join(root, "data"), workspaceRoot: root };
+  const store = new AgentDataStore(prisma, options);
+  try {
+    await prisma.bot.create({ data: { id: botId, name: "Receipt recovery", status: "active", defaultDirectory: root } });
+    await store.initializeBot(botId);
+    const old = await store.writeMemory(botId, { scope: "agent", tier: "profile", fact: "Preferred editor is Vim." });
+    const args = { action: "replace", type: "profile", id: old.id!, fact: "Preferred editor is Emacs." };
+    const callId = crypto.randomUUID();
+    const first = new DurableStateService(prisma, {} as never, store, {} as never);
+    store.projectBot = async () => { throw new Error("simulated interruption before receipt commit"); };
+    await expect(first.executeTool(botId, callId, "UpdateMemory", args)).rejects.toThrow("simulated interruption");
+    const active = await prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, supersededAt: null } });
+    expect(active.fact).toBe(args.fact);
+    const revision = (await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).memoryRevision;
+    const events = await prisma.event.count({ where: { topic: "memory.changed", entityId: botId } });
+    const recovered = new DurableStateService(prisma, {} as never, new AgentDataStore(prisma, options), {} as never);
+    const result = await recovered.executeTool(botId, callId, "UpdateMemory", args);
+    expect(result.id).toBe(active.id);
+    expect(result.saved).toBe(true);
+    expect(await recovered.executeTool(botId, callId, "UpdateMemory", args)).toEqual(result);
+    expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId } })).toBe(2);
+    expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).memoryRevision).toBe(revision);
+    expect(await prisma.event.count({ where: { topic: "memory.changed", entityId: botId } })).toBe(events);
+    expect((await prisma.idempotencyRecord.findUniqueOrThrow({ where: { scope_key: { scope: `state:${botId}`, key: callId } } })).status).toBe("completed");
+  } finally {
+    await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
+    await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });
+    await prisma.event.deleteMany({ where: { entityId: botId } });
+    await prisma.bot.deleteMany({ where: { id: botId } });
+    await prisma.$disconnect();
+    await rm(root, { recursive: true, force: true });
+  }
+});

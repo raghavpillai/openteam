@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "openstreetmap",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "OpenStreetMap",
   "description": "Find places and nearby spots with opening hours, and plan walking, cycling and driving routes, from free OpenStreetMap services with no account.",
   "publisher": "OpenTeam",

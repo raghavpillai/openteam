@@ -65,6 +65,11 @@ export function routeEvent(
   if (event.type === "message_start") {
     const message = event.message as { role?: string };
     if (message.role === "assistant") {
+      // A refresh applies to the next model response, never its already-emitted siblings.
+      if (active.pendingDraftStateRevision) {
+        active.draftStateRevision = active.pendingDraftStateRevision;
+        active.pendingDraftStateRevision = undefined;
+      }
       active.assistantOrdinal += 1;
       active.currentAssistantId = `assistant:${active.runId}:${active.assistantOrdinal}`;
       active.currentReasoningId = `reasoning:${active.runId}:${active.assistantOrdinal}`;

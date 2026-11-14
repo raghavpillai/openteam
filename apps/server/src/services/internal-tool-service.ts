@@ -38,6 +38,7 @@ import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
 import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
+import { resolvePlaceReferences } from "./place-references";
 
 export class InternalToolService {
   constructor(
@@ -83,6 +84,7 @@ export class InternalToolService {
         deliveryId: request.deliveryId,
         origin: run.origin,
         callId: request.callId,
+        draftStateRevision: request.draftStateRevision,
         timeZone: typeof inboxPayload?.timeZone === "string" ? inboxPayload.timeZone : undefined,
         replyToMessageId:
           typeof inboxPayload?.replyToMessageId === "string" ? inboxPayload.replyToMessageId : null,
@@ -99,6 +101,10 @@ export class InternalToolService {
         throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
+      // Places and routes named by id are filled in from this conversation's tool results.
+      const sent = request.arguments as Record<string, unknown> | undefined;
+      if (request.tool === "SendToUser" && sent?.type === "presentation")
+        request = { ...request, arguments: { ...sent, presentation: await resolvePlaceReferences(this.prisma, request.botId, sent.presentation, { signal }) } };
       if (request.tool === "ReportRequestProgress") {
         if (childIdentity || run.origin === "routine") throw new ApiError(403, "request_progress_unavailable", "Only the user-facing parent may track a request");
         const result = await reportRequestProgress(this.prisma, context, Schema.decodeUnknownSync(RequestProgressInput)(request.arguments));

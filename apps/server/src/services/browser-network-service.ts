@@ -23,6 +23,7 @@ import {
 } from "@openteam/plugin-sdk/browser-network/protocol";
 import type { PrismaClient } from "@openteam/db";
 import type { MachineService } from "./machine-service";
+import { createNetworkDiagnostics, networkErrorCode, type NetworkDiagnostic, type NetworkDiagnosticSink } from "@openteam/plugin-sdk/browser-network/diagnostics";
 
 function validSourceOrder(value: unknown, ranked: boolean): value is string[] {
   return (
@@ -138,12 +139,14 @@ export class BrowserNetworkService {
   private lastRetry = -Infinity;
   private mutation: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setInterval>;
+  private readonly diagnostic: NetworkDiagnosticSink;
   constructor(
     private readonly store: NetworkStore,
     private readonly machines: MachineService,
     private readonly internalAuthorized: (request: Request) => boolean,
-    private readonly options: { failbackMs?: number } = {}
+    private readonly options: { failbackMs?: number; diagnostic?: NetworkDiagnosticSink } = {}
   ) {
+    this.diagnostic = options.diagnostic ?? createNetworkDiagnostics("server");
     machines.onNetworkRevoke = (machineId) => this.revoke(machineId);
     this.timer = setInterval(() => {
       for (const peer of [this.computer, ...this.devices.values()]) {
@@ -155,7 +158,7 @@ export class BrowserNetworkService {
           peer.applied !== this.epoch &&
           performance.now() - peer.grantSentAt >= LEASE_MS
         ) {
-          this.drop(peer);
+          this.drop(peer, "apply_timeout");
           continue;
         }
         if (
@@ -165,7 +168,7 @@ export class BrowserNetworkService {
         ) {
           peer.checking = true;
           void this.validate(peer)
-            .catch(() => this.drop(peer))
+            .catch((error) => this.drop(peer, "validation_failed", networkErrorCode(error)))
             .finally(() => {
               peer.checking = false;
             });
@@ -235,9 +238,19 @@ export class BrowserNetworkService {
           )
         : WINDOW;
     if (next !== this.activeSource || forceFence || streamWindow !== this.streamWindow) {
+      const previousPeer = this.activeSource ? this.devices.get(this.activeSource) : undefined;
+      const leaseExpired = previousPeer?.lastLease !== undefined &&
+        performance.now() - previousPeer.lastLease >= LEASE_MS;
+      const transition: NetworkDiagnostic = { event: "route_changed", previousEpoch: this.epoch,
+        sourceId: next ?? undefined, previousSourceId: this.activeSource ?? undefined,
+        mode: next === null ? undefined : next === "server" ? "server" : "device",
+        previousMode: this.activeSource === null ? undefined : this.activeSource === "server" ? "server" : "device",
+        reason: next === this.activeSource ? "route_invalidated" : leaseExpired ? "lease_expired" : "source_changed",
+        activeConnections: this.streams.size };
       this.activeSource = next;
       this.streamWindow = streamWindow;
       this.fence();
+      this.diagnostic({ ...transition, epoch: this.epoch });
     }
   }
   /** Local consent opens this authenticated channel; no owner UI call is required. */
@@ -324,7 +337,7 @@ export class BrowserNetworkService {
     const socket = peer?.socket;
     if (!socket || socket.readyState !== 1) return false;
     if (socket.getBufferedAmount() + bytes.length > MAX_QUEUE || socket.send(bytes) === 0) {
-      this.drop(peer!);
+      this.drop(peer!, "backpressure");
       return false;
     }
     return true;
@@ -336,7 +349,9 @@ export class BrowserNetworkService {
     );
   }
   private fence() {
+    const previousEpoch = this.epoch;
     this.epoch = randomUUID();
+    this.diagnostic({ event: "route_fenced", previousEpoch, epoch: this.epoch, activeConnections: this.streams.size });
     this.streams.clear();
     this.highestId = 0;
     this.bytesSent = 0;
@@ -349,10 +364,12 @@ export class BrowserNetworkService {
         this.control(peer, { op: "invalidate" });
       }
   }
-  private drop(peer: NetworkConnection) {
+  private drop(peer: NetworkConnection, reason: NetworkDiagnostic["reason"] = "peer_closed", code?: string) {
     if (peer !== this.computer && (!peer.machineId || this.devices.get(peer.machineId) !== peer))
       return;
     const active = peer === this.computer || peer.machineId === this.activeSource;
+    this.diagnostic({ event: "transport_closed", reason, code, epoch: this.epoch,
+      mode: this.activeSource === null ? undefined : this.activeSource === "server" ? "server" : "device", activeConnections: this.streams.size });
     if (peer === this.computer) this.computer = undefined;
     if (peer.machineId && this.devices.get(peer.machineId) === peer)
       this.devices.delete(peer.machineId);
@@ -361,7 +378,7 @@ export class BrowserNetworkService {
   }
   revoke(machineId: string) {
     const peer = this.devices.get(machineId);
-    if (peer) this.drop(peer);
+    if (peer) this.drop(peer, "permission_revoked");
   }
   private route(peer: NetworkConnection): NetworkRoute {
     const settings = this.settings!;
@@ -515,11 +532,11 @@ export class BrowserNetworkService {
       const peer = socket.data;
       peer.socket = socket;
       if (peer.role === "computer") {
-        if (this.computer) this.drop(this.computer);
+        if (this.computer) this.drop(this.computer, "peer_replaced");
         this.computer = peer;
       } else {
         const previous = this.devices.get(peer.machineId!);
-        if (previous) this.drop(previous);
+        if (previous) this.drop(previous, "peer_replaced");
         this.devices.set(peer.machineId!, peer);
       }
       this.reconcile(false, peer.role === "computer" || peer.machineId === this.activeSource);
@@ -528,13 +545,13 @@ export class BrowserNetworkService {
       const peer = socket.data;
       // Serialize asynchronous auth/DB operations per socket to retain wire order.
       if (typeof message === "string") {
-        this.drop(peer);
+        this.drop(peer, "protocol_error");
         return;
       }
       const bytes = new Uint8Array(message);
       peer.queuedBytes = (peer.queuedBytes ?? 0) + bytes.length;
       if (peer.queuedBytes > MAX_QUEUE) {
-        this.drop(peer);
+        this.drop(peer, "queue_capacity");
         return;
       }
       peer.queued = (peer.queued ?? Promise.resolve())
@@ -546,7 +563,7 @@ export class BrowserNetworkService {
             return;
           await this.message(peer, bytes);
         })
-        .catch(() => this.drop(peer))
+        .catch((error) => this.drop(peer, "control_failed", networkErrorCode(error)))
         .finally(() => {
           peer.queuedBytes = (peer.queuedBytes ?? 0) - bytes.length;
         });

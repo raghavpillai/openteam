@@ -8,7 +8,7 @@ As you work together, a bot notices facts worth keeping and saves them. You can 
 
 > Remember that my weekly reports should lead with decisions, then blockers, then next steps. Keep each section brief.
 
-Memory holds short facts, not a transcript.
+Memory holds short facts, not a transcript. Learning from a completed turn resumes after a server restart. Later corrections and deletions take precedence over an interrupted review.
 
 ## Who can see a memory
 
@@ -31,7 +31,11 @@ Ask the bot what it remembers, then tell it what to change:
 
 > Forget that I prefer PDF reports. I now want Markdown.
 
-Deleting a memory doesn't remove it from chat history, files, or connected services. Check those separately if the information appears there too.
+Corrections replace the old fact atomically. The previous version stays in memory history and is excluded from normal recall, the Memories panel, and future memory prompts. Corrections also refresh cached memory in ongoing conversations and take precedence over automatic learning already in progress. A correction can move a fact between profile and journal while preserving its previous version. Ask for memory history when you want to know what was recorded before a change.
+
+For tool integrations, call `RecallMemory` to get the active fact's id (use `editable id` when shown), then call `UpdateMemory` with `action: "replace"`, that `id`, the corrected `fact`, and its memory `type`. Use `write` for additional facts, not corrections. Two unrelated writes do not automatically supersede one another. `RecallMemory` accepts `includeHistory: true` to include explicitly labeled superseded facts. An assistant can replace only facts in its own memory or its own shard of shared user memory. When a newer peer copy represents identical shared text, recall preserves that peer's date and provenance and also exposes the caller's own editable id.
+
+`forget` permanently deletes matching facts, including their historical copies. Deleting a memory doesn't remove it from chat history, files, or connected services. Check those separately if the information appears there too.
 
 ## Keep facts current
 

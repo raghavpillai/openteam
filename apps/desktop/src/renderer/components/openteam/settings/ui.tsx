@@ -1,5 +1,4 @@
 import { Skeleton } from "../../ui/skeleton";
-import { Switch } from "../../ui/switch";
 import type { CSSProperties, ReactNode } from "react";
 import { OPENTEAM_DEEP_LINK_EVENT, type SettingsAnchor } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
@@ -50,28 +49,6 @@ export function SettingsLink({
     >
       {children}
     </a>
-  );
-}
-
-/** The settings on/off switch: the shared Switch primitive with a label. */
-export function InteractiveSwitch({
-  checked,
-  disabled,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-  label?: string;
-}) {
-  return (
-    <Switch
-      aria-label={label ?? (checked ? "On" : "Off")}
-      checked={checked}
-      disabled={disabled}
-      onCheckedChange={onChange}
-    />
   );
 }
 

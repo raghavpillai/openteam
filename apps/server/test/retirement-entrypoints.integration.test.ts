@@ -11,13 +11,15 @@ import { GroupAdministration } from "../src/services/channel/group-administratio
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 const gate = () => Promise.withResolvers<void>();
 
-async function fixture() {
+async function fixture(idPrefixes?: readonly string[]) {
   const db = createPrismaClient(url!);
   const root = await mkdtemp(join(tmpdir(), "retirement-entrypoints-"));
   const bots: Array<Bot & { conversation: Conversation | null }> = [];
   const channels: string[] = [];
   for (const name of ["Source", "Target"]) {
-    const bot = await db.bot.create({ data: { name, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });
+    const prefix = idPrefixes?.[bots.length];
+    const id = prefix ? prefix + crypto.randomUUID().slice(1) : undefined;
+    const bot = await db.bot.create({ data: { id, name, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });
     bots.push(bot);
     channels.push((await db.channel.create({ data: { kind: "bot_dm", name, directKey: `bot:${bot.id}`, members: { create: { botId: bot.id, ordinal: 0 } } } })).id);
   }
@@ -231,13 +233,13 @@ test.skipIf(!url)("late peer sends, routine launches, callbacks, and room output
 });
 
 test.skipIf(!url)("reciprocal peer sends complete and callback retries produce exactly one wake", async () => {
-  const f = await fixture();
+  const f = await fixture(["a", "b"]);
   try {
     const target = f.bots[1]!;
     const run = await f.db.run.create({ data: { botId: target.id, conversationId: target.conversation!.id, channelId: f.channels[1], userMessageId: crypto.randomUUID(), status: "running" } });
     const other: ToolContext = { ...f.context, runId: run.id, botId: target.id, conversationId: run.conversationId, channelId: f.channels[1]!, callId: crypto.randomUUID() };
     const sends = await Promise.all([
-      f.messaging.sendToAgent(f.context, { target_id: target.id, message: "Forward" }),
+      f.messaging.sendToAgent(f.context, { target_id: target.id.toUpperCase(), message: "Forward" }),
       f.messaging.sendToAgent(other, { target_id: f.bots[0]!.id, message: "Back" }),
     ]);
     expect(sends).toHaveLength(2);

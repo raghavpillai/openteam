@@ -27,7 +27,8 @@ struct ComposerView: View {
   @State private var viewing: ComposerGallery?
   /// Picked photos and videos still being copied out of the library.
   @State private var pending: [PendingAttachment] = []
-  @StateObject private var memo = VoiceMemoController()
+  /// Usually a new controller; a note still transcribing after its chat closed comes back here.
+  @StateObject private var memo: VoiceMemoController
   @Environment(\.chatColumnLeading) private var columnLeading
   /// The idle pill's height, where the gooey merge starts from.
   @State private var pillHeight: CGFloat = 44
@@ -68,6 +69,18 @@ struct ComposerView: View {
   /// The trailing slot shows Send once there is something to send, the mic otherwise.
   private var hasContent: Bool {
     !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0
+  }
+  init(channel: Channel, draftKey: String? = nil, threadRootID: String? = nil,
+    replyRootID: String? = nil, focusOnAppear: Bool = false, focusRequest: UUID? = nil,
+    dismissFocusRequest: UUID? = nil) {
+    self.channel = channel
+    self.draftKey = draftKey
+    self.threadRootID = threadRootID
+    self.replyRootID = replyRootID
+    self.focusOnAppear = focusOnAppear
+    self.focusRequest = focusRequest
+    self.dismissFocusRequest = dismissFocusRequest
+    _memo = StateObject(wrappedValue: VoiceMemoSessions.controller(for: draftKey ?? channel.id))
   }
   var body: some View {
     VStack(spacing: 0) {
@@ -185,13 +198,15 @@ struct ComposerView: View {
       }
       .onAppear {
         visible = true
+        VoiceMemoSessions.resume(memo, key: key)
         startRequestedRecording()
       }
       .onDisappear {
         visible = false
         focused = false
         store.flushPersistence()
-        memo.tearDown()
+        // A note being transcribed is still sent, and shows again if this chat reopens.
+        VoiceMemoSessions.leave(memo, key: key)
         store.botVoiceLaunch.unregister(memo)
       }
   }
@@ -314,9 +329,10 @@ struct ComposerView: View {
       // The draft stays mounted under the recording bar, so cancelling restores it untouched.
       .opacity(bar ? 0 : 1)
       // Reveal the draft as the glass opens; the shared mask keeps every line
-      // inside it instead of leaving an empty expanded capsule during a delay.
+      // inside it instead of leaving an empty expanded capsule during a delay. It starts a
+      // beat after the bar's own content has mostly gone, so the two never overlap.
       .animation(reduceMotion ? .easeInOut(duration: 0.2)
-        : bar ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18), value: bar)
+        : bar ? .easeOut(duration: 0.1) : .easeOut(duration: 0.2).delay(0.1), value: bar)
       .allowsHitTesting(!bar).accessibilityHidden(bar)
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }
@@ -462,8 +478,11 @@ struct ComposerView: View {
     configureVoice()
     startLockedRecording()
   }
-  /// The recording is transcribed, appended to the draft, and the draft is sent.
+  /// The recording is transcribed, appended to the draft, and the draft is sent. Nothing
+  /// here reads the view: the note may finish after its chat has closed.
   private func configureVoice() {
+    let store = self.store, channel = self.channel, key = self.key
+    let threadRootID = self.threadRootID, replyRootID = self.replyRootID
     memo.transcribe = { url in
       guard let api = store.api else { return nil }
       let data = try Data(contentsOf: url)
@@ -479,7 +498,7 @@ struct ComposerView: View {
       return value
     }
     memo.deliver = { transcript in
-      var d = draft
+      var d = store.draft(key)
       d.text = VoiceMemoText.message(draft: d.text, transcript: transcript)
       d.widgetResponse = nil
       store.saveDraft(d, channel: key)

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
 import { useWindowActive } from "../../../hooks/use-window-active";
 import { useResourceActive } from "../../../hooks/resource-activity";
+import { VOICE_MEMO_EXIT_MS } from "./exit-timing";
 import {
   downwardReach,
   mobileVoiceLevel,
@@ -189,7 +190,9 @@ export function VoiceBackdropGlow({
       previous = now;
       const current = state.current;
       processingElapsed = current.processing ? processingElapsed + dt / 1000 : 0;
-      exitElapsed = current.exiting ? Math.min(1, exitElapsed + dt / 620) : 0;
+      // Runs back down, not to zero, when a new note starts before the bar is gone.
+      const exitStep = ((current.exiting ? 1 : -1) * dt) / VOICE_MEMO_EXIT_MS;
+      exitElapsed = Math.min(1, Math.max(0, exitElapsed + exitStep));
       const retreat = 1 - exitElapsed * exitElapsed * (3 - 2 * exitElapsed);
       let target = current.processing ? 0.35 : 0;
       let low = target;

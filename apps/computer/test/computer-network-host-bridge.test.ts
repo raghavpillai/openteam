@@ -49,7 +49,11 @@ test("host bridge discovery applies initial absence once, then creation and remo
   await until(() => calls === 1);
   await Bun.sleep(25);
   expect(calls).toBe(1);
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
+  // Publish one complete snapshot: a polling watcher can legitimately observe
+  // both the empty file and its final bytes during an in-place writeFile.
+  const created = join(directory, "created.json");
+  await writeFile(created, "{}", { mode: 0o600 });
+  await rename(created, configurationPath);
   await until(() => calls === 2);
   await rm(configurationPath);
   await until(() => calls === 3);
@@ -252,13 +256,12 @@ test("host bridge discovery invokes isolated Python with bounded arguments and c
     helper,
   });
   watches.push(watch);
-  await until(() =>
-    lstat(started).then(
-      () => true,
-      () => false
-    )
-  );
-  const invocation = JSON.parse(await readFile(started, "utf8"));
+  // Creation precedes the helper finishing its write; wait for the complete record.
+  let invocation: any;
+  await until(async () => {
+    try { invocation = JSON.parse(await readFile(started, "utf8")); return true; }
+    catch { return false; }
+  });
   expect(invocation.argv).toEqual(["--host-bridge", "http://unresolvable.invalid:8787"]);
   expect(invocation.isolated).toBe(1);
   expect(invocation.no_site).toBe(1);

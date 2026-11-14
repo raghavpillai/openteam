@@ -1,9 +1,14 @@
 // The reference's UpdateMemory outcomes. Memory is kept off the bot's computer,
 // so lookups point to RecallMemory. Structured results stay internal.
 export function formatMemoryToolResult(result: Record<string, unknown>): string | Record<string, unknown> {
-  if (result.target !== "memory" || !["write", "forget"].includes(String(result.action))) return result;
+  if (result.target !== "memory" || !["write", "forget", "replace"].includes(String(result.action))) return result;
   if (typeof result.refused === "string") return `Not saved: ${result.refused}`;
   const label = result.type === "shared_profile" || result.type === "shared_journal" ? "shared user memory" : "your memory";
+  if (result.action === "replace") {
+    return result.saved
+      ? `Corrected in ${label} (${result.type}): ${result.fact}. The previous fact is superseded and excluded from current recall.`
+      : `Unchanged in ${label}: ${result.fact}`;
+  }
   if (result.action === "write") {
     return result.saved
       ? `Remembered in ${label} (${result.type}): ${result.fact}`

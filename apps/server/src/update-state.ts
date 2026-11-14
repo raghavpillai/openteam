@@ -138,14 +138,20 @@ export class DurableStateService {
         return existing.response as Record<string, unknown>;
       }
     } else {
-      await this.prisma.idempotencyRecord.create({
-        data: {
-          scope,
-          key: callId,
-          requestHash,
-          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000),
-        },
-      });
+      try {
+        await this.prisma.idempotencyRecord.create({
+          data: { scope, key: callId, requestHash, expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000) },
+        });
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
+        // A concurrent identical request won creation. Return its completed
+        // receipt, or a retryable conflict rather than leaking a database error.
+        const winner = await this.prisma.idempotencyRecord.findUnique({ where: { scope_key: { scope, key: callId } } });
+        if (winner && winner.requestHash !== requestHash)
+          throw new ApiError(409, "state_call_conflict", `This ${tool} call id was already used with different arguments`);
+        if (winner?.status === "completed" && winner.response) return winner.response as Record<string, unknown>;
+        throw new ApiError(409, "state_call_in_progress", `This ${tool} call is in progress. Retry the same call id.`);
+      }
     }
 
     try {
@@ -286,7 +292,7 @@ export class DurableStateService {
     runId: string | null,
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
-    if (input.action !== "write" && input.action !== "forget") {
+    if (input.action !== "write" && input.action !== "forget" && input.action !== "replace") {
       return stateError(tool, input.action);
     }
     const fact = requiredText(input.fact, "fact", tool, input.action);
@@ -300,6 +306,13 @@ export class DurableStateService {
     if (input.action === "forget") {
       const removed = await this.agentData.forgetMemory(botId, { scope, fact });
       return { target: "memory", action: "forget", type, forgotten: removed.forgotten, fact: removed.content };
+    }
+    if (input.action === "replace") {
+      const id = requiredText(input.id, "id", tool, input.action);
+      const saved = await this.agentData.replaceMemory(botId,
+        { scope, tier: type === "profile" || type === "shared_profile" ? "profile" : "log", id, fact },
+        { source: "tool", ...(runId ? { turnId: runId } : {}) });
+      return { target: "memory", action: "replace", type, ...saved, fact: saved.content };
     }
     const saved = await this.agentData.writeMemory(
       botId,

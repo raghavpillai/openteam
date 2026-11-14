@@ -35,6 +35,7 @@ function fixture() {
         : row[key] === value
     );
   const db: any = {
+    $executeRaw: async () => 1,
     run: {
       findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id] } : null),
       update: async ({ where, data }: any) => Object.assign(runs[where.id], data),

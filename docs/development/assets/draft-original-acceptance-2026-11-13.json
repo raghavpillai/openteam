@@ -1,0 +1,162 @@
+{
+  "testedHead": "95d2b41109b8f93d5fb8867ec9b9464ea763b774",
+  "sourceFileSHA256": {
+    "apps/server/test/external-draft.integration.test.ts": "9f582f8c859a1a2ae2c80c92bebe24162401f925147d23f832b8c49740628e02",
+    "apps/server/src/services/external-draft-service.ts": "7f9004e40adfbc7c55b149b56b13999408b3c9a03040d966f00bd7d34694793f",
+    "apps/worker/src/worker.ts": "872a07b294abbde50445c11b322963f43377834e163d7627cd5f04c2cf40acda",
+    "packages/messaging/src/draft-notifications.ts": "cecd9bf95d909a41fbb74b45f221b40dedd51f61a0aa7b6c3416e75c06b09553"
+  },
+  "objective": "Verify the original 24-draft notification fan-out and assess merge readiness, separate from claiming universal reliability.",
+  "originalIncident": {
+    "source": "docs/development/email-draft-notification-rca-2026-11-12.md",
+    "distinctConfirmedSends": 24,
+    "draftOutcomeRuns": 24,
+    "visibleRepliesFromOutcomeRuns": 23,
+    "duplicateActualEmailSendsObserved": false
+  },
+  "currentProductionReadOnlyRecheck": {
+    "serverImagePrefix": "f60a912709ec",
+    "serverRevision": "4bb02542bd86ffe51fc14862b539951b1b5269d6",
+    "workerRevision": "4bb02542bd86ffe51fc14862b539951b1b5269d6",
+    "matchesOriginalIncidentServerImage": true,
+    "treatmentPercent": "unset",
+    "interpretation": "This PR is not deployed; its fixes are not currently active on that server. No configuration or production data was changed."
+  },
+  "prStatusAtAssessment": {
+    "url": "https://github.com/raghavpillai/openteam/pull/320",
+    "state": "OPEN",
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "publishedChecks": [
+      {
+        "name": "connector (ubuntu-latest)",
+        "workflow": "WhatsApp plugin",
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "connector (ubuntu-24.04-arm)",
+        "workflow": "WhatsApp plugin",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "note": "Git mergeability and these unrelated connector checks do not establish email or whole-application readiness."
+  },
+  "liveOriginalReplay": {
+    "runtime": "Repository-pinned Bun 1.4.2, configured openrouter/x-ai/grok-4.7 at low reasoning, real Pi/ComputerRuntime/worker/claim/projection and PluginInvocations/PostgreSQL. Synthetic email transport only; harness drives queue jobs.",
+    "ordering": "Hold a foreground model SendToUser call open; finish 24 reviewed sends in 21+2+1 groups; verify outcome work cannot bypass its lease; release foreground and drain one outcome continuation. Timing is compressed; lease/queue ordering matches the original failure boundary.",
+    "cards": "24 distinct recipients, two Cc addresses, 48 verification calls and 24 unique saved synthetic send results per arm. Model cannot invoke an external send.",
+    "cases": [
+      {
+        "variant": "control",
+        "queuedOutcomeWakesWhileForegroundBusy": 24,
+        "distinctRecipients": 24,
+        "syntheticTransportCalls": 24,
+        "distinctSavedSendResults": 24,
+        "outcomeContinuations": 1,
+        "visibleCompletionMessages": 1,
+        "visibleChatTextMessagesIncludingInitialReady": 2,
+        "completionText": "All 24 review cards went out, from provider1 through provider24, including both EXPANDED-SAME notes and EXPANDED-3 through EXPANDED-24.\n\nI couldn't check disk space just now, so I don't have real sizes to name. I can try that again if you want.",
+        "finalStates": {
+          "sent": 24
+        },
+        "credentialConfigRemoved": true,
+        "truthfulReceipts": true
+      },
+      {
+        "variant": "treatment",
+        "queuedOutcomeWakesWhileForegroundBusy": 1,
+        "distinctRecipients": 24,
+        "syntheticTransportCalls": 24,
+        "distinctSavedSendResults": 24,
+        "outcomeContinuations": 1,
+        "visibleCompletionMessages": 1,
+        "visibleChatTextMessagesIncludingInitialReady": 2,
+        "completionText": "24 email drafts settled: 24 sent. Drafts in this chat: none awaiting review.",
+        "finalStates": {
+          "sent": 24
+        },
+        "credentialConfigRemoved": true,
+        "truthfulReceipts": true
+      }
+    ],
+    "externalMailSendAttempts": 0,
+    "interpretation": "The reproduced normal backlog produces one completion in both final default/control and opt-in treatment. The control message also contains an unrelated disk-warning paragraph; it is not counted as a second completion."
+  },
+  "deterministicAcceptance": {
+    "testsPassed": 8,
+    "assertions": 380,
+    "newPermanentIncidentRegression": 1,
+    "checks": [
+      "24 real saved synthetic send results queue behind an active foreground lease in both arms",
+      "One claim absorbs the original backlog; no second continuation remains",
+      "All distinct recipients, Cc and outcome identities are retained",
+      "Lost response, new call IDs and an explicitly replayed outcome run",
+      "Crash after context delivery with silent model",
+      "State changes, consecutive progress, idle boundaries and racing send/discard"
+    ]
+  },
+  "knownCounterexamples": [
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "control",
+      "outcomes": 24,
+      "queuedWakes": 24,
+      "visibleMessages": 3,
+      "duplicateMessages": 2,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "24 completions + lost response + retries + replay",
+      "variant": "treatment",
+      "outcomes": 24,
+      "queuedWakes": 1,
+      "visibleMessages": 1,
+      "duplicateMessages": 0,
+      "mockedMailSends": 24
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "control",
+      "outcomes": 2,
+      "visibleMessages": 0,
+      "missingNotification": 1
+    },
+    {
+      "scenario": "crash after context delivery + silent continuation",
+      "variant": "treatment",
+      "outcomes": 2,
+      "visibleMessages": 1,
+      "missingNotification": 0
+    }
+  ],
+  "counterexampleInterpretation": [
+    "Control can still produce three visible messages, including two duplicates, when new model call IDs and a new outcome-run replay are injected; treatment preserves one platform status.",
+    "After context is acknowledged and a crash occurs before visible delivery, a deliberately silent control model can leave no visible acknowledgement; treatment preserves a durable one.",
+    "Arbitrary model-authored paraphrases or incorrect facts are not semantically classified away in either mode. The durable platform status is stronger than a guarantee about all model prose."
+  ],
+  "updatedBuildValidation": {
+    "serverTypecheck": "pass",
+    "iOSFullSimulatorBuild": "pass",
+    "iOSToolchain": "Xcode 27.1 / iOS Simulator SDK27.1, scoped DEVELOPER_DIR; global selection unchanged",
+    "correction": "Prior iOS failures used default Xcode26.6 / SDK26.5 despite the repository documenting Xcode27. The full build passes with the installed documented stable toolchain. Those old failures are not a current merge blocker.",
+    "desktopPerformanceBudget": "failed",
+    "rendererGzipBytes": 4470492,
+    "limit": 4468300,
+    "excessBytes": 2192,
+    "note": "No production renderer changes in this pass; budget thresholds remain unchanged."
+  },
+  "mergeAssessment": {
+    "originalBacklogFix": "Passes this final-source reproduction in both arms.",
+    "wholePR": "Not unconditionally ready: gzip budget still fails, and default-mode fault-injection gaps must be understood before rollout.",
+    "reliability": "No 100% guarantee. Recommend explicit invariant acceptance and a staged rollout with duplicate/missing-status and follow-up monitoring.",
+    "deployment": "Not performed; production remains on the incident server image."
+  },
+  "limits": [
+    "Two live-model samples are diagnostics, not a measured production failure rate.",
+    "No real mailbox/Slack transport, APNs, device runtime test or fresh native Grokbot comparison.",
+    "The synthetic model prompt constrains tools and the harness compresses timing; this is not a replay of the entire original conversation.",
+    "The original incident was repeated chat status, not evidence of duplicate actual email sends.",
+    "No production flag, approval, dependency or public tool was changed."
+  ]
+}

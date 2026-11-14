@@ -31,9 +31,12 @@ const INTRO_MS = 1_650;
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 /** Matches the voice note limit the server accepts. */
 const MAX_DICTATION_BYTES = 25 * 1024 * 1024;
+// More than the maximum 300 ms retakes during a five-minute recording; IDs only.
+const MAX_DICTATION_SHOTS = 1024;
 
 export interface ScreenBotShot {
   id: string;
+  accountScope: string;
   /** JPEG of the display, decoded once and shared by every layer of the overlay. */
   image: Uint8Array;
   width: number;
@@ -61,6 +64,7 @@ interface DeliveryReply {
 
 interface Capture {
   id: string;
+  accountEpoch: number;
   display: Display;
   image: NativeImage;
   png: Promise<EncodedShot> | null;
@@ -103,15 +107,22 @@ export interface DesktopScreenBotOptions {
  */
 export class DesktopScreenBot {
   private overlay: BrowserWindow | null = null;
+  private disposed = false;
+  private readonly cleanups: Array<() => void> = [];
   private overlayLoading: Promise<BrowserWindow> | null = null;
   private roster: ScreenBotRoster = { bots: [], dictation: false };
   /** Increases with every roster the main window publishes, so an older one never wins. */
   private rosterVersion = 0;
   private capture: Capture | null = null;
+  private accountScope: string | null = null;
+  private accountEpoch = 0;
+  /** Retakes keep dictation in this open composer; close/auth reset revokes it. */
+  private readonly dictationShots = new Set<string>();
   private capturing = false;
   private lastPressAt = -Infinity;
   private shownAt = -Infinity;
   private draft = "";
+  private draftShotId: string | null = null;
   /** A shot was sent to the overlay and not yet revealed: the only time "ready" may show it. */
   private awaitingReveal = false;
   /** One transcription at a time. */
@@ -125,43 +136,53 @@ export class DesktopScreenBot {
   }
 
   constructor(private readonly options: DesktopScreenBotOptions) {
-    ipcMain.on("openteam:screenbot:roster", this.onRoster);
-    ipcMain.on("openteam:screenbot:delivered", this.onDelivered);
+    const listen = <Args extends unknown[]>(channel: string, listener: (event: IpcMainEvent, ...args: Args) => void) => {
+      ipcMain.on(channel, listener);
+      this.cleanups.push(() => ipcMain.removeListener(channel, listener));
+    };
+    const handle = (channel: string, listener: (event: IpcMainInvokeEvent, request: unknown) => unknown) => {
+      ipcMain.handle(channel, listener);
+      this.cleanups.push(() => ipcMain.removeHandler(channel));
+    };
+    listen("openteam:screenbot:roster", this.onRoster);
+    listen("openteam:screenbot:delivered", this.onDelivered);
     // The overlay can only show itself for a shot main just gave it, and only take clicks or
     // focus while that shot is on screen: a misbehaving page can't float over everything.
-    ipcMain.on("screenbot:ready", this.fromOverlay(() => {
-      if (!this.awaitingReveal || !this.capture) return;
+    listen("screenbot:ready", this.fromOverlay((_event, shotId: unknown) => {
+      if (!this.awaitingReveal || !this.capture || this.capture.id !== shotId) return;
       this.awaitingReveal = false;
       this.reveal();
     }));
-    ipcMain.on("screenbot:interactive", this.fromOverlay((_event, interactive: unknown) => {
+    listen("screenbot:interactive", this.fromOverlay((_event, interactive: unknown) => {
       const overlay = this.overlay;
       if (!overlay) return;
       overlay.setIgnoreMouseEvents(!(interactive === true && overlay.isVisible() && this.capture), { forward: true });
     }));
-    ipcMain.on("screenbot:focus", this.fromOverlay(() => {
+    listen("screenbot:focus", this.fromOverlay(() => {
       if (this.overlay?.isVisible() && this.capture) this.overlay.focus();
     }));
-    ipcMain.on("screenbot:draft", this.fromOverlay((_event, value: unknown) => {
-      this.draft = text(value, 100_000) ?? "";
+    listen("screenbot:draft", this.fromOverlay((_event, value: unknown) => {
+      if (!isRecord(value) || value.accountScope !== this.accountScope || value.shotId !== this.draftShotId) return;
+      this.draft = text(value.draft, 100_000) ?? "";
     }));
     // A close that finishes after a new shot arrived belongs to the old shot: ignore it.
-    ipcMain.on("screenbot:closed", this.fromOverlay((_event, shotId: unknown) => {
+    listen("screenbot:closed", this.fromOverlay((_event, shotId: unknown) => {
       if (!this.capture || this.capture.id === shotId) this.hideOverlay();
     }));
-    ipcMain.on("screenbot:open-chat", this.fromOverlay((_event, botId: unknown) => {
-      const bot = this.roster.bots.find((candidate) => candidate.id === botId);
+    listen("screenbot:open-chat", this.fromOverlay((_event, value: unknown) => {
+      if (!isRecord(value) || value.accountScope !== this.accountScope) return;
+      const bot = this.roster.bots.find((candidate) => candidate.id === value.botId);
       if (!bot) return;
       this.hideOverlay();
       this.options.focusMainWindow();
       // The same navigation as a notification: open the chat at its newest message.
       this.options.mainWindow()?.webContents.send("openteam:notification-click", { channelId: bot.channelId });
     }));
-    ipcMain.handle("screenbot:transcribe", async (event, request: unknown) => {
+    handle("screenbot:transcribe", async (event, request: unknown) => {
       if (!this.ownsSender(event)) throw new Error("ScreenBot is unavailable");
       return this.transcribe(request);
     });
-    ipcMain.handle("screenbot:send", async (event, request: unknown) => {
+    handle("screenbot:send", async (event, request: unknown) => {
       if (!this.ownsSender(event)) throw new Error("ScreenBot is unavailable");
       return this.send(request);
     });
@@ -169,6 +190,10 @@ export class DesktopScreenBot {
 
   /** Lets the app quit once its main window closes on Windows and Linux. */
   closeOverlay() {
+    this.dictationShots.clear();
+    if (this.releaseTimer) clearTimeout(this.releaseTimer);
+    this.releaseTimer = null;
+    this.awaitingReveal = false;
     this.overlay?.destroy();
     this.overlay = null;
     this.dropCapture();
@@ -184,44 +209,67 @@ export class DesktopScreenBot {
   /** The chat window reloaded or crashed: nothing it was asked will be answered, so fail now
    * instead of after the timeout. */
   abandonRequests() {
+    this.resetAccount(null);
+  }
+
+  /** Auth replacement and page teardown revoke all transient work, including in-flight sends. */
+  private resetAccount(scope: string | null) {
+    this.accountEpoch += 1;
+    this.accountScope = scope;
+    this.draft = "";
+    this.draftShotId = null;
+    this.awaitingReveal = false;
+    this.capture?.encoding.abort();
+    this.dropCapture();
+    this.overlay?.webContents.send("screenbot:reset");
+    this.hideOverlay();
+    this.transcribing = false;
     for (const resolve of [...this.deliveries.values()]) {
-      resolve({ requestId: "", ok: false, unanswered: true, error: "OpenTeam reloaded before it finished. Try again." });
+      resolve({ requestId: "", ok: false, unanswered: true, error: "ScreenBot account changed. Take the screenshot again." });
     }
-    // Its Bot list goes with it; the new page publishes its own once it's signed in.
     this.roster = { bots: [], dictation: false };
     this.rosterVersion += 1;
   }
 
   dispose() {
-    for (const resolve of [...this.deliveries.values()]) resolve({ requestId: "", ok: false, unanswered: true, error: "OpenTeam is quitting." });
+    this.disposed = true;
+    this.resetAccount(null);
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
+    if (this.releaseTimer) clearTimeout(this.releaseTimer);
+    this.releaseTimer = null;
     this.deliveries.clear();
-    this.overlay?.destroy();
-    this.overlay = null;
+    this.closeOverlay();
   }
 
   async take(): Promise<void> {
     // Spam-safe: one capture at a time, presses 300 ms apart coalesce, and a press during the
     // intro is ignored. Once the composer is up, a press retakes the screen (keeping the draft).
     const now = performance.now();
-    if (this.capturing || now - this.lastPressAt < PRESS_COALESCE_MS) return;
+    if (this.disposed || this.capturing || now - this.lastPressAt < PRESS_COALESCE_MS) return;
     if (this.overlay?.isVisible() && now - this.shownAt < INTRO_MS) return;
+    if (!this.accountScope) { this.options.focusMainWindow(); return; }
+    const accountScope = this.accountScope;
+    const epoch = this.accountEpoch;
+    const current = () => epoch === this.accountEpoch && accountScope === this.accountScope;
     this.lastPressAt = now;
     this.capturing = true;
     this.timing = { pressed: performance.now() };
     try {
       // Refresh the Bot list while the screen is captured; the overlay updates if it changed.
       this.options.mainWindow()?.webContents.send("openteam:screenbot:roster-request");
-      if (!(await this.ensureScreenAccess())) return;
+      if (!(await this.ensureScreenAccess()) || !current()) return;
       const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
       // A second screenbot retakes the screen without the floating composer in it.
       if (this.overlay?.isVisible()) {
         this.overlay.setOpacity(0);
         await delay(80);
+        if (!current()) return;
       }
       // A cold overlay loads its page while the screen is captured, not after.
       const overlayReady = this.prepareOverlay();
       overlayReady.catch(() => undefined);
       const image = await this.captureDisplay(display);
+      if (!current()) return;
       this.mark("captured");
       if (!image) {
         this.overlay?.setOpacity(1);
@@ -239,14 +287,19 @@ export class DesktopScreenBot {
         return;
       }
       this.dropCapture();
-      this.capture = { id: randomUUID(), display, image, png: null, encoding: new AbortController(), sending: false };
+      this.capture = { id: randomUUID(), accountEpoch: epoch, display, image, png: null, encoding: new AbortController(), sending: false };
+      this.dictationShots.add(this.capture.id);
+      if (this.dictationShots.size > MAX_DICTATION_SHOTS) this.dictationShots.delete(this.dictationShots.values().next().value!);
+      this.draftShotId = this.capture.id;
       const overlay = await overlayReady;
+      if (!current() || !this.capture) return;
       this.mark("overlayReady");
       overlay.setBounds(display.bounds);
       const bounds = overlay.getBounds();
       const scale = display.scaleFactor;
       const shot: ScreenBotShot = {
         id: this.capture.id,
+        accountScope,
         // A Buffer is already a Uint8Array: no extra copy before IPC.
         image: image.toJPEG(90),
         width: Math.round(image.getSize().width / scale) || display.bounds.width,
@@ -270,6 +323,7 @@ export class DesktopScreenBot {
       overlay.webContents.send("screenbot:shot", shot);
       this.mark("sent");
     } catch (error) {
+      if (!current()) return;
       console.error("OpenTeam screenbot failed", error);
       this.overlay?.setOpacity(1);
       this.releaseIfHidden();
@@ -414,16 +468,17 @@ export class DesktopScreenBot {
   }
 
   private hideOverlay() {
+    this.dictationShots.clear();
     const overlay = this.overlay;
-    if (!overlay) return;
     this.awaitingReveal = false;
+    this.dropCapture();
+    if (!overlay) return;
     overlay.setIgnoreMouseEvents(true, { forward: true });
     overlay.hide();
     // Hidden from here (⌘W, opening the chat, a reload): the page must stand down too, or a
     // dictation would keep recording in a hidden window.
     if (!overlay.webContents.isDestroyed()) overlay.webContents.send("screenbot:hidden");
     overlay.webContents.setBackgroundThrottling(true);
-    this.dropCapture();
     this.armRelease(overlay);
   }
 
@@ -432,6 +487,7 @@ export class DesktopScreenBot {
     const overlay = this.overlay;
     if (!overlay || overlay.isVisible()) return;
     this.dropCapture();
+    this.dictationShots.clear();
     this.armRelease(overlay);
   }
 
@@ -452,7 +508,7 @@ export class DesktopScreenBot {
     const shotId = text(value.shotId, 200);
     const capture = this.capture;
     const bot = this.roster.bots.find((candidate) => candidate.id === botId);
-    if (!capture || capture.id !== shotId || content === null) {
+    if (!capture || capture.accountEpoch !== this.accountEpoch || capture.id !== shotId || content === null) {
       return { ok: false, error: "Take the screenshot again." };
     }
     if (content.length > MAX_CONTENT) return { ok: false, error: "That message is too long to send with a screenshot." };
@@ -463,18 +519,27 @@ export class DesktopScreenBot {
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: "Open OpenTeam to use ScreenBot." };
     }
+    const epoch = this.accountEpoch;
+    const accountScope = this.accountScope;
+    const current = () => epoch === this.accountEpoch;
     capture.sending = true;
     let reply: DeliveryReply;
     let stagedId: string | null = null;
     try {
       capture.png ??= pngFor(capture.image, capture.encoding.signal);
       const image = await capture.png;
+      if (!current()) return { ok: false, error: "Take the screenshot again." };
       // The chat window only needs a reference: the bytes go straight to the staging area
       // the durable send uploads from, and the size is already known.
       const stagingId = randomUUID();
       await this.options.stageDelivery(stagingId, image.bytes);
       stagedId = stagingId;
+      if (!current()) {
+        await this.options.discardDelivery(stagingId).catch(() => undefined);
+        return { ok: false, error: "Take the screenshot again." };
+      }
       reply = await this.askMainWindow(mainWindow, "openteam:screenbot:deliver", {
+        accountScope,
         botId: bot.id,
         content: content.trim(),
         // One delivery per shot: a retry after a timeout can't send it twice.
@@ -490,6 +555,7 @@ export class DesktopScreenBot {
     // chat window may already have queued a send that reads it; a retry is still safe (same
     // nonce), and losing the image would be worse than a leftover file.
     if (!reply.ok && !reply.unanswered && stagedId) void this.options.discardDelivery(stagedId).catch(() => undefined);
+    if (!current()) return { ok: false, error: "Take the screenshot again." };
     if (!reply.ok) return { ok: false, error: reply.error || "This screenshot couldn’t be sent." };
     this.draft = "";
     // Delivered: this shot is done and can't be sent again.
@@ -527,13 +593,15 @@ export class DesktopScreenBot {
     const mimeType = text(value.mimeType, 100) ?? "audio/webm";
     if (!mimeType.startsWith("audio/")) return { ok: false, error: "That recording couldn’t be used. Try again." };
     // Only from a composer that's on screen with dictation on, and one at a time.
-    if (!this.overlay?.isVisible() || !this.capture || !this.roster.dictation) return { ok: false, error: "Dictation isn’t available right now." };
+    if (!this.overlay?.isVisible() || !this.capture || (typeof value.shotId !== "string" || !this.dictationShots.has(value.shotId)) || value.accountScope !== this.accountScope || !this.roster.dictation) return { ok: false, error: "Dictation isn’t available right now." };
     if (this.transcribing) return { ok: false, error: "Still transcribing the last recording." };
     const mainWindow = this.options.mainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: "Open OpenTeam to use dictation." };
+    const epoch = this.accountEpoch;
     this.transcribing = true;
-    const reply = await this.askMainWindow(mainWindow, "openteam:screenbot:transcribe", { audio: value.audio, mimeType }, TRANSCRIBE_TIMEOUT_MS)
-      .finally(() => { this.transcribing = false; });
+    const reply = await this.askMainWindow(mainWindow, "openteam:screenbot:transcribe", { accountScope: this.accountScope, audio: value.audio, mimeType }, TRANSCRIBE_TIMEOUT_MS)
+      .finally(() => { if (epoch === this.accountEpoch) this.transcribing = false; });
+    if (epoch !== this.accountEpoch) return { ok: false, error: "Dictation was cancelled." };
     if (!reply.ok) return { ok: false, error: reply.error || "Transcription failed. Try again." };
     return { ok: true, text: reply.text ?? "" };
   }
@@ -542,11 +610,15 @@ export class DesktopScreenBot {
     if (event.sender !== this.options.mainWindow()?.webContents) return;
     const roster = parseScreenBotRoster(value);
     if (!roster) return;
-    // An empty list is the chat window signing out: the draft was that account's.
-    if (roster.bots.length === 0) this.draft = "";
+    if (!isRecord(value)) return;
+    const scope = value.accountScope === null ? null : text(value.accountScope, 200);
+    if ((scope === null && value.accountScope !== null) || scope === "") return;
+    if (scope !== this.accountScope) this.resetAccount(scope);
+    // Empty rosters also occur during ordinary refreshes; only auth scope revokes ownership.
+    if (!scope) return;
     this.roster = roster;
     this.rosterVersion += 1;
-    if (this.overlay?.isVisible()) this.overlay.webContents.send("screenbot:roster", { ...roster, version: this.rosterVersion });
+    if (this.overlay?.isVisible()) this.overlay.webContents.send("screenbot:roster", { ...roster, accountScope: this.accountScope, version: this.rosterVersion });
   };
 
   private readonly onDelivered = (event: IpcMainEvent, value: unknown) => {

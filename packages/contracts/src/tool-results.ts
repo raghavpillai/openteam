@@ -55,14 +55,28 @@ export function renderControlResult(
     return `Reacted ${args.emoji.trim()} on ${args.message_address.trim()}. (Reactions toggle: react the same emoji again to take it back.)`;
   if (name === "DraftExternalMessage" && result.sent) {
     const where =
-      args.platform === "email"
-        ? `email from ${args.from} to ${[args.to ?? []].flat().join(", ")}`
+      (result.platform ?? args.platform) === "email"
+        ? `email from ${result.from ?? args.from} to ${result.target ?? [args.to ?? []].flat().join(", ")}`
         : `Slack message to ${result.target ?? args.target}`;
     const id = result.message_id ? ` (id: ${result.message_id})` : "";
+    if (result.duplicate) {
+      const states: Record<string, string> = {
+        pending: "is still awaiting review", sending: "is still sending", sent: "was sent",
+        dismissed: "was discarded without sending", unknown: "has unconfirmed delivery",
+        failed: "was not delivered", "draft-created": "was not delivered",
+      };
+      const state = states[String(result.delivery)] ?? "already exists; inspect the card's stored state before describing its delivery";
+      const caution = result.delivery === "dismissed" ? " Only recreate it if the user explicitly asks."
+        : ["sent", "sending", "unknown"].includes(result.delivery) ? " Do not resend it." : "";
+      const location = result.in_dm ? " The card is in your own 1:1 chat with the user, not in this room." : "";
+      return `The existing ${where}${id} ${state}. No new draft or send was performed.${caution}${location}`;
+    }
     // The user's approval settings can send a card at once; the server says how that went.
     if (result.delivery === "sent") return `Sent the ${where}${id}. ${result.note}`;
     if (result.delivery === "unknown")
-      return `The ${where} was sent without review, but delivery is unconfirmed${id}. ${result.note}`;
+      return `Delivery is unconfirmed for the ${where}${id}. This receipt does not confirm a send; it may or may not have gone out. Do not resend it. ${result.note}`;
+    if (result.delivery === "failed" || result.delivery === "draft-created")
+      return `The ${where} was not delivered${id}. ${result.note ?? "Inspect the stored card before trying again."}`;
     const card = result.in_dm
       ? `is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is${id}.`
       : `is now an editable card in the chat${id}.`;
@@ -178,6 +192,10 @@ export function renderControlResult(
   if (name === "SendToUser" && result.sent)
     if (result.queued) return `Message queued for the room when this turn completes. (id: ${result.message_address ?? result.message_id})`;
   if (name === "SendToUser" && result.silent) return "No room message delivered (silent turn).";
+  if (name === "SendToUser" && result.reason === "draft_state_changed")
+    return `Nothing delivered (draft_state_changed). Current draft state: ${JSON.stringify(result.draft_state)}.\n${result.note}\nCard states: ${JSON.stringify(result.cards ?? [])}`;
+  if (name === "SendToUser" && result.reason === "turn_not_active")
+    return typeof result.note === "string" ? result.note : "Nothing delivered. This turn has ended; do not retry its reply.";
   if (name === "SendToUser" && result.delivery_failed)
     return `Message to ${result.channel} was not delivered${result.reason ? `: ${result.reason}` : "."}${result.reason && !/[.!?]$/.test(result.reason) ? "." : ""} Tell the user it did not go through.`;
   if (name === "SendToUser" && result.sent)

@@ -58,6 +58,32 @@ let desktopMachineId: string | undefined;
 export const getDesktopMachineId = () => desktopMachineId;
 let credentialGeneration = 0;
 export const getAuthCredentialGeneration = () => credentialGeneration;
+/** Nonsecret ownership for transient ScreenBot work, never an account id or credential. */
+export const AUTH_CREDENTIALS_CHANGED_EVENT = "openteam:auth-credentials-changed";
+let screenBotAccountScope: string | null = null;
+let screenBotIdentity: string | null = null;
+export const getScreenBotAccountScope = () => screenBotAccountScope;
+const invalidateScreenBotAccount = () => {
+  screenBotAccountScope = null;
+  screenBotIdentity = null;
+  // Invalidate main before any credential storage/network await or workspace effect cleanup.
+  window.openteam?.screenbot?.publishRoster({ accountScope: null, bots: [], dictation: false });
+  window.dispatchEvent(new Event(AUTH_CREDENTIALS_CHANGED_EVENT));
+};
+authStore.subscribe(() => {
+  const auth = authStore.getSnapshot();
+  if (auth.status === "checking") return;
+  if (auth.status !== "authenticated") {
+    invalidateScreenBotAccount();
+    return;
+  }
+  const identity = JSON.stringify([credentialGeneration, auth.mode, auth.user?.id]);
+  if (identity === screenBotIdentity) return;
+  invalidateScreenBotAccount();
+  screenBotIdentity = identity;
+  screenBotAccountScope = crypto.randomUUID();
+});
+
 let tokenReadRequest: Promise<string | null> | null = null;
 let refreshRequest: Promise<OpenTeamAuthSnapshot> | null = null;
 
@@ -99,6 +125,7 @@ const persistAuthToken = async (next: string | null): Promise<void> => {
   if (next) serverSignOut = null;
   if (!next) desktopMachineId = undefined;
   const generation = ++credentialGeneration;
+  invalidateScreenBotAccount();
   const bridge = authBridge();
   if (!next) token = null;
   if (bridge) {
@@ -119,6 +146,7 @@ export const getAuthToken = (): string | null => token;
 export const clearAuthToken = (expectedToken?: string | null): void => {
   if (expectedToken !== undefined && expectedToken !== token) return;
   credentialGeneration += 1;
+  invalidateScreenBotAccount();
   token = null;
   cacheUser(null);
   void authBridge()
@@ -153,12 +181,15 @@ export const authHeaders = (): HeadersInit => {
 
 export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
   if (refreshRequest) return refreshRequest;
+  const generation = credentialGeneration;
   authStore.publish({ ...authStore.getSnapshot(), status: "checking", error: null });
   refreshRequest = (async () => {
     const assessment = await assessOpenTeamAuthSession({
       client: authClient(),
       loadToken: loadAuthToken,
     });
+    // Verification begun under old credentials cannot reauthorize transient account work.
+    if (generation !== credentialGeneration) return authStore.getSnapshot();
     if (assessment.clearCredentials) {
       // A saved sign-in the server no longer accepts, as opposed to auth being turned off.
       if (assessment.status === "signed-out") rememberServerSignOut();
@@ -179,7 +210,7 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
     });
   })()
     .catch((cause) =>
-      authStore.publish({
+      generation !== credentialGeneration ? authStore.getSnapshot() : authStore.publish({
         status: "signed-out",
         mode: "required",
         connection: "unknown",
@@ -248,6 +279,8 @@ export const signInToServer = async (
 
 export const signOut = async (): Promise<void> => {
   const currentToken = token ?? (await loadAuthToken());
+  // Local ownership ends before waiting for remote revocation (which may be offline).
+  clearAuthToken(currentToken);
   try {
     if (currentToken) {
       const bridge = authBridge();
@@ -256,8 +289,6 @@ export const signOut = async (): Promise<void> => {
     }
   } catch {
     // Local sign-out must still succeed if the server is unavailable.
-  } finally {
-    clearAuthToken(currentToken);
   }
 };
 

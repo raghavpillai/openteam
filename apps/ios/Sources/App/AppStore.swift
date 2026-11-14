@@ -57,6 +57,12 @@ final class AppStore {
   private var catchUpSync: UUID?
   var connecting = false
   var busy: Set<String> = []
+  /// Presses of Send or Discard on draft cards that this device has not seen answered, by message
+  /// id. A card's row is rebuilt when its chat is left or the list recycles it, and picks its
+  /// send-off up from here. Never saved.
+  var draftPresses: [String: DraftPress] = [:]
+  /// Why such a press's request failed, for a row that was not there when it did.
+  var draftPressFailures: [String: String] = [:]
   var navigation: [String] = [] {
     didSet {
       navigationGeneration = UUID()
@@ -89,7 +95,9 @@ final class AppStore {
       persist()
     }
   }
-  private(set) var api: API?
+  private(set) var api: API? {
+    didSet { PlaceImages.select(api?.resourceGeneration) }
+  }
   private var disk: DiskStore?
   private var record: SessionRecord?
   private var lifecycle: Task<Void, Never>?
@@ -2158,6 +2166,7 @@ final class AppStore {
     systemOpenGeneration = UUID()
     systemVoiceRequestID = nil
     botVoiceLaunch.reset()
+    VoiceMemoSessions.reset()
     SystemDiscovery.shared.clear(removeTransfers: true)
     systemScope = nil
     systemDiscoveryEnabled = false

@@ -9,6 +9,7 @@ import { startManagementDiscovery } from "./computer-network-management";
 import { startHostBridgeDiscovery } from "./computer-network-host-bridge";
 import { startNetworkConnectivity, probeNetworkFamily, applyNetworkFamilies } from "./network-connectivity";
 import type { NetworkFamilyHealth } from "@openteam/plugin-sdk/browser-network/protocol";
+import { createNetworkDiagnostics } from "@openteam/plugin-sdk/browser-network/diagnostics";
 
 const lines = createInterface({ input: process.stdin });
 let shutdown: (() => void) | undefined,
@@ -38,6 +39,10 @@ const config = JSON.parse(input) as {
   port: number;
   computerNetwork?: boolean;
 };
+// Bound output before it reaches the parent pipe as well as at the supervisor.
+const diagnostic = createNetworkDiagnostics("computer", (line) => {
+  console.log(JSON.stringify({ diagnostic: JSON.parse(line) }));
+});
 const diagnostics = new Set<AbortController>();
 let diagnosticEpoch: string | undefined;
 let dnsExchange: ReturnType<typeof createDnsExchange> | undefined;
@@ -52,6 +57,7 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
   role: "computer",
   url: url.href,
   headers: { authorization: `Bearer ${config.token}` },
+  diagnostic,
   changed: () => {
     dnsExchange?.syncRoute();
     const epoch = client.available() ? client.route?.epoch : undefined;
@@ -78,7 +84,7 @@ connectivity = startNetworkConnectivity({
   changed: () => { dnsExchange?.syncRoute(); console.log(JSON.stringify(statusView())); },
   failed: () => process.exit(1),
 });
-const proxy = createBrowserProxy((host, port, signal) => client.open(host, port, signal));
+const proxy = createBrowserProxy((host, port, signal) => client.open(host, port, signal), 80, diagnostic);
 const port = await proxy.listen(config.port);
 dnsExchange = config.computerNetwork
   ? createDnsExchange(client, {

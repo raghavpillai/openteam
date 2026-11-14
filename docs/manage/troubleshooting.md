@@ -73,6 +73,21 @@ Installed plugins and their connected accounts are available to all bots. On iPh
 
 For sign-in and callback errors, see [connecting accounts](../integrations/accounts.md#troubleshooting).
 
+### A lookup reports a connection reset
+
+A connection reset during a plugin lookup does not establish that a password or token is wrong. Record the failure time and check the server and computer logs for `computer_network.` events:
+
+```sh
+openteam logs computer --tail 2000 2>&1 | rg 'computer_network\.'
+openteam logs server --tail 2000 2>&1 | rg 'computer_network\.'
+```
+
+`route_changed`, `route_fenced`, `lease_expired`, and `transport_closed` identify route switches, lease loss, and control-channel interruptions. Correlate their `epoch` and `previousEpoch` values with the failure time. `proxy_capacity` records a local connection-limit rejection. `proxy_dial_failed` and `proxy_socket_error` preserve recognized error codes such as `ECONNRESET`; `side` distinguishes the application-facing socket from the upstream socket. An upstream reset still does not identify which remote service or intermediate network generated it.
+
+These records contain timestamps, route and source IDs, counts, numeric destination IPs and ports, and fixed error/reason codes. They exclude hostnames, URLs, credentials, request contents, and free-form error messages. Each component emits at most 20 connection events and 20 control events per second; the next emitted event in each category reports any `suppressed` count. Desktop exit errors are logged by the desktop process.
+
+The 1Password skill preserves CLI failures through filters and permits one delayed retry of a read-only lookup after a transient transport failure. Authentication rejections, rate limits, website actions, and writes are not retried by that guidance.
+
 ## A routine didn't run
 
 Check that the routine is **Active**, and open its **Run history**. The server must be running at the scheduled time. See [routines](../usage/routines.md#when-a-routine-fails).

@@ -1,5 +1,6 @@
 import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { presentationReferencesInResult } from "@openteam/contracts/presentation";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { markDelivered } from "./events";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
@@ -1468,6 +1469,8 @@ export class RuntimeTools {
           tool,
           arguments: args,
           callId,
+          ...(tool === SEND_TO_USER_TOOL.name && active.draftStateRevision
+            ? { draftStateRevision: active.draftStateRevision } : {}),
         }),
         signal: requestSignal,
         // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
@@ -1483,6 +1486,11 @@ export class RuntimeTools {
       throw error;
     }
     if (!response.ok) throw controlPlaneError(response.status, body);
+    if (tool === SEND_TO_USER_TOOL.name && body && typeof body === "object" &&
+        (body as Record<string, unknown>).reason === "draft_state_changed" &&
+        typeof (body as Record<string, unknown>).draft_state_revision === "string") {
+      active.pendingDraftStateRevision = (body as { draft_state_revision: string }).draft_state_revision;
+    }
     if (
       body &&
       typeof body === "object" &&
@@ -1573,10 +1581,18 @@ export class RuntimeTools {
     }
     if (tool === "PluginCall") {
       const { parts, isError } = connectorResultParts(body);
+      // Index places and routes before a large result is moved to a file, so a map reply can name
+      // them by id. Details are stored with the run, never sent to the model.
+      const references = isError ? undefined : presentationReferencesInResult(parts.flatMap((part) => (part.type === "text" ? [part.text] : [])));
       const spilled = await spillConnectorText(parts, active.cwd, (path, data) => agentFileIO("write", path, undefined, data));
       return {
         content: spilled.parts,
-        details: { tool, ...(isError ? { isError: true } : {}), ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}) },
+        details: {
+          tool,
+          ...(isError ? { isError: true } : {}),
+          ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}),
+          ...(references ? { presentationReferences: references } : {}),
+        },
         ...(active.endTurnRequested ? { terminate: true } : {}),
       };
     }

@@ -132,7 +132,7 @@ databaseTest("each state tool updates its fixed target and names itself in error
       "Remembered in your memory (journal): State tools fixture fact."
     );
     await expect(call("UpdateMemory", { action: "write", type: "project", fact: "x" })).rejects.toThrow("pick the memory type it belongs in");
-    await expect(call("UpdateMemory", { action: "create", type: "profile", fact: "x" })).rejects.toThrow("UpdateMemory only writes or forgets memory");
+    await expect(call("UpdateMemory", { action: "create", type: "profile", fact: "x" })).rejects.toThrow("UpdateMemory only writes, replaces or forgets memory");
     await expect(call("update_state", { target: "memory", action: "write", fact: "x" })).rejects.toThrow("Unknown tool update_state");
   } finally {
     if (botId) {

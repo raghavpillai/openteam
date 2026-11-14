@@ -9,12 +9,13 @@ import {
   type ExternalDraftApprovalMode,
   type ExternalDraftVerification,
 } from "@openteam/contracts/external-draft";
-import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
+import { externalDraftReviewEdits, externalDraftReviewFields, externalDraftReviewState, mergeExternalDraftReviewFields } from "@openteam/client-core/external-draft";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Send, X } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../client/openteam-api";
+import { useDraftSendOff } from "./external-draft-send-off";
 const FileAttachmentCard = lazy(() => import("./file-attachment").then((module) => ({ default: module.FileAttachmentCard })));
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -35,14 +36,15 @@ export function signatureText(html: string): string {
 }
 
 type Tone = "ready" | "sent" | "warning" | "muted";
+const failedStatus = { label: "Message not delivered", tone: "warning" as const, dot: true };
 const STATUS: Record<string, { label: string; tone: Tone; dot: boolean }> = {
   pending: { label: "Ready to send", tone: "ready", dot: true },
-  sending: { label: "Ready to send", tone: "ready", dot: true },
+  sending: { label: "Sending", tone: "ready", dot: true },
   sent: { label: "Sent", tone: "sent", dot: true },
   dismissed: { label: "Discarded", tone: "muted", dot: true },
   unknown: { label: "Unconfirmed", tone: "muted", dot: false },
-  failed: { label: "Message not delivered", tone: "warning", dot: true },
-  "draft-created": { label: "Message not delivered", tone: "warning", dot: true },
+  failed: failedStatus,
+  "draft-created": failedStatus,
 };
 const MODE_LABEL: Record<ExternalDraftApprovalMode, string> = {
   "always-allow": "Always allow",
@@ -55,6 +57,14 @@ export function approvalNotice(previous: ExternalDraftApprovalMode, next: Extern
   if (next === "always-allow") return "Added to your Allow rules";
   if (next === "disable-drafts") return "Drafts are off for this Bot";
   return previous === "disable-drafts" ? "Drafts need your approval again" : "Removed from your Allow rules";
+}
+
+/** The line a settled card shows in place of its fields. */
+function settledSummary(state: string, draft: ExternalDraft) {
+  if (state === "unknown") return "The send was interrupted — check your mailbox to see whether it went out";
+  const email = draft.platform === "email";
+  const recipient = email ? (draft.to?.[0] ?? "") : (draft.target ?? "");
+  return `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${draft.subject}”` : ""}`;
 }
 
 function Status({ state }: { state: string }) {
@@ -169,16 +179,18 @@ export function ExternalDraftCard({
   const highlightedBody = useRef<HTMLDivElement>(null);
   const caret = useRef<number | null>(null);
   const metadata = record(message.metadata);
+  const terminalMessage = useRef<ChannelMessageView | null>(null);
+  if (metadata.cardState && !["pending", "sending"].includes(String(metadata.cardState))) terminalMessage.current = message;
   const verification = record(record(metadata.draft).verification) as Partial<ExternalDraftVerification>;
   const sendingAddresses = verification.sendingAddresses ?? [];
   const email = draft.platform === "email";
   const [state, setState] = useState(String(metadata.cardState ?? "pending"));
-  const [resolvedDraft, setResolvedDraft] = useState<ExternalDraft | null>(null);
-  const [from, setFrom] = useState(draft.from ?? "");
-  const [text, setText] = useState(draft.body);
-  const [subject, setSubject] = useState(draft.subject ?? "");
-  const [to, setTo] = useState(draft.to?.join(", ") ?? "");
-  const [cc, setCc] = useState(draft.cc?.join(", ") ?? "");
+  const serverFields = externalDraftReviewFields(draft);
+  const previousServerFields = useRef(serverFields);
+  const [fields, setFields] = useState(serverFields);
+  const { from, body: text, subject, to, cc } = fields;
+  const setField = (key: keyof typeof fields, value: string) =>
+    setFields(current => ({ ...current, [key]: value }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -195,12 +207,17 @@ export function ExternalDraftCard({
       const range = document.createRange(); range.selectNodeContents(element); range.setEnd(selection.focusNode, selection.focusOffset);
       caret.current = range.toString().length;
     }
-    setRevisionDismissed(true); setText(element.innerText);
+    setRevisionDismissed(true); setField("body", element.innerText);
   };
   useEffect(() => {
-    setState(String(metadata.cardState ?? "pending"));
-    if (metadata.cardState === "sent") setError("");
+    setState(current => externalDraftReviewState(current, String(metadata.cardState ?? "pending")));
+    if (metadata.cardState === "sent" || metadata.cardState === "dismissed") setError("");
   }, [metadata.cardState]);
+  useEffect(() => {
+    const previous = previousServerFields.current;
+    previousServerFields.current = serverFields;
+    setFields(local => mergeExternalDraftReviewFields(previous, local, serverFields));
+  }, [serverFields.body, serverFields.subject, serverFields.to, serverFields.cc, serverFields.from]);
   useLayoutEffect(() => {
     const element = body.current ?? highlightedBody.current;
     if (!element) return;
@@ -217,13 +234,31 @@ export function ExternalDraftCard({
     caret.current = null;
   }, [text, revisionDismissed]);
   const sendError = typeof metadata.sendError === "string" ? metadata.sendError : "";
-  const acceptResult = (message: ChannelMessageView) => {
+  const acceptResult = (incoming: ChannelMessageView) => {
+    const incomingState = String(record(incoming.metadata).cardState ?? "pending");
+    if (!terminalMessage.current && incomingState !== "pending" && incomingState !== "sending") terminalMessage.current = incoming;
+    const message = terminalMessage.current ?? incoming;
     const next = record(message.metadata);
-    setResolvedDraft(parseExternalDraft(next.draft));
     setState(String(next.cardState ?? "pending"));
     return next;
   };
-  const fields = { body: text, subject, to, cc, from };
+  // Send gathers into a blob while the send is out, then flies to the status
+  // badge once this device's send is confirmed.
+  const { card, fx, discard: discarding, landed, press } = useDraftSendOff<HTMLFormElement>(
+    message.id,
+    state,
+    async () => {
+      try {
+        const next = acceptResult((await api.mutateExternalDraft(message.id, "refresh")).message);
+        if (typeof next.sendError === "string") setError(`Couldn't send this draft: ${next.sendError}`);
+      } catch {
+        if (terminalMessage.current) return;
+        setState(current => externalDraftReviewState(current, "sending"));
+        setLost(true);
+      }
+    },
+    lost
+  );
   const run = async (work: () => Promise<void>) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -238,9 +273,11 @@ export function ExternalDraftCard({
   };
   const act = (action: "send" | "cancel") =>
     run(async () => {
+      let answered = () => {};
       try {
         const edits = externalDraftReviewEdits(draft, action, fields, sendingAddresses);
         if (action === "send") setState("sending");
+        answered = press(action === "cancel");
         const result = await api.mutateExternalDraft(message.id, action, edits);
         const next = acceptResult(result.message);
         if (typeof next.sendError === "string") setError(`Couldn't send this draft: ${next.sendError}`);
@@ -251,25 +288,30 @@ export function ExternalDraftCard({
             action === "send" ? "Couldn't send this draft" : "Couldn't discard this draft. Try again."
           )
         );
-        if (action !== "send") return;
         // The server decides whether anything went out; never guess.
         try {
           const checked = await api.mutateExternalDraft(message.id, "refresh");
-          acceptResult(checked.message);
+          const next = acceptResult(checked.message);
+          if (next.cardState === "sent" || next.cardState === "dismissed") setError("");
         } catch {
-          setState("sending");
-          setLost(true);
+          if (action === "send" && !terminalMessage.current) {
+            setState(current => externalDraftReviewState(current, "sending"));
+            setLost(true);
+          }
         }
+        const confirmed = record(terminalMessage.current?.metadata).cardState;
+        if (confirmed === "sent" || confirmed === "dismissed") setError("");
+      } finally {
+        answered();
       }
     });
   const checkDelivery = () =>
     run(async () => {
       try {
         const checked = await api.mutateExternalDraft(message.id, "refresh");
-        acceptResult(checked.message);
-        setLost(false);
+        setLost(acceptResult(checked.message).cardState === "sending");
       } catch (failure) {
-        setError(clientErrorMessage(failure, "Couldn't check delivery. Try again."));
+        setError(clientErrorMessage(failure, "Couldn't check delivery."));
       }
     });
   const mode = externalDraftApprovalMode(
@@ -294,7 +336,7 @@ export function ExternalDraftCard({
   const sentUnder = record(metadata.sentUnder);
   const menu = bot ? (
     <Picker
-      disabled={busy}
+      disabled={busy || fx !== "idle"}
       display={(value) => MODE_LABEL[value]}
       label="Approval"
       onChange={(next) => void setMode(next)}
@@ -314,7 +356,8 @@ export function ExternalDraftCard({
   const header = (
     <div className="draft-header">
       <span className="draft-title">{title}</span>
-      <Status state={state} />
+      {/* While the blob waits the badge says what is happening, not the answer the flight is about to show. */}
+      <Status state={fx === "charging" ? (discarding ? "pending" : "sending") : state} />
     </div>
   );
   const replyRow =
@@ -334,7 +377,7 @@ export function ExternalDraftCard({
       {sentUnder.rule ? (
         <p className="draft-note">Auto-approved by your rule: {String(sentUnder.rule)}</p>
       ) : sentUnder.draftingDisabled ? (
-        <p className="draft-note">Sent without review: drafts are off for this Bot</p>
+        <p className="draft-note">{state === "sent" ? "Sent without review" : "Review skipped"}: drafts are off for this Bot</p>
       ) : null}
       {notice && <p className="draft-note">{notice}</p>}
       {(error || (state === "pending" && sendError)) && (
@@ -345,20 +388,15 @@ export function ExternalDraftCard({
     </>
   );
 
-  if (state !== "pending" && state !== "sending") {
-    // Live updates can include edits submitted from another device. History
-    // always shows the stored receipt, including before its push reaches us.
-    const settled = metadata.cardState && !["pending", "sending"].includes(String(metadata.cardState))
-      ? draft : resolvedDraft ?? draft;
+  // History always shows the stored receipt, including before its push reaches us.
+  const settled = terminalMessage.current ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : draft;
+  if (fx === "idle" && state !== "pending" && state !== "sending") {
+    // Live updates can include edits submitted from another device.
     const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
-    const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
-    const summary =
-      state === "unknown"
-        ? "The send was interrupted — check your mailbox to see whether it went out"
-        : `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${settled.subject}”` : ""}`;
+    const summary = settledSummary(state, settled);
     const autoSent = Boolean(sentUnder.rule || sentUnder.draftingDisabled);
     return (
-      <section aria-label={title} className="draft-card rich-message-card">
+      <section aria-label={title} className="draft-card rich-message-card" data-fx={landed ? "landed" : undefined}>
         {header}
         <details className="draft-history">
           <summary className="draft-summary" title={summary}>{summary}<ChevronDown aria-hidden size={14} /></summary>
@@ -380,18 +418,26 @@ export function ExternalDraftCard({
       </section>
     );
   }
-  const sending = state === "sending";
+  const sending = state === "sending" || fx !== "idle";
   const locked = busy || sending;
   return (
     <form
       aria-label={title}
       className="draft-card rich-message-card"
+      data-fx={fx === "idle" ? undefined : fx}
+      ref={card}
       onSubmit={(event) => {
         event.preventDefault();
         void act("send");
       }}
     >
       {header}
+      {fx === "flying" && (
+        <div aria-hidden className="draft-summary draft-fx-summary">
+          {settledSummary(discarding ? "dismissed" : "sent", settled)}
+          <ChevronDown size={14} />
+        </div>
+      )}
       <div className="draft-panel">
         <div className="draft-fields">
           {email ? (
@@ -402,7 +448,7 @@ export function ExternalDraftCard({
                     disabled={locked}
                     display={(value) => value}
                     label="From"
-                    onChange={setFrom}
+                    onChange={(value) => setField("from", value)}
                     options={sendingAddresses}
                     value={sendingAddresses.find((address) => address === from.toLowerCase()) ?? from}
                   />
@@ -421,7 +467,7 @@ export function ExternalDraftCard({
                   aria-invalid={!recipientsValid && addresses(to).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-to`}
-                  onChange={(event) => { setRevisionDismissed(true); setTo(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("to", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -437,7 +483,7 @@ export function ExternalDraftCard({
                   aria-invalid={addresses(cc).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-cc`}
-                  onChange={(event) => { setRevisionDismissed(true); setCc(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("cc", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -452,7 +498,7 @@ export function ExternalDraftCard({
                   data-revised={revision?.changedFields.includes("subject") ? "" : undefined}
                   disabled={locked}
                   id={`${message.id}-subject`}
-                  onChange={(event) => { setRevisionDismissed(true); setSubject(event.target.value.replace(/[\r\n]+/g, " ")); }}
+                  onChange={(event) => { setRevisionDismissed(true); setField("subject", event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="Subject"
                   rows={1}
                   value={subject}
@@ -484,7 +530,7 @@ export function ExternalDraftCard({
           dir="auto"
           disabled={locked}
           name="body"
-          onChange={(event) => { setRevisionDismissed(true); setText(event.target.value); }}
+          onChange={(event) => { setRevisionDismissed(true); setField("body", event.target.value); }}
           placeholder="Write a message"
           ref={body}
           rows={4}
@@ -508,13 +554,15 @@ export function ExternalDraftCard({
         <div className="draft-actions">
           <ButtonPrimitive
             className="draft-button draft-button-primary"
-            data-sending={sending ? "" : undefined}
+            data-fx-actor={fx !== "idle" && !discarding ? "" : undefined}
+            data-sending={sending && fx === "idle" ? "" : undefined}
             disabled={locked || !text.trim() || !recipientsValid}
             type="submit"
-            loading={sending}
+            loading={sending && fx === "idle"}
             loadingLabel="Sending…"
           >
-            Send
+            <span className="draft-send-label">Send</span>
+            <Send aria-hidden className="draft-send-plane" />
           </ButtonPrimitive>
           {lost ? (
             <ButtonPrimitive
@@ -527,12 +575,14 @@ export function ExternalDraftCard({
             </ButtonPrimitive>
           ) : (
             <ButtonPrimitive
-              className="draft-button draft-button-secondary"
+              className="draft-button draft-button-secondary draft-button-discard"
+              data-fx-actor={fx !== "idle" && discarding ? "" : undefined}
               disabled={locked}
               onClick={() => void act("cancel")}
               type="button"
             >
-              Discard
+              <span className="draft-send-label">Discard</span>
+              <X aria-hidden className="draft-send-plane draft-discard-mark" />
             </ButtonPrimitive>
           )}
         </div>

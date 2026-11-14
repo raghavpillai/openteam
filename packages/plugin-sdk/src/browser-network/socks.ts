@@ -1,14 +1,18 @@
 import { createServer, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import ipaddr from "ipaddr.js";
+import { networkErrorCode, type NetworkDiagnosticSink } from "./diagnostics";
 
 /** Loopback-only SOCKS5 CONNECT gateway. It never chooses or falls back to a route. */
 export function createBrowserProxy(
   open: (host: string, port: number, signal: AbortSignal) => Promise<Duplex>,
-  limit = 80
+  limit = 80,
+  diagnostic?: NetworkDiagnosticSink
 ) {
   const clients = new Set<Socket>();
+  let sequence = 0;
   const server = createServer({ allowHalfOpen: true }, (client) => {
+    const connectionId = ++sequence;
     client.setNoDelay(true);
     const life = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined, upstream: Duplex | undefined;
@@ -24,6 +28,7 @@ export function createBrowserProxy(
     client.on("error", () => {});
     clients.add(client);
     if (clients.size > limit) {
+      diagnostic?.({ event: "proxy_capacity", connectionId, activeConnections: clients.size - 1, limit });
       client.destroy();
       return;
     }
@@ -102,6 +107,9 @@ export function createBrowserProxy(
         return;
       }
       const pending = bytes.subarray(offset + size + 2);
+      const details = { connectionId, address: host, port };
+      client.on("error", (error) => diagnostic?.({ event: "proxy_socket_error", ...details,
+        side: "client", code: networkErrorCode(error) }));
       busy = true;
       client.pause();
       client.off("data", data);
@@ -117,7 +125,10 @@ export function createBrowserProxy(
               socket.destroy();
               return;
             }
-            socket.on("error", () => client.destroy());
+            socket.on("error", (error) => {
+              diagnostic?.({ event: "proxy_socket_error", ...details, side: "upstream", code: networkErrorCode(error) });
+              client.destroy();
+            });
             socket.once("close", () => client.destroy());
             if (socket.destroyed) {
               reject(1);
@@ -129,7 +140,8 @@ export function createBrowserProxy(
             client.pipe(socket).pipe(client);
             client.resume();
           },
-          () => {
+          (error) => {
+            diagnostic?.({ event: "proxy_dial_failed", ...details, code: networkErrorCode(error) });
             if (!client.destroyed) reject(1);
           }
         );

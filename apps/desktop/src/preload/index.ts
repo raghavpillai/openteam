@@ -114,6 +114,7 @@ const deliveryJournal = (value: unknown): unknown => {
 };
 
 interface ScreenBotDelivery {
+  accountScope: string;
   botId: string;
   content: string;
   nonce: string;
@@ -318,12 +319,12 @@ contextBridge.exposeInMainWorld("openteam", {
       return () => ipcRenderer.removeListener("openteam:screenbot:deliver", listener);
     },
     /** Dictation in the screenbot composer: transcribe a recording made by the overlay. */
-    onTranscribe: (handler: (request: { audio: Uint8Array; mimeType: string }) => Promise<string>) => {
+    onTranscribe: (handler: (request: { accountScope: string; audio: Uint8Array; mimeType: string }) => Promise<string>) => {
       const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
-        const { requestId, audio, mimeType } = record(value, "ScreenBot transcription");
+        const { requestId, accountScope, audio, mimeType } = record(value, "ScreenBot transcription");
         const reply = (result: object) => ipcRenderer.send("openteam:screenbot:delivered", { requestId, ...result });
-        if (!(audio instanceof Uint8Array) || typeof mimeType !== "string") return reply({ ok: false, error: "That recording couldn’t be used." });
-        handler({ audio, mimeType }).then(
+        if (typeof accountScope !== "string" || !(audio instanceof Uint8Array) || typeof mimeType !== "string") return reply({ ok: false, error: "That recording couldn’t be used." });
+        handler({ accountScope, audio, mimeType }).then(
           (text) => reply({ ok: true, text }),
           (error: unknown) => reply({ ok: false, error: screenBotError(error, "Transcription failed. Try again.") })
         );

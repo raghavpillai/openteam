@@ -162,7 +162,7 @@ test("turn memory extracts facts from memorable turns", async () => {
   }
 });
 
-test("a review takes over only exchanges no running review holds", async () => {
+test("a durable review lease serializes overlapping exchanges", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -196,10 +196,12 @@ test("a review takes over only exchanges no running review holds", async () => {
     // The next run finishes while the first review still waits on the model.
     const first = store.recordTurnMemory(botId, { user: "Remember overlap one.", assistant: "Overlap one.", runId: crypto.randomUUID() });
     await started;
-    await store.recordTurnMemory(botId, { user: "Remember overlap two.", assistant: "Overlap two.", runId: crypto.randomUUID() });
-    expect(prompts.at(-1)).not.toContain("Overlap one.");
+    const second = { user: "Remember overlap two.", assistant: "Overlap two.", runId: crypto.randomUUID() };
+    expect(await store.recordTurnMemory(botId, second)).toBe(false);
+    expect(prompts).toHaveLength(1);
     finishFirst();
-    await first;
+    expect(await first).toBe(true);
+    expect(await store.recordTurnMemory(botId, second)).toBe(true);
     expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
 
     // One held by a process that stopped mid-review is taken over by the next review.

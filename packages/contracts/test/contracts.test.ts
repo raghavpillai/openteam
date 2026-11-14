@@ -537,7 +537,9 @@ describe("API contracts", () => {
 
     const actual = referenceTool("SendToUser");
     expect(actual.description).toStartWith(expected.description + " Use type:presentation");
-    expect(actual.description).toContain("only include ratings, hours and photos actually supplied by a source");
+    // Places and routes are named by id and filled in from tool results; nothing is invented.
+    for (const rule of ["list the ids of places a places tool returned", "never invent coordinates", "pass the route id a routing tool returned"])
+      expect(actual.description).toContain(rule);
     properties.type.enum.push("presentation");
     properties.presentation = (NATIVE_TOOLS.find(tool => tool.name === "SendToUser")!.inputSchema as any).properties.presentation;
     expect(actual.inputSchema).toEqual(expected.inputSchema);
@@ -726,9 +728,9 @@ describe("API contracts", () => {
       properties: Record<string, { enum?: string[] }>;
       required: string[];
     };
-    expect(memory.properties.action?.enum).toEqual(["write", "forget"]);
+    expect(memory.properties.action?.enum).toEqual(["write", "forget", "replace"]);
     expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
-    expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type"]);
+    expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type", "id"]);
     expect(memory.required).toEqual(["action", "fact", "type"]);
     expect(UPDATE_MEMORY_TOOL.description).toStartWith(
       "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: "
@@ -780,7 +782,7 @@ describe("API contracts", () => {
       title: "",
     });
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
-      "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
+      "UpdateMemory only writes, replaces or forgets memory. Routines have their own UpdateRoutine tool."
     );
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
       "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."

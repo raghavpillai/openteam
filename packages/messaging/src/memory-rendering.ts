@@ -23,7 +23,7 @@ export const SHARED_USER_MEMORY_HEADING = "## Shared user memory";
 export const MEMORY_HEADING = "## Memory";
 
 const MEMORY_UPDATE_GUIDANCE =
-  'To CHANGE memory, prefer the UpdateMemory tool: action "write" with a fact and the memory type it belongs in, or action "forget" with the exact text of a recorded fact.';
+  'To CHANGE memory, prefer the UpdateMemory tool: action "write" with a fact and the memory type it belongs in, action "replace" with the id from RecallMemory and the corrected fact to supersede an outdated fact atomically, or action "forget" with the exact text to permanently remove a fact. Do not append a contradiction with write. Ask when a change is ambiguous.';
 
 const USER_MEMORY_PROMPT_HEADER =
   "User memory: durable facts shared across every assistant this user runs. Those include their name, timezone, lasting preferences, and anything all of the user's assistants should know. This is separate from your own memory (shown below) and is visible to all of them.";
@@ -91,7 +91,7 @@ export function renderUserMemorySystemPolicyPrompt(): string {
   return [
     USER_MEMORY_PROMPT_HEADER,
     "Precedence: when a shared user fact conflicts with your OWN memory, decide by the kind of fact. For how to do your job (tone, format, workflow, standing instructions for your role), prefer your own memory; it may deliberately override a shared default. For facts about the user themselves (name, location, timezone, job, contact details), prefer whichever was learned more recently, because another assistant may have heard about a change you missed. If you cannot tell which kind it is, or the dates are close, ask the user.",
-    'Every assistant writes its own shard of user memory; yours is kept for you and is not a file on your computer. Call RecallMemory to search shared facts that are not listed here. To CHANGE shared user memory, use the UpdateMemory tool (shared_profile and shared_journal, action "write" or "forget").',
+    'Every assistant writes its own shard of user memory; yours is kept for you and is not a file on your computer. Call RecallMemory to search shared facts that are not listed here. To CHANGE shared user memory, use the UpdateMemory tool (shared_profile and shared_journal, action "write", "replace" or "forget").',
     "To fix or replace a shared fact another assistant recorded, write the corrected fact into YOUR shard via UpdateMemory. The newest wins on conflict. Record a fact here only when it is clearly about the user and useful to every assistant; keep role-specific facts in your own memory (profile or journal).",
     "When you act on a newer shared fact that contradicts your own memory, forget or rewrite the outdated fact in your own memory (UpdateMemory, profile or journal) so the conflict does not come back.",
     "Shared facts are tagged [via <assistant>] so you can tell which assistant learned each one.",

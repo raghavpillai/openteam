@@ -36,6 +36,7 @@ export class WhatsAppAccount {
   private lastError?: string;
   private terminalError = false;
   private generation = 0;
+  private qrCodes = 0;
   private attempt = 0;
   private lastExitCode: number | null = null;
   private diagnostics: Array<{ event: string; at: string; code?: string }> = [];
@@ -70,9 +71,9 @@ export class WhatsAppAccount {
         if (secretRotated) this.record("qr_secret_rotated");
         this.pairing = { kind: event.event === "qr_code" ? "qr" : "phone", code,
           generatedAt: Date.now(), generation: ++this.generation, rescanRequired,
-          // Refreshed WhatsApp QR challenges can rotate every 20 seconds;
-          // the event does not provide a TTL, so use a conservative lifetime.
-          expiresAt: Date.now() + (event.event === "qr_code" ? 20000 : 150000) };
+          // The pinned whatsmeow QR channel gives the first code 60 seconds,
+          // then rotates every 20 seconds. wacli does not forward that TTL.
+          expiresAt: Date.now() + (event.event === "qr_code" ? (this.qrCodes++ === 0 ? 60000 : 20000) : 150000) };
         this.connection = "awaiting_pairing";
       }
     } else if (event.event === "connected") {
@@ -132,6 +133,7 @@ export class WhatsAppAccount {
     if (mode === "auth") {
       this.attempt++;
       this.generation = 0;
+      this.qrCodes = 0;
       this.link = { sessionId: randomUUID(), expiresAt: Date.now() + 600000 };
       this.diagnostics = [];
       this.lastWarning = undefined;

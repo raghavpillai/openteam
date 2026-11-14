@@ -26,9 +26,40 @@ const prepareSearchProjection = async (): Promise<boolean> => {
 
 // db push without --accept-data-loss refuses to drop storage that still holds values, so
 // storage the app no longer has is dropped here first. Every statement is a no-op once done.
+const MEMORY_UUID_BODY = "([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
+const MEMORY_NAMESPACE_PATTERN = `^(user:)?agent:(${MEMORY_UUID_BODY}|[{]${MEMORY_UUID_BODY}[}])$`;
+
 const RETIRE_UNUSED_STORAGE = `
 DO $$
+DECLARE
+  memory_namespace_changed boolean := false;
 BEGIN
+  IF to_regclass('"MemoryFact"') IS NOT NULL THEN
+    -- UUID values are case-insensitive, but namespace text was not. Preserve
+    -- existing facts and history when converging legacy UUID spellings.
+    WITH canonical AS MATERIALIZED (
+      SELECT "id", CASE WHEN "namespace" ~* '^user:agent:' THEN 'user:agent:' ELSE 'agent:' END
+        || (regexp_replace("namespace", '^(user:)?agent:', '', 'i')::uuid)::text AS value
+      FROM "MemoryFact" WHERE "namespace" ~* '${MEMORY_NAMESPACE_PATTERN}'
+    ), changed AS (
+      UPDATE "MemoryFact" AS fact SET "namespace" = canonical.value
+      FROM canonical WHERE fact."id" = canonical."id" AND fact."namespace" <> canonical.value
+      RETURNING fact."id"
+    ) SELECT EXISTS (SELECT 1 FROM changed) INTO memory_namespace_changed;
+    IF memory_namespace_changed THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+          AND table_name = 'ContextPromptSnapshot' AND column_name = 'promptSections') THEN
+        UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "promptSections" ? 'memory';
+      END IF;
+      IF to_regclass('"MemoryRevision"') IS NOT NULL THEN
+        INSERT INTO "MemoryRevision" ("scope", "revision") VALUES ('user', 1)
+          ON CONFLICT ("scope") DO UPDATE SET "revision" = "MemoryRevision"."revision" + 1;
+      ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+          AND table_name = 'Bot' AND column_name = 'memoryRevision') THEN
+        UPDATE "Bot" SET "memoryRevision" = "memoryRevision" + 1;
+      END IF;
+    END IF;
+  END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
       AND table_name = 'ContextPromptSnapshot' AND column_name = 'memoryAudienceKey') THEN
     -- Frozen memory from the old prompt layout re-renders once.

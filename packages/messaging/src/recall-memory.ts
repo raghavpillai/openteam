@@ -1,4 +1,9 @@
 export interface RecallCandidate {
+  id?: string;
+  /** An owned active duplicate of a newer shared representative, when different. */
+  editableId?: string;
+  supersededAt?: Date | null;
+  supersededById?: string | null;
   content: string;
   createdAt: Date;
   tier: string;
@@ -29,6 +34,7 @@ export function parseRecallInput(input: unknown) {
     throw new Error("RecallMemory query must be nonempty");
   return {
     query: args.query.trim(),
+    ...(args.includeHistory === true ? { includeHistory: true } : {}),
     limit:
       typeof args.limit === "number" &&
       Number.isInteger(args.limit) &&
@@ -52,7 +58,8 @@ const formatDate = (date: Date) =>
 
 /** Rank by distinct shared words, then newest; fall back to a literal match when nothing overlaps. */
 export function recallMemoryResult(input: unknown, candidates: readonly RecallCandidate[]) {
-  const { query, limit } = parseRecallInput(input);
+  const { query, limit, includeHistory } = parseRecallInput(input);
+  candidates = candidates.filter(fact => includeHistory || !fact.supersededAt);
   const queryTokens = relevanceTokens(query);
   const overlaps = candidates
     .map((fact) => ({
@@ -76,7 +83,12 @@ export function recallMemoryResult(input: unknown, candidates: readonly RecallCa
   let budget = RECALL_MEMORY_CHAR_BUDGET;
   let shown = 0;
   for (const fact of matches) {
-    const line = `- (${formatDate(fact.createdAt)}) [${candidateLabel(fact)}] ${fact.content}`;
+    const status = fact.supersededAt
+      ? `superseded ${formatDate(fact.supersededAt)}${fact.supersededById ? ` by ${fact.supersededById}` : ""}`
+      : "active";
+    const editable = fact.editableId && fact.editableId !== fact.id ? `; editable id: ${fact.editableId}` : "";
+    const metadata = fact.id ? ` [id: ${fact.id}; ${status}${editable}]` : "";
+    const line = `- (${formatDate(fact.createdAt)}) [${candidateLabel(fact)}] ${fact.content}${metadata}`;
     if (shown > 0 && line.length > budget) break;
     lines.push(line);
     budget -= line.length;

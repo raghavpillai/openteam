@@ -847,6 +847,12 @@ body {
   height: 36px;
 }
 
+/* The bar's own insets, tuned to the card's footer rather than the chat composer's buttons. */
+.screenbot-voice .vm-root {
+  --vm-inset-left: 8.5px;
+  --vm-inset-right: 8px;
+}
+
 /* The card's type scale, not the chat window's. */
 .screenbot-voice .vm-bar {
   gap: 10px;

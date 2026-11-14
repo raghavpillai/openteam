@@ -1,0 +1,142 @@
+{
+  "testedAfterHead": "435c4939a08a6ba2c23285996043bc406016fd79",
+  "sourceFileSHA256": {
+    "apps/server/src/services/external-draft-service.ts": "a308b733c39a29ac811bdd9c54c04adaed57d4bd8230b81e6fe327c252150072",
+    "apps/server/test/external-draft.integration.test.ts": "5fb409401aee55f0360b6afd73b05ee7145239dadc6a7f3bfdefadfbf568dc57"
+  },
+  "runtime": "Repository-pinned Bun 1.4.2, disposable PostgreSQL, synthetic connectors",
+  "summary": {
+    "uniqueAutomatedTestsPassedThisPass": 84,
+    "draftIntegrationTests": 53,
+    "newIntegrationTests": 6,
+    "newScenarioTrials": 40,
+    "repeatedCaseExecutions": 18,
+    "finalNativeCards": 3,
+    "externalMailSendAttempts": 0
+  },
+  "findings": [
+    {
+      "problem": "Restart recovery labeled unreadable completed connector responses as failed/not delivered even though live delivery labeled them unknown.",
+      "before": "Completed opaque-text/MCP error records settled failed.",
+      "fix": "Recovery preserves uncertainty, forbids replay and creates no settled-success/failure wake."
+    },
+    {
+      "problem": "Empty objects and arrays were accepted as successful connector replies.",
+      "before": "A completed empty/array reply settled sent.",
+      "fix": "Reject empty objects and arrays as unreadable; both immediate automatic results and recovered cards stay unknown."
+    },
+    {
+      "problem": "Cards stored mutable account namespaces, so renaming an account broke a reviewed draft.",
+      "before": "Renaming the account left the reviewed send pending with a route error.",
+      "fix": "New cards bind the verified connection UUID. Legacy cards recover only a unique original account from their exact durable verification calls, with bot/run ownership. No namespace is re-resolved for a legacy send.",
+      "checks": [
+        "Rename without replacement still sends once from original account",
+        "A replacement reusing the old namespace cannot take over current or verified legacy email/Slack cards",
+        "Missing verification records or a lookalike call-ID prefix refuse sending; the card remains discardable"
+      ]
+    },
+    {
+      "problem": "Recovery trusted a completed call-ID match without checking the bot, run, account or send tool.",
+      "before": "A completed record belonging to another bot settled the card sent.",
+      "fix": "Confirm all four identities before treating the saved response as a send; mismatches remain unknown and are never replayed."
+    }
+  ],
+  "validation": {
+    "draftIntegration": {
+      "pass": 53,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 2995
+    },
+    "adjacent": {
+      "pass": 31,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 288
+    },
+    "newScenarioTrialBreakdown": {
+      "invalidReplyRecoveryAndFreshAutomatic": 10,
+      "simpleAccountRename": 1,
+      "receiptOwnershipMismatches": 8,
+      "namespaceReuseCurrentAndLegacyEmailSlack": 8,
+      "legacyRevisionHighlighting": 1,
+      "validSuccessEnvelopeRecovery": 12
+    },
+    "validSuccessEnvelopes": [
+      "plain ID string",
+      "JSON ID string",
+      "ID object",
+      "structuredContent with ID",
+      "text content containing JSON ID",
+      "SMTP accepted/rejected/messageId record"
+    ],
+    "reviewChecks": [
+      "Recovered successes retain reviewed To/Cc/subject/body",
+      "Repeated send/refresh/cancel actions retain one outcome and wake with no transport replay",
+      "Canonical route comparisons preserve revision highlighting across a legacy namespace and rename"
+    ],
+    "repeats": [
+      {
+        "cycle": 1,
+        "exitCode": 0,
+        "passed": 6
+      },
+      {
+        "cycle": 2,
+        "exitCode": 0,
+        "passed": 6
+      },
+      {
+        "cycle": 3,
+        "exitCode": 0,
+        "passed": 6
+      }
+    ],
+    "serverTypecheck": "pass",
+    "serverBuild": "pass",
+    "architecture": "pass",
+    "uniqueCounting": "53 draft integration plus 31 adjacent checks. Three repeat cycles add 18 case executions separately. Earlier broad matrices are historical and are not added to this count."
+  },
+  "computerUse": {
+    "method": "Native cua_repl Chrome actions on the actual ExternalDraftCard component, isolated services and synthetic connector; stored connector replies are held until recovery runs.",
+    "finalObservations": [
+      "Visible fixture status confirms account rename and replacement creation completed before any send",
+      "Held sends show Sending with Send/Discard disabled",
+      "Unreadable and wrong-tool completed records recover as Unconfirmed",
+      "Late responses cannot overwrite those terminal outcomes",
+      "Third synthetic send succeeds through the original UUID even though a replacement owns the old name",
+      "One truthful acknowledgement reports two unconfirmed cards",
+      "Reload preserves all three outcomes"
+    ],
+    "finalStates": [
+      "unknown",
+      "unknown",
+      "sent"
+    ],
+    "syntheticConnectorCalls": 3,
+    "expectedFakeSuccesses": 1,
+    "externalMailSendAttempts": 0,
+    "statusRows": 1,
+    "backendRouteAssertions": {
+      "originalRenamed": true,
+      "replacementUsesOriginalName": true,
+      "distinctNamespaces": true,
+      "allThreeCallsUseOriginal": true
+    },
+    "cleanup": "Own tabs closed and both temporary UI fixtures removed; disposable records cleared and PostgreSQL stopped."
+  },
+  "diagnosticCorrections": [
+    "The first native harness renamed the account but failed to create its replacement because a local variable shadowed the connection name. A backend assertion caught this; the native name-reuse claim was withdrawn and the corrected fresh three-card test visibly confirmed completion and passed backend route assertions. The first native run is exploratory evidence only.",
+    "Canonicalizing new account routes initially prevented highlighting against a legacy namespace baseline. A failing regression prompted normalizing the proven legacy baseline route; exact revised text and added words now pass.",
+    "An early filtered integration invocation used the default five-second test timeout and timed out while running six fixtures under load. Final invocations use the existing integration command timeout of thirty seconds; no production timeout was changed."
+  ],
+  "limits": [
+    "Finite diagnostic tests cannot establish that every possible issue is absent.",
+    "No new live-model or native Grokbot comparison this pass.",
+    "No real email/Slack send, APNs delivery, deployment or production treatment change.",
+    "Earlier iOS SDK/build and desktop size-budget failures plus environment-specific skips were not revalidated by this server-focused pass.",
+    "Legacy cards without sufficient durable verification evidence are refused rather than guessing their original account; they remain discardable.",
+    "Recovery validates receipt ownership and reply readability; it does not semantically verify arbitrary connector content or model prose.",
+    "No public tool, database migration, approval behavior, signature control or dependency was added."
+  ]
+}

@@ -31,6 +31,7 @@ import {
 import { createPortal } from "react-dom";
 import { api } from "../../client/openteam-api";
 import { useVoiceRecorder } from "../../hooks/use-voice-recorder";
+import { VOICE_MEMO_EXIT_MS } from "../openteam/voice-memo/exit-timing";
 
 /** Looked up per call, so the API client stays replaceable. */
 const transcribeVoiceNote = (audio: Blob, signal: AbortSignal) => api.transcribeAudio(audio, signal);
@@ -74,7 +75,8 @@ const loadVoiceMemoLayer = () =>
 const VoiceMemoLayer = lazy(loadVoiceMemoLayer);
 // Recording collapses an expanded composer back to its single-line pill.
 const VOICE_SURFACE = { height: 44, radius: 22 };
-const VOICE_EXIT_MS = 680;
+// Unmount a couple of frames after the last exit animation ends, so its final frame paints.
+const VOICE_EXIT_MS = VOICE_MEMO_EXIT_MS + 40;
 
 interface PendingAttachment {
   id: string;
@@ -205,6 +207,13 @@ export function PromptInput({
   }, [submitting, disabled]);
 
   const startVoice = () => {
+    // A shortcut or menu start has no button of its own: grow out of the mic on screen, which
+    // sits beside Send once there's a draft.
+    anchorVoiceAt(
+      trailingRef.current?.querySelector(
+        hasPayload ? ".composer-dictation-action" : ".composer-primary-action"
+      )
+    );
     if (textareaRef.current) voiceBookmark.current = voiceInsertionRange(textareaRef.current);
     sendAfterVoice.current = false;
     setVoiceReadyToSend(false);
@@ -247,16 +256,23 @@ export function PromptInput({
   // and send. The bar grows out of the mic that started it.
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [voiceAnchor, setVoiceAnchor] = useState({ right: 26, bottom: 22 });
-  const recordFromButton = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    const frame = wrapperRef.current?.getBoundingClientRect();
-    const mic = event.currentTarget.getBoundingClientRect();
-    if (frame) {
-      setVoiceAnchor({
-        right: frame.right - (mic.left + mic.width / 2),
-        bottom: frame.bottom - (mic.top + mic.height / 2),
-      });
+  const anchorVoiceAt = (mic: Element | null | undefined) => {
+    // A draft typed a moment ago may still be sliding the mic in beside Send. Settle the
+    // buttons first: the bar covers them from this frame on, and grows out of where they rest.
+    for (const animation of trailingRef.current?.getAnimations({ subtree: true }) ?? []) {
+      if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
     }
+    const frame = wrapperRef.current?.getBoundingClientRect();
+    const target = mic?.getBoundingClientRect();
+    if (!frame || !target || !target.width) return;
+    setVoiceAnchor({
+      right: frame.right - (target.left + target.width / 2),
+      bottom: frame.bottom - (target.top + target.height / 2),
+    });
+  };
+  const recordFromButton = (event: ReactMouseEvent<HTMLButtonElement>) => {
     startVoice();
+    anchorVoiceAt(event.currentTarget);
   };
   useEffect(() => {
     if (!voice.available) return;
@@ -1143,6 +1159,7 @@ export function PromptInput({
               anchor={voiceAnchor}
               elapsedMs={voice.elapsedMs}
               exiting={voiceExiting}
+              exitTo={hasPayload ? "send" : "mic"}
               mode={voiceLayerMode}
               onCancelProcessing={cancelVoice}
               onDiscard={cancelVoice}

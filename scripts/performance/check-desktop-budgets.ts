@@ -134,7 +134,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // branch, 1,328,296.
 // Main at 02abba39 with the rich map presentations (the lazy presentation hook in rich
 // messages; the map renderer itself stays on demand): 1,329,632.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_330_300);
+// v0.0.18: the reviewed account fences and authenticated photo resources measure
+// 1,332,858 B; maps and the ScreenBot bridge retain their lazy boundaries.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_335_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -146,7 +148,8 @@ const startupCssBytes = result.renderer.startup.files
 // The matching chat/details/media styling brings the measured stylesheet to 200,278 B.
 // Main at 2090e228: 201,404 B; ScreenBot' settings row adds 450 (201,854).
 // Main at f17447de (#315 file previews): 220,564 B; with this branch, 220,625.
-atMost("startup CSS bytes", startupCssBytes, 221_000);
+// v0.0.18 measured startup CSS: 221,640 B.
+atMost("startup CSS bytes", startupCssBytes, 222_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -200,7 +203,9 @@ atMost("startup CSS bytes", startupCssBytes, 221_000);
 // "Sent" check matching the file preview's and dictation inside a preview.
 // Main at 02abba39 with the native presentation widgets and MapLibre (lazy), the OpenStreetMap
 // plugin move and the presentation polish: 17,867,243 B.
-atMost("renderer bytes", result.renderer.bytes, 17_868_000);
+// v0.0.18 after separating Settings Switch: 17,890,302 B / 4,478,603 gzip.
+// Includes generation-fenced photo loading and ScreenBot ownership; no new dependency.
+atMost("renderer bytes", result.renderer.bytes, 17_892_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -230,7 +235,7 @@ atMost("renderer bytes", result.renderer.bytes, 17_868_000);
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_468_300);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_480_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -242,7 +247,8 @@ const electronFileBudget = (path: string, maximum: number) => {
   if (!file) failures.push(`Electron runtime file is missing: ${path}`);
   else atMost(`Electron ${path} bytes`, file.bytes, maximum);
 };
-electronFileBudget("main.js", 175_000);
+// v0.0.18 scoped ScreenBot dictation and pinned public transport: 176,039 B.
+electronFileBudget("main.js", 177_000);
 const updaterChunks = result.electron.files.filter(file => /^chunks\/main(?:-[^.]+)?\.js$/.test(file.path));
 if (updaterChunks.length !== 1) failures.push("Expected exactly one Electron updater chunk");
 else atMost("Electron updater chunk bytes", updaterChunks[0]!.bytes, 600_000);
@@ -260,6 +266,10 @@ if (result.renderer.violations.wasm.length > 0) {
   failures.push(`renderer WASM: ${result.renderer.violations.wasm.slice(0, 5).join(", ")}`);
 }
 
+// v0.0.18 settings add skeletons, motion, sections and Keyboard navigation. Moving
+// InteractiveSwitch out of the shared layout saves ~3.1 KB in affected closures.
+// Measured shell/initial: 19,493 / 54,628 B; microphone stays below its unchanged
+// 12 KB limit. Adjust only measured feature closures; retain all boundary audits.
 const lazyBudgets: Record<string, number> = {
   workspace: 800_000,
   largeCode: 600_000,
@@ -269,7 +279,7 @@ const lazyBudgets: Record<string, number> = {
   // 73,336, 46,419, 40,512 and 36,231.
   // The Library API method adds shared client code: measured 73,850 bytes.
   // Main at 2090e228 measures 75,627 (unchanged by ScreenBot).
-  pluginDetail: 75_700,
+  pluginDetail: 76_500,
   pluginConnection: 46_800,
   pluginStudio: 40_900,
   privateSkills: 36_600,
@@ -294,7 +304,7 @@ const lazyBudgets: Record<string, number> = {
   inspector: 150_000,
   // Conversation attachment index; document parsers remain separately lazy.
   // Main at f17447de (#315): 6,725, unchanged by this branch.
-  channelLibrary: 6_800,
+  channelLibrary: 7_000,
   avatarPicker: 20_000,
   // The main window's half of ScreenBots: Bot list and durable delivery for the overlay.
   screenBotBridge: 3_500,
@@ -304,7 +314,7 @@ const lazyBudgets: Record<string, number> = {
   avatarGaze: 12_500,
   // Settings › Keyboard: the screenbot trigger and the app's rebindable shortcuts, each with a
   // recorder, Change and Reset.
-  keyboardSettings: 16_000,
+  keyboardSettings: 17_000,
   // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
   // This closure stays dynamic; noVNC retains its separate lazy boundary.
   botScreen: 28_000,
@@ -346,7 +356,7 @@ const lazyBudgets: Record<string, number> = {
   // 152,506 with the web search step (a recommended provider, its key and a real check);
   // 153,026 with the Settings cleanup; 153,503 on main at 02abba39 with the presentation
   // contracts export.
-  onboarding: 153_600,
+  onboarding: 154_000,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'
@@ -356,7 +366,7 @@ const lazyBudgets: Record<string, number> = {
   // 69,096 with the web search stage's shared tint and five-step progress.
   signIn: 69_500,
   // 40,608 with Messages (#165); 62,814 with the shared Select (#187).
-  pluginSettings: 63_200,
+  pluginSettings: 64_000,
   pluginSettingsDetail: 30_000,
   pluginManagement: 38_000,
   skillImport: 100_000,
@@ -364,43 +374,43 @@ const lazyBudgets: Record<string, number> = {
   groupAvatarEditor: 10_000,
   // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes;
   // 46,297 with the Timezone page.
-  settingsInitial: 46_600,
+  settingsInitial: 55_000,
   // The Voice notes entry and microphone icon bring the settings shell to 10,728;
   // 11,132 with the Messages entry and the Settings cleanup.
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
   // v0.0.13 shared control styles: 13,550, without the ~21 KB Select dependency.
   // Shared controls/client code with message-color settings: 13,966 bytes.
   // The Keyboard entry and its icon: 14,714.
-  settingsShell: 14_900,
+  settingsShell: 20_000,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
-  settingsGeneral: 37_600,
+  settingsGeneral: 42_000,
   settingsComputer: 31_000,
   // Dedicated network priority controls, including their on-demand stylesheet.
-  settingsNetwork: 25_000,
+  settingsNetwork: 26_000,
   // Provider sign-in, model selection and testing now load only on Settings → Model.
   // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
   // v0.0.13 styled controls and dropdown wrapper: 56,267 bytes.
-  settingsModel: 56_600,
+  settingsModel: 60_000,
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
   // Connected version/update navigation and the moved machine controls (#201/#211)
   // measure 17,312. Browser network settings retain their separate lazy boundary.
   // v0.0.13 shared control styles: 18,849 bytes; network and Select remain lazy.
   // Same shared client change: 19,319 bytes.
-  settingsServer: 19_600,
+  settingsServer: 25_000,
   // Dedicated Voice notes page: load retry, provider marks, busy indicators and
   // responsive fields. Still lazy; its measured closure is 40,488 bytes; 41,304 after the
   // Settings cleanup.
   // Saved-key replacement and explicit deletion (#197): 41,955.
-  settingsTranscription: 42_300,
+  settingsTranscription: 44_500,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
-  settingsProviders: 30_000,
+  settingsProviders: 32_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
   // compatibility guard brings the measured October release closure to 10,250 bytes.
   // Unified server updates with stages, idle confirmation and restart recovery
   // (#201) measure 17,768; this UI remains lazy.
   // v0.0.13 compact shared buttons/styles: 18,677 bytes.
-  settingsUpdates: 18_900,
+  settingsUpdates: 21_000,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

@@ -1,3 +1,4 @@
+import { InteractiveSwitch } from "./interactive-switch";
 import { Button } from "../../ui/button";
 import { SettingsSelectContent } from "./select-content";
 import { PrivateSettingValue } from "./private-value";
@@ -26,7 +27,6 @@ import type {
   MicrophoneSettings as MicrophoneSettingsComponent,
 } from "./microphone";
 import {
-  InteractiveSwitch,
   SectionLabel,
   SettingsGroup,
   SettingsRow,

@@ -8,6 +8,7 @@ import { Effect, Schema } from "effect";
 import { timingSafeEqual } from "node:crypto";
 import { AppService } from "./app-service";
 import { assetResponse } from "./asset-http";
+import { presentationImageResponse } from "./presentation-image";
 import { auth, authPrisma } from "./auth";
 import { parseAuthMode } from "./auth-mode";
 import { authRequestWithClientIp, loginOriginAllowed } from "./auth-request";
@@ -313,6 +314,8 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
       }
       // Attachments follow the account's authentication mode just like messages.
       // Knowing a content hash does not grant access to a private conversation.
+      if (request.method === "GET" && path === "/api/presentation-image")
+        return presentationImageResponse(request, authenticatedSessionId, authMode);
       const assetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/i);
       if (["GET", "HEAD"].includes(request.method) && assetMatch?.[1]) {
         return assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);

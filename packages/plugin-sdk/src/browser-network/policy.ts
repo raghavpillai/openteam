@@ -5,8 +5,8 @@ import ipaddr from "ipaddr.js";
 import type { OpenTarget } from "./protocol";
 
 export class NetworkError extends Error {
-  constructor(readonly code: string) {
-    super(code);
+  constructor(readonly code: string, options?: ErrorOptions) {
+    super(code, options);
   }
 }
 export function publicAddress(address: string): boolean {
@@ -90,6 +90,7 @@ export async function dialTarget(
   const pending = candidates.slice(0, 8);
   return new Promise<Socket>((resolve, reject) => {
     let settled = false;
+    let lastError: Error | undefined;
     let stagger: ReturnType<typeof setTimeout> | undefined;
     const active = new Map<Socket, () => void>();
     const finish = (socket?: Socket) => {
@@ -102,7 +103,7 @@ export async function dialTarget(
         if (attempt !== socket) attempt.destroy();
       }
       active.clear();
-      socket ? resolve(socket) : reject(new NetworkError(life.aborted ? "connect_timeout" : "connect_failed"));
+      socket ? resolve(socket) : reject(new NetworkError(life.aborted ? "connect_timeout" : "connect_failed", { cause: lastError }));
     };
     const abort = () => finish();
     const launch = () => {
@@ -122,14 +123,16 @@ export async function dialTarget(
           const cleanup = () => {
             clearTimeout(timer);
             socket.off("error", failed);
-            socket.off("close", failed);
+            socket.off("close", closed);
             socket.off("connect", connected);
           };
-          const failed = () => {
+          const failed = (error?: Error) => {
             if (!active.has(socket)) return;
+            if (error instanceof Error) lastError = error;
             cleanup(); active.delete(socket); socket.destroy();
             launch();
           };
+          const closed = () => failed();
           const connected = () => {
             if (settled || life.aborted) { socket.destroy(); if (!settled) finish(); return; }
             finish(socket);
@@ -137,7 +140,7 @@ export async function dialTarget(
           const timer = setTimeout(failed, 3000);
           active.set(socket, cleanup);
           socket.once("error", failed);
-          socket.once("close", failed);
+          socket.once("close", closed);
           socket.once("connect", connected);
         } catch { launch(); return; }
       }

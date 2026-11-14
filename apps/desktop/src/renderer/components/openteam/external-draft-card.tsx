@@ -11,10 +11,11 @@ import {
 } from "@openteam/contracts/external-draft";
 import { externalDraftReviewEdits, externalDraftReviewFields, externalDraftReviewState, mergeExternalDraftReviewFields } from "@openteam/client-core/external-draft";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Send, X } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../client/openteam-api";
+import { useDraftSendOff } from "./external-draft-send-off";
 const FileAttachmentCard = lazy(() => import("./file-attachment").then((module) => ({ default: module.FileAttachmentCard })));
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -56,6 +57,14 @@ export function approvalNotice(previous: ExternalDraftApprovalMode, next: Extern
   if (next === "always-allow") return "Added to your Allow rules";
   if (next === "disable-drafts") return "Drafts are off for this Bot";
   return previous === "disable-drafts" ? "Drafts need your approval again" : "Removed from your Allow rules";
+}
+
+/** The line a settled card shows in place of its fields. */
+function settledSummary(state: string, draft: ExternalDraft) {
+  if (state === "unknown") return "The send was interrupted — check your mailbox to see whether it went out";
+  const email = draft.platform === "email";
+  const recipient = email ? (draft.to?.[0] ?? "") : (draft.target ?? "");
+  return `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${draft.subject}”` : ""}`;
 }
 
 function Status({ state }: { state: string }) {
@@ -233,6 +242,23 @@ export function ExternalDraftCard({
     setState(String(next.cardState ?? "pending"));
     return next;
   };
+  // Send gathers into a blob while the send is out, then flies to the status
+  // badge once this device's send is confirmed.
+  const { card, fx, discard: discarding, landed, press } = useDraftSendOff<HTMLFormElement>(
+    message.id,
+    state,
+    async () => {
+      try {
+        const next = acceptResult((await api.mutateExternalDraft(message.id, "refresh")).message);
+        if (typeof next.sendError === "string") setError(`Couldn't send this draft: ${next.sendError}`);
+      } catch {
+        if (terminalMessage.current) return;
+        setState(current => externalDraftReviewState(current, "sending"));
+        setLost(true);
+      }
+    },
+    lost
+  );
   const run = async (work: () => Promise<void>) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -247,9 +273,11 @@ export function ExternalDraftCard({
   };
   const act = (action: "send" | "cancel") =>
     run(async () => {
+      let answered = () => {};
       try {
         const edits = externalDraftReviewEdits(draft, action, fields, sendingAddresses);
         if (action === "send") setState("sending");
+        answered = press(action === "cancel");
         const result = await api.mutateExternalDraft(message.id, action, edits);
         const next = acceptResult(result.message);
         if (typeof next.sendError === "string") setError(`Couldn't send this draft: ${next.sendError}`);
@@ -273,6 +301,8 @@ export function ExternalDraftCard({
         }
         const confirmed = record(terminalMessage.current?.metadata).cardState;
         if (confirmed === "sent" || confirmed === "dismissed") setError("");
+      } finally {
+        answered();
       }
     });
   const checkDelivery = () =>
@@ -306,7 +336,7 @@ export function ExternalDraftCard({
   const sentUnder = record(metadata.sentUnder);
   const menu = bot ? (
     <Picker
-      disabled={busy}
+      disabled={busy || fx !== "idle"}
       display={(value) => MODE_LABEL[value]}
       label="Approval"
       onChange={(next) => void setMode(next)}
@@ -326,7 +356,8 @@ export function ExternalDraftCard({
   const header = (
     <div className="draft-header">
       <span className="draft-title">{title}</span>
-      <Status state={state} />
+      {/* While the blob waits the badge says what is happening, not the answer the flight is about to show. */}
+      <Status state={fx === "charging" ? (discarding ? "pending" : "sending") : state} />
     </div>
   );
   const replyRow =
@@ -357,20 +388,15 @@ export function ExternalDraftCard({
     </>
   );
 
-  if (state !== "pending" && state !== "sending") {
-    // Live updates can include edits submitted from another device. History
-    // always shows the stored receipt, including before its push reaches us.
-    const settled = terminalMessage.current
-      ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : draft;
+  // History always shows the stored receipt, including before its push reaches us.
+  const settled = terminalMessage.current ? parseExternalDraft(record(terminalMessage.current.metadata).draft) : draft;
+  if (fx === "idle" && state !== "pending" && state !== "sending") {
+    // Live updates can include edits submitted from another device.
     const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
-    const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
-    const summary =
-      state === "unknown"
-        ? "The send was interrupted — check your mailbox to see whether it went out"
-        : `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${settled.subject}”` : ""}`;
+    const summary = settledSummary(state, settled);
     const autoSent = Boolean(sentUnder.rule || sentUnder.draftingDisabled);
     return (
-      <section aria-label={title} className="draft-card rich-message-card">
+      <section aria-label={title} className="draft-card rich-message-card" data-fx={landed ? "landed" : undefined}>
         {header}
         <details className="draft-history">
           <summary className="draft-summary" title={summary}>{summary}<ChevronDown aria-hidden size={14} /></summary>
@@ -392,18 +418,26 @@ export function ExternalDraftCard({
       </section>
     );
   }
-  const sending = state === "sending";
+  const sending = state === "sending" || fx !== "idle";
   const locked = busy || sending;
   return (
     <form
       aria-label={title}
       className="draft-card rich-message-card"
+      data-fx={fx === "idle" ? undefined : fx}
+      ref={card}
       onSubmit={(event) => {
         event.preventDefault();
         void act("send");
       }}
     >
       {header}
+      {fx === "flying" && (
+        <div aria-hidden className="draft-summary draft-fx-summary">
+          {settledSummary(discarding ? "dismissed" : "sent", settled)}
+          <ChevronDown size={14} />
+        </div>
+      )}
       <div className="draft-panel">
         <div className="draft-fields">
           {email ? (
@@ -520,13 +554,15 @@ export function ExternalDraftCard({
         <div className="draft-actions">
           <ButtonPrimitive
             className="draft-button draft-button-primary"
-            data-sending={sending ? "" : undefined}
+            data-fx-actor={fx !== "idle" && !discarding ? "" : undefined}
+            data-sending={sending && fx === "idle" ? "" : undefined}
             disabled={locked || !text.trim() || !recipientsValid}
             type="submit"
-            loading={sending}
+            loading={sending && fx === "idle"}
             loadingLabel="Sending…"
           >
-            Send
+            <span className="draft-send-label">Send</span>
+            <Send aria-hidden className="draft-send-plane" />
           </ButtonPrimitive>
           {lost ? (
             <ButtonPrimitive
@@ -539,12 +575,14 @@ export function ExternalDraftCard({
             </ButtonPrimitive>
           ) : (
             <ButtonPrimitive
-              className="draft-button draft-button-secondary"
+              className="draft-button draft-button-secondary draft-button-discard"
+              data-fx-actor={fx !== "idle" && discarding ? "" : undefined}
               disabled={locked}
               onClick={() => void act("cancel")}
               type="button"
             >
-              Discard
+              <span className="draft-send-label">Discard</span>
+              <X aria-hidden className="draft-send-plane draft-discard-mark" />
             </ButtonPrimitive>
           )}
         </div>

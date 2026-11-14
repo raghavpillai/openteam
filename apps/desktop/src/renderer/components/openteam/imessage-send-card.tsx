@@ -3,12 +3,13 @@ import "./external-draft-card.css";
 import "./imessage-send-card.css";
 import type { ChannelMessageView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { MessageCircle, Paperclip } from "lucide-react";
+import { MessageCircle, Paperclip, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getDesktopMachineId } from "../../client/auth";
 import { api } from "../../client/openteam-api";
 import { useMessagesIcon } from "./settings/messages-permissions-dialog";
 import { formatAttachmentSize } from "./attachment-visuals";
+import { useDraftSendOff } from "./external-draft-send-off";
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -32,6 +33,13 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
+  // Send gathers into a blob while the send is out, then flies to where the
+  // "Sent" badge goes once this device's send is confirmed.
+  const { card, fx, discard: discarding, landed, press } = useDraftSendOff<HTMLElement>(message.id, state, async () => {
+    const next = record((await api.mutateIMessageSend(message.id, "refresh")).message.metadata);
+    setState(String(next.cardState ?? "pending"));
+    if (next.cardState === "pending" && typeof next.sendError === "string") setError(next.sendError);
+  });
   const text = String(send.text ?? "");
   const attachments = Array.isArray(send.attachments) ? send.attachments.map(record) : [];
   const fileSummary = attachments.map(file => String(file.fileName ?? "Attachment")).join(", ");
@@ -46,8 +54,10 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
     inFlight.current = true;
     setBusy(true);
     setError("");
+    let answered = () => {};
     try {
       if (action !== "cancel") setState("sending");
+      if (action !== "allow") answered = press(action === "cancel");
       const result = await api.mutateIMessageSend(message.id, action);
       const next = record(result.message.metadata);
       setState(String(next.cardState ?? "pending"));
@@ -58,30 +68,38 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
       const checked = await api.mutateIMessageSend(message.id, "refresh").catch(() => null);
       setState(checked ? String(record(checked.message.metadata).cardState ?? "pending") : "pending");
     } finally {
+      answered();
       inFlight.current = false;
       setBusy(false);
     }
   };
 
-  if (state !== "pending" && state !== "sending") {
-    const sent = state === "sent";
-    const label = sent ? "Sent" : state === "dismissed" ? "Discarded" : state === "failed" ? "Not sent" : "Unconfirmed";
-    const summary =
-      state === "unknown"
-        ? `The send was interrupted — check Messages on ${where} to see whether it went out`
-        : `${sent ? "Sent to" : "To"} ${name || recipient} — ${[text ? `“${firstLine(text)}”` : "", fileSummary].filter(Boolean).join(" · ")}`;
+  const header = (shown: string) => {
+    const sent = shown === "sent";
+    const label = sent ? "Sent" : shown === "dismissed" ? "Discarded" : shown === "failed" ? "Not sent" : "Unconfirmed";
     return (
-      <section aria-label="Messages" className="draft-card rich-message-card imessage-card">
-        <div className="draft-header">
-          <span className="imessage-title">
-            <MessagesIcon size={16} />
-            Messages
-          </span>
-          <span className="draft-status" data-tone={sent ? "sent" : state === "failed" ? "warning" : "muted"} role="status">
-            {state !== "unknown" && <span aria-hidden className="draft-status-dot" />}
-            {label}
-          </span>
-        </div>
+      <>
+        <span className="imessage-title">
+          <MessagesIcon size={16} />
+          Messages
+        </span>
+        <span className="draft-status" data-tone={sent ? "sent" : shown === "failed" ? "warning" : "muted"} role="status">
+          {shown !== "unknown" && <span aria-hidden className="draft-status-dot" />}
+          {label}
+        </span>
+      </>
+    );
+  };
+  const summarize = (shown: string) =>
+    shown === "unknown"
+      ? `The send was interrupted — check Messages on ${where} to see whether it went out`
+      : `${shown === "sent" ? "Sent to" : "To"} ${name || recipient} — ${[text ? `“${firstLine(text)}”` : "", fileSummary].filter(Boolean).join(" · ")}`;
+  if (fx === "idle" && state !== "pending" && state !== "sending") {
+    const sent = state === "sent";
+    const summary = summarize(state);
+    return (
+      <section aria-label="Messages" className="draft-card rich-message-card imessage-card" data-fx={landed ? "landed" : undefined}>
+        <div className="draft-header">{header(state)}</div>
         <span className="draft-summary" title={summary}>{summary}</span>
         {sent && (metadata.allowedRecipient || metadata.sentUnder) ? (
           <p className="draft-note">
@@ -92,11 +110,13 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
       </section>
     );
   }
-  const sending = state === "sending";
+  const sending = state === "sending" || fx !== "idle";
   return (
     <section
       aria-label="Send this message?"
       className="draft-card rich-message-card imessage-card"
+      data-fx={fx === "idle" ? undefined : fx}
+      ref={card}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy && !sending) void act("cancel");
       }}
@@ -105,6 +125,12 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
         <MessagesIcon size={20} />
         Send this message?
       </div>
+      {fx === "flying" && (
+        <>
+          <div aria-hidden className="draft-header draft-fx-header">{header(discarding ? "dismissed" : "sent")}</div>
+          <div aria-hidden className="draft-summary draft-fx-summary">{summarize(discarding ? "dismissed" : "sent")}</div>
+        </>
+      )}
       <div className="imessage-to">
         <span className="draft-label">To</span>
         {send.allowable === true || !send.chatId ? (
@@ -131,22 +157,32 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
       <div className="imessage-actions">
         <ButtonPrimitive
           className="draft-button draft-button-primary"
-          data-sending={sending ? "" : undefined}
+          data-fx-actor={fx !== "idle" && !discarding ? "" : undefined}
+          data-sending={sending && fx === "idle" ? "" : undefined}
           disabled={busy || sending}
           onClick={() => void act("send")}
           type="button"
-          loading={sending}
+          loading={sending && fx === "idle"}
           loadingLabel="Sending…"
         >
-          Send
+          <span className="draft-send-label">Send</span>
+          <Send aria-hidden className="draft-send-plane" />
         </ButtonPrimitive>
         {send.allowable === true && handle ? (
           <ButtonPrimitive className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("allow")} type="button">
             Always allow {name || handle}
           </ButtonPrimitive>
         ) : null}
-        <ButtonPrimitive className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("cancel")} title="Discard (Esc)" type="button">
-          Discard
+        <ButtonPrimitive
+          className="draft-button draft-button-secondary draft-button-discard"
+          data-fx-actor={fx !== "idle" && discarding ? "" : undefined}
+          disabled={busy || sending}
+          onClick={() => void act("cancel")}
+          title="Discard (Esc)"
+          type="button"
+        >
+          <span className="draft-send-label">Discard</span>
+          <X aria-hidden className="draft-send-plane draft-discard-mark" />
         </ButtonPrimitive>
       </div>
     </section>

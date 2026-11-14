@@ -56,6 +56,18 @@ import UIKit
     }
   }
 
+  /// A draft's send-off has at most three cues: a light tap on the press, a soft one as the blob
+  /// is slung, and a rigid thump as it bursts on the badge. The press readies the later two.
+  static func draftSendPress(source: String) {
+    play(.light, source: source)
+    rigid.prepare()
+    soft.prepare()
+  }
+
+  static func draftSendSling(source: String) { play(.soft, intensity: 0.5, source: source) }
+
+  static func draftSendHit(source: String) { play(.rigid, intensity: 0.9, source: source) }
+
   /// Keep the soft generator ready for the next distance-driven resistance pulse.
   static func prepareVoiceResistance() { soft.prepare() }
 

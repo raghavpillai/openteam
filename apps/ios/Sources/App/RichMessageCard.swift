@@ -211,53 +211,55 @@ struct RichMessageCard: View {
           .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator, lineWidth: 0.5))
       } else {
         let dismissed = meta["widgetDismissed"].bool
-        VStack(spacing: 0) {
-          ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
-            let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
-            Button {
-              if widget["multiSelect"].bool {
-                NativeHaptics.play(.selection, source: "widget.selection")
-                var values = selected
-                if values.contains(value) { values.remove(value) } else { values.insert(value) }
-                var draft = store.draft(message.channelId)
-                if draft.widgetSelections == nil { draft.widgetSelections = [:] }
-                draft.widgetSelections?[message.id] = widget["options"].array.map {
-                  $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-                }.filter(values.contains)
-                store.saveDraft(draft, channel: message.channelId)
-              } else { act("widget-response", body: ["value": .string(value)]) }
-            } label: {
-              HStack(alignment: .top, spacing: 11) {
-                Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
-                  .font(.system(size: 13))
-                  .foregroundStyle(Color(hex: "979699"))
-                  .frame(width: 24, height: 24)
-                  .background(NativePalette.separator.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-                  .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(NativePalette.separator, lineWidth: 1))
-                  .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3.5) {
-                  Text(option["label"].string).font(.body)
-                    .foregroundStyle(option["style"].string == "danger"
-                      ? NativePalette.widgetDanger : NativePalette.text)
-                  if !option["description"].string.isEmpty {
-                    Text(option["description"].string).font(.system(size: 14))
-                      .foregroundStyle(NativePalette.chatMuted)
+        if !dismissed {
+          VStack(spacing: 0) {
+            ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
+              let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
+              Button {
+                if widget["multiSelect"].bool {
+                  NativeHaptics.play(.selection, source: "widget.selection")
+                  var values = selected
+                  if values.contains(value) { values.remove(value) } else { values.insert(value) }
+                  var draft = store.draft(message.channelId)
+                  if draft.widgetSelections == nil { draft.widgetSelections = [:] }
+                  draft.widgetSelections?[message.id] = widget["options"].array.map {
+                    $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
+                  }.filter(values.contains)
+                  store.saveDraft(draft, channel: message.channelId)
+                } else { act("widget-response", body: ["value": .string(value)]) }
+              } label: {
+                HStack(alignment: .top, spacing: 11) {
+                  Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: "979699"))
+                    .frame(width: 24, height: 24)
+                    .background(NativePalette.separator.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                      .stroke(NativePalette.separator, lineWidth: 1))
+                    .accessibilityHidden(true)
+                  VStack(alignment: .leading, spacing: 3.5) {
+                    Text(option["label"].string).font(.body)
+                      .foregroundStyle(option["style"].string == "danger"
+                        ? NativePalette.widgetDanger : NativePalette.text)
+                    if !option["description"].string.isEmpty {
+                      Text(option["description"].string).font(.system(size: 14))
+                        .foregroundStyle(NativePalette.chatMuted)
+                    }
+                  }.fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                  Spacer(minLength: 0)
+                  if selected.contains(value) {
+                    Image(systemName: "checkmark").font(.system(size: 14))
+                      .foregroundStyle(NativePalette.receiptCheck)
                   }
-                }.fixedSize(horizontal: false, vertical: true).padding(.top, 2)
-                Spacer(minLength: 0)
-                if selected.contains(value) {
-                  Image(systemName: "checkmark").font(.system(size: 14))
-                    .foregroundStyle(NativePalette.receiptCheck)
-                }
-              }.padding(.vertical, 8)
-                .frame(maxWidth: .infinity, minHeight: 41, alignment: .leading)
-                .contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(dismissed)
-              .accessibilityLabel(option["label"].string)
-              .accessibilityValue(selected.contains(value) ? "Selected" : "")
-          }
-        }.opacity(dismissed ? 0.35 : 1)
+                }.padding(.vertical, 8)
+                  .frame(maxWidth: .infinity, minHeight: 41, alignment: .leading)
+                  .contentShape(Rectangle())
+              }.buttonStyle(.plain)
+                .accessibilityLabel(option["label"].string)
+                .accessibilityValue(selected.contains(value) ? "Selected" : "")
+            }
+          }.transition(.opacity)
+        }
         if dismissed {
           let reason = meta["widgetDismissalReason"].string
           VStack(alignment: .leading, spacing: 4) {
@@ -268,7 +270,7 @@ struct RichMessageCard: View {
               : reason == "superseded" ? "A newer question took its place."
               : "No answer was sent from this card.")
               .font(.system(size: 12))
-          }.foregroundStyle(NativePalette.chatFaint)
+          }.foregroundStyle(NativePalette.chatFaint).transition(.opacity)
         } else {
           if widget["allowCustom"].bool {
             TextField("Something else", text: Binding(get: { customAnswer }, set: { value in
@@ -287,6 +289,8 @@ struct RichMessageCard: View {
               else { act("widget-response", body: ["value": .string(widgetAnswer)]) }
             } label: {
               Text(widget["multiSelect"].bool && widgetAnswer.isEmpty ? "Skip question" : "Send answer")
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: widgetAnswer.isEmpty)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(widgetAnswer.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
                 .frame(maxWidth: .infinity).frame(height: 38)
@@ -299,8 +303,11 @@ struct RichMessageCard: View {
             .font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
         }
       }
-    }.padding(14)
+    }.accessibilityElement(children: .contain)
+      .accessibilityIdentifier("widget-card-" + message.id)
+      .padding(14)
       .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
+      .clipShape(RoundedRectangle(cornerRadius: 18))
       .overlay(RoundedRectangle(cornerRadius: 18)
         .stroke(NativePalette.separator, lineWidth: 0.5))
   }

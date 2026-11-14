@@ -35,6 +35,7 @@ let messages: ChannelMessageView[] = [],
   channel: ChannelView,
   width = 745,
   fail = false;
+let replyGate: Promise<void> | undefined;
 const calls: { id: string; value?: string }[] = [];
 const openedExchanges: string[][] = [];
 Object.assign(api, {
@@ -44,7 +45,9 @@ Object.assign(api, {
 });
 async function reply(id: string, value?: string) {
   calls.push({ id, value });
+  const gate = replyGate;
   await pause(100);
+  await gate;
   if (fail) throw new Error("Controlled failure");
   const original = messages.find((message) => message.id === id)!;
   const message = {
@@ -418,6 +421,170 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
     );
   }
 }
+// Exercise actual WAAPI layout interpolation, rather than only checking CSS names.
+const frameFor = (id: string) => row(id).querySelector<HTMLElement>("[data-rich-widget-frame]")!;
+const until = async (condition: () => boolean, message: string) => {
+  for (let i = 0; i < 200; i++) {
+    if (condition()) return;
+    await pause(10);
+  }
+  throw new Error(message);
+};
+const heightAnimation = (frame: HTMLElement) =>
+  frame
+    .getAnimations()
+    .find((animation) =>
+      (animation.effect as KeyframeEffect).getKeyframes().some((keyframe) => "height" in keyframe)
+    );
+const midpoint = (frame: HTMLElement, animation: Animation) => {
+  const duration = Number(animation.effect!.getTiming().duration);
+  check(duration > 0 && duration <= 300, "Card motion must be brief");
+  animation.pause();
+  animation.currentTime = duration / 2;
+  return frame.getBoundingClientRect().height;
+};
+const emulateMotion = (preference: "reduce" | "no-preference") =>
+  new Promise<void>((resolve) => {
+    window.addEventListener("widget-motion-ready", () => resolve(), { once: true });
+    console.log("WIDGET_MOTION " + preference);
+  });
+async function motionScenario() {
+  const transitions: object[] = [];
+  for (const theme of ["light", "dark"]) {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    for (const kind of ["bot_dm", "group"] as const) {
+      channel = { ...channel, id: `motion-${theme}-${kind}`, kind };
+      for (const reason of ["answer", "dismissed", "moved-on", "superseded"]) {
+        const question = msg("", widget("Motion: choose a route", true));
+        messages = [question];
+        draw();
+        await pause(300);
+        const frame = frameFor(question.id),
+          expanded = frame.getBoundingClientRect().height;
+        check(!heightAnimation(frame), "Mounting history must not replay a collapse");
+        messages = [
+          {
+            ...question,
+            metadata: {
+              ...(question.metadata as object),
+              ...(reason === "answer"
+                ? { respondedValue: "alpha" }
+                : { widgetDismissed: true, widgetDismissalReason: reason }),
+            },
+          },
+        ];
+        draw();
+        await until(() => Boolean(heightAnimation(frame)), `Missing ${reason} height transition`);
+        const animation = heightAnimation(frame)!;
+        const target = frame.firstElementChild!.getBoundingClientRect().height;
+        const middle = midpoint(frame, animation);
+        check(
+          expanded > middle + 1 && middle > target + 1,
+          `${reason} snapped instead of interpolating: ${expanded}/${middle}/${target}`
+        );
+        animation.finish();
+        await pause(25);
+        const final = frame.getBoundingClientRect().height;
+        check(
+          Math.abs(final - target) <= 1 && frame.style.height === "",
+          "Collapse left a stale fixed height"
+        );
+        check(
+          animationEvents.filter((event) => event.id === question.id).length <= 1,
+          "Settling replayed the message entrance"
+        );
+        transitions.push({ theme, kind, reason, expanded, middle, final });
+      }
+    }
+  }
+
+  // A failed optimistic skip reverses from the visible in-flight height.
+  const retry = msg("", widget("Motion: failed skip recovers", true));
+  messages = [retry];
+  draw();
+  await pause(300);
+  const frame = frameFor(retry.id),
+    expanded = frame.getBoundingClientRect().height;
+  let release!: () => void;
+  replyGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fail = true;
+  button(retry.id, "Skip question").click();
+  await until(() => Boolean(heightAnimation(frame)), "Missing optimistic skip transition");
+  const closing = heightAnimation(frame)!;
+  const interrupted = midpoint(frame, closing);
+  release();
+  await until(
+    () =>
+      card(retry.id).dataset.richWidgetState === "pending" &&
+      Boolean(heightAnimation(frame)) &&
+      heightAnimation(frame) !== closing,
+    "Failed skip did not animate recovery"
+  );
+  const recovery = heightAnimation(frame)!;
+  recovery.pause();
+  recovery.currentTime = 0;
+  check(
+    Math.abs(frame.getBoundingClientRect().height - interrupted) <= 1,
+    "Interrupted collapse jumped before reopening"
+  );
+  const recoveryTarget = frame.firstElementChild!.getBoundingClientRect().height;
+  const recoveredMiddle = midpoint(frame, recovery);
+  check(
+    recoveredMiddle > interrupted + 1 && recoveredMiddle < recoveryTarget - 1,
+    "Failure recovery snapped instead of expanding"
+  );
+  recovery.finish();
+  fail = false;
+  replyGate = undefined;
+  await pause(25);
+  check(
+    Math.abs(frame.getBoundingClientRect().height - recoveryTarget) <= 1,
+    "Recovery left clipped controls"
+  );
+
+  // Emulate the real browser media feature, including a change during a collapse.
+  const reduced = msg("", widget("Motion: preference changes mid-collapse", true));
+  messages = [reduced];
+  draw();
+  await pause(300);
+  const reducedFrame = frameFor(reduced.id);
+  messages = [{ ...reduced, metadata: { ...(reduced.metadata as object), widgetDismissed: true } }];
+  draw();
+  await until(() => Boolean(heightAnimation(reducedFrame)), "Missing preference test transition");
+  midpoint(reducedFrame, heightAnimation(reducedFrame)!);
+  await emulateMotion("reduce");
+  await until(
+    () => !heightAnimation(reducedFrame),
+    "Reduced motion did not cancel an active collapse"
+  );
+  check(
+    Math.abs(
+      reducedFrame.getBoundingClientRect().height -
+        reducedFrame.firstElementChild!.getBoundingClientRect().height
+    ) <= 1,
+    "Reduced motion left a partially minimized card"
+  );
+  const noMotion = msg("", widget("Motion: reduce enabled", true));
+  messages = [noMotion];
+  draw();
+  await pause(200);
+  messages = [
+    { ...noMotion, metadata: { ...(noMotion.metadata as object), respondedValue: "alpha" } },
+  ];
+  draw();
+  await until(
+    () => card(noMotion.id).dataset.richWidgetState === "resolved",
+    "Reduced motion prevented settlement"
+  );
+  await pause(25);
+  check(!heightAnimation(frameFor(noMotion.id)), "Reduced motion still animated the card height");
+  await emulateMotion("no-preference");
+  return { transitions, interruption: true, reducedMotion: true };
+}
+
 const manual = new URLSearchParams(location.search).has("manual");
 if (manual) {
   document.documentElement.dataset.theme = "dark";
@@ -444,7 +611,8 @@ if (manual) {
   (async () => {
     for (const theme of ["light", "dark"])
       for (const kind of ["bot_dm", "group"] as const) await scenario(theme, kind);
-    console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ passed: reports.length, reports }));
+    const motion = await motionScenario();
+    console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ passed: reports.length, reports, motion }));
   })().catch((error) =>
     console.log(
       "DESKTOP_PARITY_RESULT " +

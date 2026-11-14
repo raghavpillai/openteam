@@ -136,8 +136,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // messages; the map renderer itself stays on demand): 1,329,632.
 // v0.0.18: the reviewed account fences and authenticated photo resources measure
 // 1,332,858 B; maps and the ScreenBot bridge retain their lazy boundaries.
-// Question lifecycle and immutable history receipts: 1,339,057 B versus the same
-// untouched main build's 1,334,586 B (+4,471 B). Clear action/status copy adds 591 B.
+// Question lifecycle and immutable history receipts: 1,339,214 B versus the same
+// untouched main build's 1,334,586 B (+4,628 B). Action/status copy and motion handling stay within this allowance.
 // Keep the 5 KB feature allowance bounded.
 else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_340_000);
 const startupCssBytes = result.renderer.startup.files

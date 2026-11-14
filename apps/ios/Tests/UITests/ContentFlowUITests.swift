@@ -266,11 +266,14 @@ import XCTest
     XCTAssertFalse(done.exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
   }
-  func testEmptyQuestionActionClearlySkipsWithoutAnAnswer() async throws {
-    let app = try await launch("widget-pending", dark: true)
+  private func verifyQuestionSkip(reducedMotion: Bool) async throws {
+    let app = try await launch("widget-pending", dark: true, reducedMotion: reducedMotion)
     defer { app.terminate() }
     let done = app.buttons["widget-submit-content-fixture"]
     XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let card = app.otherElements["widget-card-content-fixture"]
+    XCTAssertTrue(card.exists)
+    let expandedHeight = card.frame.height
     XCTAssertEqual(done.label, "Skip question")
     XCTAssertTrue(app.staticTexts["Reply in chat to answer or move on. This card will close."].exists)
     app.buttons["Alpha"].tap()
@@ -282,10 +285,36 @@ import XCTest
     XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.staticTexts["widget-dismissed-content-fixture"].label, "Skipped")
     XCTAssertTrue(app.staticTexts["No answer was sent from this card."].exists)
+    XCTAssertFalse(app.buttons["Alpha"].exists)
+    XCTAssertLessThan(card.frame.height, expandedHeight - 50, "Skipping must minimize the card")
+    capture(reducedMotion ? "question-skipped-reduced-motion" : "question-skipped-collapsed", app)
     let snapshot = try await state()
     let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
     XCTAssertTrue(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
     XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
+  }
+
+  func testEmptyQuestionActionClearlySkipsWithoutAnAnswer() async throws {
+    try await verifyQuestionSkip(reducedMotion: false)
+  }
+  func testQuestionCollapseWithReducedMotion() async throws {
+    try await verifyQuestionSkip(reducedMotion: true)
+  }
+  func testQuestionAnswerCollapsesToReceipt() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    let card = app.otherElements["widget-card-content-fixture"]
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    let expandedHeight = card.frame.height
+    app.buttons["Alpha"].tap()
+    let send = app.buttons["widget-submit-content-fixture"]
+    XCTAssertEqual(send.label, "Send answer")
+    send.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["widget-answer-content-fixture-0"].waitForExistence(timeout: 10))
+    XCTAssertFalse(send.exists)
+    XCTAssertFalse(app.buttons["Alpha"].exists)
+    XCTAssertLessThan(card.frame.height, expandedHeight - 50, "Answering must minimize to the receipt")
+    capture("question-answer-collapsed", app)
   }
 
   func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {

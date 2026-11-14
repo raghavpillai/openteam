@@ -136,6 +136,14 @@ function AnimatedCardHeight({ children }: { children: ReactNode }) {
     if (!outer || !inner) return;
     let height = inner.offsetHeight;
     let animation: Animation | null = null;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncMotion = () => {
+      if (reducedMotion.matches) {
+        animation?.cancel();
+        animation = null;
+      }
+    };
+    reducedMotion.addEventListener("change", syncMotion);
     // Resize observations arrive after layout and before paint, so the frame
     // that would have shown the new height starts from the old one instead.
     const observer = new ResizeObserver(() => {
@@ -145,7 +153,7 @@ function AnimatedCardHeight({ children }: { children: ReactNode }) {
       height = next;
       animation?.cancel();
       animation = null;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if (reducedMotion.matches) return;
       const current = outer.animate([{ height: `${from}px` }, { height: `${next}px` }], {
         duration: 180,
         easing: "cubic-bezier(0.2, 0.8, 0.3, 1)",
@@ -158,11 +166,12 @@ function AnimatedCardHeight({ children }: { children: ReactNode }) {
     observer.observe(inner);
     return () => {
       observer.disconnect();
+      reducedMotion.removeEventListener("change", syncMotion);
       animation?.cancel();
     };
   }, []);
   return (
-    <div className="w-full max-w-[520px] min-w-0 overflow-hidden rounded-2xl" ref={outerRef}>
+    <div data-rich-widget-frame className="w-full max-w-[520px] min-w-0 overflow-hidden rounded-2xl" ref={outerRef}>
       <div ref={innerRef}>{children}</div>
     </div>
   );

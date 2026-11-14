@@ -30,6 +30,7 @@ import {
 } from "@openteam/contracts/connector-transfers";
 import { createHash } from "node:crypto";
 import { DESKTOP_CAPABILITY_TOOLS, DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capabilities";
+import { GET_USER_LOCATION_TOOL } from "@openteam/contracts/user-location";
 import { agentFileIO } from "../agent-file-io";
 import { connectorResultParts, spillConnectorText } from "./connector-results";
 import { boundToolImage } from "./image-input";
@@ -1730,6 +1731,15 @@ export class RuntimeTools {
                   : this.desktopTool(turn, definition.name, args, signal, callId),
               })
             )),
+        // The user's bot and its routines read where the user is; a subagent is told by its parent.
+        ...(active.runtimeProfile === "subagent"
+          ? []
+          : [{
+              ...GET_USER_LOCATION_TOOL,
+              source: "first-party",
+              decodeArguments: (args) => args ?? {},
+              execute: (turn, callId, args, signal) => this.callControlPlaneTool(turn, callId, GET_USER_LOCATION_TOOL.name, args, signal),
+            } satisfies RuntimeDynamicTool]),
         ...(active.runtimeProfile === "subagent"
           ? []
           : ["DraftExternalMessage", "CreateBotShareJson"].map(

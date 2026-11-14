@@ -1,3 +1,4 @@
+import { clearUserLocation } from "./services/user-location";
 import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import { MachineService } from "./services/machine-service";
 import { AutomationWebhooksService } from "./services/automation-webhooks";
@@ -385,6 +386,8 @@ export class AppService {
 
   userTimeZone = async () =>
     userTimeZoneView(await this.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } }));
+
+  clearUserLocation = () => clearUserLocation(this.prisma);
 
   updateUserTimeZone = (input: UpdateUserTimeZoneInput) =>
     this.prisma.$transaction((tx) =>

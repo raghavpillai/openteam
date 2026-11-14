@@ -1354,6 +1354,17 @@ model UserTimeZoneSettings {
   updatedAt DateTime @updatedAt
 }
 
+/// The newest location a phone or computer sent with a message while Share location was on there.
+model UserLocation {
+  id             String   @id @default("global")
+  latitude       Float
+  longitude      Float
+  accuracyMeters Float?
+  capturedAt     DateTime
+  device         String
+  updatedAt      DateTime @updatedAt
+}
+
 model NotificationPreferences {
   id String @id @default("global")
   smartEnabled Boolean @default(true)

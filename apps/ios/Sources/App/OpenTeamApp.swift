@@ -42,6 +42,7 @@ struct OpenTeamApp: App {
       .preferredColorScheme(selectedAppearance)
       .onChange(of: scenePhase) { _, phase in
         store.setForeground(phase == .active)
+        if phase == .active { LocationSharing.shared.refresh() }
         // iOS caches a launch picture for a new appearance or orientation at launch.
         if phase == .background {
           store.cancelPendingVoiceRecording()

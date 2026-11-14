@@ -266,6 +266,9 @@ contextBridge.exposeInMainWorld("openteam", {
     },
 
   },
+  location: {
+    openSettings: () => ipcRenderer.invoke("openteam:location:open-settings"),
+  },
   microphone: {
     status: () => ipcRenderer.invoke("openteam:microphone:status"),
     requestPermission: () => ipcRenderer.invoke("openteam:microphone:request-permission"),

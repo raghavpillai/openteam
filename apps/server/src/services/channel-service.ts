@@ -1,3 +1,4 @@
+import { recordUserLocation } from "./user-location";
 import { nextMessageAddress, lockAgentLifecycle, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
 import {
   ApiError,
@@ -129,7 +130,7 @@ export class ChannelService {
       const scope = `conversation:${conversationId}:message`;
       // Enrollment can finish between delivery retries. Origin is routing metadata,
       // not a content change; the first accepted message keeps its original origin.
-      const requestHash = hashRequest({ ...input, sourceMachineId: undefined });
+      const requestHash = hashRequest({ ...input, sourceMachineId: undefined, location: undefined });
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope, key: input.clientId } },
       });
@@ -215,6 +216,7 @@ export class ChannelService {
         });
         const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
         if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
+        if (input.location) await recordUserLocation(tx, input.location);
         const address = await nextMessageAddress(tx, channel.id, "user");
         const visibleMessage = await tx.channelMessage.create({
           data: {
@@ -302,7 +304,7 @@ export class ChannelService {
     serviceEffect(async () => {
       input = await this.normalizeMessageAttachments(input);
       const scope = `channel:${channelId}:message`;
-      const requestHash = hashRequest({ ...input, sourceMachineId: undefined });
+      const requestHash = hashRequest({ ...input, sourceMachineId: undefined, location: undefined });
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope, key: input.clientId } },
       });
@@ -353,6 +355,7 @@ export class ChannelService {
         await dismissMoveOnWidgets(tx, channelId);
         const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
         if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
+        if (input.location) await recordUserLocation(tx, input.location);
         const address = await nextMessageAddress(tx, channelId, "user");
         const message = await tx.channelMessage.create({
           data: {

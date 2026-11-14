@@ -49,7 +49,11 @@ test("host bridge discovery applies initial absence once, then creation and remo
   await until(() => calls === 1);
   await Bun.sleep(25);
   expect(calls).toBe(1);
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
+  // Publish one complete snapshot: a polling watcher can legitimately observe
+  // both the empty file and its final bytes during an in-place writeFile.
+  const created = join(directory, "created.json");
+  await writeFile(created, "{}", { mode: 0o600 });
+  await rename(created, configurationPath);
   await until(() => calls === 2);
   await rm(configurationPath);
   await until(() => calls === 3);

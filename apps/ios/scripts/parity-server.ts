@@ -44,6 +44,20 @@ let dropNextSend = false;
 let deliveryStatuses: string[] = [];
 let deliveryDelayMs = 0;
 let sendResponseDelayMs = 0;
+// Draft-card sends: how long the provider takes, and an error that reopens the card.
+let draftSendDelayMs = 900;
+let draftSendError = "";
+// The answer to a draft send is lost after the server took it: the request fails and the card stays "sending".
+let draftSendDrop = false;
+// Draft-card discards: long enough for the press to be seen, and an error that leaves the card as it was.
+let draftDiscardDelayMs = 300;
+let draftDiscardError = "";
+// A draft send or discard is held until /__qa/answer-draft-send, so a test can act at a known time around the answer.
+let draftSendHold = false;
+let answerDraftSend: (() => void) | null = null;
+function draftSendWait(delayMs = draftSendDelayMs) {
+  return draftSendHold ? new Promise<void>(resolve => { answerDraftSend = resolve; }) : Bun.sleep(delayMs);
+}
 let dropNextRoutineRun = false;
 let authRequired = false;
 let authExpired = false;
@@ -77,6 +91,7 @@ function reset() {
   sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
   dropNextRoutineRun = false;
   deliveryStatuses = []; deliveryDelayMs = 0; sendResponseDelayMs = 0;
+  draftSendDelayMs = 900; draftSendError = ""; draftSendDrop = false; draftSendHold = false; answerDraftSend?.(); answerDraftSend = null; draftDiscardDelayMs = 300; draftDiscardError = "";
   pagedHistory = false;
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
@@ -94,6 +109,12 @@ reset();
 function emit(topic = "channel.message.created", entityId: string | null = null) {
   events.push({ sequence: String(++sequence), topic, entityId, payload: {}, createdAt: new Date().toISOString() });
   for (const wake of wakeups) wake(); wakeups.clear();
+}
+/** A discard takes a moment, can fail, and loses to a card another device settled or began sending meanwhile. */
+async function draftDiscard(message: any) {
+  await draftSendWait(draftDiscardDelayMs);
+  if (draftDiscardError) return response({ error: { message: draftDiscardError } }, 500);
+  return message.metadata.cardState === "pending" || !message.metadata.cardState ? null : response({ accepted: false, message });
 }
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
@@ -184,6 +205,16 @@ const server = Bun.serve({
       if (input.metadata) message.metadata = {...message.metadata, ...input.metadata};
       emit("channel.message.updated", message.channelId); return response({ok:true});
     }
+    if (path === "/__qa/answer-draft-send" && method === "POST") {
+      setTimeout(() => { answerDraftSend?.(); answerDraftSend = null; }, input.afterMs ?? 0); return response({ok:true});
+    }
+    if (path === "/__qa/push-message" && method === "POST") {
+      // A new message in any chat, as its bot (or the user) would send it.
+      const bot = snapshot.bots.find(b => b.dmChannelId === input.channelId);
+      if (!bot) return response({error:"Unknown chat"},400);
+      snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:input.channelId,sender:input.sender==="user"?"user":"agent",senderBotId:input.sender==="user"?null:bot.id,sourceRunId:null,content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
+      emit("channel.message.created",input.channelId); return response({ok:true});
+    }
     if (path === "/__qa/group-reply" && method === "POST") {
       const channel = snapshot.channels.find(c => c.id === input.channelId && c.kind === "group");
       if (!channel || (input.botId && !channel.members.some(m => m.botId === input.botId))) return response({error:"Unknown group member"},400);
@@ -206,6 +237,7 @@ const server = Bun.serve({
       deliveryStatuses = input.deliveryStatuses ?? deliveryStatuses;
       deliveryDelayMs = input.deliveryDelayMs ?? deliveryDelayMs;
       sendResponseDelayMs = input.sendResponseDelayMs ?? sendResponseDelayMs;
+      draftSendDelayMs = input.draftSendDelayMs ?? draftSendDelayMs; draftSendError = input.draftSendError ?? draftSendError; draftSendDrop = input.draftSendDrop ?? draftSendDrop; draftSendHold = input.draftSendHold ?? draftSendHold; draftDiscardDelayMs = input.draftDiscardDelayMs ?? draftDiscardDelayMs; draftDiscardError = input.draftDiscardError ?? draftDiscardError;
       if (input.screenState) screen.state = input.screenState;
       if (input.pluginCanAuthenticate !== undefined) {
         functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
@@ -330,6 +362,36 @@ const server = Bun.serve({
       });
       emit("channel.message.updated", message.channelId);
       return response({ accepted: true, message });
+    }
+    if(path.endsWith("/external-draft")){
+      const message:any=snapshot.channelMessages.find(m=>m.id===path.split("/")[4]);if(!message)return response({},404);
+      contentReceipts.push({path,...input});
+      if(input.action==="approval")return response({accepted:true});
+      if(input.edits)Object.assign(message.metadata.draft,input.edits);
+      // As the server does: a second send of a card that is out changes nothing, and the card is
+      // "sending" for as long as the provider takes, then sent or reopened with the reason.
+      if(input.action==="send"&&message.metadata.cardState==="sending")return response({accepted:false,message});
+      if(input.action==="send"){delete message.metadata.sendError;message.metadata.cardState="sending";emit("channel.message.updated",message.channelId);await draftSendWait();}
+      if(input.action==="send"&&draftSendDrop)return response({error:{message:"The fixture dropped the answer"}},503);
+      // Another device may have settled the card while this send was out.
+      if(input.action==="send"&&message.metadata.cardState!=="sending")return response({accepted:false,message});
+      if(input.action==="cancel"){const refused=await draftDiscard(message);if(refused)return refused;}
+      if(input.action==="send"&&draftSendError)Object.assign(message.metadata,{cardState:"pending",sendError:draftSendError});
+      else message.metadata.cardState=input.action==="send"?"sent":"dismissed";
+      emit("channel.message.updated",message.channelId);return response({accepted:true,message});
+    }
+    if(path.endsWith("/imessage-send")){
+      const message:any=snapshot.channelMessages.find(m=>m.id===path.split("/")[4]);if(!message)return response({},404);
+      contentReceipts.push({path,...input});
+      // As the server does: the card is "sending" while the Mac is asked, then sent or reopened with the reason.
+      if(input.action!=="cancel"&&message.metadata.cardState==="sending")return response({accepted:false,message});
+      if(input.action==="cancel"){const refused=await draftDiscard(message);if(refused)return refused;}
+      if(input.action!=="cancel"){delete message.metadata.sendError;message.metadata.cardState="sending";emit("channel.message.updated",message.channelId);await draftSendWait();}
+      if(input.action!=="cancel"&&draftSendDrop)return response({error:{message:"The fixture dropped the answer"}},503);
+      if(input.action!=="cancel"&&message.metadata.cardState!=="sending")return response({accepted:false,message});
+      if(input.action!=="cancel"&&draftSendError)Object.assign(message.metadata,{cardState:"pending",sendError:draftSendError});
+      else Object.assign(message.metadata,{cardState:input.action==="cancel"?"dismissed":"sent",...(input.action==="allow"?{allowedRecipient:message.metadata.imessage.to}:{})});
+      emit("channel.message.updated",message.channelId);return response({accepted:!draftSendError,message});
     }
     if(path.endsWith("/user-form/prefill"))return response({email:"fixture@example.invalid"});
     if(path.endsWith("/user-form")||path.endsWith("/computer-handoff")){

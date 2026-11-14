@@ -1,6 +1,6 @@
 import { createConnection, createServer } from "node:net";
 import { createServer as httpServer } from "node:http";
-import { writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, appendFileSync, existsSync } from "node:fs";
 import type { Duplex } from "node:stream";
 import { createBrowserProxy } from "../../packages/plugin-sdk/src/browser-network/socks";
 import { startComputerDns, createDnsExchange } from "../../apps/computer/src/computer-network-dns";
@@ -10,6 +10,7 @@ import { startNetworkConnectivity, probeNetworkFamily, applyNetworkFamilies } fr
 import { probeComputerNetwork } from "../../apps/computer/src/computer-network-probe";
 import { createInterface } from "node:readline";
 import { startManagementDiscovery } from "../../apps/computer/src/computer-network-management";
+import { createNetworkDiagnostics } from "../../packages/plugin-sdk/src/browser-network/diagnostics";
 
 /** Test-only adapter to an existing SOCKS path; never opens a new app channel
  * or displaces the active computer's authenticated lease. */
@@ -125,7 +126,10 @@ if (process.argv[2] === "--computer-network-probe") {
     )
   );
 } else if (process.argv[2] === "target") {
-  httpServer((_req, res) => res.end("target-via-selected-route")).listen(8080, "::");
+  httpServer((req, res) => {
+    if (req.url === "/reset") { req.socket.resetAndDestroy(); return; }
+    res.end("target-via-selected-route");
+  }).listen(8080, "::");
   httpServer((_req, res) => res.end("management-reachable")).listen(8787, "::");
 } else {
   let count = 0;
@@ -139,7 +143,9 @@ if (process.argv[2] === "--computer-network-probe") {
           socket.once("error", reject);
           socket.once("connect", () => resolve(socket));
         });
-  const proxy = createBrowserProxy(open);
+  const diagnostic = createNetworkDiagnostics("computer", (line) =>
+    appendFileSync("/run/relay-events.jsonl", line + "\n", { mode: 0o600 }));
+  const proxy = createBrowserProxy(open, 80, diagnostic);
   await proxy.listen(18791);
   await startComputerDns(
     process.env.UPSTREAM_SOCKS

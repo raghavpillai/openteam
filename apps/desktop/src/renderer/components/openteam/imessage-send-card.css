@@ -9,6 +9,11 @@
 .imessage-card > .imessage-title {
   margin-bottom: 10px;
 }
+/* The status sits at the trailing edge, as on the email card. */
+.imessage-card .draft-header > .imessage-title {
+  flex: 1;
+  min-width: 0;
+}
 .imessage-to {
   display: flex;
   align-items: baseline;

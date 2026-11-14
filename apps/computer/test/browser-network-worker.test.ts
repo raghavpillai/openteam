@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -53,6 +53,8 @@ test("chaos: diagnostic admission uses live worker state rather than its last st
   let network:
     | Awaited<ReturnType<typeof import("../src/browser-network").startBrowserNetwork>>
     | undefined;
+  const logs: string[] = [];
+  const logger = spyOn(console, "warn").mockImplementation((line) => { logs.push(String(line)); });
   try {
     const modulePath = join(directory, "supervisor.mjs");
     const build = await Bun.build({
@@ -68,7 +70,14 @@ test("chaos: diagnostic admission uses live worker state rather than its last st
       import { createInterface } from 'node:readline';
       let configured = false;
       createInterface({ input: process.stdin }).on('line', line => {
-        if (!configured) { configured = true; console.log(JSON.stringify({started:true})); return; }
+        if (!configured) {
+          configured = true;
+          console.log(JSON.stringify({diagnostic:{event:'computer_network.proxy_socket_error',side:'upstream',code:'ECONNRESET',address:'44.209.157.185',port:443,message:'fixture-never-print',headers:{authorization:'fixture-never-print'}}}));
+          console.log(JSON.stringify({diagnostic:{event:'fixture-never-print',code:'fixture-never-print'}}));
+          // A pipe read may contain many valid lines exceeding the per-line limit in aggregate.
+          console.log(Array.from({length:40}, () => JSON.stringify({diagnostic:{event:'proxy_capacity',limit:80,message:'fixture-never-print'.repeat(30)}})).join('\\n'));
+          console.log(JSON.stringify({started:true})); return;
+        }
         const command = JSON.parse(line);
         console.log(JSON.stringify(command.op === 'egress'
           ? { id: command.id, result: { ip:'203.0.113.7', location:'Fixture', epoch:'current', sourceId:'server', checkedAt:new Date().toISOString() } }
@@ -82,8 +91,13 @@ test("chaos: diagnostic admission uses live worker state rather than its last st
     expect(network!.status().ready).toBe(false);
     expect(await network!.egress()).toMatchObject({ ip: "203.0.113.7", epoch: "current" });
     await expect(network!.quality()).rejects.toThrow("Could not check");
+    expect(logs.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+      event: "computer_network.proxy_socket_error", code: "ECONNRESET", side: "upstream", address: "44.209.157.185", port: 443,
+    }));
+    expect(logs.join("")).not.toContain("fixture-never-print");
   } finally {
     await network?.close();
+    logger.mockRestore();
     await rm(directory, { recursive: true, force: true });
   }
 }, 10000);

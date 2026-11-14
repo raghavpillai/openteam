@@ -2280,13 +2280,13 @@ export class WakeWorker {
       internalAssistant,
     });
     const reviewed = !exchange || await this.agentData.recordTurnMemory(run.botId, {
-      runId: run.id,
+      runId: run.id, requirePendingRun: true,
       timeZone: await this.messaging.userTimeZone(),
       user: exchange.user,
       assistant: exchange.assistant,
       occurredAt: exchange.occurredAt,
     });
-    if (reviewed) await this.prisma.run.update({ where: { id: runId }, data: { memoryReviewPending: false } });
+    if (reviewed) await this.prisma.run.updateMany({ where: { id: runId }, data: { memoryReviewPending: false } });
   }
 
   private async completeSubagent(tx: Prisma.TransactionClient, claimed: Claimed): Promise<void> {

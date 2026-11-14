@@ -1,6 +1,6 @@
 // Disposable containers only. No host network, host filesystem mounts, app
 // credentials, published ports, or changes to the active Docker context.
-import { mkdtemp, rm, writeFile, cp } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
@@ -58,13 +58,21 @@ try {
   for (const file of ["openteam-network-mark.c", "openteam-computer-network.py"])
     await cp(resolve("docker", file), join(directory, file));
   console.log("Building pinned TUN implementation");
+  // Export only the pinned binary. Exporting the entire Go build image makes
+  // repeated local runs spend their deadline unpacking the compiler toolchain.
+  const toolsDockerfile = join(directory, "network-tools.Dockerfile");
+  await writeFile(toolsDockerfile, (await readFile(resolve("docker/computer.Dockerfile"), "utf8")) + `
+FROM scratch AS network-test-tools
+COPY --from=network-tools /tun2socks /tun2socks
+CMD ["/tun2socks"]
+`);
   await run(
     docker(
       "build",
       "--target",
-      "network-tools",
+      "network-test-tools",
       "-f",
-      "docker/computer.Dockerfile",
+      toolsDockerfile,
       "-t",
       `${prefix}-tools`,
       "."
@@ -272,6 +280,48 @@ for p in os.listdir('/proc'):
     const before = Number(await exec("cat", "/run/relay-count"));
     assert.equal(await exec(...curl, `http://${targetIp}:8080`), "target-via-selected-route");
     assert.ok(Number(await exec("cat", "/run/relay-count")) > before);
+  });
+  await check("real upstream TCP reset crosses the TUN, retains its diagnostic, and permits a fresh read", async () => {
+    const failure = await exec("python3", "-c", `import socket,errno
+s=socket.create_connection(('${targetIp}',8080),timeout=4)
+try:
+ s.sendall(b'POST /reset HTTP/1.1\\r\\nHost: fixture\\r\\nContent-Length: 0\\r\\n\\r\\n')
+ assert s.recv(1)==b''
+ print('end-of-stream')
+except ConnectionResetError as error:
+ assert error.errno==errno.ECONNRESET
+ print('connection-reset-by-peer')
+finally: s.close()`);
+    // tun2socks may translate an established upstream reset into EOF. The relay must
+    // retain the original code regardless of the application's visible close form.
+    assert.ok(["connection-reset-by-peer", "end-of-stream"].includes(failure));
+    const events = (await exec("cat", "/run/relay-events.jsonl")).split("\n").map((line) => JSON.parse(line));
+    assert.ok(events.some((event) => event.event === "computer_network.proxy_socket_error" &&
+      event.side === "upstream" && event.code === "ECONNRESET" && event.address === targetIp && event.port === 8080));
+    assert.equal(await exec(...curl, `http://${targetIp}:8080`), "target-via-selected-route");
+  });
+  await check("local proxy capacity reproduces connection-reset-by-peer through the TUN and recovers", async () => {
+    const failure = await exec("python3", "-c", `import socket,select,errno
+sockets=[]
+try:
+ for _ in range(85):
+  s=socket.create_connection(('${targetIp}',8080),timeout=4);sockets.append(s)
+  try: s.sendall(b'GET / HTTP/1.1\\r\\nHost: fixture\\r\\n')
+  except ConnectionResetError: pass
+ ready,_,_=select.select(sockets,[],[],4)
+ resets=0
+ for s in ready:
+  try: s.recv(1)
+  except ConnectionResetError as error:
+   assert error.errno==errno.ECONNRESET;resets+=1
+ assert resets>0,'expected virtual TCP reset after local capacity rejection'
+ print('connection-reset-by-peer')
+finally:
+ for s in sockets: s.close()`);
+    assert.equal(failure, "connection-reset-by-peer");
+    const events = (await exec("cat", "/run/relay-events.jsonl")).split("\n").map((line) => JSON.parse(line));
+    assert.ok(events.some((event) => event.event === "computer_network.proxy_capacity" && event.limit === 80));
+    assert.equal(await exec(...curl, `http://${targetIp}:8080`), "target-via-selected-route");
   });
   await check("ordinary desktop user and sudo descendants use the same route", async () => {
     for (const command of [curl, ["sudo", ...curl]])

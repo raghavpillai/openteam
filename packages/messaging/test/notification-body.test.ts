@@ -20,8 +20,7 @@ const asset = (fileName: string, mimeType: string, kind: string) => ({
 });
 
 describe("messageNotificationBody", () => {
-  test("matches the actual Grok question notification title and body", () => {
-    // Read from macOS usernoted history for the isolated Grok Bot 1.0.1 test.
+  test("a question notification is titled with the bot and carries only the prompt", () => {
     const { title, body } = agentNotificationPresentation({
       kind: "message",
       botName: "Question Lifecycle QA Nov13",

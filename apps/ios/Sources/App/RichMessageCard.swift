@@ -9,6 +9,7 @@ extension JSON {
 }
 
 struct RichMessageCard: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let message: Message

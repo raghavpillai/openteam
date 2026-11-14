@@ -140,8 +140,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // untouched main build's 1,334,586 B (+4,628 B). Action/status copy and motion handling stay within this allowance.
 // Keep the 5 KB feature allowance bounded.
 // Question card redesign (option tiles with checkbox/radio controls, inline custom
-// answer, Skip/Send footer, receipts): 1,342,514 B once the motion moved to its own lazy module.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_343_500);
+// answer, Skip/Send footer, receipts), with its motion in a lazy module. The draft cards'
+// send-off brought the same-base build to 1,341,722 B; with the question work: 1,349,562 B.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_350_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -210,8 +211,9 @@ atMost("startup CSS bytes", startupCssBytes, 222_000);
 // plugin move and the presentation polish: 17,867,243 B.
 // v0.0.18 after separating Settings Switch: 17,890,302 B / 4,478,603 gzip.
 // Includes generation-fenced photo loading and ScreenBot ownership; no new dependency.
-// Question card redesign and its lazy motion module: 17,903,633 B / 4,483,097 gzip.
-atMost("renderer bytes", result.renderer.bytes, 17_905_500);
+// With the draft send-off flight and the question card redesign and its lazy motion module:
+// 17,918,336 B / 4,488,047 gzip.
+atMost("renderer bytes", result.renderer.bytes, 17_920_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -241,7 +243,7 @@ atMost("renderer bytes", result.renderer.bytes, 17_905_500);
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_484_500);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_489_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -301,6 +303,8 @@ const lazyBudgets: Record<string, number> = {
   // Question card motion (arrival, selection, the answer morph, the Skip flight and chip bud)
   // loads with the first question card: 18,947 B of script and 3,194 B of styles.
   questionMotion: 23_000,
+  // The draft card's Send/Discard flight loads on the first press: measured 7,655 B.
+  draftSendFlight: 8_000,
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
   // forms.tsx no longer has a caller or manifest entry in the baseline build.

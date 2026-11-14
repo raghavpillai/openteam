@@ -336,7 +336,17 @@ public enum MessageMerge {
       if let nonce = message.clientId {
         byID = byID.filter { $0.value.clientId != nonce || $0.key == message.id }
       }
-      byID[message.id] = message
+      var next = message
+      if let previous = byID[message.id], previous.metadata["type"].string == "widget",
+        previous.metadata["respondedValue"] != .null || previous.metadata["widgetDismissed"].bool {
+        // A question ID settles once. Later page loads may be stale; retain only
+        // its receipt, leaving incoming reactions and other metadata current.
+        for key in ["respondedValue", "respondedLabel", "widgetDismissed", "widgetDismissalReason",
+          "widgetDismissClientId", "widgetResponseClientId"] {
+          next.metadata[key] = previous.metadata[key]
+        }
+      }
+      byID[message.id] = next
     }
     return byID.values.sorted {
       $0.sequence == $1.sequence ? $0.id < $1.id : less($0.sequence, $1.sequence)

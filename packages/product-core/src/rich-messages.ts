@@ -40,7 +40,6 @@ export const parseRichMessageWidget = (value: unknown): RichMessageWidget | null
         ...(typeof candidate.helpText === "string" ? { helpText: candidate.helpText } : {}),
         ...(candidate.multiSelect === true ? { multiSelect: true } : {}),
         ...(candidate.allowCustom === true ? { allowCustom: true } : {}),
-        ...(candidate.dismissOnMoveOn === true ? { dismissOnMoveOn: true } : {}),
       }
     : null;
 };

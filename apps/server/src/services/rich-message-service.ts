@@ -15,7 +15,7 @@ import {
 } from "@openteam/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
+import { type AgentMessaging, type ToolContext, PRIORITY, lockQuestions, dismissQuestions } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
 import { UserFormRefusal, type ScreenService } from "./screen-service";
@@ -90,21 +90,6 @@ export const buildComputerHandoffResume = (outcome: "complete" | "skip" | "dismi
   outcome === "complete"
     ? "[The user finished the requested computer handoff. Inspect the screen, confirm the result, and continue from where you paused.]"
     : "[The user skipped or closed the requested computer handoff. Continue without repeating the request unless the manual step is essential.]";
-
-export const dismissMoveOnWidgets = async (
-  tx: Prisma.TransactionClient,
-  channelId: string
-): Promise<number> =>
-  tx.$executeRaw(Prisma.sql`
-    UPDATE "ChannelMessage"
-    SET "metadata" = "metadata" || '{"widgetDismissed":true,"widgetSkipped":true}'::jsonb
-    WHERE "channelId" = ${channelId}::uuid
-      AND "sender" = 'agent'::"ChannelMessageSender"
-      AND "metadata"->>'type' = 'widget'
-      AND coalesce(("metadata"->'widget'->>'dismissOnMoveOn')::boolean, false) = true
-      AND NOT ("metadata" ? 'respondedValue')
-      AND coalesce(("metadata"->>'widgetDismissed')::boolean, false) = false
-  `);
 
 export class RichMessageService {
   readonly sharedTemplates: SharedTemplateService;
@@ -203,6 +188,8 @@ export class RichMessageService {
     serviceEffect(
       async (): Promise<RichMessageMutationView> =>
         this.prisma.$transaction(async (tx) => {
+          const target = await tx.channelMessage.findUnique({ where: { id: messageId }, select: { channelId: true } });
+          if (target) await lockQuestions(tx, target.channelId);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
           const message = await tx.channelMessage.findUnique({
             where: { id: messageId },
@@ -224,6 +211,8 @@ export class RichMessageService {
             return { accepted: false, message: messageView(message), runId: null };
           }
           const value = assertWidgetAnswer(widget, input.value);
+          const scopeId = typeof metadata.questionScopeId === "string" ? metadata.questionScopeId : null;
+          await dismissQuestions(tx, message.channelId, scopeId, "superseded", message.id);
           const clientId = `widget:${message.id}:response`;
           const wake = await this.messaging.enqueueWake(tx, {
             botId: message.senderBotId,
@@ -262,6 +251,8 @@ export class RichMessageService {
     serviceEffect(
       async (): Promise<RichMessageMutationView> =>
         this.prisma.$transaction(async (tx) => {
+          const target = await tx.channelMessage.findUnique({ where: { id: messageId }, select: { channelId: true } });
+          if (target) await lockQuestions(tx, target.channelId);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
           const message = await tx.channelMessage.findUnique({
             where: { id: messageId },
@@ -287,6 +278,7 @@ export class RichMessageService {
               metadata: toJson({
                 ...metadata,
                 widgetDismissed: true,
+                widgetDismissalReason: "dismissed",
                 widgetDismissClientId: input.clientId,
               }),
             },

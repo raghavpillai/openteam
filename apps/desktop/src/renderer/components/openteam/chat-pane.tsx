@@ -1,3 +1,4 @@
+import { projectQuestionLifecycle, currentQuestion } from "@openteam/product-core/questions";
 import { ButtonPrimitive } from "../ui/button-primitive";
 import { useDayClock } from "../../hooks/use-day-clock";
 import { AttachmentComposerSource } from "./attachment-composer";
@@ -1056,7 +1057,7 @@ export const ChatPane = memo(function ChatPane({
     [channel.id, durableRecoveries]
   );
   const outgoingKeyAliases = useRef(new Map<string, string>());
-  const visibleMessages = useMemo(
+  const outgoingMessages = useMemo(
     () =>
       projectOutgoingMessages(messages, channelSends).map((entry) => ({
         ...entry,
@@ -1067,6 +1068,15 @@ export const ChatPane = memo(function ChatPane({
       })),
     [channelSends, enteringMessageIds, messages]
   );
+  const questionMessages = useMemo(() => projectQuestionLifecycle(outgoingMessages
+    .filter((entry) => entry.delivery?.phase !== "failed" || entry.delivery.failure?.uncertain)
+    .map((entry) => entry.message)), [outgoingMessages]);
+  const questionMetadata = useMemo(() => new Map(questionMessages.map((message) =>
+    [message.id, message.metadata] as const)), [questionMessages]);
+  const visibleMessages = useMemo(() => outgoingMessages.map((entry) => ({ ...entry,
+    message: questionMetadata.has(entry.message.id)
+      ? { ...entry.message, metadata: questionMetadata.get(entry.message.id)! } : entry.message,
+  })), [outgoingMessages, questionMetadata]);
   const messagesById = useMemo(
     () => new Map(visibleMessages.map(({ message }) => [message.id, message] as const)),
     [visibleMessages]
@@ -1733,7 +1743,9 @@ export const ChatPane = memo(function ChatPane({
                     ? channel.kind === "bot_dm"
                       ? `Message ${channel.name} — it will be queued`
                       : "Pi runtime is not ready"
-                    : `Message ${channel.name}`
+                    : currentQuestion(questionMessages) && !replyingTo
+                      ? "Type your answer, or talk about something else"
+                      : `Message ${channel.name}`
               }
               reply={
                 replyingTo

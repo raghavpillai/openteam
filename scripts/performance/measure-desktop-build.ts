@@ -442,6 +442,8 @@ const readLazyClosures = async () => {
       ],
       emojiPanel: ["src/renderer/components/openteam/emoji/panel.tsx"],
       a2aExchange: ["src/renderer/components/openteam/a2a-exchange-sheet.tsx"],
+      questionMotion: ["src/renderer/components/openteam/question-card-motion.ts"],
+      draftSendFlight: ["src/renderer/components/openteam/external-draft-send-flight.ts"],
       asyncTasks: ["src/renderer/components/openteam/async-tasks-panel.tsx"],
       desktopDialogs: ["src/renderer/components/openteam/desktop-dialogs.tsx"],
       richPresentation: ["src/renderer/components/openteam/presentation/presentation-message.tsx"],

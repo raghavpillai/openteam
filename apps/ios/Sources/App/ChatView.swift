@@ -571,18 +571,30 @@ private struct ChatLoadErrorView: View {
 
 /// Keep this wrapper's identity across queued -> confirmed content. Only the new
 /// bubble animates; loading history and updates to an existing bubble do not.
+private struct MessageArrivesLiveKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+  /// True inside a row that is arriving live, so its content can stage its own entrance.
+  var messageArrivesLive: Bool {
+    get { self[MessageArrivesLiveKey.self] }
+    set { self[MessageArrivesLiveKey.self] = newValue }
+  }
+}
+
 struct MessageArrival<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var visible: Bool
   let isUser: Bool
+  let arrivesLive: Bool
   let content: Content
   init(animate: Bool, isUser: Bool, @ViewBuilder content: () -> Content) {
     _visible = State(initialValue: !animate)
     self.isUser = isUser
+    arrivesLive = animate
     self.content = content()
   }
   var body: some View {
     content
+      .environment(\.messageArrivesLive, arrivesLive)
       .opacity(visible ? 1 : 0)
       .animation(.easeOut(duration: reduceMotion ? 0.12 : isUser ? 0.20 : 0.132), value: visible)
       .offset(y: visible || reduceMotion ? 0 : isUser ? 8 : 12)

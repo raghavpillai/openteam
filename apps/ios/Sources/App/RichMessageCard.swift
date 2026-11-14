@@ -13,9 +13,6 @@ struct RichMessageCard: View {
   @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let message: Message
-  private var selected: Set<String> {
-    Set(store.draft(message.channelId).widgetSelections?[message.id] ?? [])
-  }
   @State private var secret = ""
   @State private var formValues: [String: JSON] = [:]
   @State private var bodyText = ""
@@ -74,10 +71,10 @@ struct RichMessageCard: View {
         .padding(12)
         .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 22))
     } else if supported {
-      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : isDraftLike ? 10 : 13) {
+      VStack(alignment: .leading, spacing: isDraftLike ? 10 : 13) {
         if let failure = failure ?? draftPressFailure { InlineFailure(message: failure) }
         switch type {
-        case "widget": widget
+        case "widget": QuestionCard(message: message)
         case "secret-request": secretRequest
         case "computer-handoff": handoff
         case "user-form": form
@@ -106,10 +103,6 @@ struct RichMessageCard: View {
         CubicKeyframe(2, duration: 0.05)
         CubicKeyframe(0, duration: 0.19)
       }
-      .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
-        value: meta["respondedValue"])
-      .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
-        value: meta["widgetDismissed"])
       .task(id: message.id) {
         if type == "user-form", state == "pending" {
           do {
@@ -129,7 +122,6 @@ struct RichMessageCard: View {
         requestID = UUID().uuidString
         failure = nil
       }
-      .onChange(of: selected) { _, _ in requestID = UUID().uuidString }
       .onChange(of: bodyText) { _, value in
         requestID = UUID().uuidString
         if value != meta["draft"]["body"].string { draftRevisionEditing = true }
@@ -147,7 +139,7 @@ struct RichMessageCard: View {
         requestID = UUID().uuidString
         if value != meta["draft"]["subject"].string { draftRevisionEditing = true }
       }
-      .disabled(busy || store.busy.contains("/api/v0/channel-messages/\(API.segment(message.id))/widget-response"))
+      .disabled(busy)
       .onAppear {
         resetDraftFields()
         resumeDraftSendOff()
@@ -199,128 +191,6 @@ struct RichMessageCard: View {
       ?? store.channel(message.channelId).flatMap({ store.bot(for: $0) }) {
       modals.fullScreen = .init(content: AnyView(ComputerView(bot: bot,
         handoffID: type == "computer-handoff" ? message.id : nil)))
-    }
-  }
-  @ViewBuilder var widget: some View {
-    let widget = meta["widget"]
-    VStack(alignment: .leading, spacing: 12.25) {
-      HStack(alignment: .top, spacing: 8) {
-        Text(widget["prompt"].string).font(.body.weight(.medium))
-          .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 0)
-        if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool {
-          Button { act("widget-dismiss") } label: {
-            Image(systemName: "xmark").font(.system(size: 15, weight: .regular))
-              .foregroundStyle(NativePalette.chatFaint).frame(width: 20, height: 20)
-              .contentShape(Rectangle().inset(by: -10))
-          }.buttonStyle(.plain).accessibilityLabel("Dismiss")
-            .accessibilityIdentifier("widget-dismiss-" + message.id)
-        }
-      }
-      if !widget["helpText"].string.isEmpty {
-        Text(widget["helpText"].string).font(.system(size: 14))
-          .foregroundStyle(NativePalette.chatFaint).padding(.trailing, 36)
-      }
-      if case .string(let response) = meta["respondedValue"] {
-        let answers = WidgetAnswer.resolve(widget: widget, response: response)
-        VStack(spacing: 0) {
-          ForEach(Array(answers.enumerated()), id: \.offset) { index, answer in
-            if index > 0 { NativePalette.separator.frame(height: 0.5) }
-            HStack(spacing: 12) {
-              Text(answer.label).fixedSize(horizontal: false, vertical: true)
-              Spacer(minLength: 8)
-              Path { path in
-                path.move(to: CGPoint(x: 3, y: 8))
-                path.addLine(to: CGPoint(x: 6, y: 11))
-                path.addLine(to: CGPoint(x: 13, y: 4))
-              }.stroke(NativePalette.receiptCheck,
-                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: 16, height: 16).accessibilityHidden(true)
-            }.padding(.horizontal, 10).padding(.vertical, 10)
-              .frame(minHeight: 40).accessibilityElement(children: .combine)
-              .accessibilityValue("Selected")
-              .accessibilityIdentifier("widget-answer-\(message.id)-\(index)")
-          }
-        }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
-          .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator, lineWidth: 0.5))
-      } else {
-        let dismissed = meta["widgetDismissed"].bool
-        VStack(spacing: 0) {
-          ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
-            let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
-            Button {
-              if widget["multiSelect"].bool {
-                NativeHaptics.play(.selection, source: "widget.selection")
-                var values = selected
-                if values.contains(value) { values.remove(value) } else { values.insert(value) }
-                var draft = store.draft(message.channelId)
-                draft.widgetResponse = nil
-                if draft.widgetSelections == nil { draft.widgetSelections = [:] }
-                draft.widgetSelections?[message.id] = widget["options"].array.map {
-                  $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-                }.filter(values.contains)
-                store.saveDraft(draft, channel: message.channelId)
-              } else { act("widget-response", body: ["value": .string(value)]) }
-            } label: {
-              HStack(alignment: .top, spacing: 11) {
-                Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
-                  .font(.system(size: 13))
-                  .foregroundStyle(Color(hex: "979699"))
-                  .frame(width: 24, height: 24)
-                  .background(NativePalette.separator.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-                  .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(NativePalette.separator, lineWidth: 1))
-                  .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3.5) {
-                  Text(option["label"].string).font(.body)
-                    .foregroundStyle(option["style"].string == "danger"
-                      ? NativePalette.widgetDanger : NativePalette.text)
-                  if !option["description"].string.isEmpty {
-                    Text(option["description"].string).font(.system(size: 14))
-                      .foregroundStyle(NativePalette.chatMuted)
-                  }
-                }.fixedSize(horizontal: false, vertical: true).padding(.top, 2)
-                Spacer(minLength: 0)
-                if selected.contains(value) {
-                  Image(systemName: "checkmark").font(.system(size: 14))
-                    .foregroundStyle(NativePalette.receiptCheck)
-                }
-              }.padding(.vertical, 8)
-                .frame(maxWidth: .infinity, minHeight: 41, alignment: .leading)
-                .contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(dismissed)
-              .accessibilityLabel(option["label"].string)
-              .accessibilityValue(selected.contains(value) ? "Selected" : "")
-          }
-        }.opacity(dismissed ? 0.35 : 1)
-        if dismissed {
-          Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
-            .accessibilityIdentifier("widget-dismissed-" + message.id)
-        } else {
-          if widget["multiSelect"].bool {
-            Button {
-              let values = widget["options"].array.map {
-                $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-              }.filter(selected.contains)
-              act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
-            } label: {
-              Text("Submit").font(.system(size: 15, weight: .medium))
-                .foregroundStyle(selected.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
-                .frame(maxWidth: .infinity).frame(height: 38)
-                .background(selected.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
-                  in: RoundedRectangle(cornerRadius: 9))
-            }.buttonStyle(WidgetSubmitStyle()).disabled(selected.isEmpty)
-              .accessibilityIdentifier("widget-submit-" + message.id)
-          }
-        }
-      }
-    }.padding(14)
-      .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
-      .overlay(RoundedRectangle(cornerRadius: 18)
-        .stroke(NativePalette.separator, lineWidth: 0.5))
-    if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool && widget["allowCustom"].bool {
-      Text("Or answer in the chat below").font(.system(size: 14))
-        .foregroundStyle(NativePalette.chatFaint).padding(.leading, 14)
     }
   }
   @ViewBuilder var secretRequest: some View {
@@ -1142,13 +1012,11 @@ struct RichMessageCard: View {
   }
   func act(_ suffix: String, body: [String: JSON] = [:], clearSecrets: Bool = false) {
     guard !busy else { return }
-    if suffix.hasPrefix("widget") { NativeHaptics.play(.light, source: "widget.submit") }
     busy = true
     failure = nil
     if store.draftPressFailures[message.id] != nil { store.draftPressFailures[message.id] = nil }
     var payload = body
     let action = suffix + ":" + (body["action"]?.string ?? "") + ":" + (body["mode"]?.string ?? "")
-      + (suffix == "widget-response" ? ":" + (body["value"]?.string ?? "") : "")
     if lastAction != action {
       lastAction = action
       requestID = UUID().uuidString
@@ -1453,11 +1321,5 @@ struct DraftStatusBadge: View {
     .background {
       if anchorsFrame { Color.clear.anchorPreference(key: DraftSendAnchors.self, value: .bounds) { ["badge": $0] } }
     }
-  }
-}
-
-private struct WidgetSubmitStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label.opacity(configuration.isPressed ? 0.8 : 1)
   }
 }

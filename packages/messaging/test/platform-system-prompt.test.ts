@@ -146,7 +146,7 @@ describe("platform prompt integration", () => {
   });
 
   test.each([["user", "they replied in chat instead of answering on the card"], ["routine", "no answer is not a yes"]])(
-    "an unanswered question is noted once for a %s wake, then treated as closed", async (origin, note) => {
+    "an unanswered question is noted once for a %s wake without implying permission", async (origin, note) => {
       const { messaging } = mainAgent("alpha");
       const executed: string[] = [];
       Object.assign((messaging as any).prisma, {
@@ -163,6 +163,24 @@ describe("platform prompt integration", () => {
       await messaging.acknowledgePlatformPrompt("alpha", "alpha-context", prompt);
       expect(executed.some((query) => query.includes('"widgetUnansweredEchoed":true'))).toBe(true);
     });
+
+  test.each([
+    ["moved-on", "may be the answer or may be about something else"],
+    ["dismissed", "They'd rather not respond"],
+    ["superseded", null],
+  ] as const)("question outcome %s preserves the distinction between chat and a decline", async (reason, note) => {
+    const { messaging } = mainAgent("alpha");
+    Object.assign((messaging as any).prisma, {
+      $queryRaw: async () => [{ id: "00000000-0000-4000-8000-000000000001", content: "Choose a color?",
+        metadata: { type: "widget", widgetDismissed: true, widgetDismissalReason: reason } }],
+      automationResult: { findMany: async () => [] },
+    });
+    const prompt = await messaging.platformPrompt("alpha", "alpha-context", "", undefined, undefined, "user");
+    if (note) expect(prompt.ambientContext).toContain(note);
+    else expect(prompt.ambientContext ?? "").not.toContain("Choose a color?");
+    if (reason === "moved-on") expect(prompt.ambientContext).not.toContain("They'd rather not respond");
+    expect(prompt.acknowledgement?.dismissedMessageIds).toEqual(["00000000-0000-4000-8000-000000000001"]);
+  });
 
   test("a run's Task configuration snapshot wins over current deployment settings", async () => {
     const { messaging } = mainAgent("alpha");
@@ -331,7 +349,7 @@ describe("platform prompt integration", () => {
     for (const line of [
       "- A widget is its own SendToUser call: type widget, no content. Send any prose first as a separate text call without end_turn. Don't repeat the question or options in that prose; the widget shows them. The widget ends the turn, so it is the last thing you send.",
       "- Ask one natural question. Every option must be real and verified, with values that read like replies. Don't pad with guesses or offer an option that hands delegated work back to the user.",
-      "- Use style danger for destructive choices, allowCustom for free text, multiSelect when several apply, and dismissOnMoveOn only for a low-stakes question that can become moot.",
+      "- Use style danger for destructive choices, allowCustom for free text, multiSelect when several apply. Questions close when the user sends a newer message. Interpret their words in context: they may answer the question or move on. Silence or a skipped question never grants permission.",
       "Before telling the user a connected connector cannot do something, look up that namespace's live tools with GetDynamicTools (a pattern search is enough), especially when they challenge an earlier claim.",
       "never use the browser as a side door around a broken connector: report the failure and ask. The exception is identity: when a connector's instructions say it posts as an app, an action that must go out as the user goes through your signed-in browser, with the same confirmation any send needs.",
       "A person's name is a fact too: an address like jdoe@ does not tell you whether they are Jane, John, or Jordan, so write the handle unless a source gave you the name.",

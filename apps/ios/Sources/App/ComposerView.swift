@@ -59,7 +59,6 @@ struct ComposerView: View {
       set: { value in
         var d = draft
         d.text = value
-        d.widgetResponse = nil
         store.saveDraft(d, channel: key)
       })
   }
@@ -292,7 +291,9 @@ struct ComposerView: View {
         }
         TextField(
           "", text: text,
-          prompt: Text((focusedReply ? "Reply " : channel.isGroup ? "Message " : "Ask ") + channel.name)
+          prompt: Text(!focusedReply && QuestionLifecycle.current(store.questionMessages(channel.id)) != nil
+            ? "Type your answer, or talk about something else"
+            : (focusedReply ? "Reply " : channel.isGroup ? "Message " : "Ask ") + channel.name)
             .foregroundStyle(NativePalette.chatFaint),
           axis: .vertical
         )
@@ -500,7 +501,6 @@ struct ComposerView: View {
     memo.deliver = { transcript in
       var d = store.draft(key)
       d.text = VoiceMemoText.message(draft: d.text, transcript: transcript)
-      d.widgetResponse = nil
       store.saveDraft(d, channel: key)
       // Like the Send button: the outbox owns delivery, so the bar never waits on the network.
       // One yield lets enqueue move the draft into the outbox before the composer reappears.

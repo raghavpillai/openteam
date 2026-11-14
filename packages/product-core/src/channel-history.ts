@@ -9,8 +9,10 @@ import {
   compareEntitySequence,
   emptyLoadedChannelHistory,
   mergeLoadedChannelHistoryPage,
+  restoreHistoryQuestionReceipts,
   sortedUniqueMessages,
 } from "./history";
+import { createQuestionReceiptStore } from "./questions";
 import {
   type BoundMessageWindowOptions,
   boundMessageWindow,
@@ -1306,9 +1308,36 @@ export interface ChannelHistoryWindowStatus {
   hasNewer: boolean;
 }
 
+/** Shared by the live desktop hook and the standalone window store. */
+export const reconcileQuestionWindow = <T extends Pick<MessageWindowTransition, "history" | "window">>(
+  receipts: ReturnType<typeof createQuestionReceiptStore>, next: T,
+  previous?: Pick<MessageWindowTransition, "history" | "window">,
+  viewport?: MessageViewportRetention, observed: readonly ChannelMessageView[] = []
+): T => {
+  const rows = (state: Pick<MessageWindowTransition, "history" | "window">) => [
+    ...state.history.messages, ...state.history.threadContext, ...state.history.searchContext,
+    ...state.history.searchThreadContext, ...latestTailLanes(state.window.latestTail).flat(),
+  ];
+  receipts.remember([...(previous ? rows(previous) : []), ...observed, ...rows(next)]);
+  if (!receipts.size) return next;
+  const tail = next.window.latestTail;
+  const history = restoreHistoryQuestionReceipts(next.history, receipts);
+  const window = { ...next.window, latestTail: tail ? { ...tail,
+    messages: tail.messages.map(receipts.restore), threadContext: tail.threadContext.map(receipts.restore),
+  } : null };
+  return { ...next, ...rebalanceRetainedState(history, window, window.context?.targetMessageId, viewport) };
+};
+
 /** Small headless store for clients that publish one snapshot rather than separate history lanes. */
 export const createChannelHistoryStore = () => {
   const entries = new Map<string, Pick<MessageWindowTransition, "history" | "window">>();
+  const questionReceipts = new Map<string, ReturnType<typeof createQuestionReceiptStore>>();
+  const remember = (channelId: string, messages: readonly ChannelMessageView[]) => {
+    let receipts = questionReceipts.get(channelId);
+    if (!receipts) { receipts = createQuestionReceiptStore(); questionReceipts.set(channelId, receipts); }
+    receipts.remember(messages);
+    return receipts;
+  };
   const projections = new Map<
     string,
     {
@@ -1328,6 +1357,8 @@ export const createChannelHistoryStore = () => {
   };
   const viewports = new Map<string, { atBottom: boolean; viewport: MessageViewportRetention }>();
   const save = (channelId: string, next: Pick<MessageWindowTransition, "history" | "window">) => {
+    next = reconcileQuestionWindow(remember(channelId, []), next, entries.get(channelId),
+      viewports.get(channelId)?.viewport);
     entries.set(channelId, next);
     projections.delete(channelId);
     return next;
@@ -1384,6 +1415,7 @@ export const createChannelHistoryStore = () => {
       });
     },
     acceptPage: (page: ChannelHistoryPage, mode: "replace" | "refresh" | "older") => {
+      remember(page.channelId, [...page.messages, ...page.threadContext]);
       let current = entries.get(page.channelId);
       const position = viewports.get(page.channelId);
       // Once the native list has reached the actual live edge, leave context mode
@@ -1411,12 +1443,16 @@ export const createChannelHistoryStore = () => {
     acceptContext: (page: ChannelMessageContextView) => {
       const current = entries.get(page.channelId);
       if (!current) return;
-      if (current.history.messages.some((message) => message.id === page.targetMessageId)) return;
+      remember(page.channelId, [...page.messages, ...page.threadContext]);
+      if (current.history.messages.some((message) => message.id === page.targetMessageId)) {
+        save(page.channelId, current); return;
+      }
       save(page.channelId, enterMessageContext(current.history, current.window, page));
     },
     expand: (page: ChannelMessageContextView, direction: MessageHistoryDirection) => {
       let current = entries.get(page.channelId);
       if (!current) return;
+      remember(page.channelId, [...page.messages, ...page.threadContext]);
       if (!current.window.context) {
         // A primary window that evicted newer rows can page forward through the
         // same context endpoint without adding a different navigation UI.
@@ -1451,6 +1487,7 @@ export const createChannelHistoryStore = () => {
     },
     patch: (message: ChannelMessageView) => {
       const current = entries.get(message.channelId);
+      if (current) remember(message.channelId, [message]);
       const next =
         current &&
         patchRetainedMessageWindow(
@@ -1463,11 +1500,13 @@ export const createChannelHistoryStore = () => {
     },
     delete: (channelId: string) => {
       entries.delete(channelId);
+      questionReceipts.delete(channelId);
       projections.delete(channelId);
       viewports.delete(channelId);
     },
     clear: () => {
       entries.clear();
+      questionReceipts.clear();
       projections.clear();
       viewports.clear();
     },

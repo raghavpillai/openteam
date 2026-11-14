@@ -1,4 +1,4 @@
-import { nextMessageAddress, lockAgentLifecycle, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
+import { nextMessageAddress, lockAgentLifecycle, lockGroupExecution, supersedeGroupUserTurns, lockQuestions, dismissQuestions, questionScopeForReply } from "@openteam/messaging";
 import {
   ApiError,
   type ReactToChannelMessageInput,
@@ -22,7 +22,6 @@ import {
   formatUserReactionPrompt,
 } from "./channel/formatting";
 import { GroupAdministration } from "./channel/group-administration";
-import { dismissMoveOnWidgets } from "./rich-message-service";
 import {
   appendEvent,
   type ComputerFetch,
@@ -169,6 +168,18 @@ export class ChannelService {
           where: { id: conversationId }, select: { botId: true },
         });
         if (owner) await lockAgentLifecycle(tx, owner.botId);
+        // A concurrent retry may have committed while this request waited for
+        // the lifecycle lock. Reuse its receipt before creating or retiring anything.
+        const duplicate = await tx.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (duplicate) {
+          if (duplicate.requestHash !== requestHash)
+            throw new ApiError(409, "idempotency_conflict", "The idempotency key was already used for different content");
+          if (!duplicate.response)
+            throw new ApiError(409, "request_in_progress", "This message is already being accepted");
+          return { response: serialize(duplicate.response), bootstrapRunId: null, interruptRunId: null };
+        }
         const conversation = await tx.conversation.findUnique({
           where: { id: conversationId },
           include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },
@@ -203,7 +214,9 @@ export class ChannelService {
           throw new ApiError(404, "reply_target_not_found", "Reply target was not found");
         }
         const bootstrapRunId = await this.messaging.skipBootstrapForUser(tx, conversation.botId);
-        await dismissMoveOnWidgets(tx, channel.id);
+        await lockQuestions(tx, channel.id);
+        const questionScopeId = questionScopeForReply(input.isFork, reply);
+        await dismissQuestions(tx, channel.id, questionScopeId, "moved-on");
         const mentionPeers = await tx.bot.findMany({
           where: {
             id: { not: conversation.botId },
@@ -229,7 +242,7 @@ export class ChannelService {
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),
-              ...(input.isFork ? { branched: true } : {}),
+              ...(input.isFork ? { branched: true, questionScopeId } : {}),
               ...(input.timeZone ? { timeZone: input.timeZone } : {}),
             },
           },
@@ -350,7 +363,9 @@ export class ChannelService {
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000),
           },
         });
-        await dismissMoveOnWidgets(tx, channelId);
+        await lockQuestions(tx, channelId);
+        const questionScopeId = questionScopeForReply(input.isFork, reply);
+        await dismissQuestions(tx, channelId, questionScopeId, "moved-on");
         const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
         if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
         const address = await nextMessageAddress(tx, channelId, "user");
@@ -367,7 +382,7 @@ export class ChannelService {
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),
-              ...(input.isFork ? { branched: true } : {}),
+              ...(input.isFork ? { branched: true, questionScopeId } : {}),
               ...(input.timeZone ? { timeZone: input.timeZone } : {}),
             },
           },

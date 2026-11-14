@@ -199,7 +199,7 @@ export class DesktopNotificationManager {
     for (const [channelId, at] of this.lastAlertAt) {
       if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(channelId);
     }
-    // While the window has focus, new replies show in the app instead of as banners.
+    // While the window has focus, replies show in the app instead of as banners.
     if (!this.adapter.isFocused() && this.adapter.isSupported()) {
       for (const [channelId, { notification }] of pending) {
         if (this.lastAlertAt.has(channelId)) continue;

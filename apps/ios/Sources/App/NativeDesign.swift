@@ -51,7 +51,6 @@ enum NativePalette {
   static let receiptCheck = color("347D5B", "559978")
   static let inboxUnread = color("0E6DD2", "0E6DD2")
   static let widgetDanger = color("C83A3A", "F48182")
-  static let widgetDisabled = color("E4E4E7", "303033")
   static let destructive = Color(uiColor: .systemRed)
   static let warning = Color(uiColor: .systemOrange)
 

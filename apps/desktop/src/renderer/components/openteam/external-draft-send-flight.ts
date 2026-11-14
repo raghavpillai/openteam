@@ -146,22 +146,30 @@ export function playDraftSendFlight(card: HTMLElement, done: () => void, discard
     easing: "cubic-bezier(0.4, 0, 0.2, 1)",
     fill: "both",
   });
-  // The chat lays its rows out again a frame or more after a row changes height.
-  // While the card closes at the bottom of a chat, its box is therefore ahead of
-  // its row, and its bottom edge (which the blob rides) would lift off its place
-  // by that much. Each frame the card is held down by however far its row has
-  // lifted, which keeps that edge still until the chat has caught up.
-  const row = card.closest<HTMLElement>("[data-virtual-timeline-index]") ?? card.parentElement;
-  let scroller = card.parentElement;
-  while (scroller && !(/auto|scroll/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement;
+  // The chat's list places each row from the top, in a box of a set height, and
+  // gives a row its new height a frame or more after the row changes. While the
+  // card closes, the list still believes it is taller. When the chat is being
+  // held at its bottom, catching up will slide everything down by that
+  // difference, as far as there is scroll left to give. Until it does, the card
+  // is moved down by exactly that much, so its bottom edge (which the blob
+  // rides) is already where it is going to be. A chat too short to scroll has
+  // nothing to give: there the card simply closes upward.
+  const row = card.closest<HTMLElement>("[data-virtual-timeline-index]");
+  const list = row?.parentElement;
+  let scroller = list?.parentElement ?? null;
+  while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
   let release = () => {};
-  if (row && scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 2) {
+  if (row && list && scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 2) {
     const view = scroller;
-    const place = view.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom;
+    const next = list.querySelector<HTMLElement>(`:scope > [data-virtual-timeline-index="${Number(row.dataset.virtualTimelineIndex) + 1}"]`);
+    // How far past this row's end the list believes it reaches: up to the next
+    // row, or to the end of the list's box.
+    const believed = () => (next?.isConnected ? next.getBoundingClientRect().top : list.getBoundingClientRect().bottom) - row.getBoundingClientRect().bottom;
+    const rest = believed();
     const until = performance.now() + CLOSE.delay + CLOSE.duration + 400;
     const hold = () => {
-      const lift = view.getBoundingClientRect().bottom - place - row.getBoundingClientRect().bottom;
-      card.style.translate = lift > 0.5 ? `0 ${Math.min(lift / zoom, frame.height - settled)}px` : "";
+      const behind = Math.min(believed() - rest, view.scrollTop);
+      card.style.translate = behind > 0.5 ? `0 ${Math.min(behind / zoom, frame.height - settled)}px` : "";
     };
     // The chat may catch up at any point in a frame, so the hold is taken as late
     // as possible: after layout whenever the card's own size changed, and

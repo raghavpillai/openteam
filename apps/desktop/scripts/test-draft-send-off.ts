@@ -41,7 +41,7 @@ function tools(page: import("../../computer/node_modules/playwright-core").Page,
     leave: () => qa("() => window.draftSendOffQA.leave()"),
     back: () => qa("() => window.draftSendOffQA.back()"),
     remote: (state: string) => qa("(state) => window.draftSendOffQA.remote(state)", state),
-    bottoms: (ms: number) => qa<number[]>("(ms) => window.draftSendOffQA.bottoms(ms)", ms),
+    edges: (ms: number) => qa<[number, number][]>("(ms) => window.draftSendOffQA.edges(ms)", ms),
     set: (patch: Record<string, unknown>) => qa("(values) => Object.assign(window.draftSendOffQA.control, values)", patch),
     expect(what: string, ok: unknown, detail?: unknown) {
       if (!ok) problems.push(`${what}${detail === undefined ? "" : `: ${JSON.stringify(detail)}`}`);
@@ -276,20 +276,44 @@ try {
         t.expect("the card closes from its real height, not its scaled one", Math.abs((flying.closesFrom ?? 0) - before.layoutHeight) < 1, [flying.closesFrom, before.layoutHeight]);
         await t.until("settled", (now) => now.status === (button === "Send" ? "Sent" : "Discarded") && !now.layer && now.fx !== "flying");
       });
-      // The chat applies a row's new height a frame late. The card's bottom edge,
-      // which the blob rides, must not lift off its place while the list catches up.
+      // The chat applies a row's new height a frame late. Held at its bottom, it
+      // then slides down by what the card gave up; the card's bottom edge, which
+      // the blob rides, must already be there and not lift off while it catches up.
+      const settled = async (t: Story) => {
+        await t.until("settled", (now) => now.status === (button === "Send" ? "Sent" : "Discarded") && !now.layer && now.fx !== "flying");
+        await sleep(250);
+        return (await t.edges(60)).at(-1)!;
+      };
       for (const when of ["task", "frame"])
-      await story(`${button} at the bottom of a list that re-measures a frame late (in a ${when})`, kind, `list=${when}`, async (t) => {
+        await story(`${button} at the bottom of a long chat that re-measures a frame late (in a ${when})`, kind, `list=${when}`, async (t) => {
+          await t.click(button);
+          await t.until("flying", (now) => now.fx === "flying");
+          const edges = await t.edges(900);
+          const drift = Math.max(...edges.map(([, bottom]) => Math.abs(bottom - edges[0]![1])));
+          // Its own kick moves it a couple of pixels; a lagging list would lift it by tens.
+          t.expect("the card's bottom edge stays put while it closes", drift <= 5, Math.round(drift * 10) / 10);
+          t.expect("and is in the same place afterwards", Math.abs((await settled(t))[1] - edges[0]![1]) <= 2);
+        });
+      // A chat too short to scroll has no bottom to be held at: the card closes
+      // upward, under the message above it, and must not slide down and jump back.
+      await story(`${button} in a chat too short to scroll`, kind, "list=task&above=40", async (t) => {
         await t.click(button);
         await t.until("flying", (now) => now.fx === "flying");
-        const bottoms = await t.bottoms(900);
-        const drift = Math.max(...bottoms.map((bottom) => Math.abs(bottom - bottoms[0]!)));
-        // Its own kick moves it a couple of pixels; a lagging list would lift it by tens.
-        t.expect("the card's bottom edge stays put while it closes", drift <= 5, Math.round(drift * 10) / 10);
-        await t.until("settled", (now) => now.status === (button === "Send" ? "Sent" : "Discarded") && !now.layer && now.fx !== "flying");
-        await sleep(200);
-        const after = await t.bottoms(60);
-        t.expect("and is in the same place afterwards", Math.abs(after.at(-1)! - bottoms[0]!) <= 2, [after.at(-1), bottoms[0]]);
+        const edges = await t.edges(900);
+        const drift = Math.max(...edges.map(([top]) => Math.abs(top - edges[0]![0])));
+        t.expect("the card's top edge stays put while it closes", drift <= 5, Math.round(drift * 10) / 10);
+        t.expect("and is in the same place afterwards", Math.abs((await settled(t))[0] - edges[0]![0]) <= 2);
+      });
+      // With less scroll than the card gives up, the chat slides down only as far
+      // as it can. The card must end the flight where it will settle.
+      await story(`${button} in a chat that barely scrolls`, kind, "list=task&above=300", async (t) => {
+        await t.click(button);
+        await t.until("flying", (now) => now.fx === "flying");
+        const edges = await t.edges(900);
+        const end = await settled(t);
+        t.expect("no jump when the flight ends", Math.abs(end[0] - edges.at(-1)![0]) <= 5 && Math.abs(end[1] - edges.at(-1)![1]) <= 5, [edges.at(-1), end]);
+        const steps = edges.slice(1).map(([, bottom], index) => Math.abs(bottom - edges[index]![1]));
+        t.expect("and no sudden move on the way", Math.max(...steps) <= 60, Math.round(Math.max(...steps)));
       });
     }
     await story("Reduce Motion", kind, "", async (t) => {

@@ -9,6 +9,8 @@ Speak a message instead of typing it. Your recording is turned into text and sen
 - Tap the microphone to record hands-free, then tap send to transcribe and send it. The trash discards it; the stop button ends the recording so you can choose either.
 - Or press and hold the microphone while you speak, and release to send. Slide left to cancel, or up to keep recording hands-free.
 
+Once you've sent it, you can leave the chat. The note is still transcribed and sent, and if you come back before it's done, the chat shows it transcribing.
+
 **Desktop:** select the microphone in the message box, or press **⌘D** on macOS or **Ctrl+D** on Linux while you're typing. You can also hold the shortcut while you talk. While you record:
 
 - **Send voice note** transcribes the recording and sends it.

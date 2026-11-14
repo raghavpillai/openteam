@@ -1,5 +1,7 @@
 export type { ServerUpdateView, ServerUpdateRequest, ServerUpdateHeartbeat } from "./server-updates";
 export { stillWorking, updateBusyMessage, isUpdateBusyMessage } from "./server-updates";
+import { DeviceLocation } from "./user-location";
+export * from "./user-location";
 import type { NotificationRouting } from "./notification-presence";
 export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
@@ -280,6 +282,8 @@ export const SendMessageInput = Schema.Struct({
   isFork: Schema.optional(Schema.Boolean),
   attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+  /** Sent while Share location is on in the app's settings; the newest one is what GetUserLocation returns. */
+  location: Schema.optional(DeviceLocation),
 }).pipe(
   Schema.filter(
     (input) =>

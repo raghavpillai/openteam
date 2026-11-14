@@ -78,6 +78,8 @@
       "hardenedRuntime": false,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "OpenTeam uses the microphone when you record a voice note or test your input. Only voice notes are sent to your server for transcription.",
+        "NSLocationUsageDescription": "When Share location is on in OpenTeam Settings, each message you send includes this Mac's location so your bots can answer questions about what is near you.",
+        "NSLocationWhenInUseUsageDescription": "When Share location is on in OpenTeam Settings, each message you send includes this Mac's location so your bots can answer questions about what is near you.",
         "NSContactsUsageDescription": "OpenTeam searches Contacts to find a person when needed for your task.",
         "NSAppleEventsUsageDescription": "OpenTeam reads and sends Messages to carry out your tasks."
       },

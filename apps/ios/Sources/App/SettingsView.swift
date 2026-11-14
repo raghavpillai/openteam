@@ -83,6 +83,7 @@ struct SettingsView: View {
           Text("Bot").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
         Section { PushNotificationSettings() }
+        Section { LocationSharingSettings() }
         SystemDiscoverySettings()
         Section {
           Menu {

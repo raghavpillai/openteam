@@ -77,6 +77,24 @@ describe("mobile-safe OpenTeam client", () => {
     for(const body of bodies)expect(body).toMatchObject({sourceMachineId:machineId,content:"hello"});
   });
 
+  test("a send carries the device location while sharing is on, and a failed read never holds it up", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({});
+    }) as unknown as typeof globalThis.fetch;
+    const location = { latitude: 40.75, longitude: -73.99, accuracyMeters: 30, capturedAt: "2026-11-14T10:00:00.000Z", device: "computer" as const };
+    let read: () => Promise<typeof location | undefined> = async () => location;
+    const client = createOpenTeamClient({ baseUrl: "http://fixture", fetch, location: () => read() });
+    await client.sendDirectMessage("conversation", "coffee near me?");
+    await client.sendChannelMessage("channel", "coffee near me?");
+    read = async () => undefined;
+    await client.sendDirectMessage("conversation", "sharing off");
+    read = async () => { throw new Error("permission denied"); };
+    await client.sendDirectMessage("conversation", "read failed");
+    expect(bodies.map((body) => body.location)).toEqual([location, location, undefined, undefined]);
+  });
+
   test("routes widget and secure handoff actions through one-shot message endpoints", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     let nextId = 0;

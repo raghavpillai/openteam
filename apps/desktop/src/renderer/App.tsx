@@ -1,3 +1,4 @@
+import { watchLocationWhileFocused } from "./lib/location";
 import { startNotificationPresence } from "./lib/notification-presence";
 import { isShortcut } from "./hooks/use-shortcut-bindings";
 import { startTimeZoneReporting } from "./lib/time-zone";
@@ -381,6 +382,8 @@ export default function App() {
   );
 
   useEffect(() => () => readReceipts.current.clear(), []);
+  // With Location on, the fix is kept current while the window is in use, so sends rarely wait.
+  useEffect(() => watchLocationWhileFocused(), []);
   useEffect(
     () => () => {
       // Cancel avatar work and reset native presence/cursors across sign-out or server changes.

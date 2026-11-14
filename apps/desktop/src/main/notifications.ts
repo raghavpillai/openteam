@@ -199,9 +199,10 @@ export class DesktopNotificationManager {
     for (const [channelId, at] of this.lastAlertAt) {
       if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(channelId);
     }
-    // While the window has focus, new replies show in the app instead of as banners.
-    if (!this.adapter.isFocused() && this.adapter.isSupported()) {
+    // Focus suppresses the conversation on screen, not other chats in the sidebar.
+    if (this.adapter.isSupported()) {
       for (const [channelId, { notification }] of pending) {
+        if (this.adapter.isFocused() && channelId === this.visibleChannelId) continue;
         if (this.lastAlertAt.has(channelId)) continue;
         this.lastAlertAt.set(channelId, now);
         const event = alertEvent(notification);

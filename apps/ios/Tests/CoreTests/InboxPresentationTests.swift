@@ -106,21 +106,22 @@ final class InboxPresentationTests: XCTestCase {
     ])), runs: []), .idle)
   }
 
-  func testWidgetPreviewCombinesReadablePromptAndHelpWithChecklistSymbol() {
+  func testWidgetPreviewUsesOnlyThePromptWithoutAnIcon() {
     XCTAssertEqual(InboxPresentation.preview(question()),
-      "What should I draft for Jayne? — Still on track or delayed?")
-    XCTAssertEqual(InboxPresentation.previewSymbol(question()), "checklist")
+      "What should I draft for Jayne?")
+    XCTAssertEqual(question().previewText, InboxPresentation.preview(question()))
+    XCTAssertNil(InboxPresentation.previewSymbol(question()))
     var answered = question()
     answered.metadata["respondedValue"] = .string("yes")
     XCTAssertEqual(InboxPresentation.preview(answered), InboxPresentation.preview(question()))
     XCTAssertEqual(InboxPresentation.activity(latest: answered, runs: []), .idle)
     answered.metadata["widget"]["helpText"] = .string(" \n ")
-    XCTAssertEqual(InboxPresentation.preview(answered), "What should I draft for Jayne? — Still on track")
+    XCTAssertEqual(InboxPresentation.preview(answered), "What should I draft for Jayne?")
     answered.metadata["widget"] = .null
     XCTAssertEqual(InboxPresentation.preview(answered), "Fallback question")
   }
 
-  func testQuestionPreviewIncludesChoicesWithoutAddingHelpTextToTheCard() {
+  func testQuestionPreviewDoesNotAppendChoices() {
     var choice = question()
     choice.metadata["widget"]["helpText"] = .null
     choice.metadata["widget"]["options"] = .array([
@@ -128,7 +129,7 @@ final class InboxPresentationTests: XCTestCase {
       .object(["label": .string("Delayed on customs")]),
     ])
     XCTAssertEqual(InboxPresentation.preview(choice),
-      "What should I draft for Jayne? — Still on track, Delayed on customs")
+      "What should I draft for Jayne?")
     choice.metadata["widget"]["options"] = .array([])
     XCTAssertEqual(InboxPresentation.preview(choice), "What should I draft for Jayne?")
   }
@@ -156,10 +157,10 @@ final class InboxPresentationTests: XCTestCase {
 
   func testWidgetPreviewIsSingleLineAndUsesSharedLengthLimit() {
     var long = question()
-    long.metadata["widget"]["prompt"] = .string("**Choose**\none")
+    long.metadata["widget"]["prompt"] = .string("**Choose** " + String(repeating: "more ", count: 100))
     long.metadata["widget"]["helpText"] = .string(String(repeating: "more ", count: 100))
     let preview = InboxPresentation.preview(long)
-    XCTAssertTrue(preview.hasPrefix("Choose one — more"))
+    XCTAssertTrue(preview.hasPrefix("Choose more"))
     XCTAssertFalse(preview.contains("\n"))
     XCTAssertEqual(preview.utf16.count, MessagePreview.limit)
     XCTAssertTrue(preview.hasSuffix("…"))

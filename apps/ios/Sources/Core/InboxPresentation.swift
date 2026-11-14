@@ -21,19 +21,11 @@ public enum InboxPresentation {
   }
 
   public static func preview(_ message: Message) -> String {
-    guard message.metadata["type"].string == "widget" else { return message.previewText }
-    let widget = message.metadata["widget"]
-    let help = widget["helpText"].string
-    let detail = MessagePreview.trim(help).isEmpty
-      ? widget["options"].array.map { $0["label"].string }.filter { !$0.isEmpty }.joined(separator: ", ")
-      : help
-    let parts = [widget["prompt"].string, detail]
-      .map(MessagePreview.plainText).filter { !$0.isEmpty }
-    return parts.isEmpty ? message.previewText : MessagePreview.truncate(parts.joined(separator: " — "))
+    message.previewText
   }
 
   public static func previewSymbol(_ message: Message) -> String? {
-    if message.metadata["type"].string == "widget" { return "checklist" }
+    if message.metadata["type"].string == "widget" { return nil }
     return message.isAttachmentOnly ? "paperclip" : nil
   }
 

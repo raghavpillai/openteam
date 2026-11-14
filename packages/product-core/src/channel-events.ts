@@ -75,6 +75,12 @@ export const channelMessageSummary = (message: ChannelMessageView): string => {
   if (routineChange) {
     return `${routineChangedActionLabel(routineChange.action)} ${routineChange.automationName}`;
   }
+  const metadata = messageMetadata(message);
+  const widget = metadata.widget;
+  if (metadata.type === "widget" && widget && typeof widget === "object" && !Array.isArray(widget)) {
+    const prompt = (widget as Record<string, unknown>).prompt;
+    if (typeof prompt === "string" && prompt.trim()) return messagePreviewText(prompt);
+  }
   const { attachments, displayContent, richMessage, stagedAttachments } =
     messageDisplayProjection(message);
   const files = [...attachments, ...stagedAttachments];

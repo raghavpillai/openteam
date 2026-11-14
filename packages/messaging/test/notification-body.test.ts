@@ -45,6 +45,14 @@ describe("messageNotificationBody", () => {
     expect(messageNotificationBody(message("Deploy to production?", { type: "widget" }))).toBe(
       "Deploy to production?"
     );
+    expect(messageNotificationBody(message("Fallback content", {
+      type: "widget",
+      widget: {
+        prompt: "Which **color**?",
+        helpText: "Choose a sample",
+        options: [{ label: "Red" }, { label: "Blue" }],
+      },
+    }))).toBe("Which color?");
     expect(
       messageNotificationBody(message("Secret requested: GITHUB_TOKEN", { type: "secret-request" }))
     ).toBe("Secret requested: GITHUB_TOKEN");

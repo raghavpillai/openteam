@@ -21,6 +21,16 @@ The final synthetic choice remained actionable for roughly eleven minutes before
 
 The tested single-choice card's context menu offered reply, copy and request-ID actions. No separate dismiss control appeared in that card's accessibility tree or screenshot. The installed renderer nevertheless has an explicit dismissal path. OpenTeam retains its existing explicit Dismiss control.
 
+### Unselected chats and notifications (November 14 follow-up)
+
+With `Draft Timing Parity A` selected, the research bot's pending question appeared in the sidebar as `QUESTION PREVIEW TEST: Which sample color?`, with the usual blue unread dot. Its help text (`Choose a sample for this test.`) and Red/Blue choices appeared inside the card but not in the sidebar preview. There was no star, checklist glyph, or other question-specific avatar/preview marker. A second Cat/Dog question produced the same prompt-only sidebar preview. Reopening that question cleared the unread dot while leaving its choices actionable.
+
+The installed renderer's `gH` returns the ordinary widget prompt as its message summary. The installed Electron main bundle has separate notification formatting (`uUt`) and focus gating (`Hyr`, `Lgr`, `Ugr`). In the desktop chat route, focus suppresses the conversation on screen; a different conversation and an unfocused app remain eligible, subject to read state, notification preferences, throttling and deduplication. Notifications use Electron's native notification API with a title and body, and clicking opens the conversation/message. There is no question-specific icon or answer-button configuration in that constructor.
+
+For ordinary message notifications, the title is the bot's display name and the body comes from the latest preview, with whitespace normalized and a 140-character limit. Its preview formatter supports `widget_prompt` as well as `widget_options` and `widget_answered` payloads. Therefore the sidebar observation alone does not establish the exact notification body emitted by the private backend. Approvals that set `awaitingUserResponse` have a separate needs-input notification path and copy.
+
+macOS initially had Grok Bot notifications disabled, with temporary banners selected underneath the disabled setting. The user's permission was obtained before temporarily enabling notifications for the live test. The `BANNER TEST: Which sample animal?` question was generated three seconds after the prompt while Grok was hidden; inspecting the hidden window initially returned stale state. No native banner was captured. macOS also had notifications while mirroring/sharing set to Notifications Off; this global setting was left unchanged. The app's notification permission was restored to off and verified in System Settings. The synthetic question was subsequently dismissed by a stop message, and the bot acknowledged `Test stopped.` Exact banner appearance and the backend's choice of question-preview payload remain unverified.
+
 ## Installed client behavior
 
 Read-only inspection of the installed `app.asar` agrees with the native observations. In the renderer bundle `index.eager-app-C1EubAxZ.js`, `WH` computes historical dismissed widgets by scanning backward across real user-message boundaries and settled widgets. `KJt` selects the current question, stopping at those same boundaries. `RR` distinguishes active, resolved and dismissed presentation. Synthetic system notices are excluded from ordinary user boundaries by `HJt`.
@@ -43,6 +53,8 @@ Desktop and iOS derive the same historical presentation without rewriting cached
 
 iOS custom answers live inside the card and have an explicit Submit button, separate from the normal composer. Both clients show the contextual question hint. Ordinary questions no longer create iOS's persistent orange star; requests such as pending drafts and credentials retain their independent attention state.
 
+The November 14 follow-up also removes iOS's question-preview checklist icon and appended help/options. Shared desktop/server summaries and iOS previews prefer the question prompt, with ordinary content as a malformed-card fallback. Notification bodies use the same shared summary. Desktop banners now suppress only the focused conversation, allowing an unread question in another chat to notify while the app is open. Existing read reconciliation, throttling and click routing remain in force.
+
 The opt-in `dismissOnMoveOn` tool field and iOS's composer-to-widget answer path were removed. There is no compatibility mode or data backfill. Existing unanswered cards settle on the next accepted message; presentation also respects later messages already in loaded history. No new age-based expiration is inferred for ordinary questions.
 
 ## Validation
@@ -52,3 +64,5 @@ The isolated PostgreSQL tests cover normal typed replies, rejected stale answers
 All 301 Swift core tests pass. The Xcode 27.3 simulator build passes, and a native UI test on a fresh iOS 27.1 Duo simulator verifies that an unfinished multi-select/custom card is dismissed when a normal message is sent, with no widget-response or widget-dismiss request. The existing Electron fixture passes in light and dark themes for direct and group presentation, including navigation, abandoned custom input, keyboard shortcuts and dismissal retry behavior. TypeScript checks and architecture boundaries pass.
 
 The signed-in startup closure measures 1,336,098 bytes versus 1,334,586 in an untouched build of the same main commit, an increase of 1,512 bytes. Its budget gains a bounded 2 KB allowance. The size gate still reports two identical pre-existing failures in both builds: preload is 10,008 bytes against a 10,000-byte limit, and the voice-memo closure is 67,330 against 64,900. Those ceilings and modules are unchanged.
+
+For the November 14 preview/focus follow-up, 36 targeted TypeScript tests and all 301 Swift core tests pass. Desktop and product-core TypeScript checks and architecture boundary checks pass. Coverage includes prompt-only notification summaries and delivery for a different chat while focused, suppression for the on-screen conversation, background delivery, read reconciliation and throttling.

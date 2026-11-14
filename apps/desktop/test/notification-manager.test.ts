@@ -174,10 +174,10 @@ describe("DesktopNotificationManager", () => {
     expect(delivered.map(({ body }) => body)).toEqual(["Message 3"]);
   });
 
-  test("suppresses every alert while the window is focused without starting a throttle window", () => {
+  test("suppresses the focused conversation without replaying or starting a throttle window", () => {
     let focused = true;
     const { manager, ids, advance } = harness({ focused: () => focused });
-    manager.setVisibleChannel("another-chat");
+    manager.setVisibleChannel("chat");
     manager.sync({ channels: [channel([])] });
     manager.sync({ channels: [channel([alert(1)])] });
     expect(ids()).toEqual([]);
@@ -185,6 +185,16 @@ describe("DesktopNotificationManager", () => {
     advance(1_000);
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     expect(ids()).toEqual(["chat:2"]);
+  });
+
+  test("delivers an unread question in another chat while the app has focus", () => {
+    const { manager, delivered } = harness({ focused: () => true });
+    manager.setVisibleChannel("another-chat");
+    manager.sync({ channels: [channel([])] });
+    manager.sync({ channels: [channel([alert(1, { title: "Question QA", body: "Which sample color?" })])] });
+    expect(delivered.map(({ title, body }) => ({ title, body }))).toEqual([
+      { title: "Question QA", body: "Which sample color?" },
+    ]);
   });
 
   test("sums unread counts, rejects stale snapshots, and leaves the visible channel out of the badge", () => {

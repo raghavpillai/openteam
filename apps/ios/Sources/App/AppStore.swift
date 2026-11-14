@@ -57,6 +57,12 @@ final class AppStore {
   private var catchUpSync: UUID?
   var connecting = false
   var busy: Set<String> = []
+  /// Presses of Send or Discard on draft cards that this device has not seen answered, by message
+  /// id. A card's row is rebuilt when its chat is left or the list recycles it, and picks its
+  /// send-off up from here. Never saved.
+  var draftPresses: [String: DraftPress] = [:]
+  /// Why such a press's request failed, for a row that was not there when it did.
+  var draftPressFailures: [String: String] = [:]
   var navigation: [String] = [] {
     didSet {
       navigationGeneration = UUID()

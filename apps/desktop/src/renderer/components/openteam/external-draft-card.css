@@ -17,14 +17,22 @@
   --draft-fill-faint: #1c1c1c0a;
   --draft-primary: #1c1c1c;
   --draft-primary-disabled: #1c1c1c26;
+  --draft-muted: #bdbdbd;
   --draft-green: #00854a;
-  --draft-green-fill: #14c16f17;
+  /* Sent is gold: `sent` is the badge's text and dot on `sent-fill`; the send-off
+     bursts and stamps in `sent-solid`, with `sent-ink` text on it. */
+  --draft-sent: #8a6800;
+  --draft-sent-fill: #d9a51c26;
+  --draft-sent-solid: #e2b033;
+  --draft-sent-ink: #1a1405;
   --draft-yellow: #aa6300;
   --draft-yellow-fill: color-mix(in srgb, #da830e 22%, transparent);
   --draft-danger: #cd2834;
   --draft-focus: #1e86fc;
   --draft-menu-shadow: 0 10px 20px -3px #1c1c1c1f, 0 4px 6px -4px #1c1c1c14;
   --draft-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --draft-spring: cubic-bezier(0.3, 1.5, 0.5, 1);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -51,6 +59,7 @@
   /* The reference panel is one step lighter than its bubble (#1f1f1f on #1b1b1b);
      keep that step on this app's darker-chat, lighter-bubble palette. */
   --draft-panel: #2a2a2a;
+  --draft-muted: #5c5c5c;
   --draft-divider: #f5f5f50f;
   --draft-outline: #f5f5f51a;
   --draft-fill: #f5f5f50a;
@@ -59,7 +68,9 @@
   --draft-primary: #f5f5f5;
   --draft-primary-disabled: #f5f5f521;
   --draft-green: #00ba69;
-  --draft-green-fill: #14c37012;
+  --draft-sent: #e3b341;
+  --draft-sent-fill: #e3b3411a;
+  --draft-sent-solid: #e3b341;
   --draft-yellow: #e28600;
   --draft-yellow-fill: color-mix(in srgb, #c8770c 22%, transparent);
   --draft-danger: #ff6463;
@@ -70,7 +81,8 @@
   margin: 0;
 }
 .draft-history { min-width: 0; }
-.draft-history > summary {
+.draft-history > summary,
+.draft-fx-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -127,8 +139,8 @@
   color: var(--draft-text-secondary);
 }
 .draft-status[data-tone="sent"] {
-  background: var(--draft-green-fill);
-  color: var(--draft-green);
+  background: var(--draft-sent-fill);
+  color: var(--draft-sent);
 }
 .draft-status[data-tone="warning"] {
   background: var(--draft-yellow-fill);
@@ -142,7 +154,7 @@
   background: var(--draft-text-tertiary);
 }
 .draft-status[data-tone="sent"] .draft-status-dot {
-  background: var(--draft-green);
+  background: var(--draft-sent);
 }
 .draft-status[data-tone="warning"] .draft-status-dot {
   background: var(--draft-yellow);
@@ -442,4 +454,173 @@ a.draft-field:hover {
   margin-left: 8px;
   flex-shrink: 0;
   color: var(--draft-icon-primary);
+}
+
+/* The send-off. Pressing Send gathers the button into a blob with a paper
+   plane in it, aimed the way it will leave; pressing Discard gathers that one
+   into a grey blob with a cross. What happens once the server has answered is
+   driven from external-draft-send-flight.ts. */
+.draft-send-label {
+  max-width: 5em;
+  overflow: clip;
+  transition:
+    max-width 0.22s var(--draft-spring),
+    opacity 0.1s linear;
+}
+.draft-send-plane {
+  width: 0;
+  height: 15px;
+  flex-shrink: 0;
+  opacity: 0;
+  fill: currentColor;
+  stroke-width: 1.5;
+  transform: translateX(-1px) rotate(40deg) scale(0.3);
+  transition:
+    width 0.22s var(--draft-spring),
+    opacity 0.12s linear 0.06s,
+    transform 0.3s var(--draft-spring) 0.04s;
+}
+.draft-discard-mark {
+  fill: none;
+  stroke-width: 2.25;
+  transform: scale(0.3);
+}
+.draft-button-primary,
+.draft-button-discard {
+  gap: 0;
+  transition:
+    padding 0.22s var(--draft-spring),
+    background-color 0.14s var(--draft-ease),
+    border-color 0.14s var(--draft-ease),
+    color 0.14s var(--draft-ease),
+    opacity 0.12s linear;
+}
+.draft-button-primary[aria-busy="true"] {
+  gap: 6px;
+}
+.draft-card[data-fx] [data-fx-actor] {
+  /* With the 15px glyph and the 1px border, a 32px circle. */
+  padding: 0 7.5px;
+  opacity: 1;
+  animation:
+    draft-send-squish 0.3s var(--draft-ease),
+    draft-send-breathe 1.2s ease-in-out 0.3s infinite alternate;
+}
+.draft-card[data-fx] .draft-button-discard[data-fx-actor] {
+  border-color: transparent;
+  background: var(--draft-muted);
+}
+.draft-card[data-fx] [data-fx-actor] .draft-send-label {
+  max-width: 0;
+  opacity: 0;
+}
+.draft-card[data-fx] [data-fx-actor] .draft-send-plane,
+.draft-fx-plane > .draft-send-plane {
+  width: 15px;
+  opacity: 1;
+  transform: translateX(-1px) rotate(40deg);
+}
+.draft-card[data-fx] [data-fx-actor] .draft-discard-mark {
+  transform: none;
+}
+.draft-actions > .draft-button-secondary:not(.draft-button-discard),
+.imessage-actions > .draft-button-secondary:not(.draft-button-discard),
+.draft-footer > .draft-trigger {
+  transition:
+    background-color 0.14s var(--draft-ease),
+    opacity 0.12s linear;
+}
+.draft-card[data-fx] :is(.draft-actions, .imessage-actions) > .draft-button:not([data-fx-actor]),
+.draft-card[data-fx] .draft-footer > .draft-trigger {
+  pointer-events: none;
+  opacity: 0;
+}
+/* The flight already brought the settled card in; it must not enter again. */
+.draft-card[data-fx="landed"] {
+  animation: none;
+}
+/* The blob has left the button; nothing behind it should keep animating. */
+.draft-card[data-fx="flying"] [data-fx-actor] {
+  visibility: hidden;
+  animation: none;
+}
+.draft-card[data-fx="flying"] .draft-status,
+.draft-fx-summary {
+  opacity: 0;
+}
+.draft-fx-summary,
+.draft-fx-header {
+  position: absolute;
+  right: 12px;
+  left: 12px;
+}
+.draft-fx-header {
+  top: 12px;
+}
+.draft-fx-header > :first-child {
+  opacity: 0;
+}
+.draft-fx,
+.draft-fx-goo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.draft-fx > svg {
+  position: absolute;
+}
+/* The closed card's box, pinned to the bottom edge of the closing card. */
+.draft-fx-stage {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+.draft-fx-goo {
+  filter: url(#draft-fx-goo);
+}
+.draft-fx-blob,
+.draft-fx-plane {
+  position: absolute;
+  top: -16px;
+  left: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  opacity: 0;
+}
+.draft-fx-plane {
+  display: grid;
+  place-items: center;
+  color: var(--draft-text-inverted);
+}
+.draft-card .draft-fx-plane > .draft-send-plane {
+  transform: translateX(-1px);
+  transition: none;
+}
+.draft-card .draft-fx-plane > .draft-discard-mark {
+  transform: none;
+}
+.draft-card[data-fx] .draft-fx-ghost {
+  position: absolute;
+  opacity: 1;
+}
+/* "Sent", written on the solid gold splat. */
+.draft-card[data-fx] .draft-fx-stamp {
+  background: none;
+  color: var(--draft-sent-ink);
+  opacity: 0;
+}
+.draft-card[data-fx] .draft-fx-stamp .draft-status-dot {
+  background: currentColor;
+}
+@keyframes draft-send-squish {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.12, 0.84); }
+  65% { transform: scale(0.94, 1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes draft-send-breathe {
+  from { transform: scale(1); }
+  to { transform: scale(1.05); }
 }

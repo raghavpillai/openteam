@@ -219,7 +219,7 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       options[1]!.getAttribute("aria-pressed") === "true",
     "Multiselect lost selection"
   );
-  check(!!button(first.id, "Submit"), "Selection did not reveal Submit");
+  check(!!button(first.id, "Done"), "Multiselect Done action missing");
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-selected`);
   await pause(200);
   check(
@@ -256,8 +256,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   draw();
   await pause(100);
   const before = calls.length;
-  button(first.id, "Submit").click();
-  button(first.id, "Submit")?.click();
+  button(first.id, "Done").click();
+  button(first.id, "Done")?.click();
   await pause(450);
   check(calls.length === before + 1, "Double click submitted twice");
   check(
@@ -296,6 +296,20 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   );
   editor.blur();
   document.body.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "d", bubbles: true, cancelable: true })
+  );
+  await pause();
+  const custom = card(third.id).querySelector<HTMLTextAreaElement>("textarea")!;
+  check(document.activeElement === custom, "Custom-answer letter shortcut did not focus the field");
+  await setInput(custom, "Unsubmitted IME text");
+  const beforeComposition = calls.length;
+  custom.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter", isComposing: true, bubbles: true, cancelable: true,
+  }));
+  await pause(150);
+  check(calls.length === beforeComposition, "IME confirmation submitted the question");
+  custom.blur();
+  document.body.dispatchEvent(
     new KeyboardEvent("keydown", { key: "b", bubbles: true, cancelable: true })
   );
   await pause(450);
@@ -318,6 +332,14 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   card(retryCard.id).querySelector<HTMLButtonElement>('[aria-label="Dismiss question"]')!.click();
   await pause(450);
   check(card(retryCard.id).dataset.richWidgetState === "dismissed", "Dismiss did not settle");
+  const empty = msg("", widget("Empty Done skips the question", true));
+  messages.push(empty); draw(); await pause(200);
+  const beforeEmpty = calls.length;
+  button(empty.id, "Done").click();
+  await pause(450);
+  check(calls.length === beforeEmpty + 1 && calls.at(-1)!.value === undefined,
+    "Empty Done submitted an answer instead of dismissing");
+  check(card(empty.id).dataset.richWidgetState === "dismissed", "Empty Done did not settle");
   reports.push({
     theme,
     kind,
@@ -329,6 +351,8 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
       "draft remount/resize",
       "single submit/echo",
       "latest shortcut/composer isolation",
+      "custom shortcut focus/IME isolation",
+      "empty Done dismissal",
       "failure/retry",
       "dismissal",
       "group attribution",

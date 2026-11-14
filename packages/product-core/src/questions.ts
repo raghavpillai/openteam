@@ -12,7 +12,7 @@ const questionMetadata = (value: unknown): Record<string, unknown> =>
 export const projectQuestionLifecycle = <T extends ChannelMessageView>(
   messages: readonly T[]
 ): T[] => {
-  const boundaries = new Set<string>();
+  const boundaries = new Map<string, "moved-on" | "superseded">();
   const byId = new Map(messages.map((message) => [message.id, message]));
   const scopeOf = (message: ChannelMessageView): string => {
     const metadata = questionMetadata(message.metadata);
@@ -30,22 +30,22 @@ export const projectQuestionLifecycle = <T extends ChannelMessageView>(
     const metadata = questionMetadata(message.metadata);
     const scope = scopeOf(message);
     if (message.sender === "user") {
-      boundaries.add(scope);
+      boundaries.set(scope, "moved-on");
       continue;
     }
     if (message.sender !== "agent" || metadata.type !== "widget") continue;
     if (typeof metadata.respondedValue === "string" || metadata.widgetDismissed === true) {
-      boundaries.add(scope);
+      boundaries.set(scope, "superseded");
     } else if (boundaries.has(scope)) {
       result[index] = {
         ...message,
         metadata: {
           ...metadata,
           widgetDismissed: true,
-          widgetDismissalReason: "moved-on",
+          widgetDismissalReason: boundaries.get(scope),
         },
       };
-    }
+    } else boundaries.set(scope, "superseded");
   }
   return result;
 };

@@ -317,6 +317,20 @@ const server = Bun.serve({
       const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id)||/^gallery-\d+$/.test(id);
       return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':id==='layout-portrait'?'./fixtures/layout-portrait.png':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});
     }
+    if (method === "POST" && (path.endsWith("/widget-response") || path.endsWith("/widget-dismiss"))) {
+      const message: any = snapshot.channelMessages.find(m => m.id === path.split("/")[4]);
+      if (!message || message.metadata.type !== "widget") return response({}, 404);
+      if (typeof message.metadata.respondedValue === "string" || message.metadata.widgetDismissed)
+        return response({ accepted: false, message });
+      if (path.endsWith("/widget-response")) {
+        if (typeof input.value !== "string" || !input.value.trim()) return response({}, 400);
+        Object.assign(message.metadata, { respondedValue: input.value, widgetResponseClientId: input.clientId });
+      } else Object.assign(message.metadata, {
+        widgetDismissed: true, widgetDismissalReason: "dismissed", widgetDismissClientId: input.clientId,
+      });
+      emit("channel.message.updated", message.channelId);
+      return response({ accepted: true, message });
+    }
     if(path.endsWith("/user-form/prefill"))return response({email:"fixture@example.invalid"});
     if(path.endsWith("/user-form")||path.endsWith("/computer-handoff")){
       const message:any=snapshot.channelMessages.find(m=>m.id===path.split("/")[4]);if(!message)return response({},404);

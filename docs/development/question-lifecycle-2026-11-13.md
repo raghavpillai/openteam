@@ -40,6 +40,27 @@ The exact notification payload was subsequently recovered by reading macOS's not
 
 The body contains only the question prompt: no “asked a question” prefix, help text, or Cat/Dog options. The following ordinary response used the same bot-name title and `Test stopped.` as its body. OpenTeam's title/body composition is checked against the actual question payload in `packages/messaging/test/notification-body.test.ts`. The text is verified; exact native banner pixels remain unverified.
 
+### Additional interaction tests (November 14)
+
+The same isolated bot was exercised with fresh `PARITY-Q6` through `PARITY-Q9` cards. No connectors, commands, external messages, files, memories, or delegation were requested or used.
+
+| Case | Grok result | OpenTeam result/change |
+| --- | --- | --- |
+| Select Alpha, draft Gamma, navigate to a different chat and back | Both unfinished inputs remain; the card is still actionable | Desktop session drafts and iOS channel drafts already preserve navigation state |
+| Reload the desktop app with those unfinished inputs | The question remains open; the selection and custom text reset | Matches OpenTeam desktop's session-only question draft store |
+| Press the next letter after the option shortcuts | Focuses the inline custom answer field | Added this desktop shortcut and the Something else placeholder |
+| Press Done on a multi-select card with nothing selected or typed | Card becomes Dismissed, with no structured answer; no new bot reply appeared before the next user message | Added always-available Done on desktop/iOS; an empty Done uses explicit dismissal |
+| Submit Alpha plus custom Gamma | Your answer displays Alpha and Gamma, and the bot acknowledges both | Existing combined answer construction matches; Electron regression covers it |
+| Press Enter in an empty single-choice custom field | Card remains open and no answer is submitted | Existing empty-answer guard matches |
+| Send later normal messages after structured answers | Earlier Your answer receipts remain resolved | Covered by both client projections and history tests |
+| Confirm text during IME composition | Installed widget code explicitly ignores composing Enter events | Added the missing desktop guard; regression verifies no submission |
+
+The empty Done dismissal is deliberately distinct from Enter in an empty custom field, which does nothing. Installed `chunk-widget-Dr8msTuD.js` corroborates both paths: the Done handler dismisses when its assembled answer is empty, while the custom-field Enter handler ignores empty answers and IME composition.
+
+An additional OpenTeam update-ordering test exposed a gap independent of the native experiments: a newly published question could render alongside its still-pending predecessor until the predecessor's canonical update arrived. Desktop and iOS projections now retire the predecessor immediately in the same scope, without mutating cached rows. The regression failed before this fix and passes afterward; the server already persisted the same invariant.
+
+Remaining parity limits are explicit. Exact macOS banner pixels, genuine multi-day question aging, simultaneous questions from independent Grok background work, and interactions across two real Grok clients have not been verified. Grok's dismissed cards retain faded option text; OpenTeam desktop uses a compact dismissed presentation, while iOS retains faded options. iOS persists question drafts across app launches, whereas the tested Grok desktop reload clears them; Grok's iOS behavior was not tested. These are not evidence for inventing an age timeout or changing approval lifetimes.
+
 ## Installed client behavior
 
 Read-only inspection of the installed `app.asar` agrees with the native observations. In the renderer bundle `index.eager-app-C1EubAxZ.js`, `WH` computes historical dismissed widgets by scanning backward across real user-message boundaries and settled widgets. `KJt` selects the current question, stopping at those same boundaries. `RR` distinguishes active, resolved and dismissed presentation. Synthetic system notices are excluded from ordinary user boundaries by `HJt`.
@@ -72,6 +93,8 @@ The isolated PostgreSQL tests cover normal typed replies, rejected stale answers
 
 All 301 Swift core tests pass. The Xcode 27.3 simulator build passes, and a native UI test on a fresh iOS 27.1 Duo simulator verifies that an unfinished multi-select/custom card is dismissed when a normal message is sent, with no widget-response or widget-dismiss request. The existing Electron fixture passes in light and dark themes for direct and group presentation, including navigation, abandoned custom input, keyboard shortcuts and dismissal retry behavior. TypeScript checks and architecture boundaries pass.
 
-The final signed-in startup closure measures 1,336,245 bytes versus 1,334,586 in an untouched build of the same base main commit, an increase of 1,659 bytes. Its budget gains a bounded 2 KB allowance. The final desktop build passes. The size gate still reports two identical pre-existing failures in both builds: preload is 10,008 bytes against a 10,000-byte limit, and the voice-memo closure is 67,330 against 64,900. Those ceilings and modules are unchanged.
+The final signed-in startup closure measures 1,336,500 bytes versus 1,334,586 in an untouched build of the same base main commit, an increase of 1,914 bytes. Its budget gains a bounded 2 KB allowance. The final desktop build passes. The size gate still reports two identical pre-existing failures in both builds: preload is 10,008 bytes against a 10,000-byte limit, and the voice-memo closure is 67,330 against 64,900. Those ceilings and modules are unchanged.
 
 For the November 14 preview/focus follow-up, 37 targeted TypeScript tests and all 301 Swift core tests pass. Desktop and product-core TypeScript checks and architecture boundary checks pass. Coverage includes the actual Grok notification title/body, prompt-only summaries, suppression of all chats while focused, background delivery, read reconciliation and throttling.
+
+The additional interaction pass expands this to 42 targeted TypeScript tests and 302 Swift core tests, all passing. All four Electron direct/group and light/dark cases pass with new checks for custom-field shortcut focus, IME Enter isolation, and empty Done dismissal. Both native iOS tests pass: empty Done uses the dismiss endpoint without a widget response, and a normal composer message abandons the card draft without invoking either widget action endpoint. The first empty Done run exposed missing widget action routes in the isolated fixture server; those routes now return authoritative card state and mutation receipts. The corrected simulator rerun passes. Desktop typechecking, architecture boundaries, and the final desktop build pass; the size gate retains only the two baseline failures above.

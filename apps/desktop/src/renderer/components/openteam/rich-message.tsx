@@ -235,6 +235,7 @@ function WidgetCard({
   const authoritative = useRef(metadata);
   authoritative.current = metadata;
   const rootRef = useRef<HTMLFormElement>(null);
+  const customRef = useRef<HTMLTextAreaElement>(null);
   const shortcutHandlerRef = useRef<RichWidgetShortcutHandler>(() => undefined);
   const titleId = useId();
   useEffect(() => {
@@ -300,7 +301,13 @@ function WidgetCard({
   };
 
   shortcutHandlerRef.current = (event) => {
-    const option = widget.options[event.key.toUpperCase().charCodeAt(0) - 65];
+    const index = event.key.toUpperCase().charCodeAt(0) - 65;
+    if (widget.allowCustom && index === widget.options.length) {
+      event.preventDefault();
+      customRef.current?.focus();
+      return;
+    }
+    const option = widget.options[index];
     if (!option) return;
     event.preventDefault();
     choose(optionValue(option));
@@ -324,7 +331,8 @@ function WidgetCard({
       data-rich-widget-state="pending"
       onSubmit={(event) => {
         event.preventDefault();
-        void submit(widget.multiSelect ? selectedValue : custom.trim());
+        if (widget.multiSelect && !selectedValue) void dismiss();
+        else void submit(widget.multiSelect ? selectedValue : custom.trim());
       }}
       ref={rootRef}
     >
@@ -384,6 +392,7 @@ function WidgetCard({
           <div className="widget-custom">
             <textarea
               aria-label="Custom answer"
+              aria-keyshortcuts={widgetOptionLetter(widget.options.length).toLowerCase()}
               autoComplete="off"
 
               disabled={pending}
@@ -391,12 +400,13 @@ function WidgetCard({
                 setCustom(event.currentTarget.value);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   void submit(widget.multiSelect ? selectedValue : custom.trim());
                 }
               }}
-              placeholder="Type your own answer"
+              placeholder="Something else"
+              ref={customRef}
               rows={1}
               spellCheck={false}
               value={custom}
@@ -418,14 +428,14 @@ function WidgetCard({
           {error}
         </p>
       ) : null}
-      {widget.multiSelect && selectedValue ? (
+      {widget.multiSelect ? (
         <div className="flex w-full justify-end">
           <ButtonPrimitive
             className="widget-submit disabled:opacity-40"
             disabled={pending}
             type="submit"
           >
-            Submit
+            Done
           </ButtonPrimitive>
         </div>
       ) : null}

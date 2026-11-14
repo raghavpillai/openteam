@@ -65,4 +65,13 @@ final class QuestionLifecycleTests: XCTestCase {
     XCTAssertEqual(result[3], approval)
     XCTAssertEqual(QuestionLifecycle.current(result)?.id, q.id)
   }
+  func testNewQuestionRetiresPredecessorBeforeItsUpdateArrives() {
+    let older = row("1"), fresh = row("2")
+    let projected = QuestionLifecycle.project([older, fresh])
+    XCTAssertTrue(projected[0].metadata["widgetDismissed"].bool)
+    XCTAssertEqual(projected[0].metadata["widgetDismissalReason"].string, "superseded")
+    XCTAssertEqual(projected[1], fresh)
+    XCTAssertEqual(QuestionLifecycle.current(projected)?.id, fresh.id)
+    XCTAssertFalse(older.metadata["widgetDismissed"].bool)
+  }
 }

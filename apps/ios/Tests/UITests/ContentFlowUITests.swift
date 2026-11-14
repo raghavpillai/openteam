@@ -233,6 +233,20 @@ import XCTest
     XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
     capture("question-moved-on", app)
   }
+  func testEmptyQuestionDoneDismissesWithoutAnAnswer() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    let done = app.buttons["widget-submit-content-fixture"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    XCTAssertEqual(done.label, "Done")
+    XCTAssertTrue(done.isEnabled)
+    done.tap()
+    XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
+    let snapshot = try await state()
+    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
+    XCTAssertTrue(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
+  }
 
   func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
     for dark in [true, false] {

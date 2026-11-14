@@ -11,15 +11,15 @@ public enum QuestionLifecycle {
   }
 
   public static func project(_ messages: [Message], pending: [PendingSend] = []) -> [Message] {
-    var boundaries = Set<String>()
+    var boundaries: [String: String] = [:]
     var result = messages
     for index in result.indices.reversed() {
       let message = result[index]
       let key = scope(message)
-      if message.isUser { boundaries.insert(key); continue }
+      if message.isUser { boundaries[key] = "moved-on"; continue }
       guard message.sender == "agent", message.metadata["type"].string == "widget" else { continue }
       if message.metadata["respondedValue"] != .null || message.metadata["widgetDismissed"].bool {
-        boundaries.insert(key)
+        boundaries[key] = "superseded"
         continue
       }
       let movedOn = pending.contains { send in
@@ -32,10 +32,10 @@ public enum QuestionLifecycle {
         let root = reply?.metadata["questionScopeId"].string ?? ""
         return message.metadata["questionScopeId"].string == (root.isEmpty ? replyID : root)
       }
-      if boundaries.contains(key) || movedOn {
+      if boundaries[key] != nil || movedOn {
         result[index].metadata["widgetDismissed"] = .bool(true)
-        result[index].metadata["widgetDismissalReason"] = .string("moved-on")
-      }
+        result[index].metadata["widgetDismissalReason"] = .string(boundaries[key] ?? "moved-on")
+      } else { boundaries[key] = "superseded" }
     }
     return result
   }

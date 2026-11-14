@@ -273,15 +273,17 @@ struct RichMessageCard: View {
               .textFieldStyle(.roundedBorder).accessibilityIdentifier("widget-custom-" + message.id)
           }
           if widget["multiSelect"].bool || widget["allowCustom"].bool {
+            let canSubmit = widget["multiSelect"].bool || !widgetAnswer.isEmpty
             Button {
-              act("widget-response", body: ["value": .string(widgetAnswer)])
+              if widgetAnswer.isEmpty { act("widget-dismiss") }
+              else { act("widget-response", body: ["value": .string(widgetAnswer)]) }
             } label: {
-              Text("Submit").font(.system(size: 15, weight: .medium))
-                .foregroundStyle(widgetAnswer.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
+              Text(widget["multiSelect"].bool ? "Done" : "Submit").font(.system(size: 15, weight: .medium))
+                .foregroundStyle(canSubmit ? NativePalette.onPrimary : NativePalette.chatFaint)
                 .frame(maxWidth: .infinity).frame(height: 38)
-                .background(widgetAnswer.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
+                .background(canSubmit ? NativePalette.text : NativePalette.widgetDisabled,
                   in: RoundedRectangle(cornerRadius: 9))
-            }.buttonStyle(WidgetSubmitStyle()).disabled(widgetAnswer.isEmpty)
+            }.buttonStyle(WidgetSubmitStyle()).disabled(!canSubmit)
               .accessibilityIdentifier("widget-submit-" + message.id)
           }
         }

@@ -84,3 +84,14 @@ test("a stale server page cannot reopen a settled question or replace its answer
     expect(currentQuestion([merged])).toBeNull();
   }
 });
+
+test("a new question retires its predecessor before the older update arrives", () => {
+  const older = question("1"), fresh = question("3");
+  const projected = projectQuestionLifecycle([older, message("2"), fresh]);
+  expect(projected[0]!.metadata).toMatchObject({
+    widgetDismissed: true, widgetDismissalReason: "superseded",
+  });
+  expect(projected[2]).toBe(fresh);
+  expect(currentQuestion(projected)?.id).toBe(fresh.id);
+  expect(older.metadata).not.toHaveProperty("widgetDismissed");
+});

@@ -63,6 +63,23 @@ export function visualFixture(base: any, scene: string) {
     sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
     snapshot.runs = [0, 1, 2, 3].map(i => ({ ...runTemplate, id: `activity-run-${i}`,
       botId: `bot-activity-${i}`, channelId: i === 0 ? null : `activity-${i}`, status: "running" }));
+  } else if (scene === "avatar-activity") {
+    const cast: [string, string, string, string, string][] = [
+      ["research", "Research", "#00C875", "pod", "Found three flights under $400. Want the details?"],
+      ["inbox", "Inbox", "#FA2AA4", "owl", "Cleared 14 newsletters and flagged two invoices."],
+      ["builder", "Builder", "#9254FF", "classic", "The landing page build passed. Preview is ready."],
+      ["planner", "Planner", "#FF8A1F", "tv-head", "Moved the dentist to Thursday at 3."],
+      ["finance", "Finance", "#00B8A9", "goggles", "October spend is 6% under budget."],
+      ["travel", "Travel", "#FF253C", "bulb", "Your boarding pass is saved to Files."],
+      ["notes", "Notes", "#3D8BFF", "hex-visor", "Summarised the kickoff call in five bullets."],
+    ];
+    cast.forEach(([id, name, color, icon, preview], i) => {
+      const { channel } = bot(`avatar-${id}`, name, color, icon);
+      message(channel.id, "user", "Any update?", 1);
+      const row = message(channel.id, "agent", preview, cast.length + 2 - i);
+      channel.updatedAt = row.createdAt;
+    });
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
   } else if (scene === "inbox-unread") {
     // Widely separated unread targets exercise both directions and lazy offscreen rows.
     for (let i = 0; i < 44; i++) {

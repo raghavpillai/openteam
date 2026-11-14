@@ -457,7 +457,8 @@ struct ChatView: View {
       details = true
     } label: {
       HStack(spacing: 9) {
-        ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
+        // A still portrait: the live robot is the one in the conversation.
+        ChannelAvatar(channel: channel, size: 27, groupStyle: .inline, isPortrait: true)
         Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
           .lineLimit(1)
       }.padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)

@@ -13,11 +13,16 @@ struct BotGlyph: View {
   var sampleTime: Double? = nil
   /// A solid, expanded silhouette for transparent group-avatar knockout masks.
   var cutout: CGFloat? = nil
+  /// Tapping the robot plays a small reaction. Leave off inside buttons and rows.
+  var pokeable = false
+  /// Offsets the loops per Bot, so a list of avatars never moves in lockstep.
+  var seed: String? = nil
   var body: some View {
     RobotSurface(
       color: UIColor(color), shape: RobotShape(icon: kind), mode: mode,
       reduced: reduceMotion || forceReducedMotion, active: scenePhase == .active && inViewport,
-      sampleTime: sampleTime, outline: cutout.map { $0 * 108 / size }
+      sampleTime: sampleTime, outline: cutout.map { $0 * 108 / size }, pokeable: pokeable,
+      seed: seed
     )
     .frame(width: size, height: size).accessibilityHidden(true)
     .onScrollVisibilityChange(threshold: 0.01) { inViewport = $0 }
@@ -27,50 +32,68 @@ private struct RobotSurface: UIViewRepresentable {
   var color: UIColor, shape: RobotShape, mode: RobotAvatarMode, reduced: Bool, active: Bool
   var sampleTime: Double?
   var outline: CGFloat?
+  var pokeable: Bool
+  var seed: String?
   func makeUIView(context: Context) -> NativeRobotView { NativeRobotView(shape: shape) }
   func updateUIView(_ view: NativeRobotView, context: Context) {
     view.configure(
       color: color, shape: shape, mode: mode, reduced: reduced, active: active,
-      sampleTime: sampleTime, outline: outline)
+      sampleTime: sampleTime, outline: outline, pokeable: pokeable, seed: seed)
   }
   static func dismantleUIView(_ view: NativeRobotView, coordinator: ()) { view.stop() }
 }
 
-/// Core Animation vector layers keep the desktop SVG's flattened face projection and nested part
-/// transforms. CADisplayLink evaluates the shared keyframes; no browser or video is embedded.
+/// Core Animation vector layers mirror the desktop SVG element for element. CADisplayLink
+/// steps the shared motion engine, which plays the desktop's own poses, loops and reactions;
+/// no browser or video is embedded.
 @MainActor final class NativeRobotView: UIView {
-  private var motion: RobotMotion
+  private(set) var motion: RobotMotion
+  private var pacer = RobotModePacer()
   private let root = CALayer()
-  private var faceLayers: [(CALayer, RobotNode)] = []
-  private var partLayers: [String: CALayer] = [:]
+  private var layers: [String: CALayer] = [:]
+  private var dashed: [String: CAShapeLayer] = [:]
   private var inkLayers: [(CAShapeLayer, String, String, CGFloat)] = []
   private var link: CADisplayLink?, lastFrame: CFTimeInterval?
   private var active = true
-  private var requestedMode: RobotAvatarMode = .still
   private var sampleTime: Double?
+  private var sampled: (RobotShape, RobotAvatarMode, Double)?
+  private var pokes = 0
+  private var pokeTimes: [CFTimeInterval] = []
+  private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(poke))
+  /// When this robot may next fidget on its own; owned by `RobotLife`.
+  var nextFidget = CACurrentMediaTime() + .random(in: 1.5...11)
+  var lastFidget = ""
   init(shape: RobotShape) {
     motion = .init(shape: shape)
     super.init(frame: .zero)
     isOpaque = false
     isUserInteractionEnabled = false
+    // Hops and leans reach past the avatar's own box.
+    clipsToBounds = false
     layer.addSublayer(root)
     root.anchorPoint = .zero
     root.bounds = CGRect(x: 0, y: 0, width: 108, height: 108)
     buildArtwork()
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  private var now: Double { CACurrentMediaTime() }
+  private var live: Bool { active && window != nil }
   func configure(
     color: UIColor, shape: RobotShape, mode: RobotAvatarMode, reduced: Bool, active: Bool,
-    sampleTime: Double?, faceColor: UIColor? = nil, outline: CGFloat? = nil
+    sampleTime: Double?, faceColor: UIColor? = nil, outline: CGFloat? = nil,
+    pokeable: Bool = false, seed: String? = nil
   ) {
     let changedShape = motion.shape != shape
     motion.setShape(shape)
     if changedShape { buildArtwork() }
     motion.setReducedMotion(reduced)
-    requestedMode = mode
-    motion.setMode(active && window != nil ? mode : .still, animate: active && window != nil)
+    motion.phase = seed.map(Self.phase) ?? 0
+    pacer.request(mode)
     self.active = active
     self.sampleTime = sampleTime
+    isUserInteractionEnabled = pokeable
+    if pokeable, tap.view == nil { addGestureRecognizer(tap) }
+    syncMode()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     let resolved = color.resolvedColor(with: traitCollection)
@@ -84,7 +107,9 @@ private struct RobotSurface: UIViewRepresentable {
     let face = faceColor ?? UIColor(Color(hex: rgb == 0 || rgb == 0x242424 ? "F2F2F2" : "1B1B1D"))
     func paint(_ key: String) -> CGColor? {
       if key == "none" { return nil }
-      return (key == "currentColor" ? resolved : face).cgColor
+      if key == "currentColor" { return resolved.cgColor }
+      if key.hasPrefix("#") { return UIColor(Color(hex: String(key.dropFirst()))).cgColor }
+      return face.cgColor
     }
     for (layer, fill, stroke, width) in inkLayers {
       layer.fillColor = outline != nil && fill != "none" ? UIColor.black.cgColor : paint(fill)
@@ -94,6 +119,16 @@ private struct RobotSurface: UIViewRepresentable {
     CATransaction.commit()
     applyPose()
     updateClock()
+  }
+  /// A stable phase for a seed: one of four quarter-breaths, as on the desktop.
+  private static func phase(_ seed: String) -> Double {
+    var hash: UInt32 = 2_166_136_261
+    for unit in seed.utf16 { hash = (hash ^ UInt32(unit)) &* 16_777_619 }
+    return Double(hash % 4) * 1.15
+  }
+  private func syncMode() {
+    motion.setMode(live ? pacer.shown(at: now) : .still, animate: live)
+    if live { RobotLife.shared.add(self) } else { RobotLife.shared.remove(self) }
   }
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -109,8 +144,7 @@ private struct RobotSurface: UIViewRepresentable {
   }
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    motion.setMode(
-      window != nil && active ? requestedMode : .still, animate: window != nil && active)
+    syncMode()
     applyPose()
     updateClock()
   }
@@ -120,7 +154,7 @@ private struct RobotSurface: UIViewRepresentable {
     lastFrame = nil
   }
   private func updateClock() {
-    guard window != nil, active, motion.isAnimating, sampleTime == nil else {
+    guard live, motion.isAnimating || pacer.isPending, sampleTime == nil else {
       stop()
       return
     }
@@ -139,29 +173,60 @@ private struct RobotSurface: UIViewRepresentable {
   private func tick(_ link: CADisplayLink) {
     if let lastFrame { motion.advance(by: link.timestamp - lastFrame) }
     lastFrame = link.timestamp
+    motion.setMode(live ? pacer.shown(at: now) : .still, animate: live)
+    if let cue = motion.pendingCue {
+      motion.pendingCue = nil
+      RobotLife.shared.cue(cue, from: self)
+    }
     applyPose()
-    if !motion.isAnimating { stop() }
+    if !motion.isAnimating && !pacer.isPending { stop() }
   }
+
+  // MARK: Life
+  var isResting: Bool { live && motion.mode == .idle && motion.isSettled }
+  var looksAround: Bool { live && [.idle, .waiting, .done, .failed].contains(motion.mode) }
+  /// Run something on the motion engine and keep the clock going for it.
+  func act(_ body: (inout RobotMotion) -> Void) {
+    guard live else { return }
+    body(&motion)
+    updateClock()
+  }
+  @objc func poke() {
+    guard live else { return }
+    let time = now
+    pokeTimes = pokeTimes.filter { time - $0 < 2.6 } + [time]
+    if pokeTimes.count >= 5 {
+      // Five quick pokes in a row: spiral eyes and a woozy sway.
+      pokeTimes = []
+      motion.play("dizzy", interrupt: true)
+      motion.pendingCue = .poke
+    } else {
+      motion.poke(pokes)
+      pokes += 1
+    }
+    nextFidget = max(nextFidget, time + 6)
+    updateClock()
+  }
+
   private func applyPose() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    let design = RobotArtwork.shared[motion.shape]
-    var poses: [String: RobotPose] = [:]
-    for part in design.parts {
-      let pose =
-        sampleTime.map {
-          RobotKeyframes.pose(
-            part, mode: motion.reducedMotion ? .still : motion.mode, time: $0, tempo: design.tempo)
-        } ?? motion.pose(part.id)
-      poses[part.id] = pose
-      let m = pose.matrix
-      partLayers[part.id]?.setAffineTransform(
-        .init(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]))
-      partLayers[part.id]?.opacity = Float(pose.opacity)
+    var frames = motion.frames()
+    if let sampleTime {
+      // A fixed moment of a mode's loop, for the motion lab and its screenshots.
+      var sample = RobotMotion(shape: motion.shape, mode: .still)
+      sample.setReducedMotion(motion.reducedMotion)
+      sample.setMode(motion.mode, animate: false)
+      sample.advance(by: sampleTime)
+      frames = sample.frames()
     }
-    for (layer, node) in faceLayers {
-      let m = RobotProjection.faceMatrix(node, poses: poses)
-      layer.setAffineTransform(.init(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]))
+    for (id, layer) in layers {
+      guard let frame = frames[id] else { continue }
+      let m = frame.transform
+      layer.setAffineTransform(.init(a: m.a, b: m.b, c: m.c, d: m.d, tx: m.tx, ty: m.ty))
+      layer.opacity = Float(frame.opacity)
+      layer.isHidden = !frame.visible
+      dashed[id]?.strokeEnd = frame.strokeEnd
     }
     CATransaction.commit()
   }
@@ -169,20 +234,30 @@ private struct RobotSurface: UIViewRepresentable {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     root.sublayers?.forEach { $0.removeFromSuperlayer() }
-    partLayers = [:]
+    layers = [:]
+    dashed = [:]
     inkLayers = []
-    faceLayers = []
+    let design = RobotArtwork.shared[motion.shape]
+    // The artwork is drawn in the desktop's view box, which starts at (-4, -4).
     let content = CALayer()
     content.anchorPoint = .zero
     content.position = CGPoint(x: 4, y: 4)
     content.bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
     root.addSublayer(content)
-    let body = CALayer()
-    body.bounds = content.bounds
-    body.position = CGPoint(x: 50, y: 50)
-    content.addSublayer(body)
-    partLayers["body"] = body
-    for node in RobotArtwork.shared[motion.shape].nodes { body.addSublayer(makeLayer(node)) }
+    func group(_ id: String, _ origin: [Double]) -> CALayer {
+      let layer = CALayer()
+      layer.bounds = content.bounds
+      layer.anchorPoint = CGPoint(x: origin[0] / 100, y: origin[1] / 100)
+      layer.position = CGPoint(x: origin[0], y: origin[1])
+      layers[id] = layer
+      return layer
+    }
+    let rig = group("rig", design.rig.origin)
+    content.addSublayer(rig)
+    let body = group("body", design.body.origin)
+    rig.addSublayer(body)
+    for node in design.nodes { body.addSublayer(makeLayer(node)) }
+    for node in design.glyphs { rig.addSublayer(makeLayer(node)) }
     CATransaction.commit()
   }
   private func makeLayer(_ node: RobotNode) -> CALayer {
@@ -198,20 +273,20 @@ private struct RobotSurface: UIViewRepresentable {
       shape.contentsScale = traitCollection.displayScale
       inkLayers.append(
         (shape, node.tag == "line" ? "none" : node.fill, node.stroke, node.strokeWidth))
+      if node.dashed { dashed[node.id] = shape }
       layer = shape
     }
     layer.bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
-    let origin =
-      !node.part.isEmpty ? CGPoint(x: node.origin[0], y: node.origin[1]) : .zero
+    // The face plate's projected matrix already contains its origin.
+    let origin = node.perspective ? CGPoint.zero : CGPoint(x: node.origin[0], y: node.origin[1])
     layer.anchorPoint = CGPoint(x: origin.x / 100, y: origin.y / 100)
     layer.position = origin
-    layer.opacity = Float(node.opacity)
-    if node.perspective {
-      faceLayers.append((layer, node))
-    } else if !node.transform.isEmpty {
-      layer.setAffineTransform(Self.svgTransform(node.transform))
+    layers[node.id] = layer
+    if !node.transform.isEmpty, let shape = layer as? CAShapeLayer, let path = shape.path {
+      // An SVG transform attribute is part of the shape itself.
+      var transform = Self.svgTransform(node.transform)
+      shape.path = path.copy(using: &transform)
     }
-    if !node.part.isEmpty { partLayers[node.id] = layer }
     for child in node.children { layer.addSublayer(makeLayer(child)) }
     return layer
   }
@@ -228,6 +303,11 @@ private struct RobotSurface: UIViewRepresentable {
         in: CGRect(
           x: node["cx"] - node["r"], y: node["cy"] - node["r"], width: node["r"] * 2,
           height: node["r"] * 2))
+    case "ellipse":
+      path.addEllipse(
+        in: CGRect(
+          x: node["cx"] - node["rx"], y: node["cy"] - node["ry"], width: node["rx"] * 2,
+          height: node["ry"] * 2))
     case "line":
       path.move(to: CGPoint(x: node["x1"], y: node["y1"]))
       path.addLine(to: CGPoint(x: node["x2"], y: node["y2"]))
@@ -237,6 +317,19 @@ private struct RobotSurface: UIViewRepresentable {
         if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
       }
       path.closeSubpath()
+    case "path":
+      for (command, v) in RobotGeometry.commands(node.path) {
+        switch command {
+        case "M": path.move(to: CGPoint(x: v[0], y: v[1]))
+        case "L": path.addLine(to: CGPoint(x: v[0], y: v[1]))
+        case "Q": path.addQuadCurve(to: CGPoint(x: v[2], y: v[3]), control: CGPoint(x: v[0], y: v[1]))
+        case "C":
+          path.addCurve(
+            to: CGPoint(x: v[4], y: v[5]), control1: CGPoint(x: v[0], y: v[1]),
+            control2: CGPoint(x: v[2], y: v[3]))
+        default: path.closeSubpath()
+        }
+      }
     default: break
     }
     return path
@@ -261,6 +354,89 @@ private struct RobotSurface: UIViewRepresentable {
   }
 }
 
+/// What idle robots do on their own, and how they notice each other: the Swift counterpart
+/// of the desktop's interaction module. Each robot fidgets every so often, and at most one
+/// starts at a time across the screen; neighbours turn to look when one is poked, cheers or
+/// fails.
+@MainActor final class RobotLife {
+  static let shared = RobotLife()
+  private let robots = NSHashTable<NativeRobotView>.weakObjects()
+  private var timer: Timer?
+  private var lastFidget = 0.0
+  private static let fidgets: [(String, Int)] = [
+    ("look", 4), ("doubleBlink", 2), ("tiltLeft", 1), ("tiltRight", 1), ("hop", 1),
+    ("sleepy", 1), ("hum", 1), ("antenna", 1),
+  ]
+  func add(_ robot: NativeRobotView) {
+    robots.add(robot)
+    guard timer == nil else { return }
+    timer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: true) { _ in
+      Task { @MainActor in RobotLife.shared.fidget() }
+    }
+  }
+  func remove(_ robot: NativeRobotView) {
+    robots.remove(robot)
+    if robots.count == 0 {
+      timer?.invalidate()
+      timer = nil
+    }
+  }
+  private func fidget() {
+    let now = CACurrentMediaTime()
+    guard now - lastFidget >= 2.2 else { return }
+    let due = robots.allObjects.filter { $0.isResting && now >= $0.nextFidget }
+    guard let robot = due.randomElement() else { return }
+    lastFidget = now
+    robot.nextFidget = now + .random(in: 9...22)
+    let options = Self.fidgets.filter {
+      $0.0 != robot.lastFidget && ($0.0 != "antenna" || robot.motion.hasAntenna)
+    }
+    var roll = Int.random(in: 0..<options.reduce(0) { $0 + $1.1 })
+    let name = options.first { option in
+      roll -= option.1
+      return roll < 0
+    }?.0 ?? "look"
+    robot.lastFidget = name
+    robot.act { motion in
+      guard name == "look" else {
+        motion.play("fidget." + name)
+        return
+      }
+      let side: Double = Bool.random() ? 1 : -1
+      motion.lookAround([
+        (-0.85 * side, .random(in: 0.05...0.3), .random(in: 0.62...0.9)),
+        (0.8 * side, .random(in: -0.35...0), .random(in: 0.56...0.82)),
+      ])
+    }
+  }
+  #if DEBUG
+    /// The motion lab's stand-in for a tap, on the second robot it shows.
+    func demoPoke() {
+      let all = robots.allObjects.sorted { $0.convert(CGPoint.zero, to: nil).y < $1.convert(CGPoint.zero, to: nil).y || ($0.convert(CGPoint.zero, to: nil).y == $1.convert(CGPoint.zero, to: nil).y && $0.convert(CGPoint.zero, to: nil).x < $1.convert(CGPoint.zero, to: nil).x) }
+      all.dropFirst(all.count > 4 ? 4 : 0).first?.poke()
+    }
+  #endif
+  /// Neighbours turn to see what a robot just did, each a beat after the last.
+  func cue(_ kind: RobotCue, from source: NativeRobotView) {
+    guard let window = source.window else { return }
+    let from = source.convert(CGPoint(x: source.bounds.midX, y: source.bounds.midY), to: window)
+    for robot in robots.allObjects where robot !== source && robot.window === window && robot.looksAround {
+      let to = robot.convert(CGPoint(x: robot.bounds.midX, y: robot.bounds.midY), to: window)
+      let dx = Double(from.x - to.x)
+      let dy = Double(from.y - to.y)
+      let distance = hypot(dx, dy)
+      guard distance >= 1, distance <= 760 else { continue }
+      let at = Double.random(in: 0.06...0.26) + distance * 0.00022
+      let hold = (kind == .poke ? 0.76 : 1.3) + Double.random(in: 0...0.42)
+      let smiles = kind == .cheer && Double.random(in: 0...1) < 0.55
+      robot.act { motion in
+        motion.lookAround([(dx / distance * 0.95, dy / distance * 0.95, hold)], delay: at)
+        if smiles { motion.express(.joy, duration: 0.72, delay: at + 0.42) }
+      }
+    }
+  }
+}
+
 struct BotActivityRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let bot: Bot
@@ -271,7 +447,9 @@ struct BotActivityRow: View {
     HStack {
       // Keep the row geometry while giving the desktop artwork the reference's
       // visual weight; its 108-unit canvas includes padding around the robot.
-      BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 36, mode: mode)
+      BotGlyph(
+        color: Color(hex: bot.color), kind: bot.icon, size: 36, mode: mode, pokeable: true,
+        seed: bot.id)
         .frame(width: 32, height: 32).offset(x: -2, y: 1)
         .scaleEffect(visible || reduceMotion ? 1 : 0.3)
         .opacity(visible ? 1 : 0)
@@ -286,7 +464,7 @@ struct BotActivityRow: View {
       .padding(.bottom, visible ? 12 : 0)
       .clipped()
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(text ?? (bot.name + (mode == .idle ? " needs input" : " is working")))
+      .accessibilityLabel(text ?? (bot.name + (mode == .idle || mode == .waiting ? " needs input" : " is working")))
       .accessibilityIdentifier("bot-activity").accessibilityHidden(!visible)
   }
 }

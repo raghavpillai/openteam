@@ -4,6 +4,8 @@ import { AttachmentComposerSource } from "./attachment-composer";
 import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
+import { activityAvatarMode, botActivityKind } from "@openteam/product-core/bot-avatar";
+import type { BotAvatarMode } from "@openteam/contracts/robot-avatar";
 import { EXECUTING_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
 import { firstUnreadMessageId, groupChatActivity, type GroupActivity } from "../../lib/group-chat-presentation";
 import { GroupActivityContent } from "./group-activity";
@@ -811,25 +813,60 @@ const MessageRow = memo(function MessageRow({
 });
 
 
+/** A Bot arriving in the activity row gathers itself out of specks before it gets to work. */
+const SPAWN_MS = 2_000;
+/** When each run's row first appeared, so a row scrolled away and back does not arrive twice. */
+const entrances = new Map<string, number>();
+function useEntrance(mounted: boolean, key?: string): boolean {
+  const [enteredAt, setEnteredAt] = useState<number | null>(null);
+  const [, refresh] = useState(0);
+  if (mounted && enteredAt === null) {
+    const at = (key ? entrances.get(key) : undefined) ?? performance.now();
+    if (key) {
+      entrances.set(key, at);
+      if (entrances.size > 64) entrances.delete(entrances.keys().next().value!);
+    }
+    setEnteredAt(at);
+  }
+  // A run that takes over a row already on screen has arrived too.
+  if (mounted && enteredAt !== null && key && !entrances.has(key)) entrances.set(key, enteredAt);
+  if (!mounted && enteredAt !== null) setEnteredAt(null);
+  useEffect(() => {
+    if (enteredAt === null) return;
+    const timer = window.setTimeout(
+      () => refresh((value) => value + 1),
+      // A little late, so the render it causes is always past the entrance.
+      Math.max(0, enteredAt + SPAWN_MS - performance.now()) + 16
+    );
+    return () => window.clearTimeout(timer);
+  }, [enteredAt]);
+  return enteredAt !== null && performance.now() - enteredAt < SPAWN_MS;
+}
+
 const BotThinkingSlot = memo(function BotThinkingSlot({
   bot,
   phase,
   activity = "Thinking",
+  avatarMode = "thinking",
   group = false,
   groupActivity,
   groupStart = false,
   persistent = false,
+  entranceKey,
 }: {
   bot?: BotView;
   phase: ThinkingPhase;
   activity?: string;
+  avatarMode?: BotAvatarMode;
   group?: boolean;
   groupActivity?: GroupActivity;
   groupStart?: boolean;
   persistent?: boolean;
+  entranceKey?: string;
 }) {
   const name = bot?.name ?? "Bot";
   const mounted = phase !== "hidden";
+  const entering = useEntrance(mounted, entranceKey);
   return (
     <div
       aria-hidden={!mounted}
@@ -847,6 +884,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             "bot-thinking-content flex min-w-0 items-center gap-2",
             group && "group-activity-content"
           )}
+          data-avatar-gaze-scope=""
           data-bot-thinking=""
           data-persistent={persistent || undefined}
           data-exiting={phase === "exiting" || undefined}
@@ -856,7 +894,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             <GroupActivityContent activity={groupActivity} />
           ) : (
             <>
-              <BotAvatar bot={bot} size="sm" mode="thinking" />
+              <BotAvatar bot={bot} gaze="emphasis" size="sm" mode={entering ? "spawning" : avatarMode} />
               <ThinkingCaption text={activity} group={group} />
             </>
           )}
@@ -1426,9 +1464,16 @@ export const ChatPane = memo(function ChatPane({
       : thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined));
   }, [activeRun, groupActivity, hasBackgroundTask, itemsByRun]);
   const unreadMessageId = firstUnreadMessageId(mainMessages, unreadVisit.current.through);
-  const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText });
+  const thinkingAvatarMode = useMemo<BotAvatarMode>(
+    () =>
+      hasBackgroundTask && !activeRun
+        ? "working"
+        : activityAvatarMode(botActivityKind(activeRun ? itemsByRun.get(activeRun.id) : undefined)),
+    [activeRun, hasBackgroundTask, itemsByRun]
+  );
+  const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText, mode: thinkingAvatarMode });
   if (showThinkingIndicator || lastThinkingText.current.channelId !== channel.id) {
-    lastThinkingText.current = { channelId: channel.id, text: thinkingText };
+    lastThinkingText.current = { channelId: channel.id, text: thinkingText, mode: thinkingAvatarMode };
   }
   const thinkingMounted = thinkingPhase !== "hidden";
   // Keep the thinking row's space when it exits. Removing that space in a
@@ -1560,7 +1605,7 @@ export const ChatPane = memo(function ChatPane({
                         from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
                       >
                       {entry.type === "thinking" ? (
-                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} persistent={hasBackgroundTask && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} avatarMode={lastThinkingText.current.mode} entranceKey={activeRun ? `${channel.id}:${activeRun.id}` : undefined} persistent={hasBackgroundTask && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}

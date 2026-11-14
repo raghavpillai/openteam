@@ -677,7 +677,7 @@ export const Inspector = memo(function Inspector({
               onClick={() => onModeChange("settings")}
               type="button"
             >
-              <BotAvatar bot={bot} size="lg" />
+              <BotAvatar bot={bot} gaze="hover" size="lg" />
             </ButtonPrimitive>
             <BotProfileName
               bot={bot}

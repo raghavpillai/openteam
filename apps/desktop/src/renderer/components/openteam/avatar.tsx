@@ -10,6 +10,7 @@ import { useAuthSession } from "../../hooks/use-auth-session";
 import { accountPresentation } from "../../lib/account";
 import { cn } from "../../lib/cn";
 import { BotAvatarGlyph } from "./avatar-picker-icons";
+import type { RobotAvatarGaze } from "../../lib/robot-avatar-gaze-scope";
 
 import { AvatarChannelContext, useBotAvatarMode } from "./bot-avatar-activity";
 
@@ -17,6 +18,9 @@ export const BotAvatar = memo(function BotAvatar({
   bot,
   size = "md",
   mode,
+  gaze,
+  pokeable,
+  lasting,
   channelId,
   roster = false,
   className,
@@ -24,6 +28,9 @@ export const BotAvatar = memo(function BotAvatar({
   bot?: Pick<BotView, "color" | "icon"> & Partial<Pick<BotView, "id" | "hasAvatar" | "updatedAt">>;
   size?: "xs" | "activity" | "sm" | "md" | "lg";
   mode?: BotAvatarMode;
+  gaze?: RobotAvatarGaze;
+  pokeable?: boolean;
+  lasting?: boolean;
   channelId?: string;
   /** Compensate for the robot artwork's inset in the expanded conversation list. */
   roster?: boolean;
@@ -40,7 +47,8 @@ export const BotAvatar = memo(function BotAvatar({
     <AvatarPrimitive.Root
       className={cn(
         "grid shrink-0 place-items-center overflow-hidden",
-        roster && !avatarSource && "overflow-visible",
+        // Robots hop and lean past their box when poked; only a photo needs clipping.
+        !avatarSource && "overflow-visible",
         size === "xs" && "size-4",
         size === "activity" && "size-4",
         size === "sm" && "size-[22px]",
@@ -61,6 +69,10 @@ export const BotAvatar = memo(function BotAvatar({
       <AvatarPrimitive.Fallback className="grid size-full place-items-center">
         <BotAvatarGlyph
           mode={mode ?? activityMode}
+          gaze={gaze}
+          pokeable={pokeable}
+          lasting={lasting}
+          seed={bot?.id}
           className="size-full"
           style={roster ? { transform: "scale(1.25)" } : undefined}
           color={bot?.color ?? DEFAULT_BOT_AVATAR.color}

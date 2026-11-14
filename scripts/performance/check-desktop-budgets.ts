@@ -298,6 +298,10 @@ const lazyBudgets: Record<string, number> = {
   avatarPicker: 20_000,
   // The main window's half of ScreenBots: Bot list and durable delivery for the overlay.
   screenBotBridge: 3_500,
+  // Bot avatar life: spring-driven pointer gaze, click reactions, idle fidgets, neighbours glancing
+  // over, shyness and dozing, loaded on the first hover or press or once the app is idle:
+  // measured 12,204 B.
+  avatarGaze: 12_500,
   // Settings › Keyboard: the screenbot trigger and the app's rebindable shortcuts, each with a
   // recorder, Change and Reset.
   keyboardSettings: 16_000,

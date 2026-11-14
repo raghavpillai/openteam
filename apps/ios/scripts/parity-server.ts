@@ -63,6 +63,7 @@ let serverUpdate: any;
 let busyBots: any[] = [];
 let serverUpdateRequests: unknown[] = [];
 let contentReceipts:any[] = [];
+let runItems: any[] = [];
 let routineExecutions:any[] = [];
 type WebProviderRow = { secret: string | null; check: { status: "passed" | "failed"; message: string; checkedAt: string } | null };
 let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTool, Record<string, WebProviderRow>>; patches: unknown[]; checks: unknown[] };
@@ -74,7 +75,7 @@ function reset() {
   uploadedAssets.clear();
   snapshot = structuredClone(mobileFixture);
   snapshot.runtime.transcription = "configured";
-  sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
+  sequence = 14; events = []; runItems = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
   dropNextRoutineRun = false;
   deliveryStatuses = []; deliveryDelayMs = 0; sendResponseDelayMs = 0;
   pagedHistory = false;
@@ -174,6 +175,19 @@ const server = Bun.serve({
       if (!channel || !bot) return response({error: "Load a visual chat scene first"}, 400);
       snapshot.runs = input.active ? [{...mobileFixture.runs[0]!, id:"motion-run", botId:bot.id, conversationId:bot.conversationId, channelId:channel.id, status:"running"}] : [];
       if (input.content) snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:"agent",senderBotId:bot.id,sourceRunId:"motion-run",content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
+      emit("snapshot.reset"); return response({ok:true});
+    }
+    if (path === "/__qa/activity" && method === "POST") {
+      // One Bot's turn in one conversation: its run status and the live steps of that run.
+      const channel = snapshot.channels.find(c => c.id === input.channelId);
+      const bot = snapshot.bots.find(b => b.id === (input.botId ?? channel?.members[0]?.botId));
+      if (!channel || !bot) return response({error: "Unknown conversation"}, 400);
+      const id = `activity-${channel.id}-${bot.id}`, now = new Date().toISOString();
+      snapshot.runs = snapshot.runs.filter(run => run.id !== id);
+      runItems = runItems.filter(item => item.runId !== id);
+      if (input.status) snapshot.runs.push({...mobileFixture.runs[0]!, id, botId:bot.id, conversationId:bot.conversationId, channelId:channel.id, status:input.status});
+      if (input.status === "running") runItems = runItems.concat((input.items ?? []).map((item: any, index: number) => ({id:`${id}-${index}`, runId:id, kind:item.kind ?? "tool_call", status:item.status ?? "running", title:item.tool ?? null, content:item.tool ? {tool:item.tool} : {}, createdAt:now, updatedAt:now})));
+      if (input.content) snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:input.sender ?? "agent",senderBotId:input.sender === "user" ? null : bot.id,sourceRunId:input.sender === "user" ? null : id,content:input.content,metadata:input.metadata ?? {type:"text"},createdAt:now});
       emit("snapshot.reset"); return response({ok:true});
     }
     if (path === "/__qa/update-message" && method === "POST") {
@@ -366,7 +380,7 @@ const server = Bun.serve({
       const page = pagedHistory ? messages.slice(-60) : messages;
       return response({ channelId, messages: page, threadContext: [], threadContextTruncated: false, beforeSequence: page[0]?.sequence ?? null, hasMore: pagedHistory && messages.length > page.length, revision: String(sequence) });
     }
-    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: snapshot.subagents.filter(task => task.parentChannelId === path.split("/")[4]), truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
+    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs.filter(run => !run.channelId || run.channelId === path.split("/")[4]), runItems: runItems.filter(item => snapshot.runs.some(run => run.id === item.runId && run.channelId === path.split("/")[4])), subagents: snapshot.subagents.filter(task => task.parentChannelId === path.split("/")[4]), truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {
       if (deliveryDelayMs) await Bun.sleep(deliveryDelayMs);
       if (deliveryStatuses.length) {

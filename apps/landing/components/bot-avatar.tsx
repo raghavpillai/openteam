@@ -61,7 +61,7 @@ export function BotAvatar({
   const offset = [...id].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 1700, 0);
   const [expression, setExpression] = useState<AmbientExpression>("idle");
   const decorative = ambient && mode === undefined;
-  const activity = decorative ? (expression === "thinking" ? "thinking" : "idle") : mode ?? (blink ? "idle" : "still");
+  const activity = decorative ? (expression === "thinking" ? "working" : "idle") : mode ?? (blink ? "idle" : "still");
   const enabled = decorative || activity !== "still";
   const ref = useRef<SVGSVGElement>(null);
   const motion = useRef<ReturnType<typeof createRobotAvatarMotion> | null>(null);

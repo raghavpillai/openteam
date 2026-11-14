@@ -381,7 +381,7 @@ export function BotVisual({
     <div className="setup-card setup-profile">
       {/* A new look springs in with a small wiggle; the words cross-fade as they change. */}
       <span className="setup-profile-avatar" key={`${shape}-${color}`}>
-        <BotAvatarGlyph color={color} eyeColor="#111111" mode="idle" shape={shape} />
+        <BotAvatarGlyph color={color} eyeColor="#111111" gaze="follow" mode="idle" shape={shape} />
       </span>
       <strong>
         <CrossFade value={name} />

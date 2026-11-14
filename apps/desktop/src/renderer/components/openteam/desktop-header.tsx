@@ -110,7 +110,7 @@ export function DesktopHeader({
   const directTail = (
     <>
       <ArrowLeftRight className="size-3.5 shrink-0 text-muted-foreground" />
-      <BotAvatar bot={directMembers[1]?.bot} size="xs" />
+      <BotAvatar bot={directMembers[1]?.bot} mode="still" size="xs" />
       <span className="ml-0.5 text-[13px] font-medium">{directMembers[1]?.name ?? "Agent"}</span>
     </>
   );
@@ -136,7 +136,7 @@ export function DesktopHeader({
                   className="inline-flex min-w-max shrink-0 items-center gap-1.5 whitespace-nowrap"
                   data-a2a-header-pair=""
                 >
-                  <BotAvatar bot={directMembers[0]?.bot} size="xs" />
+                  <BotAvatar bot={directMembers[0]?.bot} mode="still" size="xs" />
                   <span className="ml-0.5 text-[13px] font-medium">
                     {directMembers[0]?.name ?? "Agent"}
                   </span>
@@ -170,7 +170,7 @@ export function DesktopHeader({
                   <span aria-hidden="true" className="desktop-conversation-surface" />
                   <span className="desktop-conversation-avatar">
                     {selectedBot ? (
-                      <BotAvatar bot={selectedBot} size="xs" className="size-full" />
+                      <BotAvatar bot={selectedBot} mode="still" size="xs" className="size-full" />
                     ) : (
                       <MessageCircle className="size-4 text-violet-500" />
                     )}

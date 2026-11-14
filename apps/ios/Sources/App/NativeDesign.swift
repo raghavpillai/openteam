@@ -140,9 +140,35 @@ private struct NativeGroupedStyle: ViewModifier {
   @Environment(\.settingsStyle) private var settingsStyle
   func body(content: Content) -> some View {
     if settingsStyle {
-      content.listStyle(.grouped).safeAreaPadding(.horizontal, 16).listSectionSpacing(28)
+      content.listStyle(.grouped).modifier(SettingsSideInsets()).listSectionSpacing(28)
         .environment(\.defaultMinListRowHeight, 51)
     } else { content }
+  }
+}
+
+/// Cards keep 16 points from a screen edge. Beside a vertical bar, as on iPhone Duo's outer
+/// display, they run up to the bar, and the list itself ends there so a row lifted for
+/// reordering never slides underneath it.
+private struct SettingsSideInsets: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(iOS 27.1, *) {
+      content.modifier(SettingsBarAwareInsets())
+    } else {
+      content.safeAreaPadding(.horizontal, 16)
+    }
+  }
+}
+
+@available(iOS 27.1, *)
+private struct SettingsBarAwareInsets: ViewModifier {
+  @Environment(\.toolbarVerticalEdge) private var edge
+  func body(content: Content) -> some View {
+    content
+      .safeAreaPadding(.leading, edge == .leading ? 0 : 16)
+      .safeAreaPadding(.trailing, edge == .trailing ? 0 : 16)
+      // Any padding on an edge keeps a list from extending into that edge's safe area.
+      .padding(.leading, edge == .leading ? 1 : 0)
+      .padding(.trailing, edge == .trailing ? 1 : 0)
   }
 }
 

@@ -1,69 +1,29 @@
 import type { RunItemView } from "@openteam/contracts";
+import { botActivityKind, type BotActivityKind } from "@openteam/product-core/bot-avatar";
+
+const ACTIVITY_LABELS: Readonly<Record<BotActivityKind, string>> = {
+  thinking: "Thinking",
+  typing: "Typing",
+  searching: "Searching the web",
+  "reading-web": "Reading the web",
+  browsing: "Browsing the web",
+  "reading-file": "Reading file",
+  "running-commands": "Running commands",
+  "waiting-command": "Waiting on a command",
+  "waiting-you": "Waiting for you",
+  connecting: "Connecting to an app",
+  computer: "On its computer",
+  messaging: "Sending a message",
+  delegating: "Waiting on another Bot",
+  generating: "Generating a photo",
+  drafting: "Drafting the file",
+  organizing: "Organizing context",
+  working: "Working",
+};
 
 /** Project only active runtime items; never display tool arguments or reasoning text. */
 export function thinkingActivity(items: readonly RunItemView[] = []): string {
-  let latest: RunItemView | undefined;
-  for (const item of items) {
-    if (item.status !== "running" && item.status !== "pending") continue;
-    if (
-      !latest ||
-      item.createdAt > latest.createdAt ||
-      (item.createdAt === latest.createdAt && item.updatedAt >= latest.updatedAt)
-    )
-      latest = item;
-  }
-  if (!latest) return "Thinking";
-  if (latest.kind === "reasoning") return "Thinking";
-  if (latest.kind === "command") return "Running commands";
-  if (latest.kind === "file_change") return "Drafting the file";
-  if (latest.kind === "compaction") return "Organizing context";
-  // Runtime agent text is internal, not necessarily a message being sent to the user.
-  const content =
-    latest.content && typeof latest.content === "object"
-      ? (latest.content as Record<string, unknown>)
-      : {};
-  const tool = typeof content.tool === "string" ? content.tool : (latest.title ?? "");
-  switch (tool) {
-    case "SendToUser":
-      return "Typing";
-    case "read":
-    case "Read":
-    case "ReadFile":
-    case "BoxRead":
-      return "Reading file";
-    case "WebSearch":
-    case "web_search":
-      return "Searching the web";
-    case "WebFetch":
-    case "web_fetch":
-      return "Reading the web";
-    case "write":
-    case "edit":
-    case "Write":
-    case "Edit":
-      return "Drafting the file";
-    case "Shell":
-    case "ExternalShell":
-    case "bash":
-    case "BoxShell":
-      return "Running commands";
-    case "Await":
-    case "AwaitProcess":
-      return "Waiting on a command";
-    case "Computer":
-    case "Screenshot":
-      return "On its computer";
-    case "SendToAgent":
-    case "UpdateAgent":
-      return "Messaging another assistant";
-    case "Task":
-    case "CheckSubagent":
-      return "Waiting on another Bot";
-    case "GenerateImage":
-      return "Generating a photo";
-    default:
-      return latest.kind === "agent_message" ? "Thinking" : "Working";
-  }
+  return ACTIVITY_LABELS[botActivityKind(items)];
 }
 
 export type HeldActivity = { text: string; since: number; previous: string | null };

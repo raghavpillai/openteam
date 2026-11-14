@@ -527,7 +527,7 @@ function SidebarDragPreview({
     >
       <WorkingAvatar channelId={row.channel.id} active={working} ringColor="var(--popover)" size="pin">
         {bot ? (
-          <BotAvatar bot={bot} channelId={channel.id} size="lg" />
+          <BotAvatar bot={bot} channelId={channel.id} gaze="hover" size="lg" />
         ) : (
           <div className="relative h-[68px] w-[86px] shrink-0">
             {groupBots.map((groupBot, index) => (
@@ -535,7 +535,7 @@ function SidebarDragPreview({
                 className={cn("absolute", index === 0 ? "left-0 top-0" : "bottom-0 right-0")}
                 key={groupBot?.id ?? index}
               >
-                <BotAvatar bot={groupBot} channelId={channel.id} size="lg" />
+                <BotAvatar bot={groupBot} channelId={channel.id} gaze="hover" size="lg" />
               </div>
             ))}
           </div>
@@ -1122,7 +1122,7 @@ function DraggablePinnedTile({
           size="pin"
         >
           {bot ? (
-            <BotAvatar bot={bot} channelId={channel.id} size="lg" />
+            <BotAvatar bot={bot} channelId={channel.id} gaze="hover" size="lg" />
           ) : (
             <ChannelAvatar botById={botById} channel={channel} size="lg" />
           )}

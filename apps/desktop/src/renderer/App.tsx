@@ -1273,6 +1273,8 @@ export default function App() {
       channel={pendingBot ? null : (a2aExchangeChannel ?? selected)}
       run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
       runsByChannel={index.runsByChannel}
+      itemsByRun={index.itemsByRun}
+      latestMessageByChannel={index.latestMessageByChannel}
     >
       <TooltipProvider>
         <main className="relative flex h-screen overflow-hidden bg-background text-foreground">

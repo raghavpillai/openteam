@@ -46,6 +46,9 @@ struct HomeView: View {
   /// The conversation list's width beside a chat, as last dragged; 0 until then.
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
   @State private var dragStartWidth: CGFloat?
+  /// How much of the hidden list an edge swipe has pulled over the chat.
+  @State private var reveal = ListReveal()
+  private var listAnimation: Animation? { reduceMotion ? nil : .smooth(duration: 0.3) }
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var swipedChannel: String?
   @State private var viewportChannelIDs: Set<String> = []
@@ -89,7 +92,14 @@ struct HomeView: View {
           splitLayout(width: geometry.size.width - rightColumnWidth, fold: HomeLayout.fold(in: geometry))
         } else { stackLayout }
       }
-      .onChange(of: split, initial: true) { _, value in splitAvailable = value }
+      .onChange(of: split, initial: true) { _, value in
+        splitAvailable = value
+        reveal.clear()
+      }
+      // A hidden list comes back once no chat is left to fill the screen.
+      .onChange(of: store.navigation.isEmpty) { _, empty in
+        if empty, listHidden { withAnimation(listAnimation) { listHidden = false } }
+      }
       .overlay(alignment: .topLeading) {
         if splitAvailable, listHidden, portrait || !barRegions.hasHinge, store.navigation.isEmpty {
           inboxHeader(isSidebar: false)
@@ -111,6 +121,17 @@ struct HomeView: View {
     .ignoresSafeArea(.container, edges: splitAvailable && barRegions.hasHinge
       ? (portraitLayout ? [.top, .trailing] : [.top]) : [])
     .background { NativePalette.sidebar.ignoresSafeArea() }
+    .overlay {
+      // Beside the list, in the bar's free middle, where a title would cover the first row.
+      if toolbarOnSide, store.syncingState, store.navigation.isEmpty, barRegions.sideEdge != nil {
+        Color.clear.overlay(alignment: barRegions.sideEdge == .leading ? .leading : .trailing) {
+          ProgressView().controlSize(.regular).tint(NativePalette.muted)
+            .frame(width: BarRegions.barExtent, height: BarRegions.barExtent)
+            .padding(.horizontal, max(0, barRegions.sideCenter - BarRegions.barExtent / 2))
+            .accessibilityLabel("Syncing state").accessibilityIdentifier("syncing-state")
+        }.ignoresSafeArea().allowsHitTesting(false)
+      }
+    }
     .overlay {
       if store.openingNotification != nil {
         LoadingOrb(label: "Opening message")
@@ -244,18 +265,7 @@ struct HomeView: View {
     let listWidth: CGFloat = fold?.midX ?? draggedWidth
     return HStack(spacing: 0) {
       if showsList {
-        // A gray column, edge to edge, beside the chat; the open chat is a card on it.
-        conversationList(isSidebar: referenceSidebar)
-          .environment(\.canvasColor, referenceSidebar ? SidebarFooterFade.canvas : NativePalette.sidebar)
-          // The list never reaches the side region beside a chat.
-          .environment(\.sideChrome, nil)
-          .safeAreaPadding(.trailing, foldInset)
-          .frame(width: listWidth)
-          .overlay(alignment: .trailing) {
-            NativePalette.separator.frame(width: 1 / displayScale)
-              .ignoresSafeArea(.container, edges: .vertical)
-              .allowsHitTesting(false).accessibilityHidden(true)
-          }
+        listColumn(width: listWidth, foldInset: foldInset)
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
@@ -270,7 +280,7 @@ struct HomeView: View {
           .environment(
             \.chatLeadingControl,
             ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations", external: barRegions.hasHinge && !portraitLayout) {
-              withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
+              withAnimation(listAnimation) { listHidden.toggle() }
             })
           .safeAreaPadding(.leading, showsList ? foldInset : 0)
           .environment(\.chatColumnLeading, showsList ? listWidth : 0)
@@ -283,31 +293,76 @@ struct HomeView: View {
     // Above both columns, so neither scroll view takes the drag.
     .animation(.smooth(duration: 0.3), value: fold)
     .overlay(alignment: .leading) {
-      if showsList, fold == nil {
+      if showsList {
+        // Partly folded, the columns stay at the fold: the handle only hides the list.
+        let resizes = fold == nil
         SidebarResizeHandle(
           width: listWidth, range: range, dragging: dragStartWidth != nil,
           onDrag: { translation in
             let start = dragStartWidth ?? listWidth
             dragStartWidth = start
-            draggedSidebarWidth = min(range.upperBound, max(range.lowerBound, start + translation))
+            if resizes { draggedSidebarWidth = min(range.upperBound, max(range.lowerBound, start + translation)) }
           },
           onEnd: { translation in
             // Dragging well past the narrowest width hides the list beside a
             // chat; it comes back at the width it had before.
             let start = dragStartWidth ?? listWidth
-            if selected != nil, start + translation < range.lowerBound - 80 {
-              draggedSidebarWidth = start
-              withAnimation(.smooth(duration: 0.3)) { listHidden = true }
+            if selected != nil, resizes ? start + translation < range.lowerBound - 80 : translation < -80 {
+              if resizes { draggedSidebarWidth = start }
+              withAnimation(listAnimation) { listHidden = true }
             }
             dragStartWidth = nil
           },
-          onSet: { draggedSidebarWidth = $0 })
+          onSet: { if resizes { draggedSidebarWidth = $0 } })
+          .accessibilityHidden(!resizes)
           .offset(x: listWidth - SidebarResizeHandle.hitWidth / 2)
+      }
+    }
+    // An edge swipe pulls the hidden list over the chat; let go far enough and
+    // the chat makes room for it.
+    .overlay(alignment: .leading) {
+      ListRevealOverlay(reveal: reveal, listWidth: listWidth, dims: listHidden) {
+        listColumn(width: listWidth, foldInset: foldInset)
+          .environment(\.tracksListViewport, false)
+          .nativeCanvas()
+      }
+    }
+    .background {
+      if listHidden {
+        LeadingEdgeSwipe(
+          onChange: { reveal.drag(to: min(listWidth, max(0, $0))) },
+          onEnd: { translation, velocity in
+            // The direction of the release wins over how far the list came.
+            let shows = translation > 0
+              && (velocity > 500 || (translation > listWidth * 0.4 && velocity > -500))
+            let drag = reveal.drags
+            withAnimation(listAnimation) {
+              reveal.width = shows ? listWidth : 0
+              if shows { listHidden = false }
+            } completion: {
+              // A drag that began during the settle keeps its list.
+              if reveal.drags == drag { reveal.width = nil }
+            }
+          })
       }
     }
     // Lists slide over the page color, not the window, as they collapse.
     .nativeCanvas()
     .environment(\.opensConversationsInPlace, true)
+  }
+  /// A gray column, edge to edge, beside the chat; the open chat is a card on it.
+  private func listColumn(width: CGFloat, foldInset: CGFloat) -> some View {
+    conversationList(isSidebar: referenceSidebar)
+      .environment(\.canvasColor, referenceSidebar ? SidebarFooterFade.canvas : NativePalette.sidebar)
+      // The list never reaches the side region beside a chat.
+      .environment(\.sideChrome, nil)
+      .safeAreaPadding(.trailing, foldInset)
+      .frame(width: width)
+      .overlay(alignment: .trailing) {
+        NativePalette.separator.frame(width: 1 / displayScale)
+          .ignoresSafeArea(.container, edges: .vertical)
+          .allowsHitTesting(false).accessibilityHidden(true)
+      }
   }
   private func conversationList(isSidebar: Bool = false) -> some View {
     GeometryReader { geometry in
@@ -328,7 +383,10 @@ struct HomeView: View {
                     ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
                       ConversationLink(id: channel.id, highlightsSelection: false) {
                         VStack(spacing: 7) {
-                          ChannelAvatar(channel: channel, size: 80, showsInboxActivity: true)
+                          ChannelAvatar(
+                            channel: channel, size: 80, animatesWhenInactive: true,
+                            showsInboxActivity: true,
+                            badgeRing: isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
                           Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
                             .lineLimit(1)
                         }.frame(width: 100).contentShape(Rectangle())
@@ -374,7 +432,8 @@ struct HomeView: View {
                   .accessibilityIdentifier("empty-conversations")
               }
             }
-            .padding(.top, !isSidebar && toolbarOnSide ? 4 : 0)
+            // Clear of the display's top edge, which the enlarged robot would otherwise meet.
+            .padding(.top, !isSidebar && toolbarOnSide ? 16 : 0)
             .padding(.leading, isSidebar ? SidebarMetrics.rowLeading : 22)
             .padding(.trailing, isSidebar ? SidebarMetrics.rowTrailing : (toolbarOnSide ? 10 : 22))
             .padding(.top, isSidebar && barRegions.hasHinge && !portraitLayout
@@ -592,7 +651,9 @@ struct HomeView: View {
       if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
       creationToolbarItem
     }
-    if store.syncingState {
+    // Beside the list a title would cover the first conversation; there the New button,
+    // which waits for the sync anyway, shows the progress.
+    if store.syncingState, !toolbarOnSide {
       ToolbarItem(id: InboxChrome.title, placement: .principal) {
         HStack(spacing: 8) {
           ProgressView().controlSize(.regular).tint(NativePalette.muted)
@@ -716,10 +777,7 @@ struct HomeView: View {
               }
           }
           .id(channel.id)
-          .onScrollVisibilityChange(threshold: 0.001) { isVisible in
-            if isVisible { viewportChannelIDs.insert(channel.id) }
-            else { viewportChannelIDs.remove(channel.id) }
-          }
+          .modifier(ListViewportTracking(id: channel.id, visible: $viewportChannelIDs))
           .modifier(
             LandingArrival(
               active: channel.id == store.landing,
@@ -1221,6 +1279,8 @@ struct ChannelRow: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
   var isSidebar = false
+  @Environment(\.opensConversationsInPlace) private var inPlace
+  @Environment(\.canvasColor) private var canvas
   private var last: Message? { store.latestMessage(channel.id) }
   private var unread: Bool { store.isUnread(channel) }
   var body: some View {
@@ -1228,7 +1288,9 @@ struct ChannelRow: View {
       ChannelAvatar(
         channel: channel, size: isSidebar ? SidebarMetrics.avatarSize : 44,
         artworkScale: isSidebar ? SidebarMetrics.avatarArtworkScale : 1.35,
-        showsInboxActivity: true)
+        animatesWhenInactive: true, showsInboxActivity: true,
+        badgeRing: inPlace && store.navigation.last == channel.id
+          ? NativePalette.sidebarSelection : canvas)
       VStack(alignment: .leading, spacing: 6) {
         HStack(alignment: .center) {
           Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .system(size: 17, weight: .medium)).tracking(isSidebar ? 0 : 0.5).foregroundStyle(NativePalette.text)
@@ -1717,7 +1779,9 @@ private struct ConversationSwipeRow<Content: View>: View {
           }))
     }
     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-    .clipped()
+    // The selection card reaches a little past the row on both sides; clip wide enough to
+    // keep its round corners.
+    .padding(.horizontal, 10).clipped().padding(.horizontal, -10)
     .onChange(of: openRow) { _, value in if value != id { close() } }
     .onDisappear { offset = 0; dragging = false; swipe.reset(); tension.reset() }
     .accessibilityAction(named: unreadTitle) { perform(toggleUnread) }
@@ -1765,5 +1829,151 @@ private struct ConversationSwipeRow<Content: View>: View {
       .opacity(distance > 0 ? 1 : 0).allowsHitTesting(distance > 0)
       .accessibilityHidden(distance <= 0).accessibilityLabel(title)
       .accessibilityIdentifier("conversation-swipe-" + title.lowercased().replacingOccurrences(of: " ", with: "-"))
+  }
+}
+
+/// The hidden list's progress over the chat, kept out of the home view's own
+/// state so a drag redraws only the list that follows the finger.
+@MainActor @Observable final class ListReveal {
+  var width: CGFloat?
+  /// Counts drag updates, so a settle that a new drag interrupts leaves it alone.
+  @ObservationIgnored private(set) var drags = 0
+  func drag(to width: CGFloat) {
+    drags += 1
+    self.width = width
+  }
+  func clear() {
+    drags += 1
+    if width != nil { width = nil }
+  }
+}
+
+private struct ListRevealOverlay<List: View>: View {
+  let reveal: ListReveal
+  let listWidth: CGFloat
+  /// Whether the chat still fills the screen under the list.
+  let dims: Bool
+  @ViewBuilder var list: List
+  var body: some View {
+    if let width = reveal.width {
+      ZStack(alignment: .leading) {
+        Color.black.opacity(dims ? 0.3 * width / max(1, listWidth) : 0).ignoresSafeArea()
+        list
+          .compositingGroup()
+          .shadow(color: .black.opacity(dims ? 0.28 : 0), radius: 16, x: 6)
+          .offset(x: width - listWidth)
+      }
+      .allowsHitTesting(false).accessibilityHidden(true)
+    }
+  }
+}
+
+extension EnvironmentValues {
+  /// Off for the copy of the list an edge swipe pulls in, which is not the list
+  /// whose visible rows count.
+  @Entry var tracksListViewport = true
+}
+
+private struct ListViewportTracking: ViewModifier {
+  let id: String
+  @Binding var visible: Set<String>
+  @Environment(\.tracksListViewport) private var tracks
+  func body(content: Content) -> some View {
+    content.onScrollVisibilityChange(threshold: 0.001) { isVisible in
+      guard tracks else { return }
+      if isVisible { visible.insert(id) } else { visible.remove(id) }
+    }
+  }
+}
+
+/// A drag in from the screen's leading edge, reported as it moves. It stands
+/// aside for a pushed page's own back swipe and for anything presented on top.
+private struct LeadingEdgeSwipe: UIViewRepresentable {
+  /// The distance dragged in from the edge.
+  let onChange: (CGFloat) -> Void
+  /// The final distance and the speed toward the content.
+  let onEnd: (CGFloat, CGFloat) -> Void
+  func makeCoordinator() -> Coordinator { Coordinator() }
+  func makeUIView(context: Context) -> Anchor {
+    let view = Anchor()
+    view.isUserInteractionEnabled = false
+    view.coordinator = context.coordinator
+    return view
+  }
+  func updateUIView(_ view: Anchor, context: Context) {
+    context.coordinator.onChange = onChange
+    context.coordinator.onEnd = onEnd
+  }
+  static func dismantleUIView(_ view: Anchor, coordinator: Coordinator) { coordinator.attach(to: nil) }
+  final class Anchor: UIView {
+    weak var coordinator: Coordinator?
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      coordinator?.attach(to: window)
+    }
+  }
+  @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    /// The same strip a pushed page gives its back swipe.
+    static let edgeWidth: CGFloat = 32
+    var onChange: (CGFloat) -> Void = { _ in }
+    var onEnd: (CGFloat, CGFloat) -> Void = { _, _ in }
+    private var recognizer: UIPanGestureRecognizer?
+    func attach(to window: UIWindow?) {
+      guard recognizer?.view !== window else { return }
+      if let recognizer {
+        // Removed mid-drag, it reports no end of its own.
+        if recognizer.state == .began || recognizer.state == .changed { onEnd(0, 0) }
+        recognizer.view?.removeGestureRecognizer(recognizer)
+      }
+      recognizer = nil
+      guard let window else { return }
+      let pan = UIPanGestureRecognizer(target: self, action: #selector(dragged))
+      pan.maximumNumberOfTouches = 1
+      pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+      pan.delegate = self
+      window.addGestureRecognizer(pan)
+      recognizer = pan
+    }
+    private func inward(_ x: CGFloat, in view: UIView) -> CGFloat {
+      view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? -x : x
+    }
+    @objc private func dragged(_ pan: UIPanGestureRecognizer) {
+      guard let window = pan.view else { return }
+      let distance = inward(pan.translation(in: window).x, in: window)
+      switch pan.state {
+      case .began, .changed: onChange(distance)
+      case .ended: onEnd(distance, inward(pan.velocity(in: window).x, in: window))
+      case .cancelled, .failed: onEnd(0, 0)
+      default: break
+      }
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      guard let window = gestureRecognizer.view as? UIWindow,
+        let root = window.rootViewController, root.presentedViewController == nil,
+        // A pushed page keeps the edge for going back, wherever the touch lands.
+        !Self.hasPushedPage(root)
+      else { return false }
+      // Only where the window's edge is the screen's, not in a floating window.
+      let frame = window.convert(window.bounds, to: window.screen.coordinateSpace)
+      let rightToLeft = window.effectiveUserInterfaceLayoutDirection == .rightToLeft
+      guard abs(rightToLeft ? frame.maxX - window.screen.bounds.maxX : frame.minX) <= 1 else { return false }
+      let x = touch.location(in: window).x
+      let distance = rightToLeft ? window.bounds.maxX - x : x
+      return distance >= 0 && distance <= Self.edgeWidth
+    }
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let window = pan.view else { return false }
+      let velocity = pan.velocity(in: window)
+      return inward(velocity.x, in: window) > abs(velocity.y)
+    }
+    private static func hasPushedPage(_ controller: UIViewController) -> Bool {
+      if let navigation = controller as? UINavigationController, navigation.viewControllers.count > 1 { return true }
+      return controller.children.contains(where: hasPushedPage)
+    }
+    /// Replies, timestamps and scrolling in the edge strip wait for this drag to fail.
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool { otherGestureRecognizer is UIPanGestureRecognizer }
   }
 }

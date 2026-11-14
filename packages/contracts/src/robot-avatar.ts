@@ -36,4 +36,40 @@ export const ROBOT_AVATAR_LABELS = {
   "dual-screen": "Dual screen",
 } as const;
 
-export type BotAvatarMode = "still" | "idle" | "thinking";
+/**
+ * What an avatar shows. Busy Bots either keep the robot moving (working, typing) or fold it
+ * into a loading glyph: thinking dots, searching radar, generating progress, connecting orbit
+ * (apps and long waits), writing pencil, sending a message, and spawning on a first entrance.
+ * Done and failed react to a run this client watched; waiting is a Bot waiting on the person,
+ * and turns drowsy after a while. Sleeping and waking belong to the Bot's computer.
+ */
+export const BOT_AVATAR_MODES = [
+  "still",
+  "idle",
+  "working",
+  "typing",
+  "thinking",
+  "searching",
+  "generating",
+  "connecting",
+  "writing",
+  "sending",
+  "spawning",
+  "done",
+  "failed",
+  "waiting",
+  "drowsy",
+  "sleeping",
+  "waking",
+] as const;
+export type BotAvatarMode = (typeof BOT_AVATAR_MODES)[number];
+/** Modes that fold the robot into a loading glyph. */
+export const BOT_AVATAR_GLYPH_MODES = [
+  "thinking",
+  "searching",
+  "generating",
+  "connecting",
+  "writing",
+  "sending",
+  "spawning",
+] as const;

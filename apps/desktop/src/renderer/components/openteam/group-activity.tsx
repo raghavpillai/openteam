@@ -119,7 +119,7 @@ export function GroupActivityContent({ activity }: { activity: GroupActivity }) 
               }
             }}
           >
-            <BotAvatar bot={bot} size="sm" mode="thinking" />
+            <BotAvatar bot={bot} size="sm" mode="working" />
           </span>
         )}
       </span>

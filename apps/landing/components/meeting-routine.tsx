@@ -49,7 +49,7 @@ export function MeetingRoutine({ children }: { children?: ReactNode }) {
             shape="helmet"
             color="#ff7a1a"
             size={30}
-            mode={stage === 2 || stage === 3 ? "thinking" : "idle"}
+            mode={stage === 2 || stage === 3 ? "working" : "idle"}
           />
           <div>
             <strong>Chief of staff</strong>

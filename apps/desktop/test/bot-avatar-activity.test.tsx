@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelView, RunView } from "@openteam/contracts";
+import type { ChannelMessageView, ChannelView, RunItemView, RunView } from "@openteam/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   BotAvatarActivityProvider,
@@ -24,6 +24,20 @@ function mode(
 }
 
 describe("robot avatar chat activity", () => {
+  test("shows the open chat's live activity and waits on unanswered cards", () => {
+    const markup = renderToStaticMarkup(
+      <BotAvatarActivityProvider
+        channel={channel}
+        runsByChannel={new Map([["group", [{ id: "run", botId: "one", status: "running" } as RunView]]])}
+        itemsByRun={new Map([["run", [{ id: "i", runId: "run", kind: "tool", status: "running", title: null, content: { tool: "WebSearch" }, createdAt: "t", updatedAt: "t" } as RunItemView]]])}
+        latestMessageByChannel={new Map([["group", { sender: "agent", senderBotId: "two", metadata: { type: "user-form" } } as ChannelMessageView]])}
+      >
+        <Probe botId="one" channelId="group" />
+        <Probe botId="two" channelId="group" />
+      </BotAvatarActivityProvider>
+    );
+    expect(markup).toBe("<span>searching</span><span>waiting</span>");
+  });
   test("animates only the running member of the open group", () => {
     expect(mode("one", "group")).toBe("<span>thinking</span>");
     expect(mode("two", "group")).toBe("<span>idle</span>");
@@ -45,7 +59,7 @@ describe("robot avatar chat activity", () => {
         <Probe botId="one" channelId="resting" />
       </BotAvatarActivityProvider>
     );
-    expect(markup).toBe("<span>thinking</span><span>thinking</span><span>idle</span>");
+    expect(markup).toBe("<span>working</span><span>working</span><span>idle</span>");
   });
   test("returns to idle for completion, failure, cancellation, and approval", () => {
     for (const status of [

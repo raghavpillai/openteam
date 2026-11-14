@@ -91,7 +91,7 @@ const ThreadMessage = ({
       aria-busy={pending || undefined}
       data-thread-message-id={message.id}
     >
-      {from !== "user" && <BotAvatar bot={bot} size="sm" />}
+      {from !== "user" && <BotAvatar bot={bot} mode="still" size="sm" />}
       <div className={`relative ${from === "user" ? "flex w-[82%] min-w-0 flex-col items-end" : "max-w-[82%] items-start"}`}>
         {from !== "user" && (
           <div className="mb-1 px-1 text-[11px] text-muted-foreground">{bot?.name ?? "Bot"}</div>

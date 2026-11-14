@@ -86,6 +86,7 @@ export function AvatarPicker({
               type="button"
             >
               <BotAvatarGlyph
+                gaze="follow"
                 mode={previewMode}
                 className={cn(
                   "pointer-events-none absolute size-16 overflow-visible transition-opacity duration-100",
@@ -95,6 +96,7 @@ export function AvatarPicker({
                 shape={savedShape}
               />
               <BotAvatarGlyph
+                gaze="follow"
                 mode={previewMode}
                 className={cn(
                   "pointer-events-none absolute size-16 overflow-visible opacity-0 transition-opacity duration-100",

@@ -192,6 +192,107 @@ final class AppStore {
   func activeRuns(_ id: String) -> [Run] {
     (state.bootstrap?.activeRuns ?? []).filter { $0.channelId == id && $0.isActive }
   }
+
+  // MARK: Bot avatar activity
+  /// Runs and their live steps for the open conversation and every conversation with a Bot
+  /// at work, so a list row can show the same state as the conversation itself.
+  private(set) var channelActivity: [String: (runs: [Run], items: [RunItem])] = [:]
+  private var watchedRuns = WatchedBotRuns()
+  /// Bumped when a settled run's reaction window ends, so avatars re-read their mode.
+  private(set) var avatarEpoch = 0
+  private var avatarExpiry: Task<Void, Never>?
+  private var avatarClock: Double { ProcessInfo.processInfo.systemUptime }
+  /// What a Bot's avatar shows in one conversation: the desktop's rules, one for one.
+  func avatarMode(botId: String?, channelId: String) -> RobotAvatarMode {
+    guard let botId else { return .still }
+    _ = avatarEpoch
+    // A run that just left the list stays until its conversation says how it ended, so the
+    // avatar goes from its work straight to the outcome.
+    let run =
+      activeRuns(channelId).first { $0.botId == botId }
+      ?? channelActivity[channelId]?.runs.first { $0.botId == botId && $0.isActive }
+    let items = run.flatMap { run in channelActivity[channelId]?.items.filter { $0.runId == run.id } }
+    return BotAvatarActivity.mode(
+      botId: botId, activeRun: run, items: items, latest: latestMessage(channelId),
+      settled: watchedRuns.settled[WatchedBotRuns.key(channelId, botId)], now: avatarClock)
+  }
+  private func observeRuns() {
+    var runs = state.bootstrap?.activeRuns ?? []
+    let known = Set(channelActivity.values.flatMap { $0.runs.map(\.id) })
+    runs = runs.filter { !known.contains($0.id) } + channelActivity.values.flatMap(\.runs)
+    let now = avatarClock
+    watchedRuns.observe(runs: runs, at: now) { self.latestMessage($0) }
+    avatarExpiry?.cancel()
+    guard let next = watchedRuns.settled.values.map({ $0.at + WatchedBotRuns.outcomeSeconds }).min()
+    else { return }
+    avatarExpiry = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(max(0, next - now) + 0.05))
+      guard !Task.isCancelled else { return }
+      self?.avatarEpoch += 1
+    }
+  }
+  /// Load what the Bots in one conversation are doing right now.
+  func refreshChannelActivity(_ id: String) async {
+    guard phase == .ready, let api else { return }
+    let epoch = generation
+    let state = try? await api.get(
+      "/api/v0/channels/\(API.segment(id))/client-state", as: ChannelState.self)
+    guard epoch == generation else { return }
+    guard let state else {
+      // Unreachable: never leave a Bot looking busy on the strength of an old answer.
+      if activeRuns(id).isEmpty { channelActivity[id] = nil }
+      return
+    }
+    channelActivity[id] = (state.runs.map { run in
+      var run = run
+      run.channelId = run.channelId ?? id
+      return run
+    }, state.runItems ?? [])
+    observeRuns()
+  }
+  /// Refresh every conversation with a Bot at work, and forget the ones that went quiet.
+  private static let watchedConversations = 8
+  private var activityRefresh: Task<Void, Never>?
+  private var activityRefreshQueued = false
+  /// One pass at a time; events that arrive during a pass share the next one.
+  private func scheduleActivityRefresh() {
+    guard activityRefresh == nil else {
+      activityRefreshQueued = true
+      return
+    }
+    let epoch = generation
+    activityRefresh = Task { [weak self] in
+      repeat {
+        self?.activityRefreshQueued = false
+        await self?.refreshBusyChannelActivity()
+      } while self?.activityRefreshQueued == true && self?.generation == epoch
+      if self?.generation == epoch { self?.activityRefresh = nil }
+    }
+  }
+  /// A new session starts with nothing known about anyone's work.
+  private func resetAvatarActivity() {
+    activityRefresh?.cancel()
+    activityRefresh = nil
+    activityRefreshQueued = false
+    avatarExpiry?.cancel()
+    channelActivity = [:]
+    watchedRuns = WatchedBotRuns()
+  }
+  private func refreshBusyChannelActivity() async {
+    var busy: [String] = []
+    for run in state.bootstrap?.activeRuns ?? [] where run.isActive {
+      if let id = run.channelId, id != activeChannel, !busy.contains(id) { busy.append(id) }
+    }
+    busy = Array(busy.prefix(Self.watchedConversations))
+    // Read a conversation once more after its Bot stops, to learn how the run ended.
+    let ended = channelActivity.keys.filter { $0 != activeChannel && !busy.contains($0) }
+    let epoch = generation
+    for id in busy + ended {
+      await refreshChannelActivity(id)
+      guard epoch == generation, !Task.isCancelled else { return }
+    }
+    for id in ended where id != activeChannel && activeRuns(id).isEmpty { channelActivity[id] = nil }
+  }
   func start() async {
     SystemDiscovery.shared.clear()
     #if DEBUG
@@ -482,6 +583,7 @@ final class AppStore {
     cancelConnectionCheck()
     connectionUnavailable = false
     generation = epoch
+    resetAvatarActivity()
     reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
@@ -575,6 +677,8 @@ final class AppStore {
       }
     }
     confirmDelivery(bootstrap.latestMessages)
+    observeRuns()
+    scheduleActivityRefresh()
     #if canImport(UIKit)
       NativeNotifications.shared.apply(channels: bootstrap.channels)
     #endif
@@ -877,6 +981,8 @@ final class AppStore {
             }
             if let activeChannel {
               try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch)
+              // What the avatars show never holds up the next poll.
+              Task { [weak self] in await self?.refreshChannelActivity(activeChannel) }
             }
             syncBackgroundHistories(epoch: epoch)
             cursor = bootstrap.cursor
@@ -2081,6 +2187,7 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      resetAvatarActivity()
       reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil
@@ -2123,6 +2230,7 @@ final class AppStore {
     lifecycle?.cancel()
     lifecycle = nil
     generation = UUID()
+    resetAvatarActivity()
     reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
@@ -2207,6 +2315,7 @@ final class AppStore {
       cancelConnectionCheck()
       connectionUnavailable = false
       generation = UUID()
+      resetAvatarActivity()
       reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil

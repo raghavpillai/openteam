@@ -108,6 +108,7 @@ export function NewBotDialog({
                 <BotAvatarGlyph
                   className="absolute left-1/2 top-1/2 size-32 -translate-x-1/2 -translate-y-1/2 overflow-visible"
                   color={avatar.color}
+                  gaze="follow"
                   mode="idle"
                   shape={avatar.shape}
                 />

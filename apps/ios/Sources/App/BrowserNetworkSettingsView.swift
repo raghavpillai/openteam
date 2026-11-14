@@ -47,6 +47,9 @@ struct BrowserNetworkSettingsView: View {
                 sourceStatus(id, view: view)
               }
             }.moveDisabled(operation.busy)
+              .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: {
+                rowMoved(id, to: $0)
+              }
               .contextMenu {
                 Button("Move up", systemImage: "arrow.up") { move(id, by: -1) }.disabled(index == 0 || operation.busy)
                 Button("Move down", systemImage: "arrow.down") { move(id, by: 1) }.disabled(index == order.count - 1 || operation.busy)
@@ -57,6 +60,9 @@ struct BrowserNetworkSettingsView: View {
             guard !operation.busy else { return }
             var next = order
             next.move(fromOffsets: from, toOffset: to)
+            // Setting it down is felt whether or not it changed places.
+            NativeHaptics.play(.rigid, intensity: 0.8, source: "network.reorder.drop")
+            quietUntil = Date().addingTimeInterval(0.4)
             edit(next)
           }
         }
@@ -210,6 +216,22 @@ struct BrowserNetworkSettingsView: View {
       if view?.runtime.routeEpoch == epoch { quality = nil; qualityFailed = true }
     }
   }
+  /// Rows from top to bottom as drawn. While one is dragged, each place it passes is a tick.
+  @State private var drawnOrder: [String] = []
+  @State private var rowTops: [String: CGFloat] = [:]
+  @State private var quietUntil = Date.distantPast
+  private func rowMoved(_ id: String, to top: CGFloat) {
+    rowTops[id] = top
+    let known = order.filter { rowTops[$0] != nil }
+    guard known.count == order.count else { return }
+    let drawn = known.sorted { rowTops[$0]! < rowTops[$1]! }
+    guard drawn != drawnOrder else { return }
+    let wasSame = Set(drawn) == Set(drawnOrder)
+    drawnOrder = drawn
+    // Not the first layout, a changed list, or the rows settling after a drop.
+    guard wasSame, Date() >= quietUntil else { return }
+    NativeHaptics.play(.selection, source: "network.reorder.step")
+  }
   private func edit(_ next: [String]) {
     if draftRevision == nil { draftRevision = view?.settings.revision }
     draft = next
@@ -218,6 +240,8 @@ struct BrowserNetworkSettingsView: View {
     guard let from = order.firstIndex(of: id), order.indices.contains(from + delta), !operation.busy else { return }
     var next = order
     next.swapAt(from, from + delta)
+    NativeHaptics.play(.rigid, intensity: 0.8, source: "network.reorder.drop")
+    quietUntil = Date().addingTimeInterval(0.4)
     edit(next)
   }
   private func load() async {

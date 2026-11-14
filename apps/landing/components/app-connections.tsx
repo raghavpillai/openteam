@@ -225,7 +225,7 @@ export function AppConnections({ children }: { children: ReactNode }) {
               shape="helmet"
               color="#ff7a1a"
               size={32}
-              mode={playing && !done ? "thinking" : "idle"}
+              mode={playing && !done ? "working" : "idle"}
             />
             <strong>Chief of staff</strong>
             <span data-done={done}>

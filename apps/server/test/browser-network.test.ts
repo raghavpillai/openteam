@@ -31,6 +31,7 @@ import {
 } from "@openteam/plugin-sdk/browser-network/protocol";
 import { createBrowserProxy } from "@openteam/plugin-sdk/browser-network/socks";
 import { managedBrowserNetworkArguments } from "../../computer/src/browser-network";
+import type { NetworkDiagnostic } from "@openteam/plugin-sdk/browser-network/diagnostics";
 
 const browserPath = [
   process.env.CHROME_PATH,
@@ -40,8 +41,12 @@ const browserPath = [
 ].find((path) => path && existsSync(path));
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) await close();
-});
+  const errors: unknown[] = [];
+  for (const close of cleanup.splice(0).reverse()) {
+    try { await close(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Network fixture cleanup failed");
+}, 30_000);
 async function until(check: () => boolean | Promise<boolean>, ms = 6000) {
   const start = Date.now();
   while (!(await check())) {
@@ -59,6 +64,8 @@ async function fixture(
     revision: 1,
     sourceOrder: ["server"],
   };
+  const diagnostics: NetworkDiagnostic[] = [];
+  const computerDiagnostics: NetworkDiagnostic[] = [];
   const store: NetworkStore = {
     read: async () => ({ ...settings }),
     change: async (expected, mode, machineId, sourceOrder) => {
@@ -120,7 +127,7 @@ async function fixture(
     store,
     machines,
     (request) => request.headers.get("authorization") === "Bearer internal",
-    options
+    { ...options, diagnostic: (event) => diagnostics.push(event) }
   );
   const server = Bun.serve<NetworkConnection>({
     hostname: "127.0.0.1",
@@ -189,6 +196,7 @@ async function fixture(
     role: "computer",
     url: `ws://127.0.0.1:${server.port}/computer`,
     headers: { authorization: "Bearer internal" },
+    diagnostic: (event) => computerDiagnostics.push(event),
   });
   computer.start();
   cleanup.push(() => computer.stop());
@@ -244,7 +252,7 @@ async function fixture(
   };
   const select = async (id: string, waitForComputer = true) => {
     await until(async () =>
-      (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed)
+      (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed && d.working)
     );
     await service.update({ expectedRevision: settings.revision, mode: "device", machineId: id });
     await until(async () => {
@@ -254,6 +262,8 @@ async function fixture(
     });
   };
   return {
+    diagnostics,
+    computerDiagnostics,
     service,
     computer,
     device,
@@ -301,6 +311,21 @@ async function fixture(
     },
   };
 }
+test("network diagnostics distinguish a revoked route from an upstream reset", async () => {
+  const f = await fixture();
+  const peer = f.device("diagnostic-exit");
+  await f.select("diagnostic-exit");
+  const epoch = f.computer.route!.epoch;
+  const stream = await f.computer.open("desktop-only.example", 443);
+  const closed = new Promise<void>((resolve) => stream.once("close", resolve));
+  f.service.revoke("diagnostic-exit");
+  await closed;
+  await until(() => f.computer.available() && f.computer.route?.mode === "server");
+  expect(f.diagnostics).toContainEqual(expect.objectContaining({ event: "transport_closed", reason: "permission_revoked", epoch, mode: "device" }));
+  expect(f.diagnostics).toContainEqual(expect.objectContaining({ event: "route_changed", reason: "source_changed", mode: "server", previousMode: "device" }));
+  expect(f.computerDiagnostics).toContainEqual(expect.objectContaining({ event: "route_fenced", epoch, mode: "device", activeConnections: 1 }));
+  peer.stop();
+});
 async function roundTrip(client: BrowserNetworkClient, payload: Buffer) {
   const stream = await client.open("desktop-only.example", 443);
   const received: Buffer[] = [];
@@ -634,8 +659,12 @@ describe("connected device browser network", () => {
             env: { ...process.env, NODE_EXTRA_CA_CERTS: cert },
             stdio: ["pipe", "pipe", "pipe"],
           });
-          cleanup.push(() => {
+          const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+          cleanup.push(async () => {
+            if (child.exitCode !== null || child.signalCode !== null) return;
+            const force = setTimeout(() => child.kill("SIGKILL"), 2000);
             child.kill();
+            try { await exited; } finally { clearTimeout(force); }
           });
           if (file === "worker.mjs") child.stdin.write(JSON.stringify(config) + "\n");
           else child.stdin.end(JSON.stringify(config));
@@ -677,6 +706,13 @@ describe("connected device browser network", () => {
         key,
       });
       await f.select("node-device", false);
+      // The server's applied route can precede the replacement Node worker's lease.
+      // Select only after the device has a lease, then wait for the worker's own readiness.
+      const epoch = (await f.service.view()).runtime.routeEpoch;
+      await until(() => {
+        const status = computer.messages.findLast((message: any) => typeof message.ready === "boolean");
+        return status?.ready && status.routeEpoch === epoch;
+      });
       // The production worker checks the same TLS destination through the real device mux.
       // Only this isolated fixture maps ipwho.is to a local TLS server with a trusted test CA.
       const probeId = crypto.randomUUID();
@@ -714,6 +750,8 @@ describe("connected device browser network", () => {
       });
       cleanup.push(() => browser.close());
       const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      // Stop service workers and outstanding requests before closing their browser and relay.
+      cleanup.push(() => context.close());
       let bypassRequests = 0;
       const bypass = Bun.serve({
         hostname: "127.0.0.1",
@@ -783,7 +821,9 @@ describe("connected device browser network", () => {
       await largePage.close();
       expect((await f.service.view()).runtime.bytesReceived).toBeGreaterThan(8 * 1024 * 1024);
     },
-    60000
+    // This includes a 256 MiB browser transfer; keep RPC deadlines above short, but allow
+    // the bulk transfer and deterministic process cleanup to finish on loaded test hosts.
+    120000
   );
   test("streams large binary uploads/downloads with half-close and concurrent connections through the device", async () => {
     const f = await fixture();

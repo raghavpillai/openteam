@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "1password",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "name": "1Password",
   "description": "Bots sign in to websites with logins and one-time codes from the 1Password vaults you choose.",
   "publisher": "OpenTeam",

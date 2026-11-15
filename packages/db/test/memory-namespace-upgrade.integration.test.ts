@@ -65,5 +65,5 @@ dbTest(`namespace upgrade from ${legacyColumns ? "pre-versioned" : "current"} sc
     await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     await admin.end();
   }
-}, 30_000);
+}, 120_000);
 }

@@ -6,6 +6,7 @@ import { BrowserNetworkService, type NetworkConnection, type NetworkStore } from
 import type { MachineService } from "../src/services/machine-service";
 import { BrowserNetworkClient } from "@openteam/plugin-sdk/browser-network/client";
 import { encodeFrame, FrameType, NETWORK_PROTOCOL, type NetworkSettings } from "@openteam/plugin-sdk/browser-network/protocol";
+import type { NetworkDiagnostic } from "@openteam/plugin-sdk/browser-network/diagnostics";
 
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => {
@@ -41,7 +42,9 @@ async function fixture(options: { failbackMs?: number } = {}) {
     },
     list: async () => [...credentials.keys()].map((machineId) => ({ machineId, label: machineId, enabled: enabled.get(machineId), connected: enabled.get(machineId) })),
   } as unknown as MachineService;
-  const service = new BrowserNetworkService(store, machines, (request) => request.headers.get("authorization") === "Bearer internal", options);
+  const diagnostics: NetworkDiagnostic[] = [], computerDiagnostics: NetworkDiagnostic[] = [];
+  const service = new BrowserNetworkService(store, machines, (request) => request.headers.get("authorization") === "Bearer internal",
+    { ...options, diagnostic: (event) => diagnostics.push(event) });
   const server = Bun.serve<NetworkConnection>({
     hostname: "127.0.0.1", port: 0,
     websocket: { ...service.websocket, open: (socket) => {
@@ -56,7 +59,8 @@ async function fixture(options: { failbackMs?: number } = {}) {
     },
   });
   cleanup.push(() => { service.close(); server.stop(true); });
-  const computer = new BrowserNetworkClient({ role: "computer", url: `ws://127.0.0.1:${server.port}/computer`, headers: { authorization: "Bearer internal" } });
+  const computer = new BrowserNetworkClient({ role: "computer", url: `ws://127.0.0.1:${server.port}/computer`, headers: { authorization: "Bearer internal" },
+    diagnostic: (event) => computerDiagnostics.push(event) });
   computer.start();
   cleanup.push(() => computer.stop());
   await until(() => computer.available());
@@ -89,7 +93,7 @@ async function fixture(options: { failbackMs?: number } = {}) {
     return peer;
   };
   const select = async (id: string) => {
-    await until(async () => (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed));
+    await until(async () => (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed && d.working));
     await service.update({ expectedRevision: settings.revision, mode: "device", machineId: id });
     await until(async () => {
       const view = await service.view();
@@ -97,7 +101,7 @@ async function fixture(options: { failbackMs?: number } = {}) {
     });
   };
   return {
-    service, computer, device, select, port, enabled, machines, server,
+    service, computer, device, select, port, enabled, machines, server, diagnostics, computerDiagnostics,
     getSettings: () => settings,
     getDials: () => deviceDials,
     getConnections: (id: string) => connections.get(id) ?? 0,
@@ -201,10 +205,11 @@ describe("connected device browser network", () => {
     expect(stats.bytesSent).toBe(3 * 1024 * 1024);
     expect(stats.bytesReceived).toBe(stats.bytesSent);
   }, 15000);
-  test("changes use compare-and-swap, revoke stops sockets, and bad secrets or browser origins cannot upgrade", async () => {
+  test("changes use compare-and-swap, revoke stops sockets and is diagnosed as a revoke, and bad secrets or browser origins cannot upgrade", async () => {
     const f = await fixture();
     f.device("home");
     await f.select("home");
+    const epoch = f.computer.route!.epoch;
     await expect(f.service.update({ expectedRevision: 1, mode: "server", machineId: null })).rejects.toThrow("changed");
     await expect(f.service.update({ expectedRevision: f.getSettings().revision, mode: "device", machineId: "unapproved" })).rejects.toThrow("sharing");
     const stream = await f.computer.open("desktop-only.example", 443);
@@ -212,6 +217,10 @@ describe("connected device browser network", () => {
     f.machines.onNetworkRevoke("home");
     await until(() => stream.destroyed);
     await routed(f, "server");
+    // A revoked route is reported as a revoke, never as an upstream reset.
+    expect(f.diagnostics).toContainEqual(expect.objectContaining({ event: "transport_closed", reason: "permission_revoked", epoch, mode: "device" }));
+    expect(f.diagnostics).toContainEqual(expect.objectContaining({ event: "route_changed", reason: "source_changed", mode: "server", previousMode: "device" }));
+    expect(f.computerDiagnostics).toContainEqual(expect.objectContaining({ event: "route_fenced", epoch, mode: "device", activeConnections: 1 }));
     (await f.computer.open("127.0.0.1", f.port)).destroy();
     for (const headers of [{ authorization: "Bearer bad" }, { authorization: "Bearer internal", origin: "https://evil.test" }] as Record<string, string>[]) {
       const response = await fetch(`http://127.0.0.1:${f.server.port}/computer`, {

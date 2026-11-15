@@ -1,6 +1,8 @@
 // Fixture checks of the shipping desktop renderer, each against synthetic or controlled backends:
-//   chat           composer focus/IME, ordering, thinking, history anchoring, email draft review,
-//                  and sent-message delivery states (desktop-parity-edges.tsx, self-reporting)
+//   chat           composer focus/IME, ordering, thinking, history anchoring, email draft review and
+//                  send-off, question cards, sent-message delivery states (desktop-parity-edges.tsx),
+//                  answered questions surviving stale history pages (question-history.tsx), and
+//                  ScreenBot account fencing in its composer (screenbot-composer.tsx); all self-reporting
 //   updates        desktop self-update and the server update card (updates.tsx + updates-driver.cjs)
 //   notifications  notification taps through the real preload and notification manager
 //   downloads      native attachment downloads through the real main process and file:// renderer
@@ -25,6 +27,8 @@ async function bundle(entry: string, outdir: string, naming: string, format: "cj
 
 async function chat() {
   await runAndPrint({ name: "chat", page: "desktop-parity-edges", timeoutMs: 120_000 });
+  await runAndPrint({ name: "question-history", page: "question-history", timeoutMs: 60_000 });
+  await runAndPrint({ name: "screenbot", page: "screenbot-composer", timeoutMs: 60_000 });
 }
 
 async function updates() {

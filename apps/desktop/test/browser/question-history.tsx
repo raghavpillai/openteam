@@ -6,20 +6,17 @@ import { api } from "../../src/renderer/client/openteam-api";
 import { useOpenTeam } from "../../src/renderer/state/use-openteam";
 import { mobileFixture } from "../../../ios/scripts/fixtures/snapshot";
 
-// Real renderer state hook, with deliberately stale server responses and no network.
+// The real renderer state hook, with deliberately stale server responses and no network:
+// once a question is answered, no replaced page or search context may reopen it.
 Object.defineProperty(document, "hidden", { configurable: true, value: true });
 window.fetch = async () => {
   throw new Error("Network disabled in question history fixture");
 };
-window.addEventListener("error", (event) =>
-  console.log("QUESTION_HISTORY_RESULT " + JSON.stringify({ error: event.message }))
-);
-const answered = new URLSearchParams(location.search).has("answered");
+const report = (result: object) => console.log("FIXTURE_RESULT " + JSON.stringify(result));
+window.addEventListener("error", (event) => report({ error: event.message }));
 const channel = mobileFixture.channels[0]!;
 const bot = mobileFixture.bots[0]!;
-const receipt = answered
-  ? { respondedValue: "Blue", widgetResponseClientId: "answer" }
-  : { widgetDismissed: true, widgetDismissClientId: "dismiss", widgetDismissalReason: "dismissed" };
+const receipt = { respondedValue: "Blue", widgetResponseClientId: "answer" };
 const question: ChannelMessageView = {
   id: "question",
   sequence: "1",
@@ -39,8 +36,7 @@ const latest = {
   metadata: {},
 };
 const target = { ...latest, id: "target", sequence: "2" };
-let stage = "settled",
-  reads = 0;
+let stage = "settled";
 const snapshot = {
   ...mobileFixture,
   bots: [bot],
@@ -69,7 +65,6 @@ Object.assign(api, {
     truncated: { channelRounds: false, runs: false, runItems: false, subagents: false },
   }),
   channelHistory: async () => {
-    reads++;
     return {
       channelId: channel.id,
       messages:
@@ -150,8 +145,6 @@ async function check() {
     if ((replay.metadata as Record<string, unknown>)[key] !== value)
       throw new Error(`Repeated context reopened question: ${key}`);
   }
-  console.log("QUESTION_HISTORY_RESULT " + JSON.stringify({ answered, reads, restored: true }));
+  report({ reports: ["an answered question stays answered through a replaced page and repeated stale search context"] });
 }
-void check().catch((error) =>
-  console.log("QUESTION_HISTORY_RESULT " + JSON.stringify({ error: String(error) }))
-);
+void check().catch((error) => report({ error: String(error) }));

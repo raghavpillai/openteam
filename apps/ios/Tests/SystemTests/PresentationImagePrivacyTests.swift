@@ -52,4 +52,26 @@ private final class PresentationImageProtocol: URLProtocol, @unchecked Sendable 
     try await Task.sleep(for: .milliseconds(500))
     XCTAssertEqual(PresentationImageProtocol.requests.withLock { $0 }, [], "Automatic photos must use the selected server's protected image endpoint")
   }
+
+  func testPhotoCacheIsScopedToTheSelectedAPIGeneration() throws {
+    let first = try API(server: "https://selected-server.example.com", token: "fixture-a")
+    let rotated = try API(server: "https://selected-server.example.com", token: "fixture-b")
+    XCTAssertNotEqual(first.resourceGeneration, rotated.resourceGeneration)
+    PlaceImages.select(first.resourceGeneration)
+    defer { PlaceImages.select(nil) }
+    let warm = UIImage()
+    PlaceImages.values.setObject(warm, forKey: "photo")
+    PlaceImages.select(first.resourceGeneration)
+    XCTAssertTrue(PlaceImages.values.object(forKey: "photo") === warm, "The same generation keeps warm photos")
+    let pending = Task<Data, Error> { try await Task.sleep(for: .seconds(30)); return Data() }
+    PlaceImages.requests[UUID()] = pending
+    // Rotating credentials drops decoded photos and cancels loads for the old session.
+    PlaceImages.select(rotated.resourceGeneration)
+    XCTAssertNil(PlaceImages.values.object(forKey: "photo"))
+    XCTAssertTrue(PlaceImages.requests.isEmpty)
+    XCTAssertTrue(pending.isCancelled)
+    PlaceImages.values.setObject(warm, forKey: "photo")
+    PlaceImages.select(nil)
+    XCTAssertNil(PlaceImages.values.object(forKey: "photo"), "Sign-out clears photos")
+  }
 }

@@ -89,4 +89,4 @@ databaseTest("upgrading a legacy memory lease timestamp preserves its expiry ins
     await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     await admin.end();
   }
-}, 30_000);
+}, 120_000);

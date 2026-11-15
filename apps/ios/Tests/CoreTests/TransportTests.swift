@@ -60,7 +60,7 @@ private final class ImageRequestCount: @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
-  func testPresentationPhotosUseOnlySelectedServerWithScopedCredentials() async throws {
+  func testPresentationPhotosUseOnlySelectedServerAndRejectUnsafeResponses() async throws {
     let image = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=")!
     let provider = "https://photos.example.com/photo?expiring=provider-token"
     MockProtocol.stub.set { request in
@@ -78,9 +78,6 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     for invalid in ["http://photos.example.com/a", "https://user:password@photos.example.com/a", "file:///tmp/a"] {
       do { _ = try await client.presentationImage(invalid); XCTFail("Invalid provider URL accepted") } catch { }
     }
-  }
-
-  func testPresentationPhotosRejectRedirectMIMEAndOversizedResponses() async throws {
     for (status, headers) in [(302, ["Location": "https://other.example.com/private"]),
       (200, ["Content-Type": "image/svg+xml"]),
       (200, ["Content-Type": "image/png", "Content-Length": "6000000"])] {

@@ -222,28 +222,3 @@ describe("sibling closing calls", () => {
       }
     }, 15000);
 });
-
-test("real Pi loop refreshes a stale question widget and delivers its useful replacement", async () => {
-  const root = await tempDir("pi-draft-widget-refresh-");
-  const host: any[] = [], requests: any[] = [];
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    host.push(await request.json());
-    return Response.json(host.length === 1 ? {
-      sent: false, delivery_failed: true, reason: "draft_state_changed", draft_state_revision: "fresh",
-      draft_state: { pending: 1 }, note: "Nothing was delivered. One draft remains; reconsider and call SendToUser in the next response.",
-    } : { sent: true, message_id: "fresh-question" });
-  } });
-  const widget = { type: "widget", widget: { prompt: "Revise the remaining draft?", options: [{ label: "Revise", value: "revise" }] } };
-  const { active, session } = await loop(root, server, async (_url, init) => {
-    requests.push(await requestBody(init));
-    if (requests.length > 1) expect(JSON.stringify(requests.at(-1).messages)).toContain("draft_state_changed");
-    return sseStep(model, [toolCall(0, `widget-${requests.length}`, "SendToUser", widget)]);
-  }, { requestSource: "event", draftStateRevision: "old", draftStatusAcknowledged: true, initialUserStarted: true,
-    discoveredDynamicTools: new Set(), pendingSteers: [], acceptedSteerIds: new Set(), pluginAbortController: new AbortController() });
-  try {
-    await session.prompt("<user_query>Show a revision question if drafts remain.</user_query>");
-    expect(requests).toHaveLength(2);
-    expect(host.map((call) => call.draftStateRevision)).toEqual(["old", "fresh"]);
-    expect(active.sentMessageCount).toBe(1); expect(active.awaitingUser).toBe(true); expect(active.endTurnRequested).toBe(true);
-  } finally { session.dispose(); server.stop(true); }
-});

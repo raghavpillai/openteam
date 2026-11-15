@@ -9,13 +9,15 @@ import { SearchDialog } from "../../src/renderer/components/openteam/search-dial
 import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-input";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import { ExternalDraftCard } from "../../src/renderer/components/openteam/external-draft-card";
+import { IMessageSendCard } from "../../src/renderer/components/openteam/imessage-send-card";
 import { ThreadTray } from "../../src/renderer/components/openteam/thread-tray";
 import { desktopDurableSendController } from "../../src/renderer/lib/durable-sends";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import "../../src/renderer/styles.css";
 
-// Composer focus/IME, chat ordering and thinking, history anchoring, email draft review, and
-// the delivery lifecycle of sent messages, on production components with a controlled API.
+// Composer focus/IME, chat ordering and thinking, history anchoring, email draft review and
+// send-off, question cards, and the delivery lifecycle of sent messages, on production
+// components with a controlled API.
 window.fetch = async () => {
   throw new Error("No network in parity regression test");
 };
@@ -30,6 +32,15 @@ Object.assign(api, {
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const check = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
+};
+const until = async (condition: () => unknown, message: string, ms = 5000) => {
+  for (const start = performance.now(); !condition(); await pause(25))
+    if (performance.now() - start > ms) throw new Error(message);
+};
+const setText = async (field: HTMLTextAreaElement, value: string) => {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await pause(50);
 };
 const root = createRoot(document.getElementById("root")!);
 const reports: string[] = [];
@@ -263,12 +274,8 @@ async function draftReviewScenario(width: number) {
     check(document.querySelector('.draft-revision-body mark')?.textContent === "before Friday", "Revision highlight missing");
     check(document.querySelector('[aria-label="Subject"][data-revised]'), "Changed subject not highlighted");
     const send = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Send")!;
-    const setField = async (label: string, value: string) => {
-      const field = document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)!;
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-      await pause(50);
-    };
+    const setField = (label: string, value: string) =>
+      setText(document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)!, value);
     const highlighted = document.querySelector<HTMLElement>('.draft-revision-body')!;
     highlighted.focus(); highlighted.textContent = draft.body + " Updated.";
     const range = document.createRange(); range.selectNodeContents(highlighted); range.collapse(false);
@@ -292,7 +299,7 @@ async function draftReviewScenario(width: number) {
     await setField("Subject", "Local subject edit");
     await setField("Message body", "Local body edit that was never submitted.");
     [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Discard")!.click();
-    await pause(150);
+    await until(() => !document.querySelector("form"), "Discarded card stayed editable");
     check(calls.join(",") === "cancel", "Discard made an unexpected send");
     check(!document.querySelector("form"), "Discarded card stayed editable");
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
@@ -323,11 +330,131 @@ async function draftReviewScenario(width: number) {
       calls.push("send");
       return { accepted: false, message: { ...card, metadata: { type: "external-draft", cardState: "sent", draft: { ...remote, verification } } }, runId: null };
     } });
-    send().click(); await pause(150);
+    send().click();
+    await until(() => document.querySelector("details > summary"), "Remote send never settled");
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
     check(document.querySelector("details .draft-body")?.textContent === remote.body, "Mutation receipt lost canonical history before its live update arrived");
-    reports.push(`email draft at ${width}px: forwarding, revision, attachment preview, validation, discard and remote-send history`);
+    // A remote discard is authoritative even when both in-flight HTTP responses fail.
+    card = { ...card, id: card.id + "-late-failure", metadata: { type: "external-draft", cardState: "pending", draft: { ...draft, verification } } };
+    draw(); await pause(100);
+    let rejectSend!: (error: Error) => void;
+    const sending = new Promise<never>((_resolve, reject) => { rejectSend = reject; });
+    Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
+      if (action === "send") return sending;
+      throw new Error("Synthetic refresh offline");
+    } });
+    send().click(); await pause(50);
+    card = { ...card, metadata: { ...(card.metadata as object), cardState: "dismissed" } };
+    draw(); await pause(100);
+    rejectSend(new Error("Synthetic send response lost"));
+    await until(() => !document.querySelector("form") && document.querySelector("details"), "Late send failure reopened a remotely discarded card");
+    check(!document.querySelector('[role="alert"]'), "Late send failure left an error on a confirmed discard");
+    check(![...document.querySelectorAll('button')].some(button => ["Send", "Check delivery"].includes(button.textContent ?? "")), "Late send failure restored discarded-card controls");
+    reports.push(`email draft at ${width}px: forwarding, revision, attachment preview, validation, discard, remote-send history, remote discard over a late failure`);
   } finally { window.fetch = oldFetch; render(null); await pause(50); }
+}
+
+// The Send/Discard send-off animates while the request is out. It must never send twice,
+// lose a failure, or hand back a pressable Send while a send is still out.
+async function draftSendOffScenario() {
+  const base = { channelId: "send-off", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: "Draft", createdAt: new Date().toISOString() };
+  const draft = parseExternalDraft({ platform: "email", providerIdentifier: "gmail", from: "me@example.com", to: ["ann@example.com"], subject: "Send-off", body: "Monday works." });
+  let email = { ...base, id: "send-off-email", metadata: { type: "external-draft", draft, cardState: "pending" } } as ChannelMessageView;
+  let imessage = { ...base, id: "send-off-imessage", metadata: { type: "imessage-send", cardState: "pending",
+    imessage: { text: "Running late!", to: "+1 (415) 555-0134", recipientName: "Maya", machineLabel: "Mac", allowable: true } } } as unknown as ChannelMessageView;
+  let shown: "email" | "imessage" | null = "email", fail = false;
+  const requests: string[] = [];
+  const answers: Array<() => void> = [];
+  const draw = () => render(<div style={{ width: 560, padding: 12 }}>
+    {shown === "email" && <ExternalDraftCard key={email.id} message={email} draft={draft} bot={bots[0]} />}
+    {shown === "imessage" && <IMessageSendCard key={imessage.id} message={imessage} />}
+  </div>);
+  const settle = (message: ChannelMessageView, action: string) =>
+    ({ ...message, metadata: { ...(message.metadata as object), cardState: action === "cancel" ? "dismissed" : "sent" } }) as ChannelMessageView;
+  const mutate = (kind: "email" | "imessage") => async (_id: string, action: string) => {
+    if (action !== "refresh") {
+      requests.push(`${kind}:${action}`);
+      await new Promise<void>((resolve) => answers.push(resolve));
+      if (fail) throw new Error("Couldn't reach the server");
+      if (kind === "email") email = settle(email, action); else imessage = settle(imessage, action);
+      draw();
+    }
+    return { accepted: true, message: kind === "email" ? email : imessage, runId: null };
+  };
+  Object.assign(api, { mutateExternalDraft: mutate("email"), mutateIMessageSend: mutate("imessage") });
+  const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>(".draft-card button")].find((item) => item.textContent?.trim() === text);
+  const answer = () => answers.splice(0).forEach((resolve) => resolve());
+  try {
+    draw(); await pause(150);
+    fail = true;
+    button("Send")!.click(); button("Send")!.click(); await pause(100);
+    check(requests.length === 1, "Double-clicked Send sent twice");
+    answer();
+    await until(() => button("Send") && !button("Send")!.disabled && document.querySelector(".draft-card [role=alert]"), "A failed send did not return a pressable Send with its error");
+    fail = false;
+    button("Send")!.click(); await pause(100);
+    shown = null; draw(); await pause(100);
+    shown = "email"; draw(); await pause(150);
+    check(button("Send")?.disabled, "Returning mid-send made Send pressable again");
+    answer();
+    await until(() => !document.querySelector("form") && document.querySelector(".draft-card")?.textContent?.includes("Sent"), "A send resumed after leaving the chat never settled as Sent");
+    shown = "imessage"; draw(); await pause(150);
+    button("Send")!.click(); button("Send")?.click(); await pause(100);
+    answer();
+    await until(() => !button("Send"), "The Messages card never settled after Send");
+    check(requests.join() === "email:send,email:send,imessage:send", "Unexpected draft requests: " + requests);
+    reports.push("draft send-off: one request per press, failure returns Send, leaving mid-send stays locked, Messages card sends once");
+  } finally { answer(); render(null); await pause(50); }
+}
+
+// Question cards: Skip on an empty card dismisses rather than answering, a failed skip keeps
+// the card, IME confirmation in the custom answer never submits, and a double-clicked answer
+// goes once.
+async function questionScenario() {
+  newChat("questions", "bot_dm");
+  const calls: Array<string | undefined> = [];
+  let fail = false;
+  const reply = async (id: string, value?: string) => {
+    calls.push(value);
+    await pause(100);
+    if (fail) throw new Error("Controlled failure");
+    messages = messages.map((row) => row.id !== id ? row : { ...row, metadata: { ...(row.metadata as object),
+      ...(value === undefined ? { widgetDismissed: true } : { respondedValue: value }) } });
+    drawChat();
+    return { accepted: true, message: messages.find((row) => row.id === id)! };
+  };
+  Object.assign(api, { respondToWidget: reply, dismissWidget: (id: string) => reply(id) });
+  const question = (index: number, prompt: string): ChannelMessageView => ({ ...message(channel.id, index, ""), metadata: { type: "widget",
+    widget: { prompt, options: ["Alpha", "Beta", "Gamma"].map((label) => ({ label, value: label.toLowerCase() })), multiSelect: true, allowCustom: true } } });
+  const card = () => document.querySelector<HTMLElement>(`[data-message-id="${messages.at(-1)!.id}"] .permission-widget`)!;
+  const button = (text: string) => [...card().querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent?.trim() === text)!;
+  const state = (value: string) => until(() => card()?.dataset.richWidgetState === value, `Question did not become ${value}`);
+  messages = [question(0, "First question")];
+  drawChat(); await pause(400);
+  check(button("Send answer").disabled, "An empty card offered Send answer");
+  fail = true;
+  button("Skip").click();
+  await until(() => calls.length === 1 && card().dataset.richWidgetState === "pending" && card().querySelector('[role="alert"]'), "A failed skip lost the card or its error");
+  fail = false;
+  button("Skip").click();
+  await state("dismissed");
+  check(calls.length === 2 && calls.every((value) => value === undefined), "Skip sent an answer");
+  messages = [...messages, question(1, "Second question")];
+  drawChat(); await pause(400);
+  const custom = card().querySelector<HTMLTextAreaElement>("textarea")!;
+  custom.focus();
+  await setText(custom, "Unsubmitted IME text");
+  custom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+  await pause(150);
+  check(calls.length === 2, "IME confirmation submitted the question");
+  await setText(custom, "");
+  card().querySelector<HTMLButtonElement>("button.widget-option")!.click(); await pause(50);
+  button("Send answer").click(); button("Send answer")?.click();
+  await state("resolved");
+  check(calls.length === 3 && calls[2] !== undefined, "A double-clicked answer was not sent exactly once");
+  reports.push("question card: empty Skip dismisses, failed skip recovers, IME isolation, single answer");
+  render(null);
+  await pause(50);
 }
 
 // Delivery lifecycle: a send that fails, retries, or is accepted late keeps one bubble
@@ -481,6 +608,8 @@ try {
   await historyScenario();
   // The narrow width is the one that can overflow; every draft-review check runs there.
   await draftReviewScenario(360);
+  await draftSendOffScenario();
+  await questionScenario();
   for (const mode of ["failed", "uncertain-late-echo", "retry-failure"] as const) await sendScenario(mode);
   await threadReplyActions();
   console.log("FIXTURE_RESULT " + JSON.stringify({ reports }));

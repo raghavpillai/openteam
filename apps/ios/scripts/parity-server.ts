@@ -92,6 +92,14 @@ const server = Bun.serve({
       if (input.metadata) message.metadata = { ...message.metadata, ...input.metadata };
       emit("channel.message.updated", message.channelId); return response({ ok: true });
     }
+    if (path === "/__qa/push-message" && method === "POST") {
+      // A new reply in a Bot chat, as its bot would send it.
+      const bot = snapshot.bots.find(b => b.dmChannelId === input.channelId);
+      if (!bot) return response({ error: "Unknown chat" }, 400);
+      snapshot.channelMessages.push({ id: randomUUID(), clientId: null, sequence: String(++sequence), channelId: input.channelId, sender: "agent", senderBotId: bot.id,
+        sourceRunId: null, content: input.content, metadata: { type: "text" }, createdAt: new Date().toISOString() } as any);
+      emit("channel.message.created", input.channelId); return response({ ok: true });
+    }
     if (path === "/__qa/control" && method === "POST") {
       if (input.onboarding) {
         snapshot.bots = []; snapshot.channels = []; snapshot.runs = []; snapshot.channelMessages = [];

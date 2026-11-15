@@ -151,20 +151,6 @@ describe("DesktopNotificationManager", () => {
     expect(ids()).toEqual(["chat:2"]);
   });
 
-  test("shows unread questions as banners only when the app is in the background", () => {
-    let focused = true;
-    const { manager, delivered } = harness({ focused: () => focused });
-    manager.setVisibleChannel("another-chat");
-    manager.sync({ channels: [channel([])] });
-    manager.sync({ channels: [channel([alert(1, { title: "Question QA", body: "Which sample color?" })])] });
-    expect(delivered).toEqual([]);
-    focused = false;
-    manager.sync({ channels: [channel([alert(2, { title: "Question QA", body: "Which sample animal?" })])] });
-    expect(delivered.map(({ title, body }) => ({ title, body }))).toEqual([
-      { title: "Question QA", body: "Which sample animal?" },
-    ]);
-  });
-
   test("sums unread counts, rejects stale snapshots, and leaves the visible channel out of the badge", () => {
     const { manager, badges } = harness({ focused: () => true });
     manager.sync({

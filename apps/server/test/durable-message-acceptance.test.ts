@@ -9,8 +9,9 @@ test("a direct message is acknowledged without waiting for bootstrap cancellatio
   let runtimeContent = "";
   const tx = {
     $executeRaw: async () => 0,
+    $queryRaw: async () => [],
     conversation: { findUnique: async () => ({ botId: "bot-1", bot: { id: "bot-1", status: "active", subagentIdentity: null } }) },
-    idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
+    idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
     channel: { findUnique: async () => ({ id: channelId, archivedAt: null }), update: async () => ({}) },
     channelMessage: { create: async () => message, count: async () => 0 },
     bot: { findMany: async () => [] },

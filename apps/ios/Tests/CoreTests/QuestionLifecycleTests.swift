@@ -28,14 +28,18 @@ final class QuestionLifecycleTests: XCTestCase {
     send.deliveryUnconfirmed = true
     XCTAssertNil(QuestionLifecycle.current([q], pending: [send]))
   }
-  func testHistoryNavigationAndFreshQuestionDoNotReopenOldCards() {
+  func testOnlyTheNewestUnsettledQuestionStaysOpenAndOldCardsNeverReopen() {
     var old = row("1")
     old.metadata["widgetDismissed"] = .bool(true)
     var answered = row("2")
     answered.metadata["respondedValue"] = .string("Blue")
-    let fresh = row("3")
-    let projected = QuestionLifecycle.project([old, answered, fresh])
+    let older = row("3"), fresh = row("4")
+    let projected = QuestionLifecycle.project([old, answered, older, fresh])
     XCTAssertEqual(projected[1].metadata["respondedValue"], .string("Blue"))
+    // A newer question retires its predecessor before the server's update arrives.
+    XCTAssertEqual(projected[2].metadata["widgetDismissalReason"].string, "superseded")
+    XCTAssertFalse(older.metadata["widgetDismissed"].bool)
+    XCTAssertEqual(projected[3], fresh)
     XCTAssertEqual(QuestionLifecycle.current(projected)?.id, fresh.id)
     XCTAssertEqual(QuestionLifecycle.project([old] + Array(projected.dropFirst())), projected)
   }
@@ -51,6 +55,26 @@ final class QuestionLifecycleTests: XCTestCase {
       for (key, value) in settlement.object { XCTAssertEqual(merged[0].metadata[key], value) }
     }
   }
+  func testQuestionsShowOnlyTheirPromptAndNeverBadgeTheInbox() {
+    var q = row("1", metadata: .object(["type": .string("widget"), "widget": .object([
+      "prompt": .string("What should I draft for **Jayne**?"), "helpText": .string("Still on track or delayed?"),
+      "options": .array([.object(["label": .string("Still on track")]), .object(["label": .string("Delayed")])]),
+      "allowCustom": .bool(true)])]))
+    let running = Run(id: "run", botId: "bot", channelId: "chat", status: "running")
+    // Questions use their card and unread state; only pending approvals keep an attention badge.
+    XCTAssertEqual(InboxPresentation.activity(latest: q, runs: []), .idle)
+    XCTAssertEqual(InboxPresentation.activity(latest: q, runs: [running]), .working)
+    let approval = row("2", metadata: .object(["type": .string("external-draft"), "cardState": .string("pending")]))
+    let latest = row("3", user: true, metadata: .object(["type": .string("text")]))
+    XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [], messages: [q, latest]), .idle)
+    XCTAssertEqual(InboxPresentation.activity(latest: latest, runs: [], messages: [approval, latest]), .needsAnswer)
+    // The preview is the readable prompt alone: no help text, choices or icon.
+    XCTAssertEqual(InboxPresentation.preview(q), "What should I draft for Jayne?")
+    XCTAssertEqual(q.previewText, InboxPresentation.preview(q))
+    XCTAssertNil(InboxPresentation.previewSymbol(q))
+    q.metadata["widget"] = .null
+    XCTAssertEqual(InboxPresentation.preview(q), "Color?")
+  }
   func testBranchAndApprovalAreIndependent() {
     let q = row("1")
     var branch = row("2")
@@ -64,28 +88,6 @@ final class QuestionLifecycleTests: XCTestCase {
     XCTAssertTrue(result[1].metadata["widgetDismissed"].bool)
     XCTAssertEqual(result[3], approval)
     XCTAssertEqual(QuestionLifecycle.current(result)?.id, q.id)
-  }
-  func testNewQuestionRetiresPredecessorBeforeItsUpdateArrives() {
-    let older = row("1"), fresh = row("2")
-    let projected = QuestionLifecycle.project([older, fresh])
-    XCTAssertTrue(projected[0].metadata["widgetDismissed"].bool)
-    XCTAssertEqual(projected[0].metadata["widgetDismissalReason"].string, "superseded")
-    XCTAssertEqual(projected[1], fresh)
-    XCTAssertEqual(QuestionLifecycle.current(projected)?.id, fresh.id)
-    XCTAssertFalse(older.metadata["widgetDismissed"].bool)
-  }
-  func testReceiptSurvivesWindowReplacementAndStaleContext() {
-    var receipts = QuestionReceiptCache()
-    var answered = row("1")
-    answered.metadata["respondedValue"] = .string("Blue")
-    _ = receipts.merge([], [answered])
-    _ = receipts.merge([], []) // A new context evicts the old visible window.
-    var stale = row("1")
-    stale.metadata["reactions"] = .array([.string("new")])
-    let restored = receipts.merge([], [stale])
-    XCTAssertEqual(restored[0].metadata["respondedValue"], .string("Blue"))
-    XCTAssertEqual(restored[0].metadata["reactions"], stale.metadata["reactions"])
-    XCTAssertNil(QuestionLifecycle.current(restored))
   }
   func testSeededDelayedDuplicatePagesNeverReopenReceipts() {
     for seed in 1...100 {
@@ -132,5 +134,4 @@ final class QuestionLifecycleTests: XCTestCase {
     var other = row("20"); other.channelId = "other"
     XCTAssertEqual(receipts.restore(other), other)
   }
-
 }

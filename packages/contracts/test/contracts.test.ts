@@ -73,7 +73,7 @@ describe("API contracts", () => {
       }))).not.toContain("target");
     }
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
-      "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
+      "UpdateMemory only writes, replaces or forgets memory. Routines have their own UpdateRoutine tool."
     );
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
       "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."
@@ -85,6 +85,11 @@ describe("API contracts", () => {
     expect(shape.enum).toEqual([...ROBOT_AVATAR_SHAPES]);
     expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
     expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
+    // Correction and historical recall arguments survive normalization.
+    const correction = { action: "replace", type: "profile", id: "00000000-0000-4000-8000-000000000207", fact: "Prefers Messi." };
+    expect(normalizeMainToolArguments("UpdateMemory", correction)).toEqual(correction);
+    expect(() => normalizeMainToolArguments("UpdateMemory", { ...correction, id: "wrong" })).toThrow();
+    expect(normalizeMainToolArguments("RecallMemory", { query: "football", includeHistory: true })).toEqual({ query: "football", includeHistory: true });
   });
 });
 

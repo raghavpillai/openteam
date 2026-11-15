@@ -24,14 +24,13 @@ final class PresentationTests: XCTestCase {
     root["places"] = .array([])
     XCTAssertNil(PresentationPayload.parse(.object(root)))
   }
-  func testTravelTimePreservesOrdinaryRouteLabels() {
+  func testTravelTimeLabelsAndUnrepresentableDurations() {
     for (seconds, expected) in [(0.0, "<1 min"), (59, "<1 min"), (60, "1 min"),
       (89, "1 min"), (90, "2 min"), (120, "2 min"), (3600, "1 hr"),
       (3660, "1 hr 1 min"), (86400, "1 d"), (90000, "1 d 1 hr")] {
       XCTAssertEqual(PresentationRoute.travelTime(seconds), expected)
     }
-  }
-  func testUnrepresentableTravelTimeCannotCrash() {
+    // Unrepresentable durations render a dash instead of crashing.
     for seconds in [1e100, Double.greatestFiniteMagnitude, Double(Int.max) * 60,
       Double.infinity, -Double.infinity, Double.nan, -1] {
       XCTAssertEqual(PresentationRoute.travelTime(seconds), "—")

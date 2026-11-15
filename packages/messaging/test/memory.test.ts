@@ -5,6 +5,7 @@ import {
   parseExtractedMemories,
   renderTurnMemoryDate,
 } from "../src/memory-learning";
+import { memoryLogicalId, normalizeMemoryContent } from "../src/memory-facts";
 import { renderMemoryContextBlock, renderMemoryFactSnapshot, renderUserMemoryFactSnapshot } from "../src/memory-rendering";
 import { parseRecallInput, recallMemoryResult } from "../src/recall-memory";
 
@@ -19,6 +20,28 @@ test("extraction lines add, retire and prefix facts, skipping ones already known
     removals: ["Lives in Boston."],
   });
   expect(parseExtractedMemories("  NONE \n", [])).toEqual({ additions: [], removals: [] });
+});
+
+test("a correction must name a shown fact; malformed or unknown correction lines reject the whole batch", () => {
+  const shown = ["Lives in Boston."];
+  // Indentation and a wrapping Markdown fence are formatting, not facts.
+  expect(parseExtractedMemories('```json\n  replace: {"old":"Lives in Boston.","fact":"Lives in NYC."}  \n  profile: Prefers tea.\n```', shown)).toEqual({
+    additions: [{ content: "Prefers tea.", kind: "profile" }],
+    removals: [], replacements: [{ old: "Lives in Boston.", fact: "Lives in NYC." }],
+  });
+  expect(parseExtractedMemories("```text\nprofile: Likes tea.", [])).toEqual({ additions: [], removals: [] });
+  const rejected = [
+    'replace: {"old":"Invented existing fact.","fact":"Unfounded correction."}',
+    'replace: {"old":"Lives in Boston.","fact":"  "}',
+    "replace: null",
+    "replace: not-json",
+    'replace: {\n  "old": "Lives in Boston.",\n  "fact": "Lives in NYC."\n}',
+    'replace: {"old":"Lives in Boston","fact":"Lives in NYC."}\nprofile: Lives in NYC.',
+    "remove:\nprofile: Lives in NYC.",
+    "remove: Lives in Boston\nprofile: Lives in NYC.",
+    'replace: {"old":"Lives in Boston.","fact":"Lives in NYC."}\nreplace: null',
+  ];
+  for (const raw of rejected) expect(parseExtractedMemories(raw, shown)).toEqual({ additions: [], removals: [] });
 });
 
 test("small talk is skipped, anything substantive is reviewed", () => {
@@ -94,6 +117,21 @@ test("recall searches everything, labels each fact by memory type, and ignores a
   );
 });
 
+test("superseded facts are dropped before scoring and limiting, and labeled in history", () => {
+  const candidates = [
+    { ...fact("Favourite football player is Ronaldo.", 1), id: "old", supersededAt: new Date("2026-09-02"), supersededById: "new" },
+    { ...fact("Favourite player is Messi.", 2), id: "new" },
+  ];
+  const current = recallMemoryResult({ query: "favourite football player", limit: 1 }, candidates);
+  expect(current).toContain("Messi");
+  expect(current).not.toContain("Ronaldo");
+  expect(current).toContain("id: new; active");
+  const history = recallMemoryResult({ query: "favourite football player", includeHistory: true }, candidates);
+  expect(history).toContain("Ronaldo");
+  expect(history).toContain("superseded 2026-09-02 by new");
+  expect(recallMemoryResult({ query: "Ronaldo" }, candidates)).toContain("No facts");
+});
+
 const day = (value: string) => Date.parse(`${value}T00:00:00Z`);
 
 test("memory facts render by tier with their dates and sources, fenced as escaped data", () => {
@@ -115,4 +153,15 @@ test("each memory block keeps to its character budget and says how many facts it
   expect(renderMemoryFactSnapshot({ profile: [], recent: [fact(0, 5000), fact(1, 10)] })).toEndWith("(1 more log facts not shown. Call RecallMemory to search them.)");
   expect(renderUserMemoryFactSnapshot({ profile: [], recent: Array.from({ length: 6 }, (_, i) => fact(i, 450)) }))
     .toEndWith("(2 more shared log facts not shown. Call RecallMemory to search them.)");
+});
+
+test("memory text is cut at 500 whole characters, survives UTF-8 transport, and normalizes idempotently", () => {
+  expect(normalizeMemoryContent("x".repeat(499) + "😀")).toBe("x".repeat(499));
+  expect(normalizeMemoryContent("x".repeat(498) + "😀" + "tail")).toBe("x".repeat(498) + "😀");
+  for (const input of ["name " + String.fromCharCode(0xd83d) + " here", String.fromCharCode(0xde00) + " value", " Spaced\t\nout  é ß "]) {
+    const normalized = normalizeMemoryContent(input);
+    expect(Buffer.from(normalized).toString("utf8")).toBe(normalized);
+    expect(normalizeMemoryContent(normalized)).toBe(normalized);
+    expect(memoryLogicalId(normalized)).toBe(memoryLogicalId(input));
+  }
 });

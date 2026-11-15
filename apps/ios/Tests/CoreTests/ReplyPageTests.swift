@@ -22,6 +22,35 @@ final class ReplyPageTests: XCTestCase {
     XCTAssertEqual(timeline.entries.map(\.showsReplyContext), [false, true, false, false, false, true, true])
     XCTAssertEqual(ThreadProjection.messages(root: response, in: timeline.entries.map(\.message)).map(\.id), ["3", "7"])
   }
+  func testOnlyRepliesAndSendsAfterCatchingUpAnimateIn() {
+    var presentation = MessagePresentation()
+    // The reader was not there for anything up to 22: the chat's page brought it.
+    let live: (Message) -> Bool = { MessageMerge.less("22", $0.sequence) }
+    _ = presentation.project(MessageTimeline([message("20")]), pending: [], animateNew: false, isArrival: live)
+    let caughtUp = presentation.project(MessageTimeline(["20", "21", "22"].map { message($0) }),
+      pending: [], animateNew: true, isArrival: live)
+    XCTAssertTrue(caughtUp.allSatisfy { !$0.animatesArrival })
+    XCTAssertEqual(presentation.arrivalRevision, 0)
+    let timeline = MessageTimeline(["20", "21", "22", "23"].map { message($0) })
+    let arrived = presentation.project(timeline, pending: [], animateNew: true, isArrival: live)
+    XCTAssertEqual(arrived.map(\.animatesArrival), [false, false, false, true])
+    XCTAssertEqual(presentation.arrivalRevision, 1)
+    // The reader's own queued send always arrives, even when no reply is live.
+    let send = PendingSend(channelId: "chat", input: SendInput(content: "Queued", clientId: "nonce"))
+    let queued = presentation.project(timeline, pending: [send], animateNew: true, isArrival: { _ in false })
+    XCTAssertEqual(queued.count, 5)
+    XCTAssertTrue(queued[4].animatesArrival)
+    XCTAssertEqual(presentation.arrivalRevision, 2)
+  }
+  func testQuestionDraftsKeepCardInputSeparateFromComposerText() throws {
+    var draft = try JSONDecoder().decode(Draft.self, from: Data(#"{"text":"Unsent","attachments":[],"isFork":false}"#.utf8))
+    XCTAssertNil(draft.widgetCustomAnswers)
+    draft.widgetSelections = ["widget": ["primary"]]
+    draft.widgetCustomAnswers = ["widget": "Gamma"]
+    let restored = try JSONDecoder().decode(Draft.self, from: JSONEncoder().encode(draft))
+    XCTAssertEqual(restored, draft)
+    XCTAssertEqual(restored.text, "Unsent")
+  }
   func testLostWidgetAcknowledgementMatchesOnlyItsOwnReceipt() {
     XCTAssertFalse(WidgetMutationReceipt.accepted(.object([:]), action: "widget-response", clientID: "request"))
     XCTAssertFalse(WidgetMutationReceipt.accepted(.null, action: "widget-dismiss", clientID: "request"))

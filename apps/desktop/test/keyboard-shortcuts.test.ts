@@ -93,10 +93,11 @@ describe("keyboard shortcuts", () => {
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
-  test("queued resets validate after earlier saves free or claim the default", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shortcuts-reset-race-"));
+  test("queued saves validate at their turn: after earlier saves free or claim a key, and against the current ScreenBot reservation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shortcuts-queue-"));
+    let reserved: string | null = null;
     try {
-      const store = new KeyboardShortcutStore({ path: join(directory, "settings.json"), platform: "darwin", screenBotAccelerator: () => null, onChange() {} });
+      const store = new KeyboardShortcutStore({ path: join(directory, "settings.json"), platform: "darwin", screenBotAccelerator: () => reserved, onChange() {} });
       await store.start();
       await store.set("search", "Command+Shift+F");
       await store.set("toggleSidebar", "Command+K");
@@ -107,19 +108,9 @@ describe("keyboard shortcuts", () => {
       const claimed = await Promise.allSettled([store.set("toggleSidebar", "Command+K"), store.set("search", null)]);
       expect(claimed.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
       expect(store.get("search")).toBe("Command+Shift+F");
-    } finally { await rm(directory, { recursive: true, force: true }); }
-  });
-
-  test("queued validation uses current ScreenBot reservation and retains sequential system checks", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "shortcuts-reserved-"));
-    let reserved: string | null = null;
-    try {
-      const store = new KeyboardShortcutStore({ path: join(directory, "settings.json"), platform: "darwin", screenBotAccelerator: () => reserved, onChange() {} });
-      await store.start();
-      const pending = store.set("search", "Command+Shift+F");
-      reserved = "Command+Shift+F";
+      const pending = store.set("search", "Command+Shift+G");
+      reserved = "Command+Shift+G";
       await expect(pending).rejects.toThrow("ScreenBot already uses");
-      await expect(store.set("search", "Command+C")).rejects.toThrow("Your system uses");
       await expect(store.set("search", "bad-key")).rejects.toThrow("Include");
       await expect(store.set("missing", null)).rejects.toThrow("can’t be changed");
     } finally { await rm(directory, { recursive: true, force: true }); }

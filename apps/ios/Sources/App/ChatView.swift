@@ -66,7 +66,8 @@ struct ChatView: View {
   }
   var body: some View {
     let timeline = timelineCache.project(store.visibleMessages(channel.id), includeBranched: true)
-    let rows = timelineCache.present(timeline, pending: pendingMessages, animateNew: didPositionHistory)
+    let rows = timelineCache.present(timeline, pending: pendingMessages, animateNew: didPositionHistory,
+      isArrival: { store.arrivedLive($0) })
     ZStack {
       if showsLoadError {
         ChatLoadErrorView {
@@ -86,6 +87,7 @@ struct ChatView: View {
           onLoadEarlier: { Task { await store.loadHistory(channel.id, older: true) } },
           onLoadLater: { Task { await store.loadLater(channel.id) } },
           onPositioned: {
+            ChatOpenTrace.mark("positioned", channel.id)
             didPositionHistory = true
             if let id = store.focusedMessage { focus(id) }
           },
@@ -135,6 +137,9 @@ struct ChatView: View {
         historyAvailable = true
       }
     }
+    .onChange(of: historyAvailable) { _, _ in
+      ChatOpenTrace.mark("list-shown", channel.id + " last=" + (store.messages(channel.id).last?.id ?? ""))
+    }
     .onChange(of: store.focusedMessage) { _, id in
       if didPositionHistory, let id, thread == nil { focus(id) }
     }
@@ -152,13 +157,17 @@ struct ChatView: View {
         openingReadSequence = channel.notificationState?["lastReadSequence"].string
         didCaptureBoundary = true
       }
+      ChatOpenTrace.mark("chat-open", channel.id + " saved=\(store.hasCachedHistory(channel.id))"
+        + " behind=\(store.transcriptBehind(channel.id)) catchingUp=\(store.catchingUp)"
+        + " busy=\(store.busy.contains("history-" + channel.id))")
       if store.hasCachedHistory(channel.id) {
         savedTranscriptAtOpen = true
         resolveOpeningBoundary()
-        // A transcript missing the newest known reply, or opened while the app is
-        // still catching up after the background, waits briefly for its page
-        // rather than showing without the reply and animating it in.
-        if store.focusedMessage == nil && (store.transcriptBehind(channel.id) || store.catchingUp) {
+        // A transcript known to lack the newest reply waits briefly for its page,
+        // to open with the reply in place. One that is only unverified (the app
+        // is still catching up after the background) shows at once: most have
+        // nothing new, and a reply its page does bring is placed without an entrance.
+        if store.focusedMessage == nil && store.transcriptBehind(channel.id) {
           awaitingNewerPage = true
         } else {
           historyAvailable = true
@@ -267,6 +276,7 @@ struct ChatView: View {
         outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
         let arrives = timelineCache.consumeArrival(row)
+        if arrives { ChatOpenTrace.mark("arrival", row.scrollID) }
         return AnyView(MessageArrival(animate: arrives, isUser: row.isUser) {
           MessageDeliveryRow(row: row) { timelineRow(row) }
         }.padding(.horizontal, 16)
@@ -523,14 +533,24 @@ struct ChatView: View {
   private var value = MessageTimeline([])
   private var presentation = MessagePresentation()
   private var animatedIDs: Set<String> = []
+  private var arrivalTimes: [String: CFTimeInterval] = [:]
+  /// An arrival animates in the moment it arrives. A reply whose row was built
+  /// later (it landed below a reader who was back in history) is simply there.
   func consumeArrival(_ row: MessagePresentation.Row) -> Bool {
-    row.animatesArrival && animatedIDs.insert(row.id).inserted
+    guard row.animatesArrival, animatedIDs.insert(row.id).inserted else { return false }
+    return CACurrentMediaTime() - (arrivalTimes[row.id] ?? 0) < 1
   }
   var arrivalRevision: Int { presentation.arrivalRevision }
-  func present(_ timeline: MessageTimeline, pending: [PendingSend], animateNew: Bool)
-    -> [MessagePresentation.Row]
+  func present(_ timeline: MessageTimeline, pending: [PendingSend], animateNew: Bool,
+    isArrival: (Message) -> Bool = { _ in true }) -> [MessagePresentation.Row]
   {
-    presentation.project(timeline, pending: pending, animateNew: animateNew)
+    let rows = presentation.project(timeline, pending: pending, animateNew: animateNew, isArrival: isArrival)
+    let arriving = rows.filter(\.animatesArrival).map(\.id)
+    if !arriving.isEmpty || !arrivalTimes.isEmpty {
+      let now = CACurrentMediaTime()
+      arrivalTimes = Dictionary(uniqueKeysWithValues: arriving.map { ($0, arrivalTimes[$0] ?? now) })
+    }
+    return rows
   }
   func project(_ messages: [Message], includeBranched: Bool = false) -> MessageTimeline {
     if source != messages || includesBranched != includeBranched {

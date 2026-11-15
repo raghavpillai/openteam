@@ -1162,6 +1162,7 @@ private struct ConversationLink<Label: View>: View {
     if inPlace {
       Button {
         guard store.navigation.last != id else { return }
+        ChatOpenTrace.mark("tap", id)
         NativeHaptics.play(.light, source: "conversation.select")
         Task { await store.open(id) }
       } label: {
@@ -1179,6 +1180,7 @@ private struct ConversationLink<Label: View>: View {
     } else {
       NavigationLink(value: id) { label }.buttonStyle(.borderless)
         .simultaneousGesture(TapGesture().onEnded {
+          ChatOpenTrace.mark("tap", id)
           NativeHaptics.play(.light, source: "conversation.select")
         })
     }

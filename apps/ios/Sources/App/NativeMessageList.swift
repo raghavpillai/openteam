@@ -7,6 +7,12 @@ import UIKit
   var historyLayoutReady: Bool { get }
 }
 
+/// Whether the transcript is on screen yet. Content that finishes afterwards (a
+/// document painting at its reserved size) fades in instead of appearing in a frame.
+@MainActor protocol HistoryRevealState {
+  var historyRevealed: Bool { get }
+}
+
 /// Views are constructed only for reusable visible cells, never for the entire
 /// transcript. Stable delivery IDs keep a pending send's cell when it is accepted.
 struct NativeHistoryItem {
@@ -144,11 +150,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var frameTraceLink: CADisplayLink?
   private var frameTrace: [[String: Any]] = []
   private var lastFrameSignature = ""
+  private var lastOpenSignature = ""
   private var frameTraceWrite: DispatchWorkItem?
   private struct CommittedRow { let id: String; let frame: CGRect; weak var cell: UITableViewCell?; let hidden: Int }
   private var committedRows: [CommittedRow] = []
   private var committedOffset: CGFloat = 0
   private var commitObserver: CFRunLoopObserver?
+  private let traceID = ChatOpenTrace.nextList()
   #endif
   private var settle: DispatchWorkItem?
   private var initialLayoutGeneration = 0
@@ -201,6 +209,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     source = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, path, id in
       guard let self, let item = self.items[id] else { return nil }
       let cell = table.dequeueReusableCell(withIdentifier: "message", for: path)
+      ChatOpenTrace.mark("cell", "\(path.row) " + item.scrollID)
       if self.highlightedCell === cell { self.clearHighlight() }
       cell.backgroundView = nil
       cell.accessibilityIdentifier = nil
@@ -613,6 +622,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
           return
         }
         self.positioned = true
+        self.table.historyRevealed = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
         self.highlightTarget = self.initialTarget == "bottom" ? nil : self.initialTarget
@@ -1386,6 +1396,23 @@ extension HistoryListController {
       return CommittedRow(id: items[id]?.scrollID ?? id, frame: cell.frame, cell: cell, hidden: hidden(cell))
     }
   }
+  /// The opacity and scale the row's most visible content is displayed with. A
+  /// row-wide entrance multiplies every leaf; decorative transparent layers
+  /// (an idle highlight overlay) never are the most visible leaf.
+  private static func entranceEffect(_ layer: CALayer, budget: inout Int) -> (opacity: Double, scale: Double) {
+    budget -= 1
+    let shown = layer.animationKeys()?.isEmpty == false ? layer.presentation() ?? layer : layer
+    let transform = shown.affineTransform()
+    let own = (Double(shown.isHidden ? 0 : shown.opacity), Double(hypot(transform.a, transform.b)))
+    var best: (opacity: Double, scale: Double)?
+    for child in layer.sublayers ?? [] where budget > 0 {
+      let value = entranceEffect(child, budget: &budget)
+      if best.map({ value.opacity > $0.opacity || (value.opacity == $0.opacity && value.scale > $0.scale) }) ?? true {
+        best = value
+      }
+    }
+    return (own.0 * (best?.opacity ?? 1), own.1 * (best?.scale ?? 1))
+  }
   @objc fileprivate func traceFrame(_ link: CADisplayLink) {
     guard table.window != nil else { return }
     // Committed geometry, or the presentation of animations committed with it.
@@ -1420,12 +1447,38 @@ extension HistoryListController {
     if relocationSnapshot != nil { flags += "r" }
     if table.layer.isHidden { flags += "h" }
     if committedRows.contains(where: { $0.cell?.layer.animationKeys()?.isEmpty == false }) { flags += "a" }
+    // Whether the list is displayed at all (ChatView hides it until positioned,
+    // a push slides it in) and which rows are mid-entrance: layer values only.
+    var alpha = 1.0
+    var ancestor: CALayer? = table.layer
+    while let layer = ancestor {
+      alpha *= Double((layer.animationKeys()?.isEmpty == false ? layer.presentation() : nil)?.opacity ?? layer.opacity)
+      ancestor = layer.superlayer
+    }
+    alpha = (alpha * 100).rounded() / 100
+    let origin = (table.layer.presentation() ?? table.layer).convert(CGPoint.zero, to: nil)
+    var effects: [String: [Double]] = [:]
+    for row in committedRows {
+      guard let cell = row.cell, rows.contains(where: { $0[0] as? String == row.id }) else { continue }
+      var budget = 300
+      let effect = Self.entranceEffect(cell.contentView.layer, budget: &budget)
+      if effect.opacity < 0.995 || effect.scale < 0.995 {
+        effects[row.id] = [(effect.opacity * 100).rounded() / 100, (effect.scale * 1000).rounded() / 1000]
+      }
+    }
     let signature = "\(presented)|\(rows.map { "\($0[0])\($0[1])\($0[2])" })|\(hiddenDocuments)|\(flags)|\(finger ?? -1)"
-    guard signature != lastFrameSignature else { return }
+    // The scroll trace keeps recording geometry changes only; the chat-open
+    // trace also records a frame when only visibility or an entrance changed.
+    let openSignature = signature + "|\(alpha)|\(origin.x.rounded())|\(effects)"
+    let moved = signature != lastFrameSignature
+    guard moved || openSignature != lastOpenSignature else { return }
     lastFrameSignature = signature
+    lastOpenSignature = openSignature
     var frame: [String: Any] = ["t": link.timestamp, "off": Double(presented), "model": Double(table.contentOffset.y),
       "content": Double(table.contentSize.height), "insetTop": Double(table.contentInset.top),
-      "flags": flags, "rows": rows, "hiddenDocs": hiddenDocuments, "window": windowStart, "mounted": displayedIDs.count]
+      "flags": flags, "rows": rows, "hiddenDocs": hiddenDocuments, "window": windowStart, "mounted": displayedIDs.count,
+      "alpha": alpha, "x": Double(origin.x.rounded()), "list": traceID]
+    if !effects.isEmpty { frame["fx"] = effects }
     if let finger { frame["finger"] = finger }
     let animations = (table.layer.animationKeys() ?? []).map { key in
       "table:\(key):\((table.layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath ?? "")"
@@ -1433,6 +1486,8 @@ extension HistoryListController {
       (cell.layer.animationKeys() ?? []).map { "cell:\($0)" }
     }
     if !animations.isEmpty { frame["animations"] = Array(Set(animations)).sorted() }
+    ChatOpenTrace.frame(frame)
+    guard moved else { return }
     frameTrace.append(frame)
     if frameTrace.count > 20_000 { frameTrace.removeFirst(5_000) }
     // Write only once scrolling is idle, serializing off the main thread, so the
@@ -1455,6 +1510,46 @@ extension HistoryListController {
 }
 #endif
 
+/// Optional QA evidence for opening a chat (`--trace-scroll-frames`): navigation,
+/// history and positioning events beside the frames of every list shown, written
+/// to `tmp/chat-open-trace.json` once idle. Times, IDs and geometry, never content.
+@MainActor enum ChatOpenTrace {
+  #if DEBUG
+  static let enabled = ProcessInfo.processInfo.arguments.contains("--trace-scroll-frames")
+  private static var events: [[Any]] = []
+  private static var frames: [[String: Any]] = []
+  private static var lists = 0
+  private static var write: DispatchWorkItem?
+  static func nextList() -> Int { lists += 1; return lists }
+  static func frame(_ value: [String: Any]) {
+    frames.append(value)
+    if frames.count > 20_000 { frames.removeFirst(5_000) }
+    save()
+  }
+  private static func save() {
+    write?.cancel()
+    let work = DispatchWorkItem {
+      write = nil
+      let value: [String: Any] = ["events": events, "frames": frames]
+      let url = FileManager.default.temporaryDirectory.appendingPathComponent("chat-open-trace.json")
+      DispatchQueue.global(qos: .utility).async {
+        if let data = try? JSONSerialization.data(withJSONObject: value) { try? data.write(to: url, options: .atomic) }
+      }
+    }
+    write = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+  }
+  #endif
+  static func mark(_ name: String, _ detail: @autoclosure () -> String = "") {
+    #if DEBUG
+    guard enabled else { return }
+    events.append([CACurrentMediaTime(), name, detail()])
+    if events.count > 5_000 { events.removeFirst(1_000) }
+    save()
+    #endif
+  }
+}
+
 /// History paints beneath the floating glass bars, but those pixels must never
 /// receive touches belonging to the composer or header outside this viewport.
 @MainActor private final class HistoryViewport: UIView {
@@ -1464,9 +1559,10 @@ extension HistoryListController {
   }
 }
 
-@MainActor private final class HistoryTable: UITableView {
+@MainActor private final class HistoryTable: UITableView, HistoryRevealState {
   var willLayout: (() -> Void)?
   var didLayout: (() -> Void)?
+  var historyRevealed = false
   /// Self-sizing hosting cells otherwise animate each size change from inside
   /// this layout pass, sliding every following row mid-scroll. The controller
   /// keeps visible content in place instead; it opts in for deliberate resizes.

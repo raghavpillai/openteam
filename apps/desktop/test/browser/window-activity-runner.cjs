@@ -157,6 +157,12 @@ app.whenReady().then(async () => {
     const foregroundResources = (await read()).resources;
     const quiet = await background();
     check(quiet.visible && quiet.inactiveAttribute, "unfocused shown windows pause decoration without changing notification visibility");
+    await evaluate("window.addArrivals()");
+    await pause(600);
+    const arrivals = await evaluate("window.arrivalProbe()");
+    check(arrivals.rowOpacity === "1" && arrivals.dotOpacity === "1", "a reply and an unread dot arriving in an unfocused window are shown, not held at the first frame of their entrance");
+    check(arrivals.loopStates.length === 1 && arrivals.loopStates[0] === "paused", "a loop started in an unfocused window still sleeps");
+    await evaluate("window.removeArrivals()");
     await evaluate("window.tickPollers()");
     await pause(100);
     const idle = await read();

@@ -155,6 +155,22 @@ Object.assign(window, {
   finishTranscription: () => finishTranscription(),
   updateOffline: () => { updateUnavailable = true; refreshUpdate(); },
   updateIdle: () => { updateUnavailable = false; updateState = "idle"; refreshUpdate(); },
+  // A reply and an unread dot as the transcript and sidebar render them on
+  // arrival, next to a loop.
+  addArrivals: () => {
+    const host = document.createElement("div");
+    host.id = "arrivals";
+    host.innerHTML = `<div class="message-row" data-enter="new"><div class="message-row-content">Reply</div></div>
+      <span class="sidebar-status-reveal">dot</span>
+      <span data-loop style="animation: message-row-fade 1s infinite">loop</span>`;
+    document.body.append(host);
+  },
+  arrivalProbe: () => ({
+    rowOpacity: getComputedStyle(document.querySelector("#arrivals .message-row-content")!).opacity,
+    dotOpacity: getComputedStyle(document.querySelector("#arrivals .sidebar-status-reveal")!).opacity,
+    loopStates: document.querySelector("#arrivals [data-loop]")!.getAnimations().map(animation => animation.playState),
+  }),
+  removeArrivals: () => document.getElementById("arrivals")?.remove(),
   disposeActivity: () => { flushSync(() => root.render(null)); disposeVisibility(); },
   reinstallActivity: () => { disposeVisibility = installWindowVisibility(); render(); },
   activityProbe: () => ({

@@ -42,6 +42,38 @@ final class MessagePresentationTests: XCTestCase {
     XCTAssertTrue(incoming[1].animatesArrival)
     XCTAssertEqual(presentation.arrivalRevision, 1)
   }
+  func testRepliesReadByCatchingUpAreInPlaceAndOnlyLaterRepliesArrive() {
+    var presentation = MessagePresentation()
+    // The reader was not there for anything up to 22: the chat's page brought it.
+    let live: (Message) -> Bool = { MessageMerge.less("22", $0.sequence) }
+    _ = presentation.project(
+      MessageTimeline([message("seen", "20")]), pending: [], animateNew: false, isArrival: live)
+    // The page lands after the saved transcript is on screen.
+    let caughtUp = presentation.project(
+      MessageTimeline([message("seen", "20"), message("missed-1", "21"), message("missed-2", "22")]),
+      pending: [], animateNew: true, isArrival: live)
+    XCTAssertTrue(caughtUp.allSatisfy { !$0.animatesArrival })
+    XCTAssertEqual(presentation.arrivalRevision, 0)
+    let arrived = presentation.project(
+      MessageTimeline([
+        message("seen", "20"), message("missed-1", "21"), message("missed-2", "22"),
+        message("live", "23"),
+      ]), pending: [], animateNew: true, isArrival: live)
+    XCTAssertEqual(arrived.map(\.animatesArrival), [false, false, false, true])
+    XCTAssertEqual(presentation.arrivalRevision, 1)
+  }
+  func testAQueuedSendArrivesEvenWhenNoReplyIsLive() {
+    var presentation = MessagePresentation()
+    _ = presentation.project(
+      MessageTimeline([message("seen", "20")]), pending: [], animateNew: false,
+      isArrival: { _ in false })
+    let pending = PendingSend(
+      channelId: "chat", input: SendInput(content: "Message", clientId: "nonce"))
+    let queued = presentation.project(
+      MessageTimeline([message("seen", "20")]), pending: [pending], animateNew: true,
+      isArrival: { _ in false })
+    XCTAssertEqual(queued.map(\.animatesArrival), [false, true])
+  }
   func testQueuedTimestampMatchesAcknowledgmentAfterLongGap() throws {
     var presentation = MessagePresentation()
     let earlier = message("earlier", "1")

@@ -18,11 +18,29 @@ export const subscribeWindowVisibility = (onChange: () => void) => {
   return () => window.removeEventListener(WINDOW_VISIBILITY_EVENT, onChange);
 };
 
+/**
+ * Loops sleep while the window is hidden or unfocused; an animation that ends
+ * runs to its end. Held at its first frame, an entrance keeps what it reveals
+ * invisible (a reply that just arrived, an unread dot) until the window is
+ * focused, and then plays for everything that arrived in the meantime.
+ */
+const finishOneShotAnimations = () => {
+  if (isWindowActive()) return;
+  for (const animation of document.getAnimations()) {
+    if (animation.playState !== "paused") continue;
+    if (animation.effect?.getComputedTiming().iterations === Infinity) continue;
+    // Playing through the API outranks the stylesheet's pause for this animation.
+    animation.play();
+  }
+};
+
 // Background throttling stays disabled for durable notifications. Explicit native
 // visibility controls visual work without falsifying the browser's visibility API.
 export const installWindowVisibility = () => {
   const publishActivity = () => {
     document.documentElement.toggleAttribute("data-window-inactive", !isWindowActive());
+    // One already under way when the window lost focus.
+    finishOneShotAnimations();
     window.dispatchEvent(new Event(WINDOW_ACTIVITY_EVENT));
   };
   const publish = () => {
@@ -39,6 +57,8 @@ export const installWindowVisibility = () => {
     publishActivity();
   });
   document.addEventListener("visibilitychange", publish);
+  // One that starts while the window is hidden or unfocused.
+  document.addEventListener("animationstart", finishOneShotAnimations, true);
   window.addEventListener("focus", publishActivity);
   window.addEventListener("blur", publishActivity);
   publish();
@@ -46,6 +66,7 @@ export const installWindowVisibility = () => {
     unsubscribe?.();
     unsubscribeActivity?.();
     document.removeEventListener("visibilitychange", publish);
+    document.removeEventListener("animationstart", finishOneShotAnimations, true);
     window.removeEventListener("focus", publishActivity);
     window.removeEventListener("blur", publishActivity);
     nativeVisible = true;

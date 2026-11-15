@@ -196,7 +196,10 @@ Two DEBUG-only probes help with performance work. `--trace-composer-latency` sav
 `Documents/composer-latency.json` after a real tap (`--composer-latency-control`
 opens a plain native field for comparison). `--trace-scroll-frames` saves
 `tmp/scroll-frames.json` once scrolling is idle; report on it with
-`python3 apps/ios/scripts/scroll-frame-report.py --simulator <udid>`.
+`python3 apps/ios/scripts/scroll-frame-report.py --simulator <udid>`. The same flag
+writes `tmp/chat-open-trace.json`: taps, pushes, history reads and positioning beside
+each frame's list opacity and the rows playing an entrance, for timing a chat opening
+and checking which messages animate in.
 
 ```sh
 bun run ios:performance

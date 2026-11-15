@@ -53,12 +53,12 @@ final class ReplyPageTests: XCTestCase {
     let all = [root, message("a", reply: "b"), message("b", reply: "a"), message("orphan", reply: "missing")]
     XCTAssertEqual(ThreadProjection.messages(root: root, in: all, includeInlineReplies: true).map(\.id), ["root"])
   }
-  func testExistingDraftsDecodeAndCustomAnswerRetryIdentityPersists() throws {
+  func testQuestionDraftsKeepCardInputSeparateFromComposerText() throws {
     let old = Data(#"{"text":"Unsent","attachments":[],"isFork":false}"#.utf8)
     var draft = try JSONDecoder().decode(Draft.self, from: old)
-    XCTAssertNil(draft.widgetResponse)
+    XCTAssertNil(draft.widgetCustomAnswers)
     draft.widgetSelections = ["widget": ["primary"]]
-    draft.widgetResponse = WidgetComposerResponse(messageID: "widget", value: "primary\nGamma", clientID: "stable-id")
+    draft.widgetCustomAnswers = ["widget": "Gamma"]
     let restored = try JSONDecoder().decode(Draft.self, from: JSONEncoder().encode(draft))
     XCTAssertEqual(restored, draft)
     XCTAssertEqual(restored.text, "Unsent")

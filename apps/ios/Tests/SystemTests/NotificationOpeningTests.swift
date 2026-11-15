@@ -420,5 +420,71 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertTrue(contextRequests.isEmpty)
     XCTAssertNil(store.error)
   }
+  /// Starts the event loop as launch does and waits until it is listening.
+  private func watch(_ store: AppStore) async throws {
+    let count = try await requests().count
+    store.finishLaunch()
+    for _ in 0..<150 {
+      if try await requests().dropFirst(count).contains(where: { $0["path"].string == "/api/v0/events/poll" }) {
+        return
+      }
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    throw APIError("The event loop did not start")
+  }
+  /// A reply from the chat's bot, announced by a live event and read by the event loop.
+  private func reply(_ text: String, into store: AppStore) async throws -> Message {
+    _ = try await API(server: server).request("/__qa/push-message", method: "POST",
+      body: .object(["channelId": .string("visual-chat"), "content": .string(text)]))
+    for _ in 0..<100 where !store.messages("visual-chat").contains(where: { $0.content == text }) {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    return try XCTUnwrap(store.messages("visual-chat").first { $0.content == text })
+  }
+  func testFirstReplyAfterAnOpeningThatFetchedItsPageArrivesLive() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    try await watch(store)
+    await store.open("visual-chat", messageID: "visual-message-visual-chat-180")
+    XCTAssertEqual(store.navigation, ["visual-chat"])
+    XCTAssertFalse(store.historyWindows["visual-chat"]?.hasLater == true)
+    // The chat's view marks it active when it appears; it skips the latest-page
+    // read because the opening already fetched this page.
+    store.activeChannel = "visual-chat"
+    let first = try await reply("First reply after a search opening", into: store)
+    XCTAssertTrue(store.arrivedLive(first), "The opening had caught up; this reply arrived in front of the reader")
+  }
+  func testFirstReplyAfterANotificationThatFetchedItsPageArrivesLive() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    try await watch(store)
+    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-180", sequence: "180")
+    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-180")
+    store.activeChannel = "visual-chat"
+    let first = try await reply("First reply after a fetched notification", into: store)
+    XCTAssertTrue(store.arrivedLive(first))
+  }
+  func testCachedNotificationTargetCatchesUpBeforeRepliesArriveLive() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await store.loadHistory("visual-chat")
+    let target = try XCTUnwrap(store.messages("visual-chat").last)
+    try await watch(store)
+    let before = try await requests().filter {
+      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
+    }.count
+    await store.openNotification("visual-chat", messageID: target.id, sequence: target.sequence)
+    let after = try await requests().filter {
+      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
+    }.count
+    XCTAssertEqual(after, before, "A cached, visible target opens without a fetch")
+    store.activeChannel = "visual-chat"
+    // Nothing verified this transcript since it was saved, so its first read is
+    // a catch-up: a reply it brings is placed without an entrance.
+    let first = try await reply("Read by the first sync after a cached opening", into: store)
+    XCTAssertFalse(store.arrivedLive(first))
+    let second = try await reply("Arrives once the chat has caught up", into: store)
+    XCTAssertTrue(store.arrivedLive(second))
+  }
 
 }

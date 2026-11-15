@@ -6,6 +6,7 @@ import type {
   ClientBootstrapView,
   ClientSnapshot,
 } from "@openteam/contracts";
+import { createQuestionReceiptStore, preserveQuestionReceipt } from "./questions";
 
 export interface LoadedChannelHistory {
   messages: ChannelMessageView[];
@@ -128,7 +129,9 @@ const preservingClientDelivery = (
   previous: ChannelMessageView,
   incoming: ChannelMessageView
 ): ChannelMessageView => {
-  const clientDelivery = metadataFor(previous).clientDelivery;
+  const previousMetadata = metadataFor(previous);
+  incoming = preserveQuestionReceipt(previous, incoming);
+  const clientDelivery = previousMetadata.clientDelivery;
   if (!clientDelivery || typeof clientDelivery !== "object" || Array.isArray(clientDelivery)) {
     return incoming;
   }
@@ -159,6 +162,23 @@ const withoutVisibleMessages = (
 
 export type ChannelHistoryMergeMode = "replace" | "refresh" | "older";
 
+export const restoreHistoryQuestionReceipts = (
+  history: LoadedChannelHistory, receipts: ReturnType<typeof createQuestionReceiptStore>
+): LoadedChannelHistory => receipts.size === 0 ? history : ({
+  ...history,
+  messages: history.messages.map(receipts.restore),
+  threadContext: history.threadContext.map(receipts.restore),
+  searchContext: history.searchContext.map(receipts.restore),
+  searchThreadContext: history.searchThreadContext.map(receipts.restore),
+});
+
+const historyReceipts = (current: LoadedChannelHistory, incoming: readonly ChannelMessageView[]) => {
+  const receipts = createQuestionReceiptStore();
+  receipts.remember([...current.messages, ...current.threadContext, ...current.searchContext,
+    ...current.searchThreadContext, ...incoming]);
+  return receipts;
+};
+
 /** Merge a server page into the normalized primary/thread/search history lanes. */
 export const mergeLoadedChannelHistoryPage = (
   current: LoadedChannelHistory | undefined,
@@ -167,6 +187,7 @@ export const mergeLoadedChannelHistoryPage = (
   loadedAt = Date.now()
 ): LoadedChannelHistory => {
   const base = emptyLoadedChannelHistory(current);
+  const receipts = historyReceipts(base, [...page.messages, ...(page.threadContext ?? [])]);
   const replace = mode === "replace" || base.loadedAt === 0;
   const messages = replace
     ? sortedUniqueMessages(page.messages).sort(compareEntitySequence)
@@ -183,7 +204,7 @@ export const mergeLoadedChannelHistoryPage = (
     visibleIds
   );
   const threadContextIds = new Set(threadContext.map((message) => message.id));
-  return {
+  return restoreHistoryQuestionReceipts({
     messages,
     searchContext,
     searchThreadContext: withoutVisibleMessages(
@@ -200,7 +221,7 @@ export const mergeLoadedChannelHistoryPage = (
     hasMore: mode === "refresh" && !replace ? base.hasMore : page.hasMore,
     loading: false,
     loadedAt,
-  };
+  }, receipts);
 };
 
 export const mergeLoadedChannelMessageContext = (
@@ -208,11 +229,12 @@ export const mergeLoadedChannelMessageContext = (
   context: Pick<ChannelMessageContextView, "messages" | "threadContext" | "threadContextTruncated">,
   loadedAt = Date.now()
 ): LoadedChannelHistory => {
+  const receipts = historyReceipts(current, [...context.messages, ...(context.threadContext ?? [])]);
   const primaryIds = new Set(current.messages.map((message) => message.id));
   const searchContext = withoutVisibleMessages(context.messages, primaryIds);
   const visibleIds = new Set([...primaryIds, ...searchContext.map((message) => message.id)]);
   const threadContextIds = new Set(current.threadContext.map((message) => message.id));
-  return {
+  return restoreHistoryQuestionReceipts({
     ...current,
     searchContext,
     searchThreadContext: withoutVisibleMessages(
@@ -222,7 +244,7 @@ export const mergeLoadedChannelMessageContext = (
     ),
     searchThreadContextTruncated: context.threadContextTruncated,
     loadedAt,
-  };
+  }, receipts);
 };
 
 export const clearLoadedChannelSearchContext = (

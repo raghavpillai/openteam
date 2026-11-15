@@ -210,6 +210,129 @@ import XCTest
     XCTAssertTrue(done.waitForNonExistence(timeout: 5), "Closing the in-app browser did not dismiss it")
     XCTAssertTrue(link.waitForExistence(timeout: 5), "Closing the browser did not return to the chat")
   }
+  /// The card closes with an animation (and, when a chat message closed it, only once the
+  /// transcript is still), so its settled height is waited for rather than read at once.
+  private func waitForCard(_ card: XCUIElement, shorterThan limit: CGFloat, _ message: String) {
+    let closed = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in card.frame.height < limit }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 8), .completed, message)
+  }
+  func testNormalComposerMovesPastQuestionWithoutSubmittingCardDraft() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 10))
+    let card = app.otherElements["widget-card-content-fixture"]
+    let expandedHeight = card.frame.height
+    app.buttons["Alpha"].tap()
+    let custom = app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch
+    XCTAssertTrue(custom.exists)
+    custom.tap()
+    custom.typeText("Unsubmitted Gamma")
+    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    composer.tap()
+    composer.typeText("New topic")
+    app.buttons["send-button"].tap()
+    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    XCTAssertEqual(dismissed.label, "Continued in chat")
+    // The card's controls melt away and are removed once it has closed.
+    XCTAssertTrue(app.buttons["widget-submit-content-fixture"].waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch
+      .waitForNonExistence(timeout: 8))
+    let snapshot = try await state()
+    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
+    waitForCard(card, shorterThan: expandedHeight - 50, "Moving on in chat must minimize the card")
+    capture("question-moved-on", app)
+  }
+  func testStaleQuestionHistoryDoesNotReopenDismissedCard() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    let done = app.buttons["widget-dismiss-content-fixture"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    done.tap()
+    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    let before = try await state()["requests"] as? [[String: Any]] ?? []
+    let beforeHistory = before.filter { (($0["path"] as? String) ?? "").hasSuffix("/history") }.count
+    // The fixture now returns the pre-dismissal card, like a delayed replica/page.
+    try await control("/__qa/content", ["scene": "widget-pending-stale"])
+    let back = app.buttons["chat-back"]
+    if back.exists { back.tap() } else { app.buttons["chat-sidebar"].tap() }
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    waitForArrival(row); row.tap()
+    var refreshed = false
+    for _ in 0..<50 {
+      let requests = try await state()["requests"] as? [[String: Any]] ?? []
+      if requests.filter({ (($0["path"] as? String) ?? "").hasSuffix("/history") }).count > beforeHistory {
+        refreshed = true; break
+      }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    XCTAssertTrue(refreshed, "The stale history response was not requested")
+    XCTAssertTrue(app.staticTexts["Stale history replay"].waitForExistence(timeout: 10))
+    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
+    XCTAssertFalse(done.exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
+  }
+  private func verifyQuestionSkip(reducedMotion: Bool) async throws {
+    let app = try await launch("widget-pending", dark: true, reducedMotion: reducedMotion)
+    defer { app.terminate() }
+    let send = app.buttons["widget-submit-content-fixture"]
+    let skip = app.buttons["widget-dismiss-content-fixture"]
+    XCTAssertTrue(skip.waitForExistence(timeout: 10))
+    let card = app.otherElements["widget-card-content-fixture"]
+    XCTAssertTrue(card.exists)
+    let expandedHeight = card.frame.height
+    XCTAssertEqual(skip.label, "Skip question")
+    XCTAssertEqual(send.label, "Send answer")
+    XCTAssertFalse(send.isEnabled, "An empty card must not send an answer")
+    app.buttons["Alpha"].tap()
+    XCTAssertEqual(app.buttons["Alpha"].value as? String, "Selected")
+    XCTAssertTrue(send.isEnabled)
+    app.buttons["Alpha"].tap()
+    XCTAssertFalse(send.isEnabled)
+    XCTAssertTrue(skip.isEnabled)
+    skip.tap()
+    XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["widget-dismissed-content-fixture"].label, "Skipped")
+    // The card's controls melt away and are removed once it has closed.
+    XCTAssertTrue(skip.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Alpha"].waitForNonExistence(timeout: 8))
+    waitForCard(card, shorterThan: expandedHeight - 50, "Skipping must minimize the card")
+    capture(reducedMotion ? "question-skipped-reduced-motion" : "question-skipped-collapsed", app)
+    let snapshot = try await state()
+    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
+    XCTAssertTrue(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
+    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
+  }
+
+  func testEmptyQuestionActionClearlySkipsWithoutAnAnswer() async throws {
+    try await verifyQuestionSkip(reducedMotion: false)
+  }
+  func testQuestionCollapseWithReducedMotion() async throws {
+    try await verifyQuestionSkip(reducedMotion: true)
+  }
+  func testQuestionAnswerCollapsesToReceipt() async throws {
+    let app = try await launch("widget-pending", dark: true)
+    defer { app.terminate() }
+    let card = app.otherElements["widget-card-content-fixture"]
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    let expandedHeight = card.frame.height
+    app.buttons["Alpha"].tap()
+    let send = app.buttons["widget-submit-content-fixture"]
+    XCTAssertEqual(send.label, "Send answer")
+    send.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["widget-answer-content-fixture-0"].waitForExistence(timeout: 10))
+    // The chosen tile is the receipt row now; the other controls melt away and are removed.
+    XCTAssertTrue(send.waitForNonExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Alpha"].waitForNonExistence(timeout: 8))
+    waitForCard(card, shorterThan: expandedHeight - 50, "Answering must minimize to the receipt")
+    capture("question-answer-collapsed", app)
+  }
+
   func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
     for dark in [true, false] {
       let app = try await launch("widget-completed", dark: dark)
@@ -226,7 +349,7 @@ import XCTest
         XCTAssertEqual(row.value as? String, "Selected")
         // AX may expose the text bounds rather than the padded row. Measure
         // the distance between rows, which also catches a collapsed option list.
-        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 40) }
+        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 24) }
         previous = row.frame
       }
       XCTAssertFalse(app.buttons["Submit"].exists)

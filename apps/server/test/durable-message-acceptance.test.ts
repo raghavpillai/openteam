@@ -33,13 +33,14 @@ describe("durable message acceptance boundary", () => {
     let runtimeContent="";
     const tx = {
       $executeRaw: async () => 0,
+      $queryRaw: async () => [],
       conversation: {
         findUnique: async () => ({
           botId: "bot-1",
           bot: { id: "bot-1", status: "active", subagentIdentity: null },
         }),
       },
-      idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
+      idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
       channel: {
         findUnique: async () => ({ id: channelId, archivedAt: null }),
         update: async () => ({}),
@@ -88,6 +89,7 @@ describe("durable message acceptance boundary", () => {
     const message = acceptedMessage(channelId, clientId);
     const tx = {
       $executeRaw: async () => 0,
+      $queryRaw: async () => [],
       channel: {
         findUnique: async () => ({
           id: channelId,

@@ -1,0 +1,156 @@
+/* Question card motion: arrival, selection, and the answer / skip morphs.
+   Loaded with question-card-motion.ts on the first question card, so none of
+   it is in startup. Without it (and under Reduce Motion) cards just change. */
+.permission-widget {
+  /* Step responses of a damped spring (damping ratio 0.5 and 0.62). */
+  --question-pop: linear(0, 0.068, 0.232, 0.439, 0.651, 0.838, 0.984, 1.085, 1.142, 1.163, 1.156, 1.131, 1.098, 1.064, 1.032, 1.007, 0.989, 0.978, 0.974, 0.974, 0.978, 0.983, 0.989, 0.994, 0.998, 1.001, 1.003, 1.004, 1);
+  --question-soft: linear(0, 0.044, 0.153, 0.297, 0.452, 0.602, 0.736, 0.848, 0.937, 1.001, 1.045, 1.071, 1.082, 1.083, 1.077, 1.066, 1.053, 1.041, 1.028, 1.018, 1.009, 1.003, 0.998, 0.995, 0.994, 0.993, 0.993, 0.994, 1);
+  --question-out: cubic-bezier(0.5, 0, 0.9, 0.5);
+}
+
+/* The frame holds two layers while a card settles: what is leaving (a copy of
+   the card as it was, under the content) and the card as it now is. */
+[data-rich-widget-frame][data-live] {
+  position: relative;
+  isolation: isolate;
+}
+[data-rich-widget-frame][data-live] > :first-child {
+  position: relative;
+  z-index: 1;
+}
+/* The card clips its own corners; while it settles the frame does that, and
+   its lines are free to start from where they were. */
+[data-rich-widget-frame][data-flying] .permission-widget {
+  overflow: visible;
+}
+.question-fx {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  margin: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.question-fx-tint,
+.question-fx-goo {
+  position: absolute;
+  inset: 0;
+}
+/* The row's hover actions sit beside the card, centred on its height: they
+   fade instead of popping, and stay out of the way while the card moves. */
+[data-rich-widget-frame] ~ [data-message-actions] {
+  transition: opacity 140ms ease;
+}
+[data-rich-widget-frame][data-flying] ~ [data-message-actions] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+/* A blob is placed by its centre: its transform moves it there from the
+   stage's corner, so it turns and stretches about that corner. */
+.question-fx-blob {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 999px;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* A tile squishes under the pointer and springs back. */
+  .widget-option {
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      transform 460ms var(--question-pop);
+  }
+  button.widget-option:active:not(:disabled) {
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      transform 110ms cubic-bezier(0.3, 0, 0.4, 1);
+  }
+  .widget-custom {
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease;
+  }
+
+  /* Deselect: the check retracts, then the blob shrinks away. */
+  [data-question-mode="multi"] button .question-control {
+    transition: border-color 80ms linear 40ms;
+  }
+  [data-question-mode="multi"] button .question-control::before {
+    transition:
+      transform 160ms var(--question-out) 50ms,
+      border-radius 160ms ease 50ms;
+  }
+  .question-control svg path {
+    transition: stroke-dashoffset 90ms ease-in;
+  }
+  /* Select: the blob grows from the centre past its box and settles; the check
+     is drawn just after. */
+  button.widget-option[aria-pressed="true"] .question-control {
+    transition: border-color 80ms linear 110ms;
+  }
+  button.widget-option[aria-pressed="true"] .question-control::before {
+    transition:
+      transform 520ms var(--question-pop),
+      border-radius 240ms ease 60ms;
+  }
+  button.widget-option[aria-pressed="true"] .question-control svg path {
+    transition: stroke-dashoffset 220ms cubic-bezier(0.3, 0.8, 0.3, 1) 130ms;
+  }
+  [data-question-mode="single"] .question-control::after {
+    transition:
+      opacity 140ms ease,
+      transform 360ms var(--question-pop);
+  }
+
+  /* Send answer inflates when it can send and deflates when it cannot. */
+  .question-skip,
+  .widget-submit {
+    transition:
+      background-color 160ms ease,
+      color 90ms linear,
+      opacity 160ms ease,
+      transform 360ms var(--question-pop);
+  }
+  .question-skip:active:not(:disabled),
+  .widget-submit:active:not(:disabled) {
+    transition-duration: 160ms, 90ms, 160ms, 100ms;
+    transition-timing-function: ease, linear, ease, cubic-bezier(0.3, 0, 0.4, 1);
+  }
+  .widget-submit::before {
+    transition:
+      transform 560ms var(--question-pop),
+      opacity 100ms ease;
+  }
+  .widget-submit:disabled::before {
+    transition:
+      transform 200ms var(--question-out),
+      opacity 140ms ease 60ms;
+  }
+
+  /* Single choice: the send button buds out of the field's trailing edge, and
+     goes back into it when the field is cleared. */
+  .question-send-inline {
+    transform-origin: 100% 50%;
+    transition:
+      translate 300ms var(--question-soft),
+      scale 520ms var(--question-pop),
+      opacity 100ms ease,
+      visibility 0s;
+  }
+  .widget-custom:not([data-filled]) .question-send-inline {
+    translate: 9px 0;
+    scale: 0.15 0.5;
+    opacity: 0;
+    transition:
+      translate 180ms var(--question-out),
+      scale 180ms var(--question-out),
+      opacity 100ms ease 80ms,
+      visibility 0s 180ms;
+  }
+}

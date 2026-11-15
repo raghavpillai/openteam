@@ -58,6 +58,10 @@ Files appear inside the review card, where you can open their previews. The card
 
 Discarding a draft immediately notifies the bot. Outcomes that are ready together share one follow-up, with each card identified separately. A sent receipt records the draft outcome; it does not prove that the recipient has read the email. Requested follow-up questions and useful new information can still appear after the outcome acknowledgement. Sent and discarded cards expand into read-only details, including their attachments. A discarded card stays discarded when you open it and shows its stored content; unsubmitted edits are not saved by Discard. **Send** is disabled while recipients are missing or invalid.
 
+Draft outcomes survive server restarts and reconnects, so reopening the chat keeps a sent or discarded card's recorded result. The bot receives that outcome even if it was busy when you acted. Discard rejects the message; the bot should not send it again unless you ask.
+
+If a send is unconfirmed, it may already have reached the mailbox. Check the destination or Sent folder before asking for another send. An unconfirmed result is not a safe reason to send the same message again.
+
 The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
 
 - **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back. Slack draft cards don't offer this option.

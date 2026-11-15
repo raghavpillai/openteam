@@ -1,6 +1,6 @@
 /** The email and Messages draft cards against a stand-in server and store, for
     scripts/test-draft-send-off.ts. Query: card=imessage, latency, cancel, fail,
-    senderror, pushlag, lazy, scaled, list. */
+    senderror, pushlag, lazy, scaled, list, above. */
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { ChannelMessageView } from "@openteam/contracts";
@@ -34,14 +34,19 @@ const control = {
 };
 /** The chat's list in miniature: rows are placed from the top in a box of a set
     height, the view is held at the bottom, and a row's new height is only applied
-    a frame later: in a task after that frame, or (`list=frame`) inside it. */
+    a frame later: in a task after that frame, or (`list=frame`) inside it.
+    `above` is how much chat sits over the card; little enough and the list is
+    too short to scroll. */
+const above = Number(params.get("above") ?? 600);
 function LaggingList({ children }: { children: ReactNode }) {
   const view = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const row = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const apply = () => {
-      content.current!.style.height = `${600 + row.current!.offsetHeight + 16}px`;
+      // Never shorter than the view plus a pixel, as the app's chat is: a chat too
+      // short to scroll still reports itself as scrollable, and at its bottom.
+      content.current!.style.height = `${Math.max(above + row.current!.offsetHeight + 16, view.current!.clientHeight + 1)}px`;
       view.current!.scrollTop = view.current!.scrollHeight;
     };
     apply();
@@ -61,7 +66,7 @@ function LaggingList({ children }: { children: ReactNode }) {
   return (
     <div ref={view} style={{ height: 500, overflowY: "auto" }}>
       <div ref={content} style={{ position: "relative" }}>
-        <div data-virtual-timeline-index="0" ref={row} style={{ position: "absolute", top: 600, left: 0, right: 0 }}>{children}</div>
+        <div data-virtual-timeline-index="0" ref={row} style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${above}px)` }}>{children}</div>
       </div>
     </div>
   );
@@ -137,16 +142,16 @@ new MutationObserver(() => {
   back() { control.shown = true; draw(); },
   /** A push caused by another device. */
   remote(state: string) { server = withState(server, { cardState: state }); push(server, 0); },
-  /** The card's bottom edge on screen, each frame for `ms`, as painted: read by the
-      last callback of the frame (re-armed from a task, after everyone else's). */
-  bottoms(ms: number) {
-    return new Promise<number[]>((resolve) => {
-      const seen: number[] = [];
+  /** The card's top and bottom edges on screen, each frame for `ms`, as painted:
+      read by the last callback of the frame (re-armed from a task, after everyone else's). */
+  edges(ms: number) {
+    return new Promise<[number, number][]>((resolve) => {
+      const seen: [number, number][] = [];
       const end = performance.now() + ms;
       const channel = new MessageChannel();
       const tick = () => {
         const card = document.querySelector(".draft-card");
-        if (card) seen.push(card.getBoundingClientRect().bottom);
+        if (card) seen.push([card.getBoundingClientRect().top, card.getBoundingClientRect().bottom]);
         if (performance.now() < end) channel.port2.postMessage(0);
         else resolve(seen);
       };

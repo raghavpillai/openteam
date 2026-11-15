@@ -1941,39 +1941,19 @@ textarea,
   text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
 }
-.message-with-actions .permission-widget {
+/* The frame is the visible surface, so a closing card shrinks rather than
+   snapping to its receipt above an emptying gap. */
+.message-with-actions [data-rich-widget-frame] {
   border-radius: 24px;
-  padding: 16px;
   background: var(--message-assistant);
 }
-.message-with-actions .permission-widget p {
-  font-size: 15px;
-  line-height: 22px;
+.message-with-actions [data-rich-widget-frame] > div,
+.message-with-actions .permission-widget {
+  border-radius: inherit;
 }
-.message-with-actions .permission-widget .widget-options {
-  border: 0;
+.message-with-actions .permission-widget {
+  padding: 16px;
   background: transparent;
-  border-radius: 0;
-}
-.permission-widget .widget-option {
-  gap: 10px;
-  padding: 8px 0;
-}
-.permission-widget .widget-divider {
-  display: none;
-}
-.permission-widget .widget-option-key {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-}
-.permission-widget .widget-option-key > span {
-  font-size: 13px;
-}
-.permission-widget .widget-option-label {
-  font-size: 15px;
-  line-height: 22px;
-  font-weight: 425;
 }
 
 .bot-details-activity {
@@ -2020,10 +2000,10 @@ textarea,
 
 .message-with-actions:has(.permission-widget) > div { max-width: 100%; }
 
-.message-with-actions[data-role="assistant"][data-group-position="middle"] .permission-widget,
-.message-with-actions[data-role="assistant"][data-group-position="last"] .permission-widget { border-start-start-radius: 6px; }
-.message-with-actions[data-role="assistant"][data-group-position="first"] .permission-widget,
-.message-with-actions[data-role="assistant"][data-group-position="middle"] .permission-widget { border-end-start-radius: 6px; }
+.message-with-actions[data-role="assistant"][data-group-position="middle"] [data-rich-widget-frame],
+.message-with-actions[data-role="assistant"][data-group-position="last"] [data-rich-widget-frame] { border-start-start-radius: 6px; }
+.message-with-actions[data-role="assistant"][data-group-position="first"] [data-rich-widget-frame],
+.message-with-actions[data-role="assistant"][data-group-position="middle"] [data-rich-widget-frame] { border-end-start-radius: 6px; }
 
 /* Reveal the arrow only as the surface makes room for it. */
 .desktop-conversation-chevron {

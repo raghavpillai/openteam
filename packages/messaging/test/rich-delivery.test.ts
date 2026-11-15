@@ -36,7 +36,7 @@ Don't ask them again or wait for answers; continue with what you already know an
       `You asked the user a question ("Which region?") and they replied in chat instead of answering on the card. Their message below may be the answer or may be about something else; decide from what they wrote. If it answers the question, act on it without asking again. If not, treat the question as skipped: continue with what you already know, and only ask again if you still genuinely need it.`
     );
     expect(buildUnansweredQuestionNote("Want me to watch for a reply?", false)).toBe(
-      `You asked the user ("Want me to watch for a reply?") and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card has closed. Don't put the question on a new card; if it still matters, say in your update that it's waiting on them, and they can answer in chat.`
+      `You asked the user ("Want me to watch for a reply?") and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card is still available. Don't repeat it or block unrelated work; wait for an explicit answer if this task needs one.`
     );
   });
 

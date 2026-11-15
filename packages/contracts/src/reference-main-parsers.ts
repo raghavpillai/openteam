@@ -849,9 +849,7 @@ var sandWidgetSchema = external_exports.object({
   allowCustom: external_exports.boolean().optional().describe(
     "When true, the user can type a custom free-text answer instead of choosing one of the options."
   ),
-  dismissOnMoveOn: external_exports.boolean().optional().describe(
-    "When true, this widget auto-dismisses (becomes inert, shows a muted Dismissed state) once the user sends a newer message without answering it. Omit/false to keep the question live and answerable indefinitely. Set true only for low-stakes questions that become moot if the user moves on; keep it off for real decisions you still need answered."
-  )
+
 });
 
 var ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -918,7 +916,7 @@ var sendMessageObjectSchema = external_exports.object({
   ),
   to: external_exports.enum([SEND_MESSAGE_DM_DESTINATION]).optional().describe(SEND_MESSAGE_DM_DESCRIPTION),
   widget: sandWidgetSchema.optional().describe(
-    "Required when type is widget. A question with selectable options: { prompt, helpText?, options: [{ label, value?, description?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt \u2014 so phrase the prompt as a natural question, not a menu instruction. Set multiSelect: true when several options may apply. The user toggles any subset and submits once, and the picked values return together in one reply, one per line. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Set allowCustom: true to also let the user type their own free-text answer instead of picking an option. Set dismissOnMoveOn: true only for low-stakes questions that become moot if the user moves on (it auto-dismisses once they send a newer message without answering); leave it off for real decisions you still need answered."
+    "Required when type is widget. A question with selectable options: { prompt, helpText?, options: [{ label, value?, description?, style? }], multiSelect?, allowCustom? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt \u2014 so phrase the prompt as a natural question, not a menu instruction. Set multiSelect: true when several options may apply. The user toggles any subset and submits once, and the picked values return together in one reply, one per line. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Set allowCustom: true to also let the user type their own free-text answer instead of picking an option. Every question becomes inactive when the user sends a newer message. Interpret their message in context; it may answer the question or change the subject. A skipped question grants no permission."
   ),
   bcId: external_exports.string().trim().optional().describe(
     "Required when type is cursor-agent. The bcId of the Cursor cloud agent to reference (e.g. bc-xxxxxxxx-...)."

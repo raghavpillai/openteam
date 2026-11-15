@@ -65,8 +65,10 @@ final class AppStore {
   var draftPressFailures: [String: String] = [:]
   var navigation: [String] = [] {
     didSet {
+      ChatOpenTrace.mark("navigation", navigation.joined(separator: ","))
       navigationGeneration = UUID()
       openingNotification = nil
+      if navigation.last != fetchedOpening { fetchedOpening = nil }
       botVoiceLaunch.cancelPending(unless: navigation.last)
     }
   }
@@ -74,7 +76,37 @@ final class AppStore {
   var focusedMessage: String?
   var focusedNotification: String?
   private(set) var openingNotification: UUID?
-  var activeChannel: String?
+  var activeChannel: String? {
+    didSet {
+      // The chat's first read after it opens brings what it missed, not arrivals.
+      // An opening that fetched its own page has it already.
+      guard let activeChannel, activeChannel != oldValue else { return }
+      if fetchedOpening == activeChannel { fetchedOpening = nil } else { catchUpPending.insert(activeChannel) }
+    }
+  }
+  /// The newest sequence each chat received by catching up: opening it, returning
+  /// to the app, reconnecting or loading a page. A later message arrived while
+  /// the chat was open and connected, in front of the reader.
+  private var caughtUpThrough: [String: String] = [:]
+  /// Open chats whose next latest-page read is still a catch-up.
+  @ObservationIgnored private var catchUpPending: Set<String> = []
+  /// The chat being opened on a page fetched for this opening that reaches its
+  /// newest message. It has caught up, so replies after it appears are arrivals.
+  @ObservationIgnored private var fetchedOpening: String?
+  private func show(_ id: String, fetched: Bool) {
+    fetchedOpening = fetched && activeChannel != id && historyWindows[id]?.hasLater != true ? id : nil
+    navigation = [id]
+  }
+  func arrivedLive(_ message: Message) -> Bool {
+    guard let caughtUp = caughtUpThrough[message.channelId] else { return false }
+    return MessageMerge.less(caughtUp, message.sequence)
+  }
+  private func noteCaughtUp(_ id: String) {
+    catchUpPending.remove(id)
+    guard let newest = messages(id).last?.sequence else { return }
+    if let known = caughtUpThrough[id], !MessageMerge.less(known, newest) { return }
+    caughtUpThrough[id] = newest
+  }
   var histories: [String: History] = [:]
   private(set) var historyLoadFailures: Set<String> = []
   var historyWindows: [String: HistoryWindow] = [:]
@@ -109,7 +141,11 @@ final class AppStore {
   private var unreadIntents: [String: UUID] = [:]
   @ObservationIgnored private var sidebarWrite: (id: UUID, task: Task<JSON?, Never>)?
   private var needsIdentityRefresh = false
-  private var generation = UUID()
+  @ObservationIgnored private var questionReceiptCaches: [String: QuestionReceiptCache] = [:]
+  @ObservationIgnored private var questionReceiptOrder: [String] = []
+  private var generation = UUID() {
+    didSet { questionReceiptCaches.removeAll(); questionReceiptOrder.removeAll() }
+  }
   private var sending = false
   private var flushRequested = false
   private(set) var activeSendID: String?
@@ -148,6 +184,21 @@ final class AppStore {
   }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
+  func questionMessages(_ channelID: String) -> [Message] {
+    let latest = state.bootstrap?.latestMessages.filter { $0.channelId == channelID } ?? []
+    return QuestionLifecycle.project(questionAwareMerge(messages(channelID), latest, channel: channelID),
+      pending: state.outbox.filter { $0.channelId == channelID })
+  }
+  private func questionAwareMerge(_ existing: [Message], _ incoming: [Message], channel: String,
+    observed: [Message] = []) -> [Message] {
+    questionReceiptOrder = [channel] + questionReceiptOrder.filter { $0 != channel }
+    questionReceiptOrder = Array(questionReceiptOrder.prefix(4))
+    questionReceiptCaches = questionReceiptCaches.filter { questionReceiptOrder.contains($0.key) }
+    var receipts = questionReceiptCaches[channel] ?? QuestionReceiptCache()
+    let result = receipts.merge(existing, incoming, remembering: messages(channel) + observed)
+    questionReceiptCaches[channel] = receipts
+    return result
+  }
   /// The channel's newest known message, for previews. Bootstrap can know a
   /// newer one than a loaded transcript, which receives it with its next page.
   func latestMessage(_ id: String) -> Message? {
@@ -605,6 +656,9 @@ final class AppStore {
     historyLoadFailures.removeAll()
     historyWindows = [:]
     historyOpenings = [:]
+    caughtUpThrough = [:]
+    catchUpPending = []
+    fetchedOpening = nil
     if let systemScope, systemScope != scope {
       systemDraft = nil
       pendingSystemItem = nil
@@ -663,6 +717,10 @@ final class AppStore {
     decideOnboarding()
     if !testing, directoryChanged { TeamAppShortcuts.updateAppShortcutParameters() }
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
+      if var receipts = questionReceiptCaches[channel] {
+        receipts.observe(messages)
+        questionReceiptCaches[channel] = receipts
+      }
       // Bootstrap carries only each channel's newest message. A loaded
       // transcript takes new messages from its next history page instead, so
       // earlier ones never appear above a newer one already on screen.
@@ -678,7 +736,7 @@ final class AppStore {
           if updates.contains(where: { !known.contains($0.id) }) {
             state.incompleteHistoryChannels = (state.incompleteHistoryChannels ?? []).union([channel])
           }
-          state.messages[channel] = MessageMerge.merge(self.messages(channel), updates)
+          state.messages[channel] = questionAwareMerge(self.messages(channel), updates, channel: channel)
         }
       } else {
         merge(messages, channel: channel)
@@ -905,7 +963,10 @@ final class AppStore {
     #endif
   }
   func setForeground(_ active: Bool) {
+    ChatOpenTrace.mark("foreground", String(active))
     foreground = active
+    // Replies that came while the app was away are read next; nobody saw them arrive.
+    if active, let activeChannel { catchUpPending.insert(activeChannel) }
     #if canImport(UIKit)
       NativeNotifications.shared.setForeground(active)
     #endif
@@ -988,7 +1049,9 @@ final class AppStore {
               }
             }
             if let activeChannel {
-              try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch)
+              // Events on a connection that stayed up are replies arriving now.
+              try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch,
+                live: reconnectSync == nil && !batch.events.isEmpty)
               // What the avatars show never holds up the next poll.
               Task { [weak self] in await self?.refreshChannelActivity(activeChannel) }
             }
@@ -1103,7 +1166,8 @@ final class AppStore {
       }
     }
   }
-  private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID) async throws {
+  private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID,
+    live: Bool = false) async throws {
     // Poll reconciliation also comes here. A search context already has its
     // own contiguous page; only explicit pagination should extend that window.
     guard before != nil || historyWindows[id]?.hasLater != true else { return }
@@ -1112,6 +1176,8 @@ final class AppStore {
     var query = ["limit": "60"]
     if let before { query["before"] = before }
     let page: History
+    ChatOpenTrace.mark("history-request", id + (before == nil ? "" : " older"))
+    defer { ChatOpenTrace.mark("history-done", id + " last=" + (messages(id).last?.id ?? "")) }
     do {
       page = try await reactionMutations.read {
         try await api.get(
@@ -1142,7 +1208,7 @@ final class AppStore {
       state.incompleteHistoryChannels?.remove(id)
     }
     if before != nil {
-      state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
+      state.messages[id] = questionAwareMerge(messages(id), page.threadContext + page.messages, channel: id)
       historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)
       histories[id] = page
     } else if histories[id] == nil {
@@ -1152,6 +1218,7 @@ final class AppStore {
       // a disconnected latest page. Polling may still update rows in that window.
       merge(page.threadContext + page.messages, channel: id)
     }
+    if before == nil, !live || catchUpPending.contains(id) { noteCaughtUp(id) }
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {
@@ -1160,7 +1227,7 @@ final class AppStore {
     let visible = incoming.filter {
       ids.contains($0.id) || historyWindows[channel]?.contains($0) != false
     }
-    state.messages[channel] = MessageMerge.merge(existing, visible)
+    state.messages[channel] = questionAwareMerge(existing, visible, channel: channel, observed: incoming)
     confirmDelivery(incoming)
   }
   private func confirmDelivery(_ incoming: [Message]) {
@@ -1176,7 +1243,8 @@ final class AppStore {
     histories[page.channelId] = page
     historyWindows[page.channelId] = HistoryWindow(
       messages: page.messages, hasEarlier: page.hasMore, hasLater: false)
-    state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
+    state.messages[page.channelId] = questionAwareMerge(page.threadContext, page.messages, channel: page.channelId)
+    noteCaughtUp(page.channelId)
   }
   @discardableResult
   func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
@@ -1203,17 +1271,18 @@ final class AppStore {
       }
       confirmDelivery(page.threadContext + page.messages)
       if preservingTimeline {
-        state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+        state.messages[channelID] = questionAwareMerge(messages(channelID), page.threadContext + page.messages, channel: channelID)
         persist()
         return true
       }
       historyLoadFailures.remove(channelID)
-      state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
+      state.messages[channelID] = questionAwareMerge(page.threadContext, page.messages, channel: page.channelId)
       historyWindows[channelID] = HistoryWindow(
         messages: page.messages, hasEarlier: page.hasMoreBefore, hasLater: page.hasMoreAfter)
       histories[channelID] = History(
         channelId: channelID, messages: [], threadContext: [], beforeSequence: page.beforeSequence,
         hasMore: page.hasMoreBefore, revision: page.revision)
+      noteCaughtUp(channelID)
       persist()
       return true
     } catch {
@@ -1243,8 +1312,9 @@ final class AppStore {
         historyOpenings[channelID] == opening else { return }
       guard page.channelId == channelID else { throw APIError("The conversation changed.") }
       confirmDelivery(page.threadContext + page.messages)
-      state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+      state.messages[channelID] = questionAwareMerge(messages(channelID), page.threadContext + page.messages, channel: channelID)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
+      noteCaughtUp(channelID)
       persist()
     } catch {
       if epoch == generation, !Task.isCancelled, historyWindows[channelID]?.id == windowID,
@@ -1450,8 +1520,6 @@ final class AppStore {
       !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || !current.attachments.isEmpty || !(current.stagedFiles ?? []).isEmpty
     else { return }
-    if threadRootID == nil, replyRootID == nil,
-      await answerWidgetFromComposer(channel, draftKey: key) { return }
     #if canImport(UIKit)
       NativeHaptics.play(.light, source: "message.send")
     #endif
@@ -1960,7 +2028,7 @@ final class AppStore {
     }
     guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
-    navigation = [channelID]
+    show(channelID, fetched: messageID != nil)
   }
   /// A notification opens its message even when this chat is already showing
   /// an older search window. Cached visible messages need no network round trip.
@@ -2023,7 +2091,8 @@ final class AppStore {
     }
     focusedNotification = target?.id
     focusedMessage = target?.id
-    navigation = [channelID]
+    // A cached target fetched nothing; that transcript's first read is still a catch-up.
+    show(channelID, fetched: !cachedVisible)
   }
   func deepLink(_ url: URL) async {
     let parts = url.pathComponents.filter { $0 != "/" }

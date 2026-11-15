@@ -406,6 +406,10 @@ extension Message {
 
   /// The conversation list line for this message.
   public var previewText: String {
-    isAttachmentOnly ? MessagePreview.attachments(attachments) : MessagePreview.text(content)
+    if metadata["type"].string == "widget" {
+      let prompt = metadata["widget"]["prompt"].string
+      if !MessagePreview.trim(prompt).isEmpty { return MessagePreview.text(prompt) }
+    }
+    return isAttachmentOnly ? MessagePreview.attachments(attachments) : MessagePreview.text(content)
   }
 }

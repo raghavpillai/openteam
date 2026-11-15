@@ -282,8 +282,16 @@ describe("shared desktop and iOS product policy", () => {
     ).toBe("Sent 1 text file");
     expect(
       channelMessageSummary({
-        ...message({ type: "widget", widget: { type: "choice", prompt: "Which **color**?" } }),
-        content: "Which **color**?",
+        ...message({
+          type: "widget",
+          widget: {
+            type: "choice",
+            prompt: "Which **color**?",
+            helpText: "Choose a sample",
+            options: [{ label: "Red" }, { label: "Blue" }],
+          },
+        }),
+        content: "Fallback content with extra details",
       })
     ).toBe("Which color?");
   });

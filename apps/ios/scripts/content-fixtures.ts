@@ -22,6 +22,7 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
     );
     return snapshot;
   }
+  if(scene==='widget-pending'||scene==='widget-pending-stale')Object.assign(message,{sender:'agent',metadata:{type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true}}});
   if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
   if(scene==='type-size')message.content='Hello';
   if(scene==='plain-link')message.content="Here's one: [Wikipedia's random article page](https://en.wikipedia.org/wiki/Special:Random). It opens a different article every time you click it.";
@@ -105,5 +106,7 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
     snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(...messages);return snapshot;
   }
   if(scene==='routine-event') message.metadata={type:'event',event:{type:'automation-changed',action:'updated',automationId:'routine-event-fixture',automationName:'Morning summary'}};
-  snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(message);return snapshot;
+  snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(message);
+  if(scene==='widget-pending-stale')snapshot.channelMessages.push({...message,id:'stale-history-marker',sequence:'401',content:'Stale history replay',metadata:{}});
+  return snapshot;
 }

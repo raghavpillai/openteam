@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { agentNotificationPresentation } from "@openteam/contracts";
 import { messageNotificationBody } from "../src/notifications";
 
 const message = (content: string, metadata: Record<string, unknown> = {}) => ({
@@ -19,6 +20,25 @@ const asset = (fileName: string, mimeType: string, kind: string) => ({
 });
 
 describe("messageNotificationBody", () => {
+  test("a question notification is titled with the bot and carries only the prompt", () => {
+    const { title, body } = agentNotificationPresentation({
+      kind: "message",
+      botName: "Question Lifecycle QA Nov13",
+      body: messageNotificationBody(message("Fallback content", {
+        type: "widget",
+        widget: {
+          prompt: "BANNER TEST: Which sample animal?",
+          helpText: "Extra help text for the card.",
+          options: [{ label: "Cat", value: "Cat" }, { label: "Dog", value: "Dog" }],
+        },
+      })),
+    });
+    expect({ title, body }).toEqual({
+      title: "Question Lifecycle QA Nov13",
+      body: "BANNER TEST: Which sample animal?",
+    });
+  });
+
   test("shows the first line with text as plain text, never Markdown", () => {
     expect(
       messageNotificationBody(
@@ -45,6 +65,14 @@ describe("messageNotificationBody", () => {
     expect(messageNotificationBody(message("Deploy to production?", { type: "widget" }))).toBe(
       "Deploy to production?"
     );
+    expect(messageNotificationBody(message("Fallback content", {
+      type: "widget",
+      widget: {
+        prompt: "Which **color**?",
+        helpText: "Choose a sample",
+        options: [{ label: "Red" }, { label: "Blue" }],
+      },
+    }))).toBe("Which color?");
     expect(
       messageNotificationBody(message("Secret requested: GITHUB_TOKEN", { type: "secret-request" }))
     ).toBe("Secret requested: GITHUB_TOKEN");

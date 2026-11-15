@@ -1,6 +1,6 @@
 {
   "name": "@openteam/product-core",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
@@ -29,7 +29,8 @@
     "./channel-history": "./src/channel-history.ts",
     "./outgoing-messages": "./src/outgoing-messages.ts",
     "./read-receipts": "./src/read-receipts.ts",
-    "./bot-avatar": "./src/bot-avatar.ts"
+    "./bot-avatar": "./src/bot-avatar.ts",
+    "./questions": "./src/questions.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

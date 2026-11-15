@@ -478,7 +478,6 @@ export const AgentSendToUserInput = Schema.Struct({
       helpText: Schema.optional(Schema.String),
       multiSelect: Schema.optional(Schema.Boolean),
       allowCustom: Schema.optional(Schema.Boolean),
-      dismissOnMoveOn: Schema.optional(Schema.Boolean),
       options: Schema.Array(
         Schema.Struct({
           label: Schema.String,
@@ -524,7 +523,6 @@ export interface RichMessageWidget {
   options: RichMessageWidgetOption[];
   multiSelect?: boolean;
   allowCustom?: boolean;
-  dismissOnMoveOn?: boolean;
 }
 
 export interface RichMessageSecretRequest {

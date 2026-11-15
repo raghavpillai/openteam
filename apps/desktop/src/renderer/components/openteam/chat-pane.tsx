@@ -1,3 +1,4 @@
+import { projectQuestionLifecycle, currentQuestion } from "@openteam/product-core/questions";
 import { ButtonPrimitive } from "../ui/button-primitive";
 import { useDayClock } from "../../hooks/use-day-clock";
 import { AttachmentComposerSource } from "./attachment-composer";
@@ -138,6 +139,11 @@ import { MessageImageGallery } from "./image-attachment";
 import { RichMessage } from "./rich-message";
 import { ThreadTray } from "./thread-tray";
 import { isWindowVisible } from "../../lib/window-visibility";
+import {
+  arrivedMessageIds,
+  nextWatchedTranscript,
+  type WatchedTranscript,
+} from "../../lib/message-arrivals";
 
 const MessageFileAttachments = lazy(() =>
   import("./file-attachment").then((module) => ({ default: module.MessageFileAttachments }))
@@ -1046,42 +1052,37 @@ export const ChatPane = memo(function ChatPane({
     pin: ThreadTrayPin;
   } | null>(null);
   const threadCloseTimer = useRef<number | null>(null);
-  const knownMessageIds = useRef<Set<string> | null>(null);
   // Virtualization and chat switches remount rows. An arrival belongs to the
   // stable delivery key, rather than to each mounted instance of that row.
   const consumedEntrances = useRef(new Set<string>());
   const consumeEntrance = useCallback((key: string) => {
     consumedEntrances.current.add(key);
   }, []);
-  const knownMessageChannelId = useRef(channel.id);
-  const knownMessageHistoryMode = useRef(historyMode);
-  const knownLatestMessageId = useRef<string | null>(null);
-  const enteringMessageIds = useMemo(() => {
-    const known = knownMessageChannelId.current === channel.id ? knownMessageIds.current : null;
-    const latestMessageId = messages.at(-1)?.id ?? null;
-    // Arrivals nobody watched land without an entrance. An inactive pane has no
-    // rows to consume one, so it would replay on switching back; a hidden
-    // window pauses animations, so rows would sit invisible until it is shown.
-    if (
-      !active ||
-      !isWindowVisible() ||
-      !known ||
-      historyMode !== "latest" ||
-      knownMessageHistoryMode.current !== "latest" ||
-      knownLatestMessageId.current === latestMessageId
-    ) {
-      return new Set<string>();
-    }
-    return new Set(
-      messages.filter((message) => !known.has(message.id)).map((message) => message.id)
-    );
-  }, [active, channel.id, historyMode, messages]);
+  // What the reader was looking at as of the last commit, or null when they
+  // were not watching this chat's live edge: another chat was open, the first
+  // history page had not landed, the transcript showed older history, or the
+  // chat was opened before a reply it already had was read into it.
+  const watchedTranscript = useRef<WatchedTranscript | null>(null);
+  const watching = active && !initialHistoryPending && historyMode === "latest";
+  const enteringMessageIds = useMemo(
+    () =>
+      arrivedMessageIds(
+        messages,
+        channel.id,
+        // Nobody sees an arrival in a hidden window. It lands without an entrance.
+        watching && isWindowVisible() ? watchedTranscript.current : null
+      ),
+    [channel.id, messages, watching]
+  );
   useEffect(() => {
-    knownMessageChannelId.current = channel.id;
-    knownMessageHistoryMode.current = historyMode;
-    knownLatestMessageId.current = messages.at(-1)?.id ?? null;
-    knownMessageIds.current = new Set(messages.map((message) => message.id));
-  }, [channel.id, historyMode, messages]);
+    watchedTranscript.current = nextWatchedTranscript({
+      watching,
+      behind: transcriptBehind,
+      previous: watchedTranscript.current,
+      channelId: channel.id,
+      messages,
+    });
+  }, [channel.id, messages, transcriptBehind, watching]);
   useEffect(() => {
     void sendController.reconcile(messages);
   }, [messages, sendController]);
@@ -1094,7 +1095,7 @@ export const ChatPane = memo(function ChatPane({
     [channel.id, durableRecoveries]
   );
   const outgoingKeyAliases = useRef(new Map<string, string>());
-  const visibleMessages = useMemo(
+  const outgoingMessages = useMemo(
     () =>
       projectOutgoingMessages(messages, channelSends).map((entry) => ({
         ...entry,
@@ -1105,6 +1106,15 @@ export const ChatPane = memo(function ChatPane({
       })),
     [channelSends, enteringMessageIds, messages]
   );
+  const questionMessages = useMemo(() => projectQuestionLifecycle(outgoingMessages
+    .filter((entry) => entry.delivery?.phase !== "failed" || entry.delivery.failure?.uncertain)
+    .map((entry) => entry.message)), [outgoingMessages]);
+  const questionMetadata = useMemo(() => new Map(questionMessages.map((message) =>
+    [message.id, message.metadata] as const)), [questionMessages]);
+  const visibleMessages = useMemo(() => outgoingMessages.map((entry) => ({ ...entry,
+    message: questionMetadata.has(entry.message.id)
+      ? { ...entry.message, metadata: questionMetadata.get(entry.message.id)! } : entry.message,
+  })), [outgoingMessages, questionMetadata]);
   const messagesById = useMemo(
     () => new Map(visibleMessages.map(({ message }) => [message.id, message] as const)),
     [visibleMessages]
@@ -1778,7 +1788,9 @@ export const ChatPane = memo(function ChatPane({
                     ? channel.kind === "bot_dm"
                       ? `Message ${channel.name} — it will be queued`
                       : "Pi runtime is not ready"
-                    : `Message ${channel.name}`
+                    : currentQuestion(questionMessages) && !replyingTo
+                      ? "Type your answer, or talk about something else"
+                      : `Message ${channel.name}`
               }
               reply={
                 replyingTo

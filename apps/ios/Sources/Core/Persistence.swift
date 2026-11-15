@@ -4,18 +4,13 @@ public struct Draft: Codable, Sendable, Equatable {
   /// Matches the server's `maxAttachmentsPerMessage` (packages/contracts/src/capabilities.ts).
   public static let maxAttachments = 20
   public var widgetSelections: [String: [String]]?
-  public var widgetResponse: WidgetComposerResponse?
+  public var widgetCustomAnswers: [String: String]?
   public var text: String = ""
   public var attachments: [Asset] = []
   public var stagedFiles: [StagedFile]?
   public var replyTo: String?
   public var isFork: Bool = false
   public init() {}
-}
-public struct WidgetComposerResponse: Codable, Sendable, Equatable {
-  public var messageID: String
-  public var value: String
-  public var clientID: String
 }
 public struct PendingSend: Codable, Identifiable, Sendable {
   public var id: String { input.clientId }

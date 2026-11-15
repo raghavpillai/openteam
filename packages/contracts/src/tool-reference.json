@@ -120,10 +120,6 @@
             "allowCustom": {
               "type": "boolean",
               "description": "Allow a typed answer."
-            },
-            "dismissOnMoveOn": {
-              "type": "boolean",
-              "description": "Auto-dismiss once the user sends a newer message without answering."
             }
           },
           "required": [

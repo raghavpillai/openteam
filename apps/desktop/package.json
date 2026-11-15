@@ -1,6 +1,6 @@
 {
   "name": "@openteam/desktop",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "license": "GPL-3.0-only",
   "author": "OpenTeam contributors",
   "main": "dist-electron/main.js",
@@ -142,6 +142,7 @@
     "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
     "test:widget-group-parity": "bun scripts/test-widget-group-parity.ts",
     "test:background-activity": "bun scripts/test-background-activity.ts",
+    "test:question-history:chaos": "bun scripts/test-question-history-chaos.ts",
     "test:activity-history": "bun scripts/test-activity-history.ts",
     "test:window-activity": "bun scripts/test-window-activity.ts",
     "test:reaction-order": "bun scripts/test-reaction-order.ts",

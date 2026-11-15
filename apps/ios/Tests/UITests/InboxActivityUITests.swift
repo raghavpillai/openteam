@@ -52,8 +52,8 @@ import XCTest
     XCTAssertTrue(background.label.contains("??"))
     XCTAssertTrue(background.label.contains("Working"), "A bot-scoped background run needs a green badge")
     let question = app.buttons["channel-activity-1"]
-    XCTAssertTrue(question.label.contains("Waiting for your answer"))
-    XCTAssertFalse(question.label.contains("Working"), "Waiting takes priority over a running task")
+    XCTAssertFalse(question.label.contains("Waiting for your answer"))
+    XCTAssertTrue(question.label.contains("Working"), "A question must not hide unrelated active work")
     for (id, preview) in [(2, "Latest user message stays visible."), (3, "Latest bot reply stays visible.")] {
       let row = app.buttons["channel-activity-\(id)"]
       XCTAssertTrue(row.label.contains(preview))
@@ -70,7 +70,7 @@ import XCTest
     let app = try await launch()
     defer { app.terminate() }
     let question = app.buttons["channel-activity-1"]
-    XCTAssertTrue(question.label.contains("Waiting for your answer"))
+    XCTAssertFalse(question.label.contains("Waiting for your answer"))
     try await request("/__qa/update-message", ["id": "visual-message-activity-1-2",
       "metadata": ["respondedValue": "on-track"]])
     let answered = XCTNSPredicateExpectation(predicate: NSPredicate(format:

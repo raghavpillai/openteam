@@ -163,161 +163,397 @@
   background: #00c9722c;
   color: #38d591;
 }
+/* Question cards: tile options with a real selection control, an inline custom
+   answer, and one footer for Skip / Send. Closed cards shrink to a receipt.
+   Their motion is in question-card-motion.css, which loads with the first card. */
 .permission-widget {
+  --question-fill: #1c1c1c0d;
+  --question-fill-hover: #1c1c1c17;
+  --question-fill-selected: #1c1c1c1c;
+  --question-outline: #1c1c1c33;
+  --question-control: #1c1c1c4d;
+  --question-green: #00854a;
+  --question-green-fill: #14c16f24;
+  --question-danger: #cd2834;
   max-width: none;
+  gap: 12px;
   line-height: 20px;
+}
+[data-theme="dark"] .permission-widget {
+  --question-fill: #f5f5f50d;
+  --question-fill-hover: #f5f5f517;
+  --question-fill-selected: #f5f5f51f;
+  --question-outline: #f5f5f538;
+  --question-control: #f5f5f552;
+  --question-green: #00ba69;
+  --question-green-fill: #14c37026;
+  --question-danger: #ff6463;
+}
+/* A question that arrives live waits for its motion to place the tiles. */
+.message-row[data-enter="new"] [data-rich-widget-frame]:not([data-live]) :is(.widget-option, .question-footer) {
+  opacity: 0;
+}
+.question-prompt {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 22px;
+  letter-spacing: -0.15px;
+  overflow-wrap: anywhere;
+}
+.question-prompt-settled {
+  font-weight: 450;
+  color: var(--permission-secondary);
+}
+.question-help {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--permission-secondary);
 }
 .permission-widget .widget-options {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   width: 100%;
-  overflow: hidden;
-  border: 1px solid var(--permission-divider);
-  border-radius: 8px;
-  background: var(--permission-options);
 }
 .widget-option {
+  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
   min-width: 0;
-  gap: 8px;
-  padding: 8px;
-  text-align: left;
+  min-height: 42px;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--question-fill);
   color: var(--permission-text);
+  font: inherit;
+  text-align: left;
 }
 button.widget-option {
-  border: 1px solid transparent;
-  font: inherit;
-  outline-offset: -2px;
   cursor: pointer;
 }
-button.widget-option:first-child {
-  border-top-left-radius: 7.5px;
-  border-top-right-radius: 7.5px;
+button.widget-option:hover:not(:disabled) {
+  background: var(--question-fill-hover);
 }
-button.widget-option:last-child {
-  border-bottom-left-radius: 7.5px;
-  border-bottom-right-radius: 7.5px;
+button.widget-option:active:not(:disabled) {
+  transform: scale(0.97);
+}
+button.widget-option:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 button.widget-option[aria-pressed="true"] {
-  background: var(--permission-selected);
+  border-color: var(--question-outline);
+  background: var(--question-fill-selected);
 }
-.widget-divider {
-  height: 0.5px;
+.widget-option[data-tone="danger"] .widget-option-label {
+  color: var(--question-danger);
+}
+/* Checkbox for multi-select, radio for single-select. The fill is a blob that
+   grows from the centre: ::before for a checkbox, ::after for a radio's dot. */
+.question-control {
+  position: relative;
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
-  width: 100%;
-  background: var(--permission-divider);
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--question-control);
+  border-radius: 6px;
+  color: var(--permission-input);
+}
+[data-question-mode="multi"] button .question-control::before {
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 50%;
+  background: var(--permission-text);
+  content: "";
+  transform: scale(0);
+}
+[data-question-mode="single"] .question-control {
+  border-radius: 999px;
+}
+[data-question-mode="single"] .question-control::after {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--permission-text);
+  content: "";
+  opacity: 0;
+  transform: scale(0.4);
+}
+[data-question-mode="single"] button.widget-option:hover:not(:disabled) .question-control::after {
+  opacity: 0.35;
+  transform: none;
+}
+[data-question-mode="single"] button.widget-option:active:not(:disabled) .question-control::after {
+  opacity: 1;
+  transform: none;
+}
+.question-control svg {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+.question-control svg path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+button.widget-option[aria-pressed="true"] .question-control {
+  border-color: transparent;
+}
+button.widget-option[aria-pressed="true"] .question-control::before {
+  border-radius: 6px;
+  transform: none;
+}
+button.widget-option[aria-pressed="true"] .question-control svg path {
+  stroke-dashoffset: 0;
+}
+.question-control-pencil {
+  border: 0;
+  color: var(--permission-secondary);
+}
+.question-control-pencil svg {
+  stroke-width: 1.4;
+}
+.question-control-pencil svg path {
+  stroke-dasharray: none;
+  stroke-dashoffset: 0;
 }
 .widget-option-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   flex-shrink: 0;
-  width: 18px;
+  min-width: 20px;
   height: 20px;
-  padding: 1px 4px;
-  border: 1px solid #1414140d;
-  border-radius: 4px;
-  background: var(--permission-selected);
-  color: #1414149c;
-}
-.widget-option-key > span {
+  padding: 0 5px;
+  border: 1px solid var(--permission-divider);
+  border-radius: 6px;
+  color: var(--permission-secondary);
+  font: inherit;
   font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 0.055px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0.75;
 }
-[data-theme="dark"] .widget-option-key {
-  border-color: #fcfcfc0d;
-  color: #fcfcfc8f;
+@media (hover: none) {
+  .widget-option-key {
+    display: none;
+  }
 }
 .widget-option-label {
   display: block;
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 20px;
-  font-weight: 420;
+  font-weight: 450;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .widget-option-description {
   display: block;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--permission-secondary);
 }
-.widget-option-resolved {
-  color: var(--permission-faded);
-}
-.widget-option-resolved .widget-option-key {
-  opacity: 0.4;
-}
-.widget-option svg {
-  color: var(--permission-secondary);
-}
+/* "Something else" is the last tile: the same shape, typed into directly. */
 .widget-custom {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 0;
-  min-height: 32px;
-  border: 1px solid var(--permission-border);
-  border-radius: 8px;
-  background: var(--permission-input);
-  transition: border-color 120ms ease;
+  align-items: flex-start;
+  cursor: text;
+}
+.widget-custom:hover {
+  background: var(--question-fill-hover);
 }
 .widget-custom:focus-within {
   border-color: var(--ring);
+  background: var(--question-fill);
+}
+.widget-custom .question-control,
+.widget-custom .widget-option-key {
+  margin-top: 1px;
+}
+.widget-custom:focus-within .widget-option-key,
+.widget-custom[data-filled] .widget-option-key {
+  visibility: hidden;
 }
 .widget-custom textarea {
   display: block;
   field-sizing: content;
   flex: 1 1 0;
   min-width: 0;
-  padding: 5px 10px;
+  padding: 1px 0;
   border: 0;
-  border-radius: 8px;
   outline: none;
   resize: none;
   overflow-y: hidden;
   background: transparent;
   color: inherit;
-  font:
-    400 14px / 20px -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 450;
 }
 .widget-custom textarea::placeholder {
   color: var(--permission-secondary);
 }
-.widget-submit {
-  height: 32px;
-  padding: 6px 10px;
+/* Single choice: the send button sits over the shortcut letter's place, at the
+   field's trailing edge, once there is something to send. */
+.question-send-inline {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   border: 0;
-  border-radius: 8px;
-  background: #070707;
-  color: #fcfcfc;
-  font:
-    400 14px / 20px -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  border-radius: 999px;
+  background: var(--permission-text);
+  color: var(--permission-input);
+  cursor: pointer;
 }
-[data-theme="dark"] .widget-submit {
-  background: #fafafa;
-  color: #141414;
+.question-send-inline svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.8;
+}
+.question-send-inline:disabled {
+  opacity: 0.5;
+}
+.widget-custom:not([data-filled]) .question-send-inline {
+  visibility: hidden;
+}
+.question-error {
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--question-danger);
+}
+.question-footer {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 6px;
+}
+.question-hint {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--permission-secondary);
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.question-skip,
+.widget-submit {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.question-skip {
+  background: transparent;
+  color: var(--permission-secondary);
+}
+.question-skip:hover:not(:disabled) {
+  background: var(--question-fill-hover);
+  color: var(--permission-text);
+}
+/* Send answer: the fill is a blob behind the label, there once it can send. */
+.widget-submit {
+  position: relative;
+  isolation: isolate;
+  background: var(--question-fill-selected);
+  color: var(--permission-input);
+}
+.widget-submit::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--permission-text);
+  content: "";
+}
+.widget-submit:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.widget-submit:disabled {
+  color: var(--permission-faded);
+  cursor: default;
+}
+.widget-submit:disabled::before {
+  opacity: 0;
+  transform: scale(0.5);
+}
+.question-skip:active:not(:disabled),
+.widget-submit:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.question-skip:focus-visible,
+.widget-submit:focus-visible,
+.question-send-inline:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* Receipts */
+.question-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.question-answer {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 10px;
+}
+.question-answer-check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--question-green-fill);
+  color: var(--question-green);
+}
+.question-answer-check svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
+}
+.permission-widget.question-closed {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 .widget-dismissed-pill {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
   border-radius: 999px;
-  background: var(--permission-tint);
+  background: var(--question-fill);
   color: var(--permission-secondary);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 18px;
+}
+.widget-dismissed-pill svg {
+  width: 13px;
+  height: 13px;
 }
 
 .permission-secondary {
@@ -436,9 +672,6 @@ button.widget-option[aria-pressed="true"] {
   color: #ff5667;
 }
 
-@media (prefers-reduced-motion: reduce) {
-}
-
 .permission-pill-muted {
   background: var(--permission-input);
   color: #1414149c;
@@ -451,11 +684,9 @@ button.widget-option[aria-pressed="true"] {
 .permission-field .permission-input::placeholder {
   color: #1414144d;
 }
-.widget-custom textarea::placeholder,
 .permission-secret .permission-secret-note {
   color: #1414149c;
 }
-[data-theme="dark"] .widget-custom textarea::placeholder,
 [data-theme="dark"] .permission-secret .permission-secret-note {
   color: #fcfcfc8f;
 }
@@ -489,15 +720,6 @@ button.widget-option[aria-pressed="true"] {
   background: var(--permission-selected);
 }
 
-@media (prefers-reduced-motion: reduce) {
-}
-
-button.widget-option:hover:not([aria-pressed="true"]) {
-  background: #77777717;
-}
-[data-theme="dark"] button.widget-option:hover:not([aria-pressed="true"]) {
-  background: #77777733;
-}
 .permission-field textarea.permission-input {
   min-height: 80px;
   resize: vertical;

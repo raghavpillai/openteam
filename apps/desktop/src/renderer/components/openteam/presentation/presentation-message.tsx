@@ -23,6 +23,7 @@ import {
   Globe,
   Map as MapGlyph,
   MapPin,
+  Info,
   Minus,
   Plus,
   Star,
@@ -631,8 +632,40 @@ function MapSurface({
           </button>
         </div>
       )}
-      {/* The two credits the map data's licences require; the tile host asks for none. */}
-      <div className="place-map-attribution">
+      <MapCredit />
+    </>
+  );
+}
+
+/** How long the map's credits stay spelled out once the map is on screen. */
+const CREDIT_VISIBLE_MS = 5_000;
+
+/**
+ * The two credits the map data's licences require (the tile host asks for none). They are
+ * spelled out for five seconds once the map is on screen, then fold into a small button
+ * that shows them again on hover, keyboard focus or a click.
+ */
+function MapCredit() {
+  const [open, setOpen] = useState(true);
+  const root = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      observer.disconnect();
+      timer.current = window.setTimeout(() => setOpen(false), CREDIT_VISIBLE_MS);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer.current);
+    };
+  }, []);
+  return (
+    <div className="place-map-attribution" ref={root} data-open={open}>
+      <span className="place-map-credit-text">
         <a href="https://openmaptiles.org" target="_blank" rel="noreferrer">
           © OpenMapTiles
         </a>{" "}
@@ -640,8 +673,20 @@ function MapSurface({
         <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
           © OpenStreetMap
         </a>
-      </div>
-    </>
+      </span>
+      <button
+        type="button"
+        className="place-map-credit-toggle"
+        aria-label="Map data credits"
+        aria-expanded={open}
+        onClick={() => {
+          window.clearTimeout(timer.current);
+          setOpen((value) => !value);
+        }}
+      >
+        <Info size={10} strokeWidth={2.2} aria-hidden />
+      </button>
+    </div>
   );
 }
 

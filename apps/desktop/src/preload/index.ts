@@ -276,6 +276,7 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   notifications: {
     clear: () => ipcRenderer.send("openteam:notifications:clear"),
+    read: (state: unknown) => ipcRenderer.send("openteam:notifications:read", state),
     activity: () => ipcRenderer.invoke("openteam:notifications:activity"),
     onActivityChange: (callback: () => void) => {
       ipcRenderer.on("openteam:notifications:activity-changed", callback);

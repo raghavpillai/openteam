@@ -64,7 +64,7 @@ app.whenReady().then(async () => {
       check((await read()).runtimeReads === 0, "runtime status polling skips an unfocused window");
       signal(false, false); await pause(100);
       await evaluate("window.injectNotification()");
-      await waitFor(p => p.cursor === "2"); await pause(100);
+      await waitFor(p => p.cursor === "2" && delivered.length === 1);
       check(delivered.length === 1 && delivered[0].body === "Completed in the background", "a hidden window still receives product events and delivers a native notification projection");
       check((await read()).connections === 1 && (await read()).aborts === 0, "backgrounding does not abort or reconnect the live product stream");
       await evaluate("window.markReadElsewhere()"); await waitFor(p => p.cursor === "3"); await pause(100);

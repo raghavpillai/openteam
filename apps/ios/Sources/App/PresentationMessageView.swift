@@ -340,7 +340,10 @@ private struct PlaceDetails: View {
 
 private struct PresentationMapView: View {
   /// The band of map left clear below the cards, where Apple's logo and Legal link sit.
-  static let creditStrip: CGFloat = 30
+  static let creditStrip: CGFloat = 22
+  /// How far the map runs on below its visible edge. MapKit keeps its logo about 9 pt
+  /// above the map's bottom; this brings it nearer the corner so the cards can sit lower.
+  static let creditDrop: CGFloat = 5
   let block: PresentationMap
   let allPlaces: [PresentationPlace]
   var memoryKey = ""
@@ -428,9 +431,12 @@ private struct PresentationMapView: View {
         // Legal stuck under the cards). The preview is framed by the camera alone.
         NativePlaceMap(places: places, route: block.route, selected: $selected, hasCards: hasCards,
                        // The expand button covers the top-right corner; keep pins clear of it.
-                       obscuredBottom: hasCards ? 120 + Self.creditStrip : 0, obscuredTop: 56,
+                       obscuredBottom: hasCards ? 120 + Self.creditStrip + Self.creditDrop : 0,
+                       // Clear of the map's rounded corner.
+                       creditSide: hasCards ? 3 : 0, obscuredTop: 56,
                        panelTop: preview != nil ? 400 - panelHeight - (hasCards ? Self.creditStrip : 12) : nil,
                        onPin: { place in open(place, fromPin: true) })
+          .padding(.bottom, hasCards ? -Self.creditDrop : 0)
         if hasCards { carousel }
       }
       .frame(maxWidth: .infinity).frame(height: 400)
@@ -806,6 +812,8 @@ private struct NativePlaceMap: View {
   /// Where Apple's logo and Legal link sit: this far above the map's bottom edge, in
   /// the strip left clear below the cards or the sheet.
   var creditBottom: CGFloat = 0
+  /// Extra room between the logo and the map's side edge, to clear a rounded corner.
+  var creditSide: CGFloat = 0
   /// Glass covering the top (fullscreen: status bar and close button).
   var obscuredTop: CGFloat = 0
   /// With the preview open: the y of its top edge. The selected pin is placed
@@ -824,10 +832,11 @@ private struct NativePlaceMap: View {
   @State private var fanOffsets: [String: CGFloat] = [:]
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(places: [PresentationPlace], route: PresentationRoute?, selected: Binding<String?>, hasCards: Bool = false,
-       obscuredBottom: CGFloat = 0, creditBottom: CGFloat = 0, obscuredTop: CGFloat = 0, panelTop: CGFloat? = nil,
-       bottomInset: Double = 0, size: CGSize = .zero, onPin: ((PresentationPlace) -> Void)? = nil) {
+       obscuredBottom: CGFloat = 0, creditBottom: CGFloat = 0, creditSide: CGFloat = 0, obscuredTop: CGFloat = 0,
+       panelTop: CGFloat? = nil, bottomInset: Double = 0, size: CGSize = .zero, onPin: ((PresentationPlace) -> Void)? = nil) {
     self.places = places; self.route = route; _selected = selected; self.hasCards = hasCards
-    self.obscuredBottom = obscuredBottom; self.creditBottom = creditBottom; self.obscuredTop = obscuredTop
+    self.obscuredBottom = obscuredBottom; self.creditBottom = creditBottom; self.creditSide = creditSide
+    self.obscuredTop = obscuredTop
     self.panelTop = panelTop; self.bottomInset = bottomInset; self.onPin = onPin
     // Start framed, so a fullscreen zoom never lands on an empty grid. Where the size is
     // not known yet, the first layout frames it again.
@@ -943,7 +952,7 @@ private struct NativePlaceMap: View {
     // Apple's own landmark photo pins would read as stops; leave them out.
     .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excluding([.landmark, .museum, .library, .nationalMonument, .castle])))
     .mapControls { MapCompass(); MapScaleView() }
-      .safeAreaPadding(.bottom, creditBottom).safeAreaPadding(.top, obscuredTop)
+      .safeAreaPadding(.bottom, creditBottom).safeAreaPadding(.top, obscuredTop).safeAreaPadding(.leading, creditSide)
       // MapKit puts its logo and Legal link in the leading bottom corner. Laid out right
       // to left, that is the right-hand corner, the usual place for a map's credits and
       // clear of most labels. The pins keep the app's own direction.
@@ -1039,11 +1048,16 @@ private struct PlaceMapPreview: View {
       // The sheet hugs its content up to 46% of the screen (phones), and the
       // map frames every stop between the status bar and the sheet.
       let sheetMax = regular ? screen.size.height : screen.size.height * 0.46
+      // The strip of map below the sheet holds Apple's logo: about 9 pt of MapKit's own
+      // margin, the 14 pt logo and a small gap. A phone with a home indicator already
+      // leaves more than that; one without gets the sheet raised to make it.
+      let creditStrip = max(12 + screen.safeAreaInsets.bottom, 27)
       ZStack(alignment: regular ? .trailing : .bottom) {
         NativePlaceMap(places: places, route: block.route, selected: $selected,
-                       obscuredBottom: regular ? 0 : sheetMax + 12 + screen.safeAreaInsets.bottom,
-                       // The logo sits in the strip of map below the sheet.
-                       creditBottom: regular ? 0 : max(0, screen.safeAreaInsets.bottom - 26),
+                       obscuredBottom: regular ? 0 : sheetMax + creditStrip,
+                       // The logo sits just under the sheet and in from the edge, where the
+                       // display's rounded corner cannot clip it.
+                       creditBottom: regular ? 0 : creditStrip - 27, creditSide: regular ? 0 : 6,
                        obscuredTop: screen.safeAreaInsets.top + 56,
                        size: CGSize(width: screen.size.width - (regular ? 374 : 0),
                                     height: screen.size.height + screen.safeAreaInsets.top + screen.safeAreaInsets.bottom),
@@ -1062,7 +1076,7 @@ private struct PlaceMapPreview: View {
         }
         .frame(width: regular ? 360 : nil)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: regular ? .trailing : .bottom)
-        .padding(12)
+        .padding([.horizontal, .top], 12).padding(.bottom, regular ? 12 : creditStrip - screen.safeAreaInsets.bottom)
         .offset(x: appeared || !regular || reduceMotion ? 0 : 60, y: appeared || regular || reduceMotion ? 0 : 80)
         .opacity(appeared ? 1 : 0)
       }

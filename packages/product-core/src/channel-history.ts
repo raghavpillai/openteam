@@ -61,7 +61,7 @@ export interface ChannelMessageWindowState {
   retainedBytes: number;
 }
 
-interface MessageWindowTransition {
+export interface MessageWindowTransition {
   history: LoadedChannelHistory;
   window: ChannelMessageWindowState;
   outcome: "applied" | "preserved-gap";

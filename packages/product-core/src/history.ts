@@ -41,16 +41,6 @@ export const loadingChannelHistory = (current?: LoadedChannelHistory): LoadedCha
   loading: true,
 });
 
-export const MAX_INACTIVE_HISTORY_CHANNELS = 3;
-export const MAX_INACTIVE_MESSAGES_PER_CHANNEL = 120;
-export const MAX_CACHED_MESSAGES_PER_CHANNEL = 200;
-
-export interface ChannelHistoryState {
-  beforeSequence: string | null;
-  hasMore: boolean;
-  loading: boolean;
-}
-
 const numericCursor = (value: string | null): bigint | null =>
   value && /^\d+$/.test(value) ? BigInt(value) : null;
 
@@ -66,7 +56,7 @@ const sequenceValue = (entity: { sequence: string }): bigint | null => {
   return value;
 };
 const createdAtValues = new WeakMap<object, { source: string; value: number }>();
-export const messageCreatedAtMs = (message: { createdAt: string }): number => {
+const messageCreatedAtMs = (message: { createdAt: string }): number => {
   const cached = createdAtValues.get(message);
   if (cached?.source === message.createdAt) return cached.value;
   const value = Date.parse(message.createdAt);
@@ -97,20 +87,6 @@ export const uniqueEntitiesById = <T extends { id: string }>(
     for (const entity of collection) byId.set(entity.id, entity);
   }
   return [...byId.values()];
-};
-
-/** A latest-page refresh must not rewind pagination already loaded for the active channel. */
-export const reconcileActiveHistoryRefresh = (
-  current: ChannelHistoryState | undefined,
-  latest: ChannelHistoryState
-): ChannelHistoryState => {
-  const loading = current?.loading ?? latest.loading;
-  if (!current?.beforeSequence || !latest.beforeSequence) return { ...latest, loading };
-  const currentCursor = numericCursor(current.beforeSequence);
-  const latestCursor = numericCursor(latest.beforeSequence);
-  return currentCursor !== null && latestCursor !== null && currentCursor < latestCursor
-    ? { ...current, loading }
-    : { ...latest, loading };
 };
 
 /** Server sequence, not random UUID order, breaks equal-timestamp ties. */
@@ -160,7 +136,7 @@ const withoutVisibleMessages = (
     .sort(compareEntitySequence)
     .filter((message) => !visibleIds.has(message.id) && !additionalIds.has(message.id));
 
-export type ChannelHistoryMergeMode = "replace" | "refresh" | "older";
+type ChannelHistoryMergeMode = "replace" | "refresh" | "older";
 
 export const restoreHistoryQuestionReceipts = (
   history: LoadedChannelHistory, receipts: ReturnType<typeof createQuestionReceiptStore>
@@ -259,102 +235,6 @@ export const clearLoadedChannelSearchContext = (
         searchThreadContextTruncated: false,
       };
 
-export const loadedChannelHistoryMessages = (history: LoadedChannelHistory): ChannelMessageView[] =>
-  sortedUniqueMessages([
-    ...history.searchThreadContext,
-    ...history.threadContext,
-    ...history.searchContext,
-    ...history.messages,
-  ]).sort(compareEntitySequence);
-
-export const snapshotFromBootstrap = (bootstrap: ClientBootstrapView): ClientSnapshot => ({
-  cursor: bootstrap.cursor,
-  workspace: bootstrap.workspace,
-  bots: bootstrap.bots,
-  channels: bootstrap.channels,
-  channelMessages: bootstrap.latestMessages,
-  channelRounds: bootstrap.channelRounds,
-  runs: bootstrap.activeRuns,
-  runItems: [],
-  subagents: bootstrap.subagents,
-  runtime: bootstrap.runtime,
-});
-
-export const touchHistoryLru = (current: readonly string[], channelId: string): string[] =>
-  [channelId, ...current.filter((candidate) => candidate !== channelId)].slice(
-    0,
-    MAX_INACTIVE_HISTORY_CHANNELS
-  );
-
-export const retainedHistoryIds = (
-  activeChannelId: string | null,
-  inactiveLru: readonly string[]
-): Set<string> =>
-  new Set([
-    ...(activeChannelId ? [activeChannelId] : []),
-    ...inactiveLru.slice(0, MAX_INACTIVE_HISTORY_CHANNELS),
-  ]);
-
-export const mergeBootstrapWithHistory = (
-  bootstrap: ClientBootstrapView,
-  current: ClientSnapshot,
-  retainedIds: ReadonlySet<string>
-): ClientSnapshot => {
-  const base = snapshotFromBootstrap(bootstrap);
-  const visibleChannels = new Set(base.channels.map((channel) => channel.id));
-  const retained = current.channelMessages.filter(
-    (message) => visibleChannels.has(message.channelId) && retainedIds.has(message.channelId)
-  );
-  return {
-    ...base,
-    channelMessages: sortedUniqueMessages([...base.channelMessages, ...retained]),
-  };
-};
-
-export const mergeChannelMessages = (
-  snapshot: ClientSnapshot,
-  channelId: string,
-  incoming: readonly ChannelMessageView[]
-): ClientSnapshot => ({
-  ...snapshot,
-  channelMessages: sortedUniqueMessages([
-    ...snapshot.channelMessages.filter((message) => message.channelId !== channelId),
-    ...snapshot.channelMessages.filter((message) => message.channelId === channelId),
-    ...incoming,
-  ]),
-});
-
-/** Replace one channel's bounded activity projection without disturbing other retained channels. */
-export const mergeChannelState = (
-  snapshot: ClientSnapshot,
-  state: ChannelClientState
-): ClientSnapshot => {
-  const previousRunIds = new Set(
-    snapshot.runs.filter((run) => run.channelId === state.channelId).map((run) => run.id)
-  );
-  const replacementRunIds = new Set(state.runs.map((run) => run.id));
-  const replacedRunIds = new Set([...previousRunIds, ...replacementRunIds]);
-  return {
-    ...snapshot,
-    channelRounds: uniqueEntitiesById(
-      snapshot.channelRounds.filter((round) => round.channelId !== state.channelId),
-      state.channelRounds
-    ),
-    runs: uniqueEntitiesById(
-      snapshot.runs.filter((run) => run.channelId !== state.channelId),
-      state.runs
-    ),
-    runItems: uniqueEntitiesById(
-      snapshot.runItems.filter((item) => !replacedRunIds.has(item.runId)),
-      state.runItems
-    ),
-    subagents: uniqueEntitiesById(
-      snapshot.subagents.filter((subagent) => subagent.parentChannelId !== state.channelId),
-      state.subagents
-    ),
-  };
-};
-
 export const mergeBootstrapActivityStates = (
   bootstrap: ClientBootstrapView,
   states: readonly ChannelClientState[]
@@ -367,68 +247,3 @@ export const mergeBootstrapActivityStates = (
   runItems: uniqueEntitiesById(...states.map((state) => state.runItems)),
   subagents: uniqueEntitiesById(bootstrap.subagents, ...states.map((state) => state.subagents)),
 });
-
-export const trimInactiveHistories = (
-  snapshot: ClientSnapshot,
-  activeChannelId: string | null,
-  inactiveLru: readonly string[]
-): ClientSnapshot => {
-  const visibleChannels = new Set(snapshot.channels.map((channel) => channel.id));
-  const retained = retainedHistoryIds(activeChannelId, inactiveLru);
-  const byChannel = new Map<string, ChannelMessageView[]>();
-  for (const message of snapshot.channelMessages) {
-    if (!visibleChannels.has(message.channelId)) continue;
-    const current = byChannel.get(message.channelId);
-    if (current) current.push(message);
-    else byChannel.set(message.channelId, [message]);
-  }
-  const messages: ChannelMessageView[] = [];
-  for (const [channelId, channelMessages] of byChannel) {
-    const sorted = sortedUniqueMessages(channelMessages);
-    if (channelId === activeChannelId) messages.push(...sorted);
-    else if (retained.has(channelId))
-      messages.push(...sorted.slice(-MAX_INACTIVE_MESSAGES_PER_CHANNEL));
-    else {
-      const latest = sorted.at(-1);
-      if (latest) messages.push(latest);
-    }
-  }
-  return { ...snapshot, channelMessages: messages.sort(messageOrder) };
-};
-
-/** Persist the bootstrap plus a bounded recent window for retained conversations. */
-export const boundedSnapshotForCache = (
-  snapshot: ClientSnapshot,
-  retainedIds: readonly string[]
-): ClientSnapshot => {
-  const historyIds = new Set(retainedIds.slice(0, MAX_INACTIVE_HISTORY_CHANNELS + 1));
-  const byChannel = new Map<string, ChannelMessageView[]>();
-  for (const message of snapshot.channelMessages) {
-    const current = byChannel.get(message.channelId);
-    if (current) current.push(message);
-    else byChannel.set(message.channelId, [message]);
-  }
-  const messages: ChannelMessageView[] = [];
-  for (const channelMessages of byChannel.values()) {
-    const sorted = sortedUniqueMessages(channelMessages);
-    const latest = sorted.at(-1);
-    if (!latest) continue;
-    if (historyIds.has(latest.channelId))
-      messages.push(...sorted.slice(-MAX_CACHED_MESSAGES_PER_CHANNEL));
-    else messages.push(latest);
-  }
-  return { ...snapshot, channelMessages: messages.sort(messageOrder) };
-};
-
-export const latestNumericSequence = (
-  messages: readonly ChannelMessageView[],
-  channelId: string
-): string | null => {
-  let latest: bigint | null = null;
-  for (const message of messages) {
-    if (message.channelId !== channelId || !/^\d+$/.test(message.sequence)) continue;
-    const sequence = BigInt(message.sequence);
-    if (latest === null || sequence > latest) latest = sequence;
-  }
-  return latest?.toString() ?? null;
-};

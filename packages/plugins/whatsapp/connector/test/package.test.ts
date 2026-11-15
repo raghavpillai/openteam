@@ -6,7 +6,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { fieldsForConnector, substituteConfiguration, validatePackageFiles, validateValues } from "@openteam/plugin-sdk";
-import { settings } from "../process";
 import { pluginCatalog } from "../../../src";
 import { WhatsAppAccount } from "../account";
 import { installExecutable, prepareStore, settings, WacliProcess } from "../process";

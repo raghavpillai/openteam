@@ -152,7 +152,7 @@ function summary(rows: Outcome[], batch: Counts) {
   return `${text} Drafts in this chat: ${status.join(", ")}.`;
 }
 
-export interface DraftNotificationContext { botId: string; channelId: string; runId: string; timeZone?: string | null }
+interface DraftNotificationContext { botId: string; channelId: string; runId: string; timeZone?: string | null }
 /** One visible row, its push outbox, and all per-outcome notification receipts commit together. */
 export async function publishDraftNotification(tx: DB, context: DraftNotificationContext) {
   const event = await tx.inboxEvent.findFirst({ where: { runId: context.runId, botId: context.botId, type: "draft.response" }, include: { run: true } });

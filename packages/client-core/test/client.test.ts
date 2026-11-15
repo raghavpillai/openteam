@@ -36,6 +36,20 @@ describe("mobile-safe OpenTeam client", () => {
     expect(calls[2]?.url).toBe("http://openteam.test/api/v0/channels/channel%2F1/message-deliveries/durable-nonce-0001");
   });
 
+  test("a send carries the device location while sharing is on, and a failed read never holds it up", async () => {
+    const { calls, fetch } = recordingFetch();
+    const location = { latitude: 40.75, longitude: -73.99, accuracyMeters: 30, capturedAt: "2026-11-14T10:00:00.000Z", device: "computer" as const };
+    let read: () => Promise<typeof location | undefined> = async () => location;
+    const client = createOpenTeamClient({ baseUrl: "http://fixture", fetch, location: () => read() });
+    await client.sendDirectMessage("conversation", "coffee near me?");
+    await client.sendChannelMessage("channel", "coffee near me?");
+    read = async () => undefined;
+    await client.sendDirectMessage("conversation", "sharing off");
+    read = async () => { throw new Error("permission denied"); };
+    await client.sendDirectMessage("conversation", "read failed");
+    expect(calls.map((call) => JSON.parse(String(call.init?.body)).location)).toEqual([location, location, undefined, undefined]);
+  });
+
   test("streams authenticated product events across arbitrary response chunks", async () => {
     const encoded = new TextEncoder().encode(
       ': connected\r\n\r\nid: 41\r\nevent: product\r\ndata: {"sequence":"41","topic":"channel.message.accepted","entityId":"message-1","payload":{},"createdAt":"2026-08-31T00:00:00.000Z"}\r\n\r\n'

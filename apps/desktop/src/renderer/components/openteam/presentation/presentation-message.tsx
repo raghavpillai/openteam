@@ -631,11 +631,8 @@ function MapSurface({
           </button>
         </div>
       )}
+      {/* The two credits the map data's licences require; the tile host asks for none. */}
       <div className="place-map-attribution">
-        <a href="https://openfreemap.org" target="_blank" rel="noreferrer">
-          OpenFreeMap
-        </a>{" "}
-        ·{" "}
         <a href="https://openmaptiles.org" target="_blank" rel="noreferrer">
           © OpenMapTiles
         </a>{" "}

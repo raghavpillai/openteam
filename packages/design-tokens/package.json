@@ -12,7 +12,9 @@
     "./mobile-theme": "./src/mobile-theme.ts",
     "./robot-avatar-artwork": "./src/robot-avatar-artwork.ts",
     "./robot-avatar.css": "./src/robot-avatar.css",
-    "./robot-avatar-motion": "./src/robot-avatar-motion.ts"
+    "./robot-avatar-motion": "./src/robot-avatar-motion.ts",
+    "./robot-avatar-expressions": "./src/robot-avatar-expressions.ts",
+    "./robot-avatar-pokes": "./src/robot-avatar-pokes.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

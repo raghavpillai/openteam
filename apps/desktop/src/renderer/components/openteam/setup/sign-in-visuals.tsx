@@ -16,13 +16,13 @@ export function RobotsVisual() {
     <div className="setup-robots">
       <div className="setup-hello">Hi! Let's get you set up.</div>
       <span style={{ ...nth(0), "--tilt": "-9deg" } as CSSProperties}>
-        <BotAvatarGlyph color="#08c875" eyeColor="#111111" mode="idle" shape="chip" />
+        <BotAvatarGlyph color="#08c875" eyeColor="#111111" gaze="follow" mode="idle" shape="chip" />
       </span>
       <span style={{ ...nth(1), "--tilt": "5deg" } as CSSProperties}>
-        <BotAvatarGlyph color="#1685ed" eyeColor="#111111" mode="idle" shape="tv-head" />
+        <BotAvatarGlyph color="#1685ed" eyeColor="#111111" gaze="follow" mode="idle" shape="tv-head" />
       </span>
       <span style={{ ...nth(2), "--tilt": "10deg" } as CSSProperties}>
-        <BotAvatarGlyph color="#ff9912" eyeColor="#111111" mode="idle" shape="helmet" />
+        <BotAvatarGlyph color="#ff9912" eyeColor="#111111" gaze="follow" mode="idle" shape="helmet" />
       </span>
     </div>
   );

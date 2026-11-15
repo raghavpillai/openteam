@@ -86,7 +86,7 @@ function WorkspaceTree({ nodes, outputs, activity, revision, depth = 0 }: {
                 <span className="cw-file-presence" key={revision}>
                   {presence.map((item) => (
                     <span className="cw-file-person" key={item.worker} data-action={item.action} style={{ "--agent-color": workers[item.worker].color } as CSSProperties}>
-                      <BotAvatar {...workers[item.worker]} size={17} mode="thinking" />
+                      <BotAvatar {...workers[item.worker]} size={17} mode="working" />
                       <strong>{workers[item.worker].name}</strong>
                       <span className="cw-file-action">
                         {item.action === "Viewing" ? <Eye size={11} /> : <PencilLine size={11} />}
@@ -235,7 +235,7 @@ export function ComputerWorkspace({ children }: { children?: ReactNode }) {
           <div className="cw-computer">
             <div className="cw-desktop-surface"><ComputerBrowser step={step} completed={completed} revision={revision} annual={annual} /></div>
             <div className="cw-computer-activity" key={revision}>
-              <span className="cw-activity-avatar"><BotAvatar {...workers[step === 5 ? 1 : 0]} size={24} mode="thinking" /></span>
+              <span className="cw-activity-avatar"><BotAvatar {...workers[step === 5 ? 1 : 0]} size={24} mode="working" /></span>
               <span><strong>{steps[step].action}</strong><small>{step === 5 ? "Finance · Shared workspace" : step === 6 ? "Research + Finance" : "Research · Browser"}</small></span>
               {step >= 3 && completed ? <Check size={16} /> : <span className="cw-thinking-dots" aria-hidden="true"><i /><i /><i /></span>}
               <i className="cw-task-progress" aria-hidden="true" />

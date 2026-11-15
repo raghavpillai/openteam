@@ -25,7 +25,8 @@
                 VStack(spacing: 8) {
                   BotGlyph(
                     color: Color(hex: "ff7a1a"), kind: robot.rawValue, size: 96, mode: mode,
-                    forceReducedMotion: reduced, sampleTime: sample)
+                    forceReducedMotion: reduced, sampleTime: sample, pokeable: true,
+                    seed: robot.rawValue)
                   Text(robot.rawValue).font(.system(size: 11)).lineLimit(1)
                 }.accessibilityElement(children: .ignore).accessibilityLabel(robot.rawValue)
                   .accessibilityIdentifier("robot-cell-\(robot.rawValue)")
@@ -34,15 +35,16 @@
           } else {
             BotGlyph(
               color: Color(hex: "ff7a1a"), kind: shape.rawValue, size: 190, mode: mode,
-              forceReducedMotion: reduced, sampleTime: sample
+              forceReducedMotion: reduced, sampleTime: sample, pokeable: true
             )
             .frame(height: 220).accessibilityIdentifier("motion-stage")
           }
-          Text("\(shape.rawValue) · \(mode.rawValue)").monospaced().accessibilityIdentifier(
+          Text(gallery ? mode.rawValue : "\(shape.rawValue) · \(mode.rawValue)").monospaced().accessibilityIdentifier(
             "motion-state")
-          HStack {
+          LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
             ForEach(RobotAvatarMode.allCases, id: \.self) { value in
-              Button(value.rawValue) { mode = value }.buttonStyle(.bordered)
+              Button(value.rawValue) { mode = value }.buttonStyle(.bordered).font(.caption)
+                .lineLimit(1).minimumScaleFactor(0.6)
                 .accessibilityIdentifier("state-\(value.rawValue)")
             }
           }
@@ -71,10 +73,22 @@
       }.background(NativePalette.background)
         .task(id: running) {
           guard running else { return }
-          for next in [RobotAvatarMode.idle, .thinking, .idle, .thinking, .still, .idle] {
+          // One turn through every state, in the order a real run shows them.
+          let tour: [(RobotAvatarMode, Double)] = [
+            (.idle, 6), (.spawning, 2), (.thinking, 2.4), (.searching, 2.2), (.connecting, 2.3),
+            (.writing, 2.5), (.sending, 2.2), (.generating, 2.9), (.working, 2.2), (.typing, 1.9),
+            (.done, 6.4), (.waiting, 2.5), (.failed, 3.4), (.sleeping, 3.6), (.waking, 3), (.idle, 1),
+          ]
+          for (next, seconds) in tour {
             guard !Task.isCancelled else { return }
             mode = next
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(seconds))
+          }
+          // Then the taps: a spin, a bounce and a nod, and five quick ones for dizzy.
+          for pause in [1.2, 1.2, 1.2, 0.2, 0.2, 0.2, 0.2, 0.2, 2.6] {
+            guard !Task.isCancelled else { return }
+            RobotLife.shared.demoPoke()
+            try? await Task.sleep(for: .seconds(pause))
           }
           running = false
         }
@@ -85,6 +99,7 @@
           if let i = args.firstIndex(of: "--robot-shape"), i + 1 < args.count {
             shape = .init(icon: args[i + 1])
           }
+          if args.contains("--robot-tour") { running = true }
         }
     }
   }

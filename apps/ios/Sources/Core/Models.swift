@@ -248,10 +248,23 @@ public struct MessageContext: Decodable, Sendable {
   public var hasMoreAfter: Bool
   public var revision: String
 }
+/// One step of a run, as the server reports it for the open conversation.
+public struct RunItem: Codable, Identifiable, Sendable, Equatable {
+  public var id: String
+  public var runId: String
+  public var kind: String
+  public var status: String
+  public var title: String?
+  public var content: JSON
+  public var createdAt: String
+  public var updatedAt: String
+}
+
 public struct ChannelState: Decodable, Sendable {
   public var channelId: String
   public var revision: String
   public var runs: [Run]
+  public var runItems: [RunItem]?
   public var subagents: [SubagentActivity]?
 }
 public struct SubagentActivity: Codable, Identifiable, Sendable {

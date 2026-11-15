@@ -5,6 +5,8 @@ struct GroupChannelAvatar: View {
   let channel: Channel
   let size: CGFloat
   let style: GroupAvatarLayout.Style
+  /// Whether the members show what they are doing, or sit still.
+  var isLive = false
   @State private var photos: [String: UIImage] = [:]
   private var members: [Channel.Member] { channel.members }
   private var revision: String {
@@ -84,14 +86,10 @@ struct GroupChannelAvatar: View {
       }
     } else {
       let mode: RobotAvatarMode =
-        store.activeChannel == channel.id
-        ? (store.activeRuns(channel.id).contains {
-          $0.botId == id && ["running", "queued"].contains($0.status)
-        }
-          ? .thinking : .idle) : .still
+        isLive ? store.avatarMode(botId: id, channelId: channel.id) : .still
       BotGlyph(
         color: Color(hex: bot?.color ?? "7C5CFC"), kind: bot?.icon ?? "chip", size: edge,
-        mode: mode, cutout: cutout)
+        mode: mode, cutout: cutout, seed: id)
     }
   }
   private func counterText(_ layout: GroupAvatarLayout, outline: CGFloat = 0) -> some View {

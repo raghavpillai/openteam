@@ -116,7 +116,11 @@ struct ChannelAvatar: View {
   var groupStyle: GroupAvatarLayout.Style = .cluster
   var showsActivity = true
   var animatesWhenInactive = false
+  /// A still picture of the Bot, whatever it is doing.
+  var isPortrait = false
   var showsInboxActivity = false
+  /// The colour behind the avatar, which the activity badge cuts its outline from.
+  var badgeRing: Color = NativePalette.background
   @State private var photo: UIImage?
   var body: some View {
     let bot = store.bot(for: channel)
@@ -125,11 +129,11 @@ struct ChannelAvatar: View {
       run.channelId == channel.id || (run.channelId == nil && (run.botId == bot?.id || channel.members.contains { $0.botId == run.botId }))
     }
     func motion(_ botID: String?) -> RobotAvatarMode {
-      guard showsActivity, store.activeChannel == channel.id || animatesWhenInactive, let botID,
+      guard showsActivity, !isPortrait, store.activeChannel == channel.id || animatesWhenInactive,
+        let botID,
         channel.members.contains(where: { $0.botId == botID })
       else { return .still }
-      return runs.contains { $0.botId == botID && ["running", "queued"].contains($0.status) }
-        ? .thinking : .idle
+      return store.avatarMode(botId: botID, channelId: channel.id)
     }
     return Group {
       if let photo {
@@ -137,11 +141,14 @@ struct ChannelAvatar: View {
           Circle())
           .accessibilityIdentifier("channel-photo-" + channel.id)
       } else if channel.isGroup {
-        GroupChannelAvatar(channel: channel, size: size, style: groupStyle)
+        GroupChannelAvatar(
+          channel: channel, size: size, style: groupStyle,
+          isLive: showsActivity && !isPortrait
+            && (store.activeChannel == channel.id || animatesWhenInactive))
       } else {
         BotGlyph(
           color: Color(hex: bot?.color ?? "7C5CFC"), kind: bot?.icon ?? "chip", size: size,
-          mode: motion(bot?.id))
+          mode: motion(bot?.id), seed: bot?.id)
           .scaleEffect(artworkScale)
       }
     }.overlay(alignment: .bottomTrailing) {
@@ -158,7 +165,7 @@ struct ChannelAvatar: View {
                   .foregroundStyle(.white)
               }
             }
-            .background(NativePalette.background, in: Circle().inset(by: -2))
+            .background(badgeRing, in: Circle().inset(by: -2))
             .offset(x: 2, y: 2)
             .accessibilityLabel(activity == .needsAnswer ? "Waiting for your answer" : "Working")
             .accessibilityIdentifier("channel-activity-" + channel.id)

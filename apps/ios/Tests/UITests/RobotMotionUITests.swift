@@ -143,7 +143,7 @@ import UIKit
     let ready = expectation(
       for: NSPredicate(format: "label == 'Ready'"),
       evaluatedWith: app.staticTexts["motion-tour-status"])
-    await fulfillment(of: [ready], timeout: 18)
+    await fulfillment(of: [ready], timeout: 80)
     capture("tour-complete", app)
   }
   func testReducedMotionAndBackgrounding() async throws {

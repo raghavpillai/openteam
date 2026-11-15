@@ -142,7 +142,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Question card redesign (option tiles with checkbox/radio controls, inline custom
 // answer, Skip/Send footer, receipts), with its motion in a lazy module. The draft cards'
 // send-off brought the same-base build to 1,341,722 B; with the question work: 1,349,562 B.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_350_500);
+// Live bot avatars on that base (motion specs, expressions and
+// activity states for every avatar on screen; gaze and pokes stay lazy): 1,389,111.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_393_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -213,7 +215,8 @@ atMost("startup CSS bytes", startupCssBytes, 222_000);
 // Includes generation-fenced photo loading and ScreenBot ownership; no new dependency.
 // With the draft send-off flight and the question card redesign and its lazy motion module:
 // 17,918,336 B / 4,488,047 gzip.
-atMost("renderer bytes", result.renderer.bytes, 17_920_000);
+// Live bot avatars on that base: 17,968,276 B / 4,502,509 gzip.
+atMost("renderer bytes", result.renderer.bytes, 17_972_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -244,7 +247,7 @@ atMost("renderer bytes", result.renderer.bytes, 17_920_000);
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
 // Continuous voice-bar exit/reversal animations bring the v0.0.19 build to 4,490,661 B.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_492_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_506_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -280,7 +283,8 @@ if (result.renderer.violations.wasm.length > 0) {
 // Measured shell/initial: 19,493 / 54,628 B; microphone stays below its unchanged
 // 12 KB limit. Adjust only measured feature closures; retain all boundary audits.
 const lazyBudgets: Record<string, number> = {
-  workspace: 800_000,
+  // Live bot avatars measure 834,003 B.
+  workspace: 838_000,
   largeCode: 600_000,
   // Sign-in recovery (Start again, session-mismatch guidance) and plugin setup
   // secrets for Bot processes bring the measured October closure to 51,380 bytes.
@@ -322,6 +326,10 @@ const lazyBudgets: Record<string, number> = {
   avatarPicker: 20_000,
   // The main window's half of ScreenBots: Bot list and durable delivery for the overlay.
   screenBotBridge: 3_500,
+  // Bot avatar life: spring-driven pointer gaze, click reactions, idle fidgets, neighbours glancing
+  // over, shyness and dozing, loaded on the first hover or press or once the app is idle:
+  // measured 12,204 B.
+  avatarGaze: 12_500,
   // Settings › Keyboard: the screenbot trigger and the app's rebindable shortcuts, each with a
   // recorder, Change and Reset.
   keyboardSettings: 17_000,

@@ -161,7 +161,7 @@ struct LaunchRobotView: View {
         Ellipse()
           .fill(colorScheme == .dark ? robotColor.opacity(0.16) : Color.black.opacity(0.16))
           .frame(width: 76, height: 12).blur(radius: 8).offset(y: 65)
-        BotGlyph(color: robotColor, kind: "chip", size: 120, mode: .thinking)
+        BotGlyph(color: robotColor, kind: "chip", size: 120, mode: .working)
       }.frame(width: 160, height: 170)
     }
     .ignoresSafeArea()

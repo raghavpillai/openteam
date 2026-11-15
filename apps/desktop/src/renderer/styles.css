@@ -1929,9 +1929,9 @@ textarea,
 .bot-library-error { padding: 12px; font-size: 13px; color: var(--foreground-secondary); }
 .bot-computer-preview { background: linear-gradient(135deg, #eeeeef, #d9dadd); }
 :root[data-theme="dark"] .bot-computer-preview { background: linear-gradient(135deg, #38393b, #27282a); }
-.bot-computer-placeholder { position: relative; filter: grayscale(1); opacity: .55; transform: rotate(-10deg); }
-.bot-computer-sleep { position: absolute; left: 20px; top: -6px; font-size: 7px; line-height: 9px; transform: rotate(10deg); }
-.bot-computer-sleep > span { position: absolute; left: 5px; top: -6px; font-size: 9px; }
+.bot-computer-placeholder { position: relative; }
+@media (prefers-reduced-motion: no-preference) { .bot-computer-placeholder { transition: filter 600ms ease, opacity 600ms ease; } }
+.bot-computer-placeholder[data-asleep] { filter: grayscale(1); opacity: .6; }
 
 
 :root[data-theme] .message-bubble .bot-markdown a,

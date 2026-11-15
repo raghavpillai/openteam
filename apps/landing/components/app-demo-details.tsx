@@ -42,7 +42,7 @@ export function ComputerDemo() {
               shape="helmet"
               color="#ff7a1a"
               size={16}
-              mode={ready ? "idle" : "thinking"}
+              mode={ready ? "idle" : "working"}
             />
             <strong>Research</strong>
             <span className="dc-live-status">{ready ? "Needs your input" : "Working…"}</span>

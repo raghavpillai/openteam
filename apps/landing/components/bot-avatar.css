@@ -6,10 +6,10 @@
   animation-name: ot-bot-glance;
   animation-delay: calc(-1 * var(--robot-delay));
 }
-.landing .robot-avatar[data-avatar-ambient][data-avatar-mode="thinking"] .robot-avatar-body {
+.landing .robot-avatar[data-avatar-ambient][data-avatar-mode="working"] .robot-avatar-body {
   animation: ot-bot-ponder 2.8s ease-in-out infinite;
 }
-.landing .robot-avatar[data-avatar-ambient][data-avatar-mode="thinking"] [data-p="eyes"] {
+.landing .robot-avatar[data-avatar-ambient][data-avatar-mode="working"] [data-p="eyes"] {
   animation-delay: calc(-1 * var(--robot-delay));
 }
 .landing .robot-avatar[data-avatar-expression="talking"] [data-p="mouth"],

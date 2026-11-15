@@ -1,3 +1,4 @@
+import type { BotAvatarMode } from "@openteam/contracts/robot-avatar";
 import { ButtonPrimitive } from "../ui/button-primitive";
 import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../lib/window-visibility";
 import {
@@ -310,6 +311,16 @@ export function BotScreen({
     setScreen(null);
     void refreshStatus();
   };
+  // The placeholder robot follows the computer: asleep while it is off, a start while it
+  // comes up, a slump when it needs attention, and awake once it is ready.
+  const computerMode: BotAvatarMode =
+    error || bot.status === "failed" || screen?.state === "failed"
+      ? "failed"
+      : bot.status === "provisioning" || screen?.state === "starting" || (enabled && screen?.state !== "ready")
+        ? "waking"
+        : enabled
+          ? "idle"
+          : "sleeping";
   const statusLabel = error
     ? "Unavailable"
     : bot.status === "failed" || screen?.state === "failed"
@@ -346,11 +357,8 @@ export function BotScreen({
                 src={frameSource}
               />
             ) : (
-              <span className="bot-computer-placeholder">
-                <BotAvatar bot={bot} size="md" mode="still" />
-                <span className="bot-computer-sleep">
-                  z<span>z</span>
-                </span>
+              <span className="bot-computer-placeholder" data-asleep={computerMode === "sleeping" || undefined}>
+                <BotAvatar bot={bot} size="md" mode={computerMode} gaze="off" pokeable={false} lasting />
               </span>
             )}
           </span>

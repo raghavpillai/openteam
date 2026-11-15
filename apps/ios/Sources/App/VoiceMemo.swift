@@ -79,6 +79,8 @@ final class VoiceMemoController: ObservableObject {
   private var settleTask: Task<Void, Never>?
   private var flashTask: Task<Void, Never>?
   private var transcription: Task<Void, Never>?
+  /// Ends the background time that lets a sent note finish after the user switches apps.
+  private var endBackgroundTime: (@MainActor () -> Void)?
   /// Identifies the press (or hands-free start) that asked for the microphone.
   private var recordingSession = UUID()
   private var audioObservers = Set<AnyCancellable>()
@@ -346,7 +348,12 @@ final class VoiceMemoController: ObservableObject {
     NativeHaptics.voiceSend(source: "composer.voice-send")
     processingStart = Date()
     transcription?.cancel()
+    endBackgroundTime?()
+    // Switching apps right after sending must not leave the note waiting until the user is back.
+    let end = BackgroundTime.begin("Transcribe voice note")
+    endBackgroundTime = end
     transcription = Task { [weak self] in
+      defer { end() }
       guard let self, let transcribe else { return }
       do {
         let text = try await transcribe(url)
@@ -370,6 +377,8 @@ final class VoiceMemoController: ObservableObject {
     guard phase == .transcribing else { return }
     transcription?.cancel()
     transcription = nil
+    endBackgroundTime?()
+    endBackgroundTime = nil
     NativeHaptics.play(.light, source: "composer.voice-cancel-transcription")
     transition {
       recorder.cancel()
@@ -414,6 +423,8 @@ final class VoiceMemoController: ObservableObject {
     recordingSession = UUID()
     for task in [holdTask, startTask, hintTask, settleTask, flashTask, transcription] { task?.cancel() }
     transcription = nil
+    endBackgroundTime?()
+    endBackgroundTime = nil
     recorder.cancel()
     touchStart = nil
     touchPhase = .idle

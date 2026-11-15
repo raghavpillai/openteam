@@ -266,6 +266,55 @@ final class VoiceLifecycleTests: XCTestCase {
     XCTAssertFalse(VoiceMemoSessions.controller(for: key) === memo)
   }
 
+  func testSentNoteKeepsTheAppRunningUntilItIsHandedToTheOutbox() async throws {
+    let ledger = BackgroundTimeLedger(), memo = memo(), gate = TranscriptGate()
+    defer { ledger.restore(); memo.tearDown() }
+    var delivered: [String] = []
+    memo.transcribe = { _ in try await gate.wait() }
+    memo.deliver = { delivered.append($0) }
+    try await start(memo)
+    XCTAssertTrue(ledger.names.isEmpty, "Recording alone asks for no background time")
+    memo.send()
+    try await waitUntil { gate.waiting }
+    XCTAssertEqual(ledger.open.count, 1, "Transcribing keeps the app running after switching apps")
+    gate.finish(.failure(APIError("Transcription is unavailable.")))
+    try await waitUntil { memo.phase == .review }
+    XCTAssertTrue(ledger.open.isEmpty, "A failed note waits for the user without holding the app open")
+    memo.send()
+    try await waitUntil { gate.waiting }
+    XCTAssertEqual(ledger.open.count, 1, "Retrying asks again")
+    gate.finish(.success("Sent from the background"))
+    try await waitUntil { memo.phase == .idle }
+    XCTAssertEqual(delivered, ["Sent from the background"])
+    XCTAssertTrue(ledger.open.isEmpty)
+    XCTAssertEqual(ledger.names.count, 2)
+  }
+
+  func testCancellingOrSigningOutEndsBackgroundTimeAtOnce() async throws {
+    let ledger = BackgroundTimeLedger()
+    defer { ledger.restore(); VoiceMemoSessions.reset() }
+    // The transcription request hasn't returned yet in either case.
+    let cancelled = memo(), cancelledGate = TranscriptGate()
+    cancelled.transcribe = { _ in try await cancelledGate.wait() }
+    try await start(cancelled)
+    cancelled.send()
+    try await waitUntil { cancelledGate.waiting }
+    cancelled.cancelTranscription()
+    XCTAssertTrue(ledger.open.isEmpty)
+    cancelledGate.finish(.success(nil))
+
+    let left = memo(), leftGate = TranscriptGate(), key = "leave-" + UUID().uuidString
+    left.transcribe = { _ in try await leftGate.wait() }
+    try await start(left)
+    left.send()
+    try await waitUntil { leftGate.waiting }
+    VoiceMemoSessions.leave(left, key: key)
+    XCTAssertEqual(ledger.open.count, 1, "A note left transcribing in another chat keeps going")
+    VoiceMemoSessions.reset()
+    XCTAssertTrue(ledger.open.isEmpty, "Sign-out stops waiting for notes from the previous account")
+    leftGate.finish(.success(nil))
+  }
+
   func testTeardownIgnoresLatePermissionDenial() async throws {
     let gate = PermissionGate()
     let recorder = VoiceRecorder(permission: { await gate.request() })

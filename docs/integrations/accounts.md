@@ -14,6 +14,7 @@ Each plugin signs in to its service in one of a few ways. This page explains wha
 | Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides | Your own Google OAuth app. See [Google](google.md). |
 | Slack (managed) | Your own Slack app. See [Slack](slack.md). Needs an HTTPS server address. |
 | Slack (stealth) | The browser token (`xoxc-`) and session cookie (`xoxd-`) from your signed-in Slack session. See the [stealth setup guide](../../packages/plugins/slack-stealth/README.md). |
+| WhatsApp | Scan a QR code with WhatsApp on your phone. No setup fields or API key. See [WhatsApp](#whatsapp). |
 | Email | The mailbox's email address and an app password. See [Email](email.md). |
 | 1Password | A read-only 1Password service account token, entered when you add the plugin |
 | Plaid | Your own Plaid client ID and secret. Ask a bot to set up Plaid; it asks for them and then sends a link for signing in to your bank. Real banks need Plaid production access. |
@@ -32,6 +33,14 @@ Granola uses whichever workspace is active in the Granola app. To work with a di
 ## GitHub
 
 Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens) in GitHub. Give it access to only the repositories and permissions you want bots to use. Paste it into the plugin's setup form and choose **Save token and connect**.
+
+## WhatsApp
+
+Add **WhatsApp** in **Marketplace** and choose **Connect**. Open WhatsApp on your phone, go to Settings → Linked devices → Link a device, and scan the live QR code in OpenTeam. Keep WhatsApp open until linking and the initial history sync finish. Setup works from desktop or iPhone; the connector runs on your bot computer.
+
+Use the live account-settings view when scanning: a QR copied into chat can expire. Codes rotate automatically. If you need a fresh session, choose **Get new code**. Already linked accounts reconnect after a restart without a new QR. If WhatsApp reports a linking restriction, cancel and wait before trying again.
+
+This links a personal account as a device; it does not create an incoming OpenTeam chat channel or routine trigger. See the [WhatsApp guide](../../packages/plugins/whatsapp/README.md) for history limits and disconnect or removal behavior.
 
 ## 1Password
 

@@ -243,7 +243,8 @@ atMost("renderer bytes", result.renderer.bytes, 17_920_000);
 // With the dictate gestures and microphone indication: 4,166,041.
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_489_500);
+// Continuous voice-bar exit/reversal animations bring the v0.0.19 build to 4,490,661 B.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_492_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -341,7 +342,8 @@ const lazyBudgets: Record<string, number> = {
   // Suspending the shared AudioContext when the last bar unmounts, and the level callback
   // screenbot dictation uses: 64,520.
   // The dimmed, pulsing timer while the microphone opens: 64,801.
-  voiceMemo: 64_900,
+  // v0.0.19 continuous exit/reversal and droplet motion: measured 67,330 B, still lazy.
+  voiceMemo: 67_700,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and

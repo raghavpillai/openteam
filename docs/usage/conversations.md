@@ -8,7 +8,15 @@ Send the task along with the files, links, and decisions the bot needs. Say wher
 
 > Read the attached proposal, list any missing requirements, and draft questions for the vendor. Keep everything in this chat; don't contact them.
 
-When a bot asks a question or needs information, it waits for your answer in the conversation.
+When a bot asks a question, you can answer in its card or reply in the conversation.
+
+## Answer a question
+
+For a single-choice question, select an option to send it. If several answers are allowed, select them and choose **Send answer**. You can type a custom answer inside the card, or choose **Skip** to close it without an answer.
+
+Sending a normal message, attachment, or reply closes the outstanding question in that conversation or thread. The card shows **Continued in chat**; your message can answer the question or change the subject. Only an answer sent from the card is recorded as a card answer. A newer question replaces the previous one and shows **Replaced** on the old card.
+
+Answered cards keep their answers when you reopen the chat. Skipped and replaced cards stay closed too. Closing a question does not approve a draft or grant permission for an action.
 
 ## Reply, attach, and search
 

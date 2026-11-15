@@ -114,9 +114,9 @@ const voiceLayer = (mode: string) =>
 const shortcut = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
 const key = (key: string, type = "keydown", modifiers = {}) =>
   editorElement().dispatchEvent(
-    new KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...modifiers })
+    new KeyboardEvent(type, { key, code: key === "d" ? "KeyD" : key, bubbles: true, cancelable: true, ...modifiers })
   );
-// Keyboard dictation: the shortcut starts hands-free and stops into the draft.
+// Keyboard dictation: two quick presses start hands-free, and the next stops into the draft.
 const dictate = async () => {
   const editor = editorElement();
   if (document.activeElement !== editor) {
@@ -131,6 +131,10 @@ const dictate = async () => {
   // A tap: key-up follows at once, so slow test timers can't turn it into a hold.
   key("d", "keydown", shortcut);
   key("d", "keyup", shortcut);
+  await pause(40);
+  key("d", "keydown", shortcut);
+  key("d", "keyup", shortcut);
+  await waitFor(() => Boolean(voiceLayer("recording")), "double press did not start dictation");
   await pause(600);
   key("d", "keydown", shortcut);
   key("d", "keyup", shortcut);
@@ -327,8 +331,11 @@ async function run() {
   editor.focus();
   key("d", "keydown", shortcut);
   key("d", "keyup", shortcut);
+  await pause(40);
+  key("d", "keydown", shortcut);
+  key("d", "keyup", shortcut);
+  await waitFor(() => Boolean(voiceLayer("recording")), "Double press did not keep recording");
   await pause(550);
-  assert(Boolean(voiceLayer("recording")), "Tap shortcut did not keep recording");
   const beforeStop = transcripts.length;
   upload = async () => ({ text: "Send this voice memo." });
   key("Enter");
@@ -353,7 +360,7 @@ async function run() {
   await pause(700);
   button("Send message")!.click();
   await pause();
-  reports.push("shortcut tap/hold, Enter to review, and Escape cancellation");
+  reports.push("shortcut double-press/hold, Enter to review, and Escape cancellation");
 
   upload = async () => {
     throw new Error("Voice send failed");
@@ -430,8 +437,7 @@ async function run() {
       resolveBarPermission = resolve;
     });
   button("Record voice note")!.click();
-  await pause();
-  assert(Boolean(voiceLayer("recording")), "The bar did not show while the microphone opened");
+  await waitFor(() => Boolean(voiceLayer("recording")), "The bar did not show while the microphone opened");
   button("Discard voice note")!.click();
   await pause();
   const beforeBarPermission = stoppedTracks;
@@ -568,7 +574,8 @@ async function run() {
   root.render(<ServerSettings />);
   await pause();
   assert(
-    !document.querySelector('input, [role="combobox"]') &&
+    // Server settings legitimately contains network controls; only transcription belongs elsewhere.
+    !document.querySelector('[aria-label^="Transcription "]') &&
       !textButton("Save transcription") &&
       !textButton("Test connection") &&
       !textButton("Apply"),

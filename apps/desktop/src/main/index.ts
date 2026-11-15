@@ -870,6 +870,17 @@ ipcMain.handle("openteam:microphone:open-settings", async (event) => {
   }
 });
 
+ipcMain.handle("openteam:location:open-settings", async (event) => {
+  requireMicrophoneWindow(event);
+  if (process.platform === "darwin") {
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices");
+  } else if (process.platform === "win32") {
+    await shell.openExternal("ms-settings:privacy-location");
+  } else {
+    throw new Error("Open your system's location settings to manage access.");
+  }
+});
+
 const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !computerSettings) {
     throw new Error("Computer settings are unavailable");

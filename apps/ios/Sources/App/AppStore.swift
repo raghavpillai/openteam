@@ -1739,9 +1739,12 @@ final class AppStore {
           try commit(next)
           submitting = true
           let targetBot = bot(for: channel)
+          var located = committed.input
+          located.location = await LocationSharing.shared.locationForSend()
+          let input = located
           let message = try await sendOperation(id: pending.id, epoch: epoch, budget: budget) {
             try await api.send(
-              channel: channel, bot: targetBot, input: committed.input,
+              channel: channel, bot: targetBot, input: input,
               timeout: budget.overallRemaining())
           }
           submitting = false
@@ -1975,6 +1978,10 @@ final class AppStore {
     }
   }
   /// Reads and native form writes share account-generation and session-expiry handling.
+  /// Forgets the shared location when Location is turned off on this iPhone.
+  func clearUserLocation() async {
+    _ = try? await request("/api/v0/location", method: "DELETE")
+  }
   func request(
     _ path: String, method: String = "GET", body: JSON? = nil, query: [String: String] = [:],
     timeout: TimeInterval? = nil

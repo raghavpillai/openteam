@@ -44,6 +44,8 @@
 	<string>OpenTeam saves a photo to your library when you choose Save in the photo viewer.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>OpenTeam connects to the self-hosted server you choose on your local network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>When Share location is on in OpenTeam Settings, each message you send includes this iPhone’s location so your bots can answer questions about what is near you.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>OpenTeam records voice notes and sends them to your server for transcription when you choose the microphone.</string>
 	<key>NSUserActivityTypes</key>

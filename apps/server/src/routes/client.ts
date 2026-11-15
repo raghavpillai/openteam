@@ -55,6 +55,9 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
     const input = await parseBody(request, UpdateNotificationPreferencesInput);
     return json(await run(app.notifications.updatePreferences(input.smartEnabled)));
   }
+  if (path === "/api/location" && request.method === "DELETE") {
+    return json(await app.clearUserLocation());
+  }
   if (path === "/api/time-zone" && request.method === "GET") {
     return json(await app.userTimeZone(), 200, { "cache-control": "no-store" });
   }

@@ -1,4 +1,5 @@
 import type { ServerUpdateView } from "@openteam/contracts";
+import type { DeviceLocation } from "@openteam/contracts/user-location";
 import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
 import type { BrowserNetworkView, NetworkSettingsUpdate, NetworkEgress, NetworkQuality } from "@openteam/contracts/browser-network";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
@@ -90,6 +91,8 @@ export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
   sourceMachineId?: () => string | undefined;
+  /** The device's location while Share location is on in the app's settings; undefined while it is off. */
+  location?: () => DeviceLocation | undefined | Promise<DeviceLocation | undefined>;
   /** Use long polling where fetch does not expose an incrementally readable SSE body. */
   eventTransport?: "stream" | "long-poll";
 }
@@ -111,6 +114,14 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
   const transport = createJsonTransport(options);
   const createId = options.createId ?? fallbackId;
   const timeZone = options.timeZone ?? fallbackTimeZone;
+  /** A location that cannot be read never holds up or fails a send. */
+  const deviceLocation = async () => {
+    try {
+      return await options.location?.();
+    } catch {
+      return undefined;
+    }
+  };
 
   function uploadAsset(input: UploadAssetInput): Promise<AssetRef>;
   function uploadAsset(input: Blob, fileName?: string, mimeType?: string): Promise<AssetRef>;
@@ -597,7 +608,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/channels/${encodeURIComponent(channelId)}`,
         { method: "DELETE" }
       ),
-    sendDirectMessage: (
+    sendDirectMessage: async (
       conversationId: string,
       content: string,
       attachments: readonly AssetRef[] = [],
@@ -605,6 +616,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       messageOptions?: SendMessageOptions
     ) => {
       const sourceMachineId = options.sourceMachineId?.();
+      const location = await deviceLocation();
       const input: SendMessageInput = {
         content,
         ...(sourceMachineId ? { sourceMachineId } : {}),
@@ -614,6 +626,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         ...(messageOptions?.isFork !== undefined ? { isFork: messageOptions.isFork } : {}),
         clientId: messageOptions?.clientId ?? createId(),
         timeZone: timeZone(),
+        ...(location ? { location } : {}),
       };
       return transport.request<{ message: ChannelMessageView }>(
         `/api/v0/conversations/${encodeURIComponent(conversationId)}/messages`,
@@ -623,7 +636,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         }
       );
     },
-    sendChannelMessage: (
+    sendChannelMessage: async (
       channelId: string,
       content: string,
       attachments: readonly AssetRef[] = [],
@@ -631,6 +644,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       messageOptions?: SendMessageOptions
     ) => {
       const sourceMachineId = options.sourceMachineId?.();
+      const location = await deviceLocation();
       const input: SendMessageInput = {
         content,
         ...(sourceMachineId ? { sourceMachineId } : {}),
@@ -640,6 +654,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         ...(messageOptions?.isFork !== undefined ? { isFork: messageOptions.isFork } : {}),
         clientId: messageOptions?.clientId ?? createId(),
         timeZone: timeZone(),
+        ...(location ? { location } : {}),
       };
       return transport.request<{ message: ChannelMessageView }>(
         `/api/v0/channels/${encodeURIComponent(channelId)}/messages`,
@@ -733,6 +748,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     /** Reports the zone this device detects, or sets/clears (null) the Settings override. */
     updateUserTimeZone: (input: UpdateUserTimeZoneInput) =>
       transport.request<UserTimeZoneView>("/api/v0/time-zone", { method: "PATCH", body: JSON.stringify(input) }),
+    /** Forgets the stored location; a device calls it when Location is turned off there. */
+    clearUserLocation: () => transport.request<{ cleared: true }>("/api/v0/location", { method: "DELETE" }),
     notificationPreferences: () => transport.request<NotificationRouting>("/api/v0/notification-preferences"),
     updateNotificationPreferences: (smartEnabled: boolean) => transport.request<NotificationRouting>("/api/v0/notification-preferences", { method: "PATCH", body: JSON.stringify({ smartEnabled }) }),
     updateNotificationPresence: (input: NotificationPresenceInput) => transport.request<NotificationRouting>("/api/v0/notification-presence", { method: "POST", body: JSON.stringify(input) }),

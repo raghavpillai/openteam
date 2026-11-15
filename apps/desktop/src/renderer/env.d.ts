@@ -132,6 +132,9 @@ interface Window {
       onClientProgress: (listener: (status: OpenTeamUpdateStatus) => void) => () => void;
 
     };
+    location?: {
+      openSettings: () => Promise<void>;
+    };
     microphone: {
       status: () => Promise<{
         permission: "not-determined" | "granted" | "denied" | "restricted" | "unknown";

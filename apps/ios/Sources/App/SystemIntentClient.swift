@@ -174,8 +174,9 @@ struct SystemIntentClient {
     }
     let assets = try await upload(files)
     try validateSession()
-    let message = try await api.send(channel: target.channel, bot: target.bot,
-      input: SendInput(content: text, attachments: assets))
+    var input = SendInput(content: text, attachments: assets)
+    input.location = await LocationSharing.shared.locationForSend()
+    let message = try await api.send(channel: target.channel, bot: target.bot, input: input)
     try validateSession()
     return message
   }

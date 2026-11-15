@@ -162,6 +162,19 @@ final class ProtocolTests: XCTestCase {
     try store.clear()
     XCTAssertNil(try store.load().bootstrap)
   }
+  func testSendCarriesLocationOnlyWhenShared() throws {
+    var input = SendInput(content: "Coffee near me?", clientId: "nonce-location")
+    let unshared = try JSONDecoder().decode(JSON.self, from: JSONEncoder().encode(input))
+    XCTAssertEqual(unshared["location"], .null)
+    input.location = DeviceLocation(
+      latitude: 47.6097, longitude: -122.3331, accuracyMeters: 5,
+      capturedAt: Date(timeIntervalSince1970: 1_794_000_000))
+    let shared = try JSONDecoder().decode(JSON.self, from: JSONEncoder().encode(input))
+    XCTAssertEqual(shared["location"]["latitude"], .number(47.6097))
+    XCTAssertEqual(shared["location"]["accuracyMeters"], .number(5))
+    XCTAssertEqual(shared["location"]["device"].string, "phone")
+    XCTAssertEqual(shared["location"]["capturedAt"].string, "2026-11-06T21:20:00Z")
+  }
   func testUnknownMetadataRoundTripsWithoutInventedValues() throws {
     let json = try JSONDecoder().decode(
       JSON.self,

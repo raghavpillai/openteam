@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { strict as assert } from "node:assert";
 import type { ChannelNotificationView } from "@openteam/contracts/notification-content";
 import {
   type DesktopNotificationEvent,
@@ -84,7 +85,12 @@ const channel = (
 };
 
 const harness = (
-  options: { focused?: () => boolean; supported?: () => boolean; honorCancellation?: boolean } = {}
+  options: {
+    focused?: () => boolean;
+    supported?: () => boolean;
+    honorCancellation?: boolean;
+    observeDelivery?: (event: DesktopNotificationEvent) => void;
+  } = {}
 ) => {
   let now = 10_000;
   const timers = new Map<object, { at: number; callback: () => void }>();
@@ -108,7 +114,10 @@ const harness = (
     {
       isFocused: options.focused ?? (() => false),
       isSupported: options.supported ?? (() => true),
-      deliver: (event) => delivered.push(event),
+      deliver: (event) => {
+        delivered.push(event);
+        options.observeDelivery?.(event);
+      },
       dismiss: (id) => dismissed.push(id),
       setBadge: (label) => badges.push(label),
     },
@@ -130,6 +139,7 @@ const harness = (
     advance,
     flush: () => advance(NOTIFICATION_DELIVERY_DELAY_MS),
     pendingTimers: () => timers.size,
+    now: () => now,
   };
 };
 
@@ -190,6 +200,155 @@ describe("DesktopNotificationManager", () => {
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     flush();
     expect(ids()).toEqual(["chat:2"]);
+  });
+
+  test("a focused native sync consumes earlier pending banners even before renderer focus arrives", () => {
+    let focused = false;
+    const { manager, ids, flush, advance } = harness({ focused: () => focused });
+    manager.sync({ channels: [channel([])] });
+    manager.sync({ channels: [channel([alert(1)])] });
+    advance(100);
+    focused = true;
+    manager.sync({ channels: [channel([alert(1), alert(2)])] });
+    focused = false;
+    flush();
+    expect(ids()).toEqual([]);
+  });
+
+  test("focus and read changes on either side of the delivery deadline have deterministic outcomes", () => {
+    for (const delay of [0, 1, 100, 149, 250, 299, 300, 301, 650]) {
+      for (const change of ["focus", "local-read", "remote-read", "clear"] as const) {
+        let focused = false;
+        const { manager, ids, dismissed, advance } = harness({ focused: () => focused });
+        manager.sync({ channels: [channel([])] });
+        manager.sync({ channels: [channel([alert(1)])] });
+        advance(delay);
+        if (change === "focus") {
+          focused = true;
+          manager.setVisibleChannel("chat");
+        } else if (change === "local-read") {
+          manager.markRead({
+            channelId: "chat",
+            lastReadSequence: "10",
+            lastReadNotificationSequence: "1",
+          });
+        } else if (change === "remote-read") {
+          manager.sync({ channels: [channel([alert(1)], { lastReadSequence: "10" })] });
+        } else {
+          manager.clear();
+        }
+        advance(1_000);
+        expect(ids()).toHaveLength(delay < NOTIFICATION_DELIVERY_DELAY_MS ? 0 : 1);
+        expect(dismissed).toHaveLength(
+          change !== "focus" && delay >= NOTIFICATION_DELIVERY_DELAY_MS ? 1 : 0
+        );
+        manager.clear();
+      }
+    }
+  });
+
+  test("40,000 seeded message/read/focus/reconnect operations preserve delivery invariants", () => {
+    let observedDeliveries = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+      let randomState = seed;
+      const random = (limit: number) => {
+        randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+        return randomState % limit;
+      };
+      let focused = false;
+      let revision = 0;
+      const states = ["a", "b", "c", "d"].map((id) => ({ id, sequence: 0, local: 0, remote: 0 }));
+      const lastDelivered = new Map<string, number>();
+      const deliveredIds = new Set<string>();
+      const h = harness({
+        focused: () => focused,
+        observeDelivery: (event) => {
+          observedDeliveries++;
+          const state = states.find((value) => value.id === event.channelId)!;
+          assert(!focused, `seed ${seed}: delivered into focused window`);
+          assert(
+            Number(event.messageSequence) > Math.max(state.local, state.remote) * 10,
+            `seed ${seed}: delivered a viewed/read message`
+          );
+          assert(!deliveredIds.has(event.notificationId), `seed ${seed}: replayed a notification`);
+          const previous = lastDelivered.get(event.channelId);
+          assert(
+            previous === undefined || h.now() - previous >= 5_000,
+            `seed ${seed}: delivered inside conversation throttle`
+          );
+          lastDelivered.set(event.channelId, h.now());
+          deliveredIds.add(event.notificationId);
+        },
+      });
+      let prior: DesktopNotificationSnapshot | undefined;
+      const publish = () => {
+        const snapshot = {
+          cursor: String(++revision),
+          channels: states.map((state) =>
+            channel(
+              Array.from({ length: Math.min(state.sequence, 20) }, (_, index) =>
+                alert(state.sequence - index, { channelId: state.id })
+              ),
+              { channelId: state.id, lastReadSequence: String(state.remote * 10) }
+            )
+          ),
+        };
+        h.manager.sync(snapshot);
+        prior = snapshot;
+      };
+      publish();
+      for (let step = 0; step < 200; step++) {
+        const state = states[random(states.length)]!;
+        switch (random(9)) {
+          case 0:
+          case 1:
+            state.sequence++;
+            publish();
+            break;
+          case 2:
+            state.local = Math.max(state.local, random(state.sequence + 1));
+            h.manager.markRead({
+              channelId: state.id,
+              lastReadSequence: String(state.local * 10),
+              lastReadNotificationSequence: "0",
+            });
+            break;
+          case 3:
+            state.remote = Math.max(state.remote, random(state.sequence + 1));
+            publish();
+            break;
+          case 4:
+            focused = !focused;
+            publish();
+            break;
+          case 5:
+            focused = true;
+            h.manager.setVisibleChannel(state.id);
+            focused = false;
+            h.manager.setVisibleChannel(null);
+            break;
+          case 6:
+            h.manager.clear();
+            states.forEach((value) => {
+              value.local = 0;
+            });
+            lastDelivered.clear();
+            deliveredIds.clear();
+            publish();
+            break;
+          case 7:
+            if (prior) h.manager.sync({ ...prior, cursor: String(Math.max(0, revision - 1)) });
+            break;
+          case 8:
+            h.advance(random(6_001));
+            break;
+        }
+      }
+      h.advance(6_000);
+      h.manager.clear();
+      expect(h.pendingTimers()).toBe(0);
+    }
+    expect(observedDeliveries).toBeGreaterThan(100);
   });
 
   test("a read on another device cancels a banner before it appears", () => {

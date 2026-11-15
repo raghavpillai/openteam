@@ -275,7 +275,10 @@ export class DesktopNotificationManager {
       if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(channelId);
     }
     // While the window has focus, replies show in the app instead of as banners.
-    if (!this.adapter.isFocused() && this.adapter.isSupported()) {
+    if (this.adapter.isFocused()) {
+      // Native focus can overtake the renderer's separate visible-channel IPC.
+      for (const channelId of this.pendingActivity.keys()) this.cancelPending(channelId);
+    } else if (this.adapter.isSupported()) {
       for (const [channelId, { notification }] of pending) {
         if (this.lastAlertAt.has(channelId)) continue;
         const existing = this.pendingActivity.get(channelId);

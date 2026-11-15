@@ -65,8 +65,10 @@ final class AppStore {
   var draftPressFailures: [String: String] = [:]
   var navigation: [String] = [] {
     didSet {
+      ChatOpenTrace.mark("navigation", navigation.joined(separator: ","))
       navigationGeneration = UUID()
       openingNotification = nil
+      if navigation.last != fetchedOpening { fetchedOpening = nil }
       botVoiceLaunch.cancelPending(unless: navigation.last)
     }
   }
@@ -74,7 +76,37 @@ final class AppStore {
   var focusedMessage: String?
   var focusedNotification: String?
   private(set) var openingNotification: UUID?
-  var activeChannel: String?
+  var activeChannel: String? {
+    didSet {
+      // The chat's first read after it opens brings what it missed, not arrivals.
+      // An opening that fetched its own page has it already.
+      guard let activeChannel, activeChannel != oldValue else { return }
+      if fetchedOpening == activeChannel { fetchedOpening = nil } else { catchUpPending.insert(activeChannel) }
+    }
+  }
+  /// The newest sequence each chat received by catching up: opening it, returning
+  /// to the app, reconnecting or loading a page. A later message arrived while
+  /// the chat was open and connected, in front of the reader.
+  private var caughtUpThrough: [String: String] = [:]
+  /// Open chats whose next latest-page read is still a catch-up.
+  @ObservationIgnored private var catchUpPending: Set<String> = []
+  /// The chat being opened on a page fetched for this opening that reaches its
+  /// newest message. It has caught up, so replies after it appears are arrivals.
+  @ObservationIgnored private var fetchedOpening: String?
+  private func show(_ id: String, fetched: Bool) {
+    fetchedOpening = fetched && activeChannel != id && historyWindows[id]?.hasLater != true ? id : nil
+    navigation = [id]
+  }
+  func arrivedLive(_ message: Message) -> Bool {
+    guard let caughtUp = caughtUpThrough[message.channelId] else { return false }
+    return MessageMerge.less(caughtUp, message.sequence)
+  }
+  private func noteCaughtUp(_ id: String) {
+    catchUpPending.remove(id)
+    guard let newest = messages(id).last?.sequence else { return }
+    if let known = caughtUpThrough[id], !MessageMerge.less(known, newest) { return }
+    caughtUpThrough[id] = newest
+  }
   var histories: [String: History] = [:]
   private(set) var historyLoadFailures: Set<String> = []
   var historyWindows: [String: HistoryWindow] = [:]
@@ -522,6 +554,9 @@ final class AppStore {
     historyLoadFailures.removeAll()
     historyWindows = [:]
     historyOpenings = [:]
+    caughtUpThrough = [:]
+    catchUpPending = []
+    fetchedOpening = nil
     if let systemScope, systemScope != scope {
       systemDraft = nil
       pendingSystemItem = nil
@@ -824,7 +859,10 @@ final class AppStore {
     #endif
   }
   func setForeground(_ active: Bool) {
+    ChatOpenTrace.mark("foreground", String(active))
     foreground = active
+    // Replies that came while the app was away are read next; nobody saw them arrive.
+    if active, let activeChannel { catchUpPending.insert(activeChannel) }
     #if canImport(UIKit)
       NativeNotifications.shared.setForeground(active)
     #endif
@@ -907,7 +945,9 @@ final class AppStore {
               }
             }
             if let activeChannel {
-              try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch)
+              // Events on a connection that stayed up are replies arriving now.
+              try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch,
+                live: reconnectSync == nil && !batch.events.isEmpty)
             }
             syncBackgroundHistories(epoch: epoch)
             cursor = bootstrap.cursor
@@ -1020,7 +1060,8 @@ final class AppStore {
       }
     }
   }
-  private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID) async throws {
+  private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID,
+    live: Bool = false) async throws {
     // Poll reconciliation also comes here. A search context already has its
     // own contiguous page; only explicit pagination should extend that window.
     guard before != nil || historyWindows[id]?.hasLater != true else { return }
@@ -1029,6 +1070,8 @@ final class AppStore {
     var query = ["limit": "60"]
     if let before { query["before"] = before }
     let page: History
+    ChatOpenTrace.mark("history-request", id + (before == nil ? "" : " older"))
+    defer { ChatOpenTrace.mark("history-done", id + " last=" + (messages(id).last?.id ?? "")) }
     do {
       page = try await reactionMutations.read {
         try await api.get(
@@ -1069,6 +1112,7 @@ final class AppStore {
       // a disconnected latest page. Polling may still update rows in that window.
       merge(page.threadContext + page.messages, channel: id)
     }
+    if before == nil, !live || catchUpPending.contains(id) { noteCaughtUp(id) }
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {
@@ -1094,6 +1138,7 @@ final class AppStore {
     historyWindows[page.channelId] = HistoryWindow(
       messages: page.messages, hasEarlier: page.hasMore, hasLater: false)
     state.messages[page.channelId] = questionAwareMerge(page.threadContext, page.messages, channel: page.channelId)
+    noteCaughtUp(page.channelId)
   }
   @discardableResult
   func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
@@ -1131,6 +1176,7 @@ final class AppStore {
       histories[channelID] = History(
         channelId: channelID, messages: [], threadContext: [], beforeSequence: page.beforeSequence,
         hasMore: page.hasMoreBefore, revision: page.revision)
+      noteCaughtUp(channelID)
       persist()
       return true
     } catch {
@@ -1162,6 +1208,7 @@ final class AppStore {
       confirmDelivery(page.threadContext + page.messages)
       state.messages[channelID] = questionAwareMerge(messages(channelID), page.threadContext + page.messages, channel: channelID)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
+      noteCaughtUp(channelID)
       persist()
     } catch {
       if epoch == generation, !Task.isCancelled, historyWindows[channelID]?.id == windowID,
@@ -1875,7 +1922,7 @@ final class AppStore {
     }
     guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
-    navigation = [channelID]
+    show(channelID, fetched: messageID != nil)
   }
   /// A notification opens its message even when this chat is already showing
   /// an older search window. Cached visible messages need no network round trip.
@@ -1938,7 +1985,8 @@ final class AppStore {
     }
     focusedNotification = target?.id
     focusedMessage = target?.id
-    navigation = [channelID]
+    // A cached target fetched nothing; that transcript's first read is still a catch-up.
+    show(channelID, fetched: !cachedVisible)
   }
   func deepLink(_ url: URL) async {
     let parts = url.pathComponents.filter { $0 != "/" }

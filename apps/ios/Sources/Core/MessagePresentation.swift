@@ -30,8 +30,12 @@ public struct MessagePresentation {
   public private(set) var arrivalRevision = 0
   public init() {}
 
+  /// `isArrival` tells a reply that arrived in front of the reader from one the
+  /// transcript received by catching up (opening the chat, returning to the app,
+  /// reconnecting). Only the former animates in; the latter is simply there.
   public mutating func project(
-    _ timeline: MessageTimeline, pending: [PendingSend], animateNew: Bool
+    _ timeline: MessageTimeline, pending: [PendingSend], animateNew: Bool,
+    isArrival: (Message) -> Bool = { _ in true }
   ) -> [Row] {
     var result: [Row] = []
     let previousLatest = latestSequence
@@ -45,7 +49,8 @@ public struct MessagePresentation {
         message.clientId.map { "client:\(message.channelId):\($0)" }
         ?? "server:\(message.channelId):\(message.id)"
       if animateNew, !known.contains(id),
-        previousLatest == nil || MessageMerge.less(previousLatest!, message.sequence)
+        previousLatest == nil || MessageMerge.less(previousLatest!, message.sequence),
+        isArrival(message)
       {
         arrivals.insert(id)
         addedArrival = true

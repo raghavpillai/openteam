@@ -3341,11 +3341,15 @@ export class AgentDataStore {
 
   private async inferMemory(
     request: Omit<MemoryInferenceRequest, "timeoutMs">,
+    isCurrent: () => Promise<boolean>,
     deadlineAt = Date.now() + MEMORY_INFERENCE_DEADLINE_MS
   ): Promise<string | null> {
     if (!this.memoryInference) return null;
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      request.signal?.throwIfAborted();
+      // A correction during backoff invalidates the prompt as well as its result.
+      if (!await isCurrent()) return null;
       request.signal?.throwIfAborted();
       const remaining = deadlineAt - Date.now();
       if (remaining <= 0) break;
@@ -3388,7 +3392,7 @@ export class AgentDataStore {
         input.earlier,
         renderTurnMemoryDate(new Date(input.occurredAt), input.timeZone)
       ),
-    });
+    }, async () => (await this.currentMemoryRevision(this.prisma, botId)) === observed);
     input.signal.throwIfAborted();
     if (!response) return true;
     const extraction = parseExtractedMemories(response, existing);

@@ -266,7 +266,13 @@ import XCTest
     let frame = marker.frame
     try await Task.sleep(for: .seconds(5))
     XCTAssertEqual(marker.frame.minY, frame.minY, accuracy: 1)
-    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "rich-markdown").firstMatch.exists)
+    // Every document on screen has fallen back. One in a row above the screen
+    // that was never shown is still waiting: it cannot render outside a window,
+    // and the list no longer scrolls to such rows when a test reads them.
+    let viewport = app.tables["chat-history"].frame
+    let shown = app.descendants(matching: .any).matching(identifier: "rich-markdown")
+      .allElementsBoundByIndex.filter { $0.frame.intersects(viewport) }
+    XCTAssertTrue(shown.isEmpty)
   }
   func testDocumentInterruptedByBackgroundRendersOnReturn() async throws {
     continueAfterFailure = false

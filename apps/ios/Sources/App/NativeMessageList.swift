@@ -574,6 +574,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       CATransaction.commit()
     }
     if let start, positioned, !following, !scrollingToTarget { preserveVisibleRows(from: start) }
+    absorbMeasurementAbove()
     prefetchNearbyRows()
     let previousBottom = max(-table.adjustedContentInset.top,
       lastContent.height - lastBounds.height + table.adjustedContentInset.bottom)
@@ -739,12 +740,35 @@ struct NativeMessageList: UIViewControllerRepresentable {
   /// Corrections UIKit makes between passes are already reflected here.
   private func captureLayoutStart() {
     layoutStart = nil
+    absorbMeasurementAbove()
     guard positioned, !updating, !positioning, !following, !scrollingToTarget, !layoutRows.isEmpty else { return }
     var rows: [String: CGRect] = [:]
     for id in layoutRows.keys {
       if let path = source.indexPath(for: id) { rows[id] = table.rectForRow(at: path) }
     }
     layoutStart = (table.contentOffset.y, rows)
+  }
+  /// While the list follows the latest message, rows above the screen keep their
+  /// estimated heights until something builds them; assistive technologies and UI
+  /// tests that read the whole transcript build every row. Their real heights
+  /// move everything on screen without changing any of it. Absorb that at once:
+  /// the latest message stays where it is, instead of leaving the screen and
+  /// being glided back to through everything measured above it.
+  private func absorbMeasurementAbove() {
+    guard positioned, following, !updating, !positioning, footerDisplayLink == nil,
+      !table.isDragging, !table.isDecelerating,
+      let top = layoutRows.min(by: { $0.value.minY < $1.value.minY }),
+      let path = source.indexPath(for: top.key) else { return }
+    let shift = table.rectForRow(at: path).minY - top.value.minY
+    guard abs(shift) > 0.5 else { return }
+    positioning = true
+    table.contentOffset = CGPoint(x: table.contentOffset.x, y: table.contentOffset.y + shift)
+    positioning = false
+    // What remains is a change on screen or below it, followed as before.
+    lastContent.height += shift
+    for id in Array(layoutRows.keys) {
+      if let path = source.indexPath(for: id) { layoutRows[id] = table.rectForRow(at: path) }
+    }
   }
   /// UIKit's layout pass applies hosting-cell size changes (WebKit documents,
   /// cards, media) by growing the row downward, and sometimes corrects an

@@ -647,17 +647,20 @@
 }
 
 .place-map-attribution {
+  /* Fine print in the bottom-right corner, where map credits conventionally sit:
+     below the place cards inline, beside the zoom buttons in full screen. */
   position: absolute;
-  left: 10px;
-  top: 8px;
-  max-width: calc(100% - 70px);
+  right: 14px;
+  bottom: 2px;
+  max-width: calc(100% - 28px);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  z-index: 2;
+  z-index: 7;
   color: var(--place-muted);
-  font-size: 8px;
-  line-height: 10px;
+  font-size: 6px;
+  line-height: 8px;
+  opacity: 0.8;
   /* Plain text with a halo in the map's ground colour, so it reads over any tile. */
   text-shadow:
     0 0 2px var(--place-map),
@@ -668,10 +671,8 @@
   color: inherit;
 }
 .place-fullscreen-map .place-map-attribution {
-  top: auto;
-  bottom: 8px;
-  left: auto;
-  right: 60px;
+  bottom: 6px;
+  right: 16px;
 }
 
 /* Contained place preview */

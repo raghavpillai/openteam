@@ -114,6 +114,7 @@ test("a PDF is snapshotted before approval and its reviewed bytes are sent exact
       },
     ]);
     expect(f.card().metadata.cardState).toBe("sent");
+    expect(f.card().metadata.outcomeText).toContain("delivery is unconfirmed");
     expect(f.card().metadata.outcomeText).toContain(`report.pdf (${original.length} bytes)`);
     await Effect.runPromise(f.service.mutate("card", { action: "send" }));
     expect(f.calls).toHaveLength(1);

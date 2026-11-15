@@ -52,7 +52,7 @@ for (const destination of [{ to: "+15555550100" }, { chatId: "any;+;chat123" }])
           ]);
         }
         return "submitted";
-      });
+      }, undefined, join(root, "outbox"));
       expect(
         await messages.execute("SendIMessage", { ...destination, text, attachments })
       ).toMatchObject({
@@ -64,7 +64,13 @@ for (const destination of [{ to: "+15555550100" }, { chatId: "any;+;chat123" }])
         })),
       });
       expect(paths).toHaveLength(2);
-      for (const path of paths) expect(await stat(path).catch(() => null)).toBeNull();
+      // Messages may first read the file after the AppleScript reply. A new host
+      // instance (or an app restart) must not invalidate that queued attachment.
+      for (const [index, path] of paths.entries()) {
+        expect(await readFile(path)).toEqual(Buffer.from(attachments[index]!.bytesBase64, "base64"));
+        expect(path.startsWith(join(root, "outbox"))).toBe(true);
+      }
+      expect((await stat(join(root, "outbox"))).mode & 0o777).toBe(0o700);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -74,14 +80,16 @@ for (const destination of [{ to: "+15555550100" }, { chatId: "any;+;chat123" }])
 test("attachment-only sends retain durable receipts and detect changed bytes", async () => {
   const root = await mkdtemp(join(tmpdir(), "messages-receipt-test-"));
   let calls = 0;
+  let staged = "";
   const host = new HostCapabilities(
     new MacMessages(async (command, args) => {
       if (command.endsWith("sqlite3")) return "[]";
       calls++;
+      staged = args[6]!;
       expect(args[2]).toBe("");
       expect(await readFile(args[6]!)).toEqual(Buffer.from(file().bytesBase64, "base64"));
       return "submitted";
-    }),
+    }, undefined, join(root, "outbox")),
     undefined,
     "darwin",
     new NativeActionReceipts(join(root, "receipts.json"))
@@ -96,6 +104,12 @@ test("attachment-only sends retain durable receipts and detect changed bytes", a
     const first = await host.handle(request);
     expect(await host.handle(request)).toEqual(first);
     expect(calls).toBe(1);
+    const restarted = new HostCapabilities(
+      new MacMessages(async () => { throw new Error("must not resubmit after restart"); }, undefined, join(root, "outbox")),
+      undefined, "darwin", new NativeActionReceipts(join(root, "receipts.json"))
+    );
+    expect(await restarted.handle(request)).toEqual(first);
+    expect(await readFile(staged)).toEqual(Buffer.from(file().bytesBase64, "base64"));
     await expect(
       host.handle({
         ...request,
@@ -119,7 +133,7 @@ for (const outcome of ["partial", "process failure", "automation_denied"]) {
         path = args[6]!;
         if (outcome === "process failure") throw new Error("interrupted");
         return outcome;
-      }),
+      }, undefined, join(root, "outbox")),
       undefined,
       "darwin",
       new NativeActionReceipts(join(root, "receipts.json"))
@@ -134,7 +148,8 @@ for (const outcome of ["partial", "process failure", "automation_denied"]) {
       await expect(host.handle(request)).rejects.toThrow(
         outcome === "automation_denied" ? "Automation for Messages" : "outcome is uncertain"
       );
-      expect(await stat(path).catch(() => null)).toBeNull();
+      if (outcome === "automation_denied") expect(await stat(path).catch(() => null)).toBeNull();
+      else expect(await readFile(path)).toEqual(Buffer.from(file().bytesBase64, "base64"));
       await expect(host.handle(request)).rejects.toThrow(
         outcome === "automation_denied" ? "Automation for Messages" : "outcome is uncertain"
       );
@@ -184,7 +199,7 @@ test("the authenticated HTTP bridge carries a full-size attachment while other r
       sends++;
       expect(await readFile(args[6]!)).toEqual(bytes);
       return "submitted";
-    }),
+    }, undefined, join(root, "outbox")),
     undefined,
     "darwin",
     new NativeActionReceipts(join(root, "receipts.json"))

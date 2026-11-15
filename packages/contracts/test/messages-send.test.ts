@@ -50,3 +50,15 @@ test("every Messages tool can name its Mac", () => {
   expect(parseReferenceArguments("ChatItems", { chatGuid: "any;-;+1555", machineId: "m-1" })).toEqual({ chatGuid: "any;-;+1555", machineId: "m-1" });
   expect(parseReferenceArguments("CheckIMessagePermissions", { machineId: "m-1" })).toEqual({ machineId: "m-1" });
 });
+
+test("Messages submission receipts never claim confirmed delivery", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  for (const verified of [true, false]) {
+    const text = renderControlResult("SendIMessage", {
+      sent: true, delivery: "sent", machine: "Mac", result: { verified },
+    }, { to: "+15555550100", attachmentPaths: ["/workspace/report.pdf"] });
+    expect(text).toContain("Submitted");
+    expect(text).toContain(verified ? "does not confirm delivery" : "Delivery is unconfirmed");
+    expect(text).toContain("Do not resend automatically");
+  }
+});

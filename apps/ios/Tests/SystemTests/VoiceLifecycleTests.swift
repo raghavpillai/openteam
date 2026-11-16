@@ -148,14 +148,46 @@ final class VoiceLifecycleTests: XCTestCase {
     XCTAssertTrue(VoiceMemoSessions.controller(for: key) === memo, "The kept take waits in its chat")
   }
 
+  func testSentNoteKeepsTheAppRunningUntilItIsHandedToTheOutbox() async throws {
+    let ledger = BackgroundTimeLedger(), memo = memo(), gate = TranscriptGate()
+    defer { ledger.restore(); memo.tearDown() }
+    var delivered: [String] = []
+    memo.transcribe = { _ in try await gate.wait() }
+    memo.deliver = { delivered.append($0) }
+    try await start(memo)
+    XCTAssertTrue(ledger.names.isEmpty, "Recording alone asks for no background time")
+    memo.send()
+    try await waitUntil { gate.waiting }
+    XCTAssertEqual(ledger.open.count, 1, "Transcribing keeps the app running after switching apps")
+    gate.finish(.failure(APIError("Transcription is unavailable.")))
+    try await waitUntil { memo.phase == .review }
+    XCTAssertTrue(ledger.open.isEmpty, "A failed note waits for the user without holding the app open")
+    memo.send()
+    try await waitUntil { gate.waiting }
+    XCTAssertEqual(ledger.open.count, 1, "Retrying asks again")
+    memo.cancelTranscription()
+    XCTAssertTrue(ledger.open.isEmpty, "Cancelling ends background time at once")
+    gate.finish(.success(nil))
+    try await start(memo)
+    memo.send()
+    try await waitUntil { gate.waiting }
+    gate.finish(.success("Sent from the background"))
+    try await waitUntil { memo.phase == .idle }
+    XCTAssertEqual(delivered, ["Sent from the background"])
+    XCTAssertTrue(ledger.open.isEmpty)
+    XCTAssertEqual(ledger.names.count, 3)
+  }
+
   func testSignOutDropsNotesStillTranscribingElsewhere() async throws {
-    let memo = memo(), key = "leave-" + UUID().uuidString
-    defer { VoiceMemoSessions.reset(); memo.tearDown() }
+    let ledger = BackgroundTimeLedger(), memo = memo(), key = "leave-" + UUID().uuidString
+    defer { ledger.restore(); VoiceMemoSessions.reset(); memo.tearDown() }
     var deliveries = 0
     memo.deliver = { _ in deliveries += 1 }
     let gate = try await leaveWhileTranscribing(memo, key: key)
+    XCTAssertEqual(ledger.open.count, 1, "A note left transcribing in another chat keeps going")
     VoiceMemoSessions.reset()
     XCTAssertEqual(memo.phase, .idle)
+    XCTAssertTrue(ledger.open.isEmpty, "Sign-out stops waiting for notes from the previous account")
     gate.finish(.success("From the previous account"))
     try await Task.sleep(for: .milliseconds(50))
     XCTAssertEqual(deliveries, 0)

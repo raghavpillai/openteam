@@ -147,3 +147,13 @@ test('draft receipts report the stored outcome, never a new editable card or per
  const ended = renderControlResult('SendToUser', { sent: false, delivery_failed: true, retryable: false, reason: 'turn_not_active', note: 'Nothing was delivered. This turn has ended; do not retry its reply.' }, { type: 'text', content: 'Obsolete reply' });
  expect(ended).toContain('do not retry'); expect(ended).not.toContain('Tell the user'); expect(ended).not.toContain('undefined');
 });
+
+test('Messages submission receipts never claim confirmed delivery', async () => {
+ const { renderControlResult } = await import('../src/tool-results');
+ for (const verified of [true, false]) {
+  const text = renderControlResult('SendIMessage', { sent: true, delivery: 'sent', machine: 'Mac', result: { verified } }, { to: '+15555550100', attachmentPaths: ['/workspace/report.pdf'] });
+  expect(text).toContain('Submitted');
+  expect(text).toContain(verified ? 'does not confirm delivery' : 'Delivery is unconfirmed');
+  expect(text).toContain('Do not resend automatically');
+ }
+});

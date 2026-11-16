@@ -52,4 +52,36 @@ final class NativeSmokeTests: XCTestCase {
         .count, 1)
     capture("native-message-accepted", app)
   }
+  /// MapKit builds a pin's view outside the message row while the map grows to full
+  /// screen; a pin with a photo once crashed there for want of the app's store.
+  func testFullScreenMapWithPlacePhotosStaysOpen() async throws {
+    continueAfterFailure = false
+    try await fixture.post("/__qa/scene", ["scene": "bot-reply"])
+    let places: [[String: Any]] = [("qa-photo-a", 40.7420, -74.0103), ("qa-photo-b", 40.7480, -74.0048), ("qa-photo-c", 40.7538, -74.0022)]
+      .map { ["id": $0.0, "name": "Photo stop " + $0.0.suffix(1).uppercased(), "latitude": $0.1, "longitude": $0.2,
+              "imageUrl": "https://example.invalid/" + $0.0 + ".jpg"] }
+    let presentation: [String: Any] = ["version": 1, "places": places,
+      "blocks": [["type": "place_map", "placeIds": places.map { $0["id"]! }]]]
+    try await fixture.post("/__qa/update-message", ["id": "content-fixture", "content": "", "metadata": ["type": "presentation", "presentation": presentation]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", fixture.base, "--open-channel", "channel-research"]
+    app.launch()
+    let expand = app.buttons["expand-place-map"]
+    XCTAssertTrue(expand.waitForExistence(timeout: 15))
+    for _ in 0..<3 {
+      expand.tap()
+      XCTAssertTrue(app.buttons["close-place-map"].waitForExistence(timeout: 8), "The map opens full screen")
+      XCTAssertEqual(app.state, .runningForeground)
+      // The chat's own map is still underneath, so the pin exists twice: tap the one on top.
+      let pin = app.buttons.matching(identifier: "place-pin-qa-photo-b").allElementsBoundByIndex.first { $0.isHittable }
+      XCTAssertNotNil(pin, "The full-screen map shows the pin")
+      pin?.tap()
+      XCTAssertTrue(app.buttons["close-place-details"].waitForExistence(timeout: 5))
+      app.buttons["close-place-details"].tap()
+      app.buttons["close-place-map"].tap()
+      XCTAssertTrue(expand.waitForExistence(timeout: 8))
+    }
+    XCTAssertEqual(app.state, .runningForeground)
+    app.terminate()
+  }
 }

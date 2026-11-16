@@ -44,7 +44,7 @@ final class ActionFailureTests: SystemIntentFixture {
   }
 
   func testSendingKeepsTheAppRunningUntilTheOutboxIsDone() async throws {
-    let store = await connectedStore()
+    let store = try await connectedStore()
     let ledger = BackgroundTimeLedger()
     defer { ledger.restore() }
     await store.flush()

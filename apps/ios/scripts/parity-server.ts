@@ -42,7 +42,8 @@ function reset() {
 }
 reset();
 /** "history-pages": one read Bot chat (`visual-chat`) with 180 alternating messages, served 60 at a time.
- * "attachment": the Research chat holds one private image message. */
+ * "attachment": the Research chat holds one private image message.
+ * "bot-reply": the Research chat holds one empty bot reply for /__qa/update-message to fill. */
 function scene(name: string) {
   if (name === "history-pages") {
     const bot = { ...mobileFixture.bots[0]!, id: "bot-visual-chat", name: "New Bot", title: "New Bot", color: "#FF6600", icon: "chip", description: "", conversationId: "conversation-visual-chat", dmChannelId: "visual-chat" };
@@ -56,11 +57,11 @@ function scene(name: string) {
         sourceRunId: null, content: `Page message ${i}`, metadata: { type: "text" }, createdAt: new Date(start.getTime() + i * 1000).toISOString() } as any;
     });
     pagedHistory = true; sequence = 180;
-  } else if (name === "attachment") {
+  } else if (name === "attachment" || name === "bot-reply") {
     snapshot.runs = [];
     snapshot.channelMessages = snapshot.channelMessages.filter(m => m.channelId !== "channel-research");
     snapshot.channelMessages.push({ id: "content-fixture", sequence: "400", channelId: "channel-research", sender: "bot", senderBotId: "bot-research", sourceRunId: null, content: "", createdAt: "2026-09-16T12:00:00.000Z",
-      metadata: { attachments: [{ assetId: "private-fixture-image", fileName: "Fixture image.png", mimeType: "image/png", byteSize: 6000, kind: "image" }] } } as any);
+      metadata: name === "bot-reply" ? {} : { attachments: [{ assetId: "private-fixture-image", fileName: "Fixture image.png", mimeType: "image/png", byteSize: 6000, kind: "image" }] } } as any);
     sequence = 400;
   } else throw new Error(`Unknown scene: ${name}`);
 }

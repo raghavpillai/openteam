@@ -55,6 +55,8 @@ test("a PDF is snapshotted before approval and its reviewed bytes are sent exact
     await Effect.runPromise(f.service.mutate("card", { action: "send" }));
     expect(f.calls).toEqual([{ tool: MESSAGES_SEND_FILES_TOOL, botId: "bot", callId: "imessage-send:card",
       arguments: { text: "", to, attachments: [{ fileName: "report.pdf", bytesBase64: Buffer.from(original).toString("base64") }] } }]);
+    // Checked before toMatchObject: Bun 1.3 swaps asymmetric matchers into the received object.
+    expect(f.card().metadata.outcomeText).toContain("delivery is unconfirmed");
     expect(f.card().metadata).toMatchObject({ cardState: "sent", outcomeText: expect.stringContaining(`report.pdf (${original.length} bytes)`) });
     await Effect.runPromise(f.service.mutate("card", { action: "send" }));
     expect(f.calls).toHaveLength(1);

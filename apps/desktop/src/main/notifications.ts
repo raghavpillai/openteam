@@ -133,7 +133,7 @@ interface DesktopNotificationAdapter {
  * the whole room). Messages that land inside it are consumed, not replayed, so a
  * burst of replies produces a single banner.
  */
-export const NOTIFICATION_THROTTLE_MS = 5_000;
+const NOTIFICATION_THROTTLE_MS = 5_000;
 /** Let an arriving read receipt or window-focus transition settle before showing a banner. */
 export const NOTIFICATION_DELIVERY_DELAY_MS = 300;
 

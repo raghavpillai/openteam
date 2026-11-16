@@ -70,6 +70,19 @@ import XCTest
       XCTAssertTrue(alert.waitForExistence(timeout: 5), springboard.debugDescription)
       alert.tap()
       if app.wait(for: .runningForeground, timeout: 4) { return }
+      // Some Notification Center versions hint a swipe instead of opening on
+      // tap. Exercise the notification's real Open action, never app.activate(),
+      // so routing and cold-launch assertions still depend on the OS response.
+      let current = springboard.staticTexts[body]
+      if current.exists {
+        current.swipeRight()
+        if app.wait(for: .runningForeground, timeout: 2) { return }
+        let open = springboard.buttons["Open"].firstMatch
+        if open.waitForExistence(timeout: 2), open.isHittable {
+          open.tap()
+          if app.wait(for: .runningForeground, timeout: 4) { return }
+        }
+      }
       print("Notification Center is still visible; resolving its selected alert again")
     }
     XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)

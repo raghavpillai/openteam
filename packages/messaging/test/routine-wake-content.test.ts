@@ -46,6 +46,25 @@ describe("scheduled routine wake content", () => {
     })).not.toContain("Once February 31");
   });
 
+  test("chaos: a run that starts long after its slot gives the real time and the slot it missed", () => {
+    const late = scheduledRoutineWakeContent({
+      name: "Morning brief", folder: "morning-brief", schedule: "0 9 * * *",
+      scheduledFor: new Date("2026-11-15T17:00:00.000Z"),
+      firedAt: new Date("2026-11-16T00:25:00.000Z"),
+      timeZone: "America/Los_Angeles", prompt: "Send the brief.",
+    });
+    expect(late).toMatch(/fired 11\/15\/2026, 4:25:00\sPM PST\. It was due 11\/15\/2026, 9:00:00\sAM PST\.\n/);
+    // A run on time, or a few seconds behind, keeps the ordinary first line.
+    const onTime = scheduledRoutineWakeContent({
+      name: "Morning brief", folder: "morning-brief", schedule: "0 9 * * *",
+      scheduledFor: new Date("2026-11-15T17:00:00.000Z"),
+      firedAt: new Date("2026-11-15T17:00:02.000Z"),
+      timeZone: "America/Los_Angeles", prompt: "Send the brief.",
+    });
+    expect(onTime).not.toContain("It was due");
+    expect(onTime).toContain("fired 11/15/2026, 9:00:02");
+  });
+
   test("matches Bot's trusted manual-run framing", () => {
     expect(
       manualRoutineWakeContent({

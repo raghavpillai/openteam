@@ -29,28 +29,39 @@ export const subscribeLocationSharing = (listener: () => void): (() => void) => 
 };
 
 let latest: DeviceLocation | undefined;
+let generation = 0;
 let pending: Promise<DeviceLocation> | undefined;
 
 const toLocation = (position: GeolocationPosition): DeviceLocation => ({
   latitude: position.coords.latitude,
   longitude: position.coords.longitude,
-  ...(Number.isFinite(position.coords.accuracy) ? { accuracyMeters: position.coords.accuracy } : {}),
+  ...(Number.isFinite(position.coords.accuracy)
+    ? { accuracyMeters: position.coords.accuracy }
+    : {}),
   capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
   device: "computer",
 });
 
 /** Asks the system for a fix; the first call is what shows the OS permission prompt. */
 export const readPosition = (timeoutMs = 20_000): Promise<DeviceLocation> => {
-  pending ??= new Promise<DeviceLocation>((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error("Location is not available on this computer."));
+  if (pending) return pending;
+  const owner = generation;
+  const request = new Promise<DeviceLocation>((resolve, reject) => {
+    if (!navigator.geolocation)
+      return reject(new Error("Location is not available on this computer."));
     navigator.geolocation.getCurrentPosition(
-      (position) => resolve((latest = toLocation(position))),
+      (position) => {
+        const location = toLocation(position);
+        if (owner === generation) latest = location;
+        resolve(location);
+      },
       (error) => reject(error),
       { enableHighAccuracy: false, maximumAge: FRESH_MS, timeout: timeoutMs }
     );
   }).finally(() => {
-    pending = undefined;
+    if (pending === request) pending = undefined;
   });
+  pending = request;
   return pending;
 };
 
@@ -60,7 +71,11 @@ export const setLocationSharing = (enabled: boolean): void => {
   } catch {
     // Without storage the switch only lasts this session.
   }
-  if (!enabled) latest = undefined;
+  if (!enabled) {
+    generation++;
+    latest = undefined;
+    pending = undefined;
+  }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 };
 
@@ -68,15 +83,18 @@ export const setLocationSharing = (enabled: boolean): void => {
 export async function locationForSend(): Promise<DeviceLocation | undefined> {
   if (!readLocationSharing()) return undefined;
   if (latest && Date.now() - Date.parse(latest.capturedAt) < FRESH_MS) return latest;
+  const owner = generation;
   const fresh = readPosition().catch(() => undefined);
   const timedOut = new Promise<undefined>((resolve) => setTimeout(resolve, SEND_WAIT_MS));
-  return (await Promise.race([fresh, timedOut])) ?? latest;
+  const location = (await Promise.race([fresh, timedOut])) ?? latest;
+  return owner === generation && readLocationSharing() ? location : undefined;
 }
 
 /** Keeps the fix current while the app is in use, so sends rarely wait. */
 export function watchLocationWhileFocused(): () => void {
   const refresh = () => {
-    if (readLocationSharing() && document.visibilityState === "visible") void readPosition().catch(() => undefined);
+    if (readLocationSharing() && document.visibilityState === "visible")
+      void readPosition().catch(() => undefined);
   };
   refresh();
   window.addEventListener("focus", refresh);

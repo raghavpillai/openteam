@@ -41,7 +41,7 @@ With several schedules, the next run is the earliest occurrence across them; occ
 
 Routines use your time zone, whether you set the schedule in the app or a bot creates the routine. It follows your device unless you choose one in **Settings → General → Timezone** on desktop or **Settings → More preferences → Timezone** on iPhone and iPad.
 
-Routines run on the server, so the server must be on at the scheduled time. They don't need the app to be open, unless the routine works on your own computer.
+Routines need the server and bot computer online to run. They don't need the app to be open, unless the routine works on your own computer. A delayed run tells the bot the actual start time; if it starts at least five minutes late, it also identifies its scheduled time.
 
 ## Run a routine when an email arrives
 
@@ -50,5 +50,9 @@ Connect a mailbox with the [Email plugin](../integrations/email.md) and ask a bo
 On desktop, email routines don't appear in the **Routines** list, so ask the bot when you want to see, pause, or change one. On iPhone and iPad, they're listed with your other routines.
 
 ## When a routine fails
+
+If a routine run, handoff or follow-up check fails before it takes any action, OpenTeam retries after 30 seconds, 2 minutes and 5 minutes. A paused, deleted or stopped routine is not retried. Interrupted work recovered after a worker restart keeps the same run.
+
+Automatic retries stop once the run has recorded a command, file change, tool call or message. Check the conversation and run history before starting another run if an action may already have happened.
 
 Open its **Run history** (**Recent runs** on iPhone and iPad) to see which runs failed, then check the conversation for the bot's message about the problem. Common causes are a disconnected plugin account, an expired model sign-in, or missing information in the conversation. Fix the cause, then use **Test run** (**Run now**) to check. See [troubleshooting](../manage/troubleshooting.md).

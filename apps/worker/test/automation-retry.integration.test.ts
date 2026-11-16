@@ -12,9 +12,32 @@ type Internals = {
   boss: { send: (...args: unknown[]) => Promise<unknown> };
   claim(botId: string): Promise<Claimed | null>;
   fail(claimed: Claimed, error: unknown, interrupted?: boolean): Promise<void>;
+  settleCompletedWake(claimed: Claimed): Promise<void>;
+  projection: { apply(runId: string, conversationId: string, botId: string, event: { type: "turn.completed"; turnId: string; status: "completed" }): Promise<unknown> };
+  syncRoutineRunFile(botId: string, runId: string): Promise<void>;
 };
 
 const outage = () => new Error('500: {"message":"upstream exploded","type":"server_error"}');
+
+test.skipIf(!databaseUrl)("a buffered completion after Stop settles cancellation without retaining its lease", async () => {
+  const h = await harness("Stop before buffered completion");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.db.run.update({ where: { id: claimed.runId }, data: {
+      status: "cancelled", completedAt: new Date(), error: { code: "cancelled_by_user", message: "Stopped" },
+    } });
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("cancelled");
+    await h.internals.settleCompletedWake(claimed);
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("failed");
+    expect(await h.db.botRunLease.count({ where: { runId: claimed.runId } })).toBe(0);
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("cancelled");
+    expect((await h.db.routineExecution.findFirstOrThrow({ where: { routineId: h.routineId } })).status).toBe("cancelled");
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);
 
 const harness = async (name: string) => {
   const root = await mkdtemp(join(tmpdir(), "automation-retry-"));
@@ -136,3 +159,68 @@ test.skipIf(!databaseUrl)("chaos: a routine's handoff to the parent survives a f
     await h.cleanup();
   }
 }, 30000);
+
+for (const settled of [false, true]) {
+  test.skipIf(!databaseUrl)(`a former routine wake owner cannot fail a ${settled ? "completed" : "live"} reclaimed attempt`, async () => {
+    const h = await harness("Reclaimed owner fence");
+    try {
+      const former = (await h.internals.claim(h.botId))!;
+      await h.db.inboxEvent.update({ where: { id: former.inboxId }, data: { claimedAt: new Date(Date.now() - 180_000) } });
+      await h.db.botRunLease.updateMany({ where: { runId: former.runId }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+      const successor = await h.internals.claim(h.botId);
+      expect(successor?.runId).toBe(former.runId);
+      const successorLease = await h.db.botRunLease.findFirstOrThrow({ where: { runId: former.runId } });
+      if (settled) {
+        await h.db.run.update({ where: { id: former.runId }, data: { status: "completed", completedAt: new Date() } });
+        await h.db.inboxEvent.update({ where: { id: former.inboxId }, data: { status: "completed", completedAt: new Date() } });
+        await h.db.botRunLease.deleteMany({ where: { runId: former.runId } });
+      }
+      await h.internals.fail(former, outage());
+      expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: former.inboxId } })).status).toBe(settled ? "completed" : "processing");
+      expect((await h.db.run.findUniqueOrThrow({ where: { id: former.runId } })).status).toBe(settled ? "completed" : "running");
+      if (!settled) expect((await h.db.botRunLease.findFirstOrThrow({ where: { runId: former.runId } })).ownerId).toBe(successorLease.ownerId);
+      expect(h.sent.filter(([queue]) => queue === "bot-wake")).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  }, 30_000);
+}
+
+test.skipIf(!databaseUrl)("projected completion settles its inbox after a current-owner failure", async () => {
+  const h = await harness("Projected completion recovery");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    await h.internals.fail(claimed, new Error("settlement failed after completion projection"));
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("completed");
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("completed");
+    expect(await h.db.botRunLease.count({ where: { runId: claimed.runId } })).toBe(0);
+    expect((await h.db.routineExecution.findFirstOrThrow({ where: { runId: claimed.runId } })).status).toBe("completed");
+    expect(await h.db.event.count({ where: { topic: "run.interrupted", entityId: claimed.runId } })).toBe(0);
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);
+
+test.skipIf(!databaseUrl)("completed settlement retries its file reconciliation without reopening the run", async () => {
+  const h = await harness("Completed file recovery");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    await h.db.inboxEvent.update({ where: { id: claimed.inboxId }, data: { status: "completed", completedAt: new Date() } });
+    await h.db.botRunLease.deleteMany({ where: { runId: claimed.runId } });
+    let synced = 0;
+    h.internals.syncRoutineRunFile = async () => { synced++; };
+    await h.internals.fail(claimed, new Error("routine file sync failed after settlement"));
+    expect(synced).toBe(1);
+    const run = await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } });
+    expect(run.status).toBe("completed");
+    expect(run.memoryReviewPending).toBe(false);
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("completed");
+    expect(await h.db.event.count({ where: { topic: "inbox.completed", entityId: claimed.inboxId } })).toBe(0);
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);

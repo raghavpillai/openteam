@@ -1709,9 +1709,10 @@ textarea,
   animation-play-state: paused !important;
 }
 
-/* Dialog entrances and exits still finish: a paused exit would leave a closed dialog on
+/* Reply, unread-dot and dialog entrances and exits still finish: a paused exit would leave a closed dialog on
    screen (Radix waits for it), and a paused entrance would leave it invisible. */
-:root:is([data-window-hidden], [data-window-inactive]) :is(.dialog-overlay, .dialog-surface) {
+:root:is([data-window-hidden], [data-window-inactive]) :is(.dialog-overlay, .dialog-surface, .sidebar-status-reveal),
+:root:is([data-window-hidden], [data-window-inactive]) .message-row[data-enter="new"] > .message-row-content {
   animation-play-state: running !important;
 }
 

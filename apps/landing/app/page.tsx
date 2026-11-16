@@ -24,6 +24,7 @@ import "./features.css";
 import "./live-scenes.css";
 import "./polish.css";
 import "./mobile-polish.css";
+import "./app-refresh.css";
 import { WorkerProfiles } from "@/components/worker-showcase";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";

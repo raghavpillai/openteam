@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Brain, CalendarDays, Check, Compass, Sparkles } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
+import { ConversationPill } from "./app-ui";
 import { useDemoCycle } from "./use-demo-cycle";
 import "./worker-memory.css";
 
@@ -52,20 +53,23 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
       <div className="wm-studio">
         <div className="wm-conversation">
           <header className="wm-chat-header">
-            <BotAvatar shape="helmet" color="#ff7a1a" size={28} mode={playing && !saved ? "thinking" : "idle"} />
-            <strong>Chief of staff</strong>
+            <ConversationPill
+              avatar={<BotAvatar shape="helmet" color="#ff7a1a" size={24} mode={playing && !saved ? "thinking" : "idle"} />}
+              name="Chief of staff"
+            />
           </header>
           <div className="wm-exchange" key={conversationIndex}>
             <div className="wm-user-message" data-extracting={!saved && !recalling}>{conversation.message}</div>
             <div className="wm-worker-message">
-              <BotAvatar shape="helmet" color="#ff7a1a" size={22} mode={playing && !saved ? "thinking" : "idle"} />
               {saved ? (
                 <div className="wm-worker-answer" key={stage}>
                   {recalling && <span className="wm-recall-label"><Sparkles size={12} /> From your memory</span>}
-                  <p>{conversation.reply}</p>
+                  <p className="wm-worker-bubble">{conversation.reply}</p>
                 </div>
               ) : (
-                <span className="wm-typing" aria-label="Chief of staff is thinking"><i /><i /><i /></span>
+                <span className="wm-typing" aria-label="Chief of staff is thinking">
+                  <BotAvatar shape="helmet" color="#ff7a1a" size={24} mode={playing ? "thinking" : "idle"} />
+                </span>
               )}
             </div>
           </div>

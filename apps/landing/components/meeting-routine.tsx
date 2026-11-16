@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarClock, CalendarDays, Check, Clock3, FileText, Mail, Monitor } from "lucide-react";
+import { CalendarClock, CalendarDays, Check, Clock3, FileText, Mail } from "lucide-react";
+import { ConversationPill, FileCard } from "./app-ui";
 import type { ReactNode } from "react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
@@ -45,17 +46,17 @@ export function MeetingRoutine({ children }: { children?: ReactNode }) {
         aria-label="Chief of staff schedules and delivers a daily meeting brief"
       >
         <header className="mr-header">
-          <BotAvatar
-            shape="helmet"
-            color="#ff7a1a"
-            size={30}
-            mode={stage === 2 || stage === 3 ? "working" : "idle"}
+          <ConversationPill
+            avatar={
+              <BotAvatar
+                shape="helmet"
+                color="#ff7a1a"
+                size={24}
+                mode={stage === 2 || stage === 3 ? "working" : "idle"}
+              />
+            }
+            name="Chief of staff"
           />
-          <div>
-            <strong>Chief of staff</strong>
-            <span>Your workspace</span>
-          </div>
-          <Monitor size={18} aria-hidden="true" />
         </header>
 
         <div className="mr-schedule" data-scheduled={scheduled}>
@@ -85,16 +86,33 @@ export function MeetingRoutine({ children }: { children?: ReactNode }) {
                 Send me a brief of my meetings: who I’m meeting, what we last discussed, and what to
                 review.
               </div>
-              <div className="mr-question">
-                <p>When should I send your brief?</p>
-                <div className="mr-question-options" aria-label="Example scheduling choices">
-                  {["Weekdays at 8:00 AM", "Every day at 8:00 AM"].map((label, index) => (
-                    <div key={label} className="mr-option" data-selected={scheduled && index === 0}>
-                      <span className="mr-option-key">{index === 0 ? "A" : "B"}</span>
-                      <span>{label}</span>
-                      {scheduled && index === 0 && <Check size={15} />}
+              <div className="mr-question au-question">
+                <p className="au-question-prompt">When should I send your brief?</p>
+                <div className="au-question-options" aria-label="Example scheduling choices">
+                  {[
+                    ["Weekdays at 8:00 AM", "Before your first meeting"],
+                    ["Every day at 8:00 AM", "Including weekends"],
+                  ].map(([label, description], index) => (
+                    <div
+                      key={label}
+                      className="au-question-option"
+                      data-selected={scheduled && index === 0}
+                    >
+                      <span className="au-question-radio" aria-hidden="true" />
+                      <span className="au-question-text">
+                        <span>{label}</span>
+                        <small>{description}</small>
+                      </span>
+                      <kbd aria-hidden="true">{index === 0 ? "A" : "B"}</kbd>
                     </div>
                   ))}
+                </div>
+                <div className="au-question-footer" aria-hidden="true">
+                  <span>Or reply in chat</span>
+                  <span className="au-question-skip">Skip</span>
+                  <span className="au-question-send" data-ready={scheduled}>
+                    Send answer
+                  </span>
                 </div>
               </div>
               <div className="mr-confirmation" data-visible={scheduled} aria-hidden={!scheduled}>
@@ -117,9 +135,7 @@ export function MeetingRoutine({ children }: { children?: ReactNode }) {
                   </div>
                   <span>Reading your calendar and conversations</span>
                   <span className="mr-typing" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
+                    <BotAvatar shape="helmet" color="#ff7a1a" size={22} mode="thinking" />
                   </span>
                 </div>
               ) : (
@@ -164,14 +180,11 @@ export function MeetingRoutine({ children }: { children?: ReactNode }) {
                     )}
                   </article>
                   {complete && (
-                    <div className="mr-file">
-                      <FileText size={20} />
-                      <div>
-                        <strong>meeting-brief.md</strong>
-                        <span>Saved to your workspace</span>
-                      </div>
-                      <Check size={15} />
-                    </div>
+                    <FileCard
+                      className="mr-file"
+                      fileName="meeting-brief.md"
+                      detail="Saved to your workspace"
+                    />
                   )}
                 </div>
               )}

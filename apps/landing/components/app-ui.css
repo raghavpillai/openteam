@@ -1,0 +1,129 @@
+/* Current app chrome, values from apps/desktop/src/renderer/styles.css
+   (.desktop-conversation-pill, .message-bubble, file cards). */
+.au-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 36px;
+  padding: 0 14px 0 7px;
+  border: 0.5px solid #1414141a;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 12px -1px #1c1c1c14, 0 2px 4px -2px #1c1c1c0f;
+  color: #141414;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.au-pill strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.au-pill-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+.au-pill-chevron {
+  flex-shrink: 0;
+  margin-left: -2px;
+  color: #14141499;
+}
+.au-glyph {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.au-glyph-paper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 32px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px #1c1c1c1f, 0 2px 6px 0 #1c1c1c0f;
+}
+.au-glyph-ink {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+}
+.au-glyph-ink.has-stripe {
+  flex: 0 0 28px;
+}
+.au-glyph i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: #1c1c1c2e;
+}
+.au-glyph-grid {
+  display: flex;
+  gap: 2px;
+  height: 11px;
+}
+.au-glyph-grid > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.au-glyph-stripe {
+  display: block;
+  width: 32px;
+  height: 12px;
+}
+.au-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 354px;
+  max-width: 100%;
+  padding: 16px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px #1c1c1c14, 0 1px 4px 0 #1c1c1c12, 0 6px 12px 0 #1c1c1c09;
+  color: #1c1c1c;
+  text-align: left;
+}
+.au-file-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.au-file-text strong {
+  display: flex;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.au-file-text strong > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.au-file-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 18px;
+  color: #1c1c1cad;
+}

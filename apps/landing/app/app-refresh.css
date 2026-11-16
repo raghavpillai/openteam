@@ -1,0 +1,447 @@
+/* Current app UI for every chat preview on the home page. Loaded last so the
+   scene stylesheets keep their layout while the chat chrome matches the
+   shipped desktop and iPhone apps: a centered conversation pill, neutral
+   bubbles with a soft specular edge, the round composer controls and the
+   tile question card. Values come from apps/desktop/src/renderer/styles.css
+   and components/openteam/permission-cards.css. */
+
+.landing {
+  --app-user: #1c1c1c;
+  --app-user-specular: rgb(255 255 255 / 6%);
+  --app-assistant: rgb(28 28 28 / 6%);
+  --app-assistant-specular: rgb(255 255 255 / 16%);
+  --app-outline: rgb(28 28 28 / 6%);
+  --app-secondary: #14141499;
+}
+
+/* Conversation pill */
+.landing.ot-home .au-pill strong {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #141414;
+}
+.landing.ot-home :is(.dc-chat-header, .mr-header, .wm-chat-header, .ac-chat-header, .twd-header) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  height: auto;
+  min-height: 58px;
+  padding: 11px 16px;
+  border-bottom: 0;
+  background: linear-gradient(#fcfcfc, #fcfcfc00);
+}
+.landing.ot-home :is(.dc-chat-header, .mr-header, .wm-chat-header, .ac-chat-header, .twd-header) {
+  padding: 11px 16px;
+}
+.landing.ot-home .twd-header .twd-group-avatar {
+  width: 24px;
+  height: 24px;
+}
+
+/* Bubbles */
+.landing.ot-home :is(.dc-user-bubble, .mr-user-bubble, .wm-user-message, .ac-request),
+.landing.ot-home .twd-live .twd-user .twd-bubble,
+.landing.ot-home .twd-user .twd-bubble {
+  border-radius: 18px;
+  background-color: var(--app-user);
+  background-image: linear-gradient(to bottom, var(--app-user-specular), transparent);
+  box-shadow: inset 0 0.5px 0 var(--app-user-specular);
+  color: #fff;
+  font-weight: 425;
+  letter-spacing: 0;
+}
+.landing.ot-home .dc-assistant-bubble,
+.landing.ot-home .twd-live .twd-message-content .twd-bubble,
+.landing.ot-home .twd-message-content .twd-bubble,
+.landing.ot-home .mr-reply-intro,
+.landing.ot-home .mr-confirmation {
+  border-radius: 18px;
+  background-color: var(--app-assistant);
+  background-image: linear-gradient(to bottom, var(--app-assistant-specular), transparent);
+  box-shadow:
+    inset 0 0.5px 0 var(--app-assistant-specular),
+    inset 0 -0.5px 0 var(--app-assistant-specular),
+    inset 0 0 0 0.5px var(--app-outline);
+  color: #1c1c1c;
+  font-weight: 425;
+  letter-spacing: 0;
+}
+
+/* Composer controls */
+.landing.ot-home :is(.dc-composer, .mr-composer, .twd-composer) {
+  border: 0.5px solid #14141426;
+  border-radius: 22px;
+  background: #fcfcfc;
+  box-shadow: 0 2px 8px -1px #0000000d, 0 1px 2px #00000008, 0 0 0 1px #e4e4e40a;
+  color: #b7b7b7;
+}
+.landing.ot-home :is(.dc-composer-mic, .mr-mic, .twd-mic) {
+  border-radius: 50%;
+  background: #77777717;
+  color: #1414149c;
+  box-shadow: inset 0 0 0 0.5px #1414141a;
+}
+.landing.ot-home :is(.dc-composer-plus, .mr-plus) {
+  border-radius: 50%;
+  background: #f0f0f0;
+  color: #696969;
+  box-shadow: inset 0 0 0 0.5px #1414141a;
+}
+
+/* Computer handoff card (rich-message.tsx) */
+.landing.ot-home .dc-handoff-card {
+  gap: 12px;
+  padding: 16px;
+  border-radius: 24px;
+  background: var(--app-assistant);
+  color: #1c1c1c;
+}
+.landing.ot-home .dc-handoff-actions > span {
+  height: 32px;
+  border-radius: 8px;
+  padding: 0 10px;
+}
+.landing.ot-home .dc-handoff-actions > span:last-child {
+  background: #141414;
+  color: #fff;
+}
+
+/* Question card (permission-cards.css) */
+.landing.ot-home .au-question {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 440px;
+  padding: 16px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--app-assistant);
+  color: #1c1c1c;
+  box-shadow: none;
+}
+.landing.ot-home .au-question .au-question-prompt {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 22px;
+  letter-spacing: -0.15px;
+  color: #1c1c1c;
+}
+.au-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.au-question-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #1c1c1c0d;
+  transition: background-color 220ms ease, border-color 220ms ease;
+}
+.au-question-option[data-selected="true"] {
+  border-color: #1c1c1c33;
+  background: #1c1c1c1c;
+}
+.au-question-radio {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid #1c1c1c4d;
+  border-radius: 999px;
+  transition: border-color 220ms ease;
+}
+.au-question-radio::after {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #1c1c1c;
+  content: "";
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 220ms ease, transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+[data-selected="true"] > .au-question-radio {
+  border-color: #1c1c1c;
+}
+[data-selected="true"] > .au-question-radio::after {
+  opacity: 1;
+  transform: none;
+}
+.au-question-text {
+  flex: 1;
+  min-width: 0;
+}
+.au-question-text > span {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 450;
+  line-height: 20px;
+  color: #1c1c1c;
+}
+.au-question-text > small {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  color: #1c1c1cad;
+}
+.au-question-option kbd {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid #1c1c1c1f;
+  border-radius: 6px;
+  color: #1c1c1cad;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0.75;
+}
+.au-question-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.au-question-footer > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: #1c1c1cad;
+  opacity: 0.8;
+}
+.au-question-skip,
+.au-question-send {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.au-question-skip {
+  color: #1c1c1cad;
+}
+.au-question-send {
+  background: #1c1c1c1c;
+  color: #1c1c1c66;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+.au-question-send[data-ready="true"] {
+  background: #1c1c1c;
+  color: #fff;
+}
+.landing.ot-home .mr-typing {
+  display: grid;
+  place-items: center;
+}
+.landing.ot-home .au-file.mr-file {
+  margin-top: 10px;
+}
+@media (max-width: 560px) {
+  .au-question-option kbd {
+    display: none;
+  }
+  .landing .au-question {
+    padding: 14px;
+  }
+}
+
+/* iPhone chat (native ConversationView): glass back and more buttons around a
+   centered name pill, 17pt bubbles, and a separate + beside the Ask field. */
+.landing.ot-home .dm-header {
+  position: relative;
+  justify-content: space-between;
+  height: 56px;
+  gap: 0;
+  padding: 0 16px;
+}
+.landing.ot-home .dm-circle {
+  width: 44px;
+  height: 44px;
+  background: #ffffffe6;
+  color: #111;
+  box-shadow:
+    0 4px 14px -4px #0000001f,
+    0 1px 2px #0000000a,
+    inset 0 0 0 0.5px #0000001a;
+}
+.landing.ot-home .dm-identity {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  min-height: 44px;
+  gap: 9px;
+  padding: 0 17px 0 12px;
+  border-radius: 999px;
+  background: #ffffffe6;
+  box-shadow:
+    0 4px 14px -4px #0000001f,
+    0 1px 2px #0000000a,
+    inset 0 0 0 0.5px #0000001a;
+  transform: translateX(-50%);
+}
+.landing.ot-home .dm-identity strong {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.landing.ot-home .dm-messages {
+  gap: 8px;
+  padding: 20px 16px 12px;
+}
+.landing.ot-home .dm-messages > time {
+  color: #c2c2c4;
+  font-size: 13px;
+}
+.landing.ot-home .dm-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 22px;
+  background-color: #f2f2f2;
+  background-image: linear-gradient(to bottom, #ffffff40, transparent);
+  color: #111;
+  font-size: 17px;
+  line-height: 23px;
+  letter-spacing: -0.2px;
+}
+.landing.ot-home .dm-bubble.dm-user {
+  background-color: #2b2b2b;
+  background-image: linear-gradient(to bottom, #ffffff12, transparent);
+  color: #fff;
+}
+.landing.ot-home .dm-file-card.au-file {
+  width: 100%;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: 18px;
+}
+.landing.ot-home .dm-composer-row {
+  height: 64px;
+  gap: 10px;
+  padding: 4px 16px;
+}
+.landing.ot-home .dm-composer-row > .dm-circle {
+  width: 48px;
+  height: 48px;
+}
+.landing.ot-home .dm-composer {
+  min-height: 48px;
+  padding: 0 6px 0 18px;
+  border-radius: 999px;
+  background: #ffffffe6;
+  box-shadow:
+    0 4px 14px -4px #0000001f,
+    0 1px 2px #0000000a,
+    inset 0 0 0 0.5px #0000001a;
+}
+.landing.ot-home .dm-composer > span:first-child {
+  color: #b5b5b8;
+  font-size: 17px;
+  letter-spacing: -0.2px;
+}
+.landing.ot-home .dm-mic {
+  width: 36px;
+  height: 36px;
+  background: #e4e4e6;
+  color: #77777c;
+}
+.landing.ot-home .dm-file-row {
+  width: 82%;
+}
+.landing.ot-home .dm-file-row[data-visible="false"] {
+  display: none;
+}
+.landing.ot-home .dm-file-row[data-visible="true"] {
+  animation: mobile-message-arrive 500ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+.landing.ot-home .dm-file-row .dm-file-card.au-file {
+  margin-top: 0;
+}
+.landing.ot-home .dm-file-card::after {
+  display: none;
+}
+.landing.ot-home .ot-control-stage .dc-handoff-card {
+  box-shadow: none;
+}
+.landing.ot-home .twd-live .twd-mic {
+  background: #77777717;
+  color: #1414149c;
+}
+.landing.ot-home .twd-live .twd-header {
+  border-bottom: 0;
+  background: linear-gradient(#fcfcfc, #fcfcfc00);
+}
+.landing.ot-home .twd-typing-bubble {
+  display: none;
+}
+.landing.ot-home .twd-file-card {
+  width: 300px;
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+.landing.ot-home .mr-header > .au-pill {
+  display: inline-flex;
+  gap: 8px;
+}
+.landing.ot-home .mr-brief {
+  border: 0;
+  border-radius: 24px;
+  background: var(--app-assistant);
+  box-shadow: none;
+}
+.landing.ot-home .wm-user-message {
+  border-radius: 18px;
+  padding: 8px 13px;
+}
+.landing.ot-home .wm-worker-bubble {
+  display: inline-block;
+  margin: 0;
+  padding: 8px 13px;
+  border-radius: 18px;
+  background-color: var(--app-assistant);
+  background-image: linear-gradient(to bottom, var(--app-assistant-specular), transparent);
+  box-shadow:
+    inset 0 0.5px 0 var(--app-assistant-specular),
+    inset 0 0 0 0.5px var(--app-outline);
+  color: #1c1c1c;
+  font-weight: 425;
+}
+.landing.ot-home .wm-typing {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.landing.ot-home .mr-confirmation {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 88%;
+  padding: 7px 12px;
+}

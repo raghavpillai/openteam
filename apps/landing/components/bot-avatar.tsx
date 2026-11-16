@@ -6,12 +6,15 @@ import {
   type RobotAvatarShape,
 } from "@openteam/contracts/robot-avatar";
 import {
-  ROBOT_AVATAR_ARTWORK,
   ROBOT_AVATAR_VIEW_BOX,
   robotAvatarFaceColor,
   robotAvatarTempo,
-  type RobotAvatarNode,
 } from "@openteam/design-tokens/robot-avatar-artwork";
+import {
+  ROBOT_AVATAR_GLYPHS,
+  robotAvatarLayers,
+  type RobotAvatarLayerNode,
+} from "@openteam/design-tokens/robot-avatar-expressions";
 import { createRobotAvatarMotion } from "@openteam/design-tokens/robot-avatar-motion";
 import {
   createElement,
@@ -26,9 +29,11 @@ import "./bot-avatar.css";
 
 type AmbientExpression = "idle" | "thinking" | "talking";
 
-function renderNode(node: RobotAvatarNode, key: number): React.ReactElement {
+function renderNode(node: RobotAvatarLayerNode, key: number): React.ReactElement {
   return createElement(node.tag, { ...node.attributes, key }, node.children?.map(renderNode));
 }
+
+const glyphs = ROBOT_AVATAR_GLYPHS.map(renderNode);
 
 export function BotAvatar({
   shape = "goggles",
@@ -148,7 +153,11 @@ export function BotAvatar({
       }
     >
       {title ? <title>{title}</title> : null}
-      <g className="robot-avatar-body">{ROBOT_AVATAR_ARTWORK[robot].map(renderNode)}</g>
+      {/* Same layers as the desktop avatar: busy modes fold the robot into these glyphs. */}
+      <g className="robot-avatar-rig">
+        <g className="robot-avatar-body">{robotAvatarLayers(robot).map(renderNode)}</g>
+        <g className="robot-avatar-glyph">{glyphs}</g>
+      </g>
     </svg>
   );
 }

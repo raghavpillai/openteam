@@ -3,8 +3,8 @@ import {
   ROBOT_AVATAR_FIDGETS,
   ROBOT_AVATAR_POKES,
   type RobotAvatarFidget,
-} from "@openteam/design-tokens/robot-avatar-pokes";
-import { ROBOT_AVATAR_CUE, type RobotAvatarCue } from "@openteam/design-tokens/robot-avatar-motion";
+} from "./robot-avatar-pokes";
+import { ROBOT_AVATAR_CUE, type RobotAvatarCue } from "./robot-avatar-motion";
 import type { RobotAvatarGaze } from "./robot-avatar-gaze-scope";
 import type { createRobotAvatarMotion } from "./robot-avatar-motion";
 

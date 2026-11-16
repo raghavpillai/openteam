@@ -67,7 +67,7 @@ function GroupAvatar() {
     <span className="twd-group-avatar" aria-hidden="true">
       {members.map((member) => (
         <span key={member.name}>
-          <BotAvatar shape={member.shape} color={member.color} size={16} mode="still" />
+          <BotAvatar shape={member.shape} color={member.color} size={16} seed={member.name} />
         </span>
       ))}
     </span>
@@ -153,7 +153,7 @@ export function TeamWorkflowDemo() {
                   shape="pod"
                   color="#925df2"
                   size={22}
-                  mode={playing ? "idle" : "still"}
+                  mode="idle"
                 />
                 <div className="twd-message-content">
                   <p className="twd-bubble">
@@ -179,7 +179,7 @@ export function TeamWorkflowDemo() {
                   shape="chip"
                   color="#27baae"
                   size={22}
-                  mode={playing ? "idle" : "still"}
+                  mode="idle"
                 />
                 <div className="twd-message-content">
                   <p className="twd-bubble">
@@ -205,7 +205,7 @@ export function TeamWorkflowDemo() {
                   shape="pod"
                   color="#925df2"
                   size={22}
-                  mode={playing ? "idle" : "still"}
+                  mode="idle"
                 />
                 <div className="twd-message-content">
                   <p className="twd-bubble">
@@ -282,7 +282,7 @@ export function TeamWorkflowDemo() {
                   ((member.name === "Finance" && stage === 2) ||
                     (member.name === "Travel planner" && (stage === 0 || stage === 4)))
                     ? "thinking"
-                    : "still"
+                    : "idle"
                 }
               />
               <span>{member.name}</span>

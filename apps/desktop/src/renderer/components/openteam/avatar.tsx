@@ -10,7 +10,7 @@ import { useAuthSession } from "../../hooks/use-auth-session";
 import { accountPresentation } from "../../lib/account";
 import { cn } from "../../lib/cn";
 import { BotAvatarGlyph } from "./avatar-picker-icons";
-import type { RobotAvatarGaze } from "../../lib/robot-avatar-gaze-scope";
+import type { RobotAvatarGaze } from "@openteam/design-tokens/robot-avatar-gaze-scope";
 
 import { AvatarChannelContext, useBotAvatarMode } from "./bot-avatar-activity";
 

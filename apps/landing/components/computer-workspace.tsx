@@ -86,7 +86,7 @@ function WorkspaceTree({ nodes, outputs, activity, revision, depth = 0 }: {
                 <span className="cw-file-presence" key={revision}>
                   {presence.map((item) => (
                     <span className="cw-file-person" key={item.worker} data-action={item.action} style={{ "--agent-color": workers[item.worker].color } as CSSProperties}>
-                      <BotAvatar {...workers[item.worker]} size={17} mode="working" />
+                      <BotAvatar {...workers[item.worker]} size={17} mode="working" seed={workers[item.worker].name} />
                       <strong>{workers[item.worker].name}</strong>
                       <span className="cw-file-action">
                         {item.action === "Viewing" ? <Eye size={11} /> : <PencilLine size={11} />}
@@ -228,7 +228,7 @@ export function ComputerWorkspace({ children }: { children?: ReactNode }) {
       <div className="cw-window" aria-label="Research uses its computer while files appear in the shared workspace">
         <div className="cw-titlebar">
           <div className="cw-traffic-lights" aria-hidden="true"><i /><i /><i /></div>
-          <span><BotAvatar {...workers[0]} size={21} mode="still" /> Research’s computer</span>
+          <span><BotAvatar {...workers[0]} size={21} gaze="emphasis" /> Research’s computer</span>
           <span className="cw-computer-connected"><i /> Live</span>
         </div>
         <div className="cw-window-body">
@@ -245,7 +245,7 @@ export function ComputerWorkspace({ children }: { children?: ReactNode }) {
             <header className="cw-files-header">
               <div><Folder size={17} /><strong>Shared files</strong></div>
               <span className="cw-file-workers" aria-label="Research and Finance share these files">
-                {workers.map((worker) => <BotAvatar key={worker.name} {...worker} size={21} mode="still" />)}
+                {workers.map((worker) => <BotAvatar key={worker.name} {...worker} size={21} seed={worker.name} />)}
               </span>
             </header>
             <div className="cw-workspace-path">/workspace <span>{3 + outputCount} files</span></div>

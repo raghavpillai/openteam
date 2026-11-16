@@ -14,7 +14,9 @@
     "./robot-avatar.css": "./src/robot-avatar.css",
     "./robot-avatar-motion": "./src/robot-avatar-motion.ts",
     "./robot-avatar-expressions": "./src/robot-avatar-expressions.ts",
-    "./robot-avatar-pokes": "./src/robot-avatar-pokes.ts"
+    "./robot-avatar-pokes": "./src/robot-avatar-pokes.ts",
+    "./robot-avatar-gaze": "./src/robot-avatar-gaze.ts",
+    "./robot-avatar-gaze-scope": "./src/robot-avatar-gaze-scope.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

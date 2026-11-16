@@ -17,8 +17,9 @@ export function Wordmark({
         shape="classic"
         color="#27baae"
         size={size}
-        ambient={animated}
-        mode={animated ? undefined : "still"}
+        mode={animated ? "idle" : "still"}
+        gaze={animated ? "follow" : "off"}
+        seed="brand"
         className="ot-brand-bot"
       />
       <span style={{ fontSize: textSize, lineHeight: 1 }}>OpenTeam</span>

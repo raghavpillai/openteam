@@ -23,6 +23,7 @@ import {
   Globe,
   Map as MapGlyph,
   MapPin,
+  Info,
   Minus,
   Plus,
   Star,
@@ -631,11 +632,48 @@ function MapSurface({
           </button>
         </div>
       )}
-      <div className="place-map-attribution">
-        <a href="https://openfreemap.org" target="_blank" rel="noreferrer">
-          OpenFreeMap
-        </a>{" "}
-        ·{" "}
+      <MapCredit />
+    </>
+  );
+}
+
+/** How long the map's credits stay spelled out once the map is on screen. */
+const CREDIT_VISIBLE_MS = 5_000;
+
+/**
+ * The two credits the map data's licences require (the tile host asks for none). They are
+ * spelled out until the map has been on screen for five seconds, then fold into a small
+ * button that shows them again on hover, keyboard focus or a click.
+ */
+function MapCredit() {
+  const [open, setOpen] = useState(true);
+  const root = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | undefined>(undefined);
+  /** Set once the credits have had their five seconds, or the user has used the button. */
+  const settled = useRef(false);
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    // The five seconds are continuous time on screen: a map that only flashes past while
+    // a chat lays out, or is scrolled away, starts again the next time it is seen.
+    const observer = new IntersectionObserver(([entry]) => {
+      window.clearTimeout(timer.current);
+      if (settled.current || !entry?.isIntersecting) return;
+      timer.current = window.setTimeout(() => {
+        settled.current = true;
+        observer.disconnect();
+        setOpen(false);
+      }, CREDIT_VISIBLE_MS);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer.current);
+    };
+  }, []);
+  return (
+    <div className="place-map-attribution" ref={root} data-open={open}>
+      <span className="place-map-credit-text">
         <a href="https://openmaptiles.org" target="_blank" rel="noreferrer">
           © OpenMapTiles
         </a>{" "}
@@ -643,8 +681,21 @@ function MapSurface({
         <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
           © OpenStreetMap
         </a>
-      </div>
-    </>
+      </span>
+      <button
+        type="button"
+        className="place-map-credit-toggle"
+        aria-label="Map data credits"
+        aria-expanded={open}
+        onClick={() => {
+          settled.current = true;
+          window.clearTimeout(timer.current);
+          setOpen((value) => !value);
+        }}
+      >
+        <Info size={10} strokeWidth={2.2} aria-hidden />
+      </button>
+    </div>
   );
 }
 

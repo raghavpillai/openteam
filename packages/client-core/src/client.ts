@@ -83,7 +83,7 @@ import {
   type ProductEventHandlers,
   readProductEventBatch,
 } from "./events";
-import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
+import { createJsonTransport, OpenTeamClientError, type OpenTeamTransportOptions } from "./http";
 
 /** A Mac's send settings: skip every approval card, or only for allowed recipients. */
 export interface MachineMessagesSettings { machineId: string; sendWithoutAsking: boolean; allowedRecipients: Array<{ recipient: string; recipientName: string | null }> }
@@ -121,6 +121,20 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     } catch {
       return undefined;
     }
+  };
+
+  // Location can wait for a device fix. Keep the send owned by the credentials
+  // that started it, rather than picking up another account after that wait.
+  const ownedLocation = async () => {
+    const token = (await options.getAuthToken?.()) ?? null;
+    const location = await deviceLocation();
+    if (((await options.getAuthToken?.()) ?? null) !== token) {
+      throw new OpenTeamClientError("Account changed while preparing the message. Send it again from the current account.", "auth_changed");
+    }
+    return {
+      location,
+      sendTransport: createJsonTransport({ ...options, getAuthToken: () => token }),
+    };
   };
 
   function uploadAsset(input: UploadAssetInput): Promise<AssetRef>;
@@ -616,7 +630,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       messageOptions?: SendMessageOptions
     ) => {
       const sourceMachineId = options.sourceMachineId?.();
-      const location = await deviceLocation();
+      const { location, sendTransport } = await ownedLocation();
       const input: SendMessageInput = {
         content,
         ...(sourceMachineId ? { sourceMachineId } : {}),
@@ -628,7 +642,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         timeZone: timeZone(),
         ...(location ? { location } : {}),
       };
-      return transport.request<{ message: ChannelMessageView }>(
+      return sendTransport.request<{ message: ChannelMessageView }>(
         `/api/v0/conversations/${encodeURIComponent(conversationId)}/messages`,
         {
           method: "POST",
@@ -644,7 +658,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       messageOptions?: SendMessageOptions
     ) => {
       const sourceMachineId = options.sourceMachineId?.();
-      const location = await deviceLocation();
+      const { location, sendTransport } = await ownedLocation();
       const input: SendMessageInput = {
         content,
         ...(sourceMachineId ? { sourceMachineId } : {}),
@@ -656,7 +670,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         timeZone: timeZone(),
         ...(location ? { location } : {}),
       };
-      return transport.request<{ message: ChannelMessageView }>(
+      return sendTransport.request<{ message: ChannelMessageView }>(
         `/api/v0/channels/${encodeURIComponent(channelId)}/messages`,
         {
           method: "POST",

@@ -176,6 +176,7 @@ struct SystemIntentClient {
     try validateSession()
     var input = SendInput(content: text, attachments: assets)
     input.location = await LocationSharing.shared.locationForSend()
+    try validateSession()
     let message = try await api.send(channel: target.channel, bot: target.bot, input: input)
     try validateSession()
     return message

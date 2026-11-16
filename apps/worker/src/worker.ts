@@ -1866,6 +1866,12 @@ export class WakeWorker {
     const delayMs = await this.prisma.$transaction(async (tx) => {
       await lockAgentLifecycle(tx, claimed.botId);
       await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
+      // An expired attempt may report its failure after another worker reclaimed it.
+      // Its old owner must not put the successor's live attempt back in the queue.
+      if (await tx.botRunLease.findFirst({
+        where: { runId: claimed.runId, ownerId: { not: claimed.ownerId } },
+        select: { runId: true },
+      })) return null;
       const [run, inbox, bot] = await Promise.all([
         tx.run.findUnique({ where: { id: claimed.runId }, select: { status: true, error: true, requestStoppedAt: true } }),
         tx.inboxEvent.findUnique({ where: { id: claimed.inboxId }, select: { attempts: true, status: true } }),
@@ -2089,12 +2095,20 @@ export class WakeWorker {
       message: error instanceof Error ? error.message : String(error),
     } satisfies Prisma.InputJsonObject;
     let priorityInterrupted = false;
+    let supersededOwner = false;
     await this.prisma.$transaction(async (tx) => {
       await lockAgentLifecycle(tx, claimed.botId);
       // Cancellation and failure settle the same run. Read its terminal state only after
       // taking the write lock, otherwise a late disconnect can undo a committed deletion.
       await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
       const current = await tx.run.findUnique({ where: { id: claimed.runId } });
+      if (current?.status === "completed" || await tx.botRunLease.findFirst({
+        where: { runId: claimed.runId, ownerId: { not: claimed.ownerId } },
+        select: { runId: true },
+      })) {
+        supersededOwner = true;
+        return;
+      }
       const currentError =
         current?.error && !Array.isArray(current.error) && typeof current.error === "object"
           ? (current.error as Prisma.InputJsonObject)
@@ -2218,6 +2232,7 @@ export class WakeWorker {
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
       await this.failSubagent(tx, claimed, failureDetails, interrupted, finalStatus === "cancelled");
     });
+    if (supersededOwner) return;
     await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
       if (claimed.origin === "group" && priorityInterrupted) {

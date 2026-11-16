@@ -136,3 +136,29 @@ test.skipIf(!databaseUrl)("chaos: a routine's handoff to the parent survives a f
     await h.cleanup();
   }
 }, 30000);
+
+for (const settled of [false, true]) {
+  test.skipIf(!databaseUrl)(`a former routine wake owner cannot fail a ${settled ? "completed" : "live"} reclaimed attempt`, async () => {
+    const h = await harness("Reclaimed owner fence");
+    try {
+      const former = (await h.internals.claim(h.botId))!;
+      await h.db.inboxEvent.update({ where: { id: former.inboxId }, data: { claimedAt: new Date(Date.now() - 180_000) } });
+      await h.db.botRunLease.updateMany({ where: { runId: former.runId }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+      const successor = await h.internals.claim(h.botId);
+      expect(successor?.runId).toBe(former.runId);
+      const successorLease = await h.db.botRunLease.findFirstOrThrow({ where: { runId: former.runId } });
+      if (settled) {
+        await h.db.run.update({ where: { id: former.runId }, data: { status: "completed", completedAt: new Date() } });
+        await h.db.inboxEvent.update({ where: { id: former.inboxId }, data: { status: "completed", completedAt: new Date() } });
+        await h.db.botRunLease.deleteMany({ where: { runId: former.runId } });
+      }
+      await h.internals.fail(former, outage());
+      expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: former.inboxId } })).status).toBe(settled ? "completed" : "processing");
+      expect((await h.db.run.findUniqueOrThrow({ where: { id: former.runId } })).status).toBe(settled ? "completed" : "running");
+      if (!settled) expect((await h.db.botRunLease.findFirstOrThrow({ where: { runId: former.runId } })).ownerId).toBe(successorLease.ownerId);
+      expect(h.sent.filter(([queue]) => queue === "bot-wake")).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  }, 30_000);
+}

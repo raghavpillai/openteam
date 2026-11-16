@@ -28,7 +28,7 @@ export const parseNotificationTarget = (value: unknown): DesktopNotificationTarg
   };
 };
 
-export type DesktopNotificationKind = AgentNotificationKind;
+type DesktopNotificationKind = AgentNotificationKind;
 
 export const parseNotificationReadState = (value: unknown): NotificationReadState | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -127,8 +127,6 @@ interface DesktopNotificationAdapter {
   dismiss?: (notificationId: string) => void;
   setBadge: (label: string) => void;
 }
-
-export { truncateNotificationText };
 
 /**
  * Each conversation gets one banner in this window (a DM is its Bot, a group is

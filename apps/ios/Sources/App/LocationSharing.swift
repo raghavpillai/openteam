@@ -62,7 +62,7 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
 
   /// The location a message carries: nil while sharing is off or permission is gone.
   func locationForSend() async -> DeviceLocation? {
-    guard enabled, allowed else { return nil }
+    guard enabled, allowed, !Task.isCancelled else { return nil }
     if let latest, -latest.timestamp.timeIntervalSinceNow < Self.freshFor { return Self.fix(latest) }
     let asked = answers
     manager.requestLocation()
@@ -70,6 +70,8 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
     while answers == asked, ContinuousClock.now < deadline, !Task.isCancelled {
       try? await Task.sleep(for: .milliseconds(50))
     }
+    // Sharing, authorization or the send itself may have ended while a fix was pending.
+    guard enabled, allowed, !Task.isCancelled else { return nil }
     return latest.map(Self.fix)
   }
 

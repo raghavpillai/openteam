@@ -12,6 +12,8 @@ type Internals = {
   boss: { send: (...args: unknown[]) => Promise<unknown> };
   claim(botId: string): Promise<Claimed | null>;
   fail(claimed: Claimed, error: unknown, interrupted?: boolean): Promise<void>;
+  projection: { apply(runId: string, conversationId: string, botId: string, event: { type: "turn.completed"; turnId: string; status: "completed" }): Promise<unknown> };
+  syncRoutineRunFile(botId: string, runId: string): Promise<void>;
 };
 
 const outage = () => new Error('500: {"message":"upstream exploded","type":"server_error"}');
@@ -162,3 +164,42 @@ for (const settled of [false, true]) {
     }
   }, 30_000);
 }
+
+test.skipIf(!databaseUrl)("projected completion settles its inbox after a current-owner failure", async () => {
+  const h = await harness("Projected completion recovery");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    await h.internals.fail(claimed, new Error("settlement failed after completion projection"));
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("completed");
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("completed");
+    expect(await h.db.botRunLease.count({ where: { runId: claimed.runId } })).toBe(0);
+    expect((await h.db.routineExecution.findFirstOrThrow({ where: { runId: claimed.runId } })).status).toBe("completed");
+    expect(await h.db.event.count({ where: { topic: "run.interrupted", entityId: claimed.runId } })).toBe(0);
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);
+
+test.skipIf(!databaseUrl)("completed settlement retries its file reconciliation without reopening the run", async () => {
+  const h = await harness("Completed file recovery");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    await h.db.inboxEvent.update({ where: { id: claimed.inboxId }, data: { status: "completed", completedAt: new Date() } });
+    await h.db.botRunLease.deleteMany({ where: { runId: claimed.runId } });
+    let synced = 0;
+    h.internals.syncRoutineRunFile = async () => { synced++; };
+    await h.internals.fail(claimed, new Error("routine file sync failed after settlement"));
+    expect(synced).toBe(1);
+    const run = await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } });
+    expect(run.status).toBe("completed");
+    expect(run.memoryReviewPending).toBe(false);
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("completed");
+    expect(await h.db.event.count({ where: { topic: "inbox.completed", entityId: claimed.inboxId } })).toBe(0);
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);

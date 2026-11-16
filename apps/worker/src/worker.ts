@@ -1581,8 +1581,6 @@ export class WakeWorker {
   }
 
   private async execute(claimed: Claimed): Promise<void> {
-    const needsMemoryReview = claimed.runtimeProfile === "agent" &&
-      ["user", "group"].includes(claimed.origin) && claimed.inboxType !== "user.reaction";
     const heartbeat = setInterval(() => {
       void this.heartbeat(claimed).catch((error) => console.error("run heartbeat", error));
     }, 30_000);
@@ -1740,68 +1738,7 @@ export class WakeWorker {
         throw new Error("Computer stream ended without an authoritative turn completion");
       const completionFailure = turnCompletionFailure(completion);
       if (completionFailure) throw completionFailure;
-      await this.prisma.$transaction(async (tx) => {
-        // Routine settlement may launch a follow-up. Acquire its owner gate before any run or
-        // inbox row, matching retirement and routine launch instead of inverting their order.
-        await lockAgentLifecycle(tx, claimed.botId);
-        const completedAt = new Date();
-        await tx.inboxEvent.update({
-          where: { id: claimed.inboxId },
-          data: { status: "completed", completedAt },
-        });
-        if (needsMemoryReview) {
-          // Commit the review intent with settlement. A stopped worker can be replaced
-          // before either the group reply is published or extraction starts.
-          const bot = await tx.bot.findUniqueOrThrow({ where: { id: claimed.botId }, select: { memoryRevision: true } });
-          const shared = await tx.memoryRevision.findUnique({ where: { scope: "user" }, select: { revision: true } });
-          await tx.run.update({ where: { id: claimed.runId }, data: {
-            memoryReviewPending: true,
-            memoryReviewRevision: bot.memoryRevision + (shared?.revision ?? 0),
-          } });
-        }
-        const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
-        if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
-        if (claimed.origin === "bootstrap") {
-          const onboarding = await tx.bot.updateMany({
-            where: { id: claimed.botId, onboardingStatus: "running" },
-            data: {
-              onboardingStatus: "completed",
-              onboardingCompletedAt: completedAt,
-            },
-          });
-          if (onboarding.count > 0) {
-            await tx.event.create({
-              data: {
-                topic: "bot.bootstrap.completed",
-                entityId: claimed.botId,
-                payload: { botId: claimed.botId, runId: claimed.runId },
-              },
-            });
-          }
-        }
-        await tx.botRunLease.deleteMany({
-          where: { botId: claimed.botId, ownerId: claimed.ownerId },
-        });
-        await tx.event.create({
-          data: {
-            topic: "inbox.completed",
-            entityId: claimed.inboxId,
-            payload: { inboxId: claimed.inboxId, runId: claimed.runId },
-          },
-        });
-        await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
-        await this.completeSubagent(tx, claimed);
-        if (claimed.runtimeProfile !== "subagent" && claimed.origin !== "routine") await settleRequestProgress(tx, this.messaging, claimed.botId, claimed.runId);
-      });
-      // Memory extraction needs the published replies, not the buffered group outbox.
-      if (claimed.deliveryId && !needsMemoryReview) {
-        await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);
-      }
-      if (needsMemoryReview) {
-        this.agentData.retryMemoryReviewsNow(claimed.botId);
-        await this.reviewMemoryRun(claimed.runId);
-      }
-      await this.syncRoutineRunFile(claimed.botId, claimed.runId);
+      await this.settleCompletedWake(claimed);
     } catch (error) {
       // Without a completion the computer never settled the turn: it was
       // unreachable or went away mid-stream. A reported failure is final.
@@ -1809,6 +1746,86 @@ export class WakeWorker {
     } finally {
       clearInterval(heartbeat);
     }
+  }
+
+  private async settleCompletedWake(claimed: Claimed): Promise<void> {
+    const needsMemoryReview = claimed.runtimeProfile === "agent" &&
+      ["user", "group"].includes(claimed.origin) && claimed.inboxType !== "user.reaction";
+    const settlement = await this.prisma.$transaction(async (tx) => {
+      // Routine settlement may launch a follow-up. Acquire its owner gate before any run or
+      // inbox row, matching retirement and routine launch instead of inverting their order.
+      await lockAgentLifecycle(tx, claimed.botId);
+      await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
+      const current = await tx.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
+      if (current?.status !== "completed" || await tx.botRunLease.findFirst({
+        where: { runId: claimed.runId, ownerId: { not: claimed.ownerId } },
+        select: { runId: true },
+      })) return null;
+      const inbox = await tx.inboxEvent.findUnique({ where: { id: claimed.inboxId }, select: { status: true } });
+      if (!inbox) return null;
+      // A later file or delivery error must not re-arm memory review or repeat
+      // transactional settlement that already committed successfully.
+      if (inbox.status === "completed") return "already-settled" as const;
+      const completedAt = new Date();
+      await tx.inboxEvent.update({
+        where: { id: claimed.inboxId },
+        data: { status: "completed", completedAt },
+      });
+      if (needsMemoryReview) {
+        // Commit the review intent with settlement. A stopped worker can be replaced
+        // before either the group reply is published or extraction starts.
+        const bot = await tx.bot.findUniqueOrThrow({ where: { id: claimed.botId }, select: { memoryRevision: true } });
+        const shared = await tx.memoryRevision.findUnique({ where: { scope: "user" }, select: { revision: true } });
+        await tx.run.update({ where: { id: claimed.runId }, data: {
+          memoryReviewPending: true,
+          memoryReviewRevision: bot.memoryRevision + (shared?.revision ?? 0),
+        } });
+      }
+      const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+      if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
+      if (claimed.origin === "bootstrap") {
+        const onboarding = await tx.bot.updateMany({
+          where: { id: claimed.botId, onboardingStatus: "running" },
+          data: {
+            onboardingStatus: "completed",
+            onboardingCompletedAt: completedAt,
+          },
+        });
+        if (onboarding.count > 0) {
+          await tx.event.create({
+            data: {
+              topic: "bot.bootstrap.completed",
+              entityId: claimed.botId,
+              payload: { botId: claimed.botId, runId: claimed.runId },
+            },
+          });
+        }
+      }
+      await tx.botRunLease.deleteMany({
+        where: { botId: claimed.botId, ownerId: claimed.ownerId },
+      });
+      await tx.event.create({
+        data: {
+          topic: "inbox.completed",
+          entityId: claimed.inboxId,
+          payload: { inboxId: claimed.inboxId, runId: claimed.runId },
+        },
+      });
+      await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
+      await this.completeSubagent(tx, claimed);
+      if (claimed.runtimeProfile !== "subagent" && claimed.origin !== "routine") await settleRequestProgress(tx, this.messaging, claimed.botId, claimed.runId);
+      return "settled" as const;
+    });
+    if (!settlement) return;
+    // Memory extraction needs the published replies, not the buffered group outbox.
+    if (claimed.deliveryId && !needsMemoryReview) {
+      await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);
+    }
+    if (needsMemoryReview && settlement === "settled") {
+      this.agentData.retryMemoryReviewsNow(claimed.botId);
+      await this.reviewMemoryRun(claimed.runId);
+    }
+    await this.syncRoutineRunFile(claimed.botId, claimed.runId);
   }
 
   private async reconcileContextState(claimed: Claimed): Promise<void> {
@@ -2096,17 +2113,22 @@ export class WakeWorker {
     } satisfies Prisma.InputJsonObject;
     let priorityInterrupted = false;
     let supersededOwner = false;
+    let projectedCompletion = false;
     await this.prisma.$transaction(async (tx) => {
       await lockAgentLifecycle(tx, claimed.botId);
       // Cancellation and failure settle the same run. Read its terminal state only after
       // taking the write lock, otherwise a late disconnect can undo a committed deletion.
       await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
       const current = await tx.run.findUnique({ where: { id: claimed.runId } });
-      if (current?.status === "completed" || await tx.botRunLease.findFirst({
+      if (await tx.botRunLease.findFirst({
         where: { runId: claimed.runId, ownerId: { not: claimed.ownerId } },
         select: { runId: true },
       })) {
         supersededOwner = true;
+        return;
+      }
+      if (current?.status === "completed") {
+        projectedCompletion = true;
         return;
       }
       const currentError =
@@ -2233,6 +2255,10 @@ export class WakeWorker {
       await this.failSubagent(tx, claimed, failureDetails, interrupted, finalStatus === "cancelled");
     });
     if (supersededOwner) return;
+    if (projectedCompletion) {
+      await this.settleCompletedWake(claimed);
+      return;
+    }
     await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
       if (claimed.origin === "group" && priorityInterrupted) {

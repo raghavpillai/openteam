@@ -642,20 +642,28 @@ const CREDIT_VISIBLE_MS = 5_000;
 
 /**
  * The two credits the map data's licences require (the tile host asks for none). They are
- * spelled out for five seconds once the map is on screen, then fold into a small button
- * that shows them again on hover, keyboard focus or a click.
+ * spelled out until the map has been on screen for five seconds, then fold into a small
+ * button that shows them again on hover, keyboard focus or a click.
  */
 function MapCredit() {
   const [open, setOpen] = useState(true);
   const root = useRef<HTMLDivElement>(null);
   const timer = useRef<number | undefined>(undefined);
+  /** Set once the credits have had their five seconds, or the user has used the button. */
+  const settled = useRef(false);
   useEffect(() => {
     const element = root.current;
     if (!element) return;
+    // The five seconds are continuous time on screen: a map that only flashes past while
+    // a chat lays out, or is scrolled away, starts again the next time it is seen.
     const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) return;
-      observer.disconnect();
-      timer.current = window.setTimeout(() => setOpen(false), CREDIT_VISIBLE_MS);
+      window.clearTimeout(timer.current);
+      if (settled.current || !entry?.isIntersecting) return;
+      timer.current = window.setTimeout(() => {
+        settled.current = true;
+        observer.disconnect();
+        setOpen(false);
+      }, CREDIT_VISIBLE_MS);
     });
     observer.observe(element);
     return () => {
@@ -680,6 +688,7 @@ function MapCredit() {
         aria-label="Map data credits"
         aria-expanded={open}
         onClick={() => {
+          settled.current = true;
           window.clearTimeout(timer.current);
           setOpen((value) => !value);
         }}

@@ -216,7 +216,8 @@ atMost("startup CSS bytes", startupCssBytes, 222_000);
 // With the draft send-off flight and the question card redesign and its lazy motion module:
 // 17,918,336 B / 4,488,047 gzip.
 // Live bot avatars on that base: 17,968,276 B / 4,502,509 gzip.
-atMost("renderer bytes", result.renderer.bytes, 17_972_000);
+// The map credit that folds into a button brings the renderer to 17,973,455 bytes.
+atMost("renderer bytes", result.renderer.bytes, 17_980_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the

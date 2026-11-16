@@ -628,6 +628,10 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
 
 type MemoryScope = "agent" | "user";
 
+/** First wait before background recovery retries a failed memory review; it doubles up to the maximum. */
+export const MEMORY_REVIEW_RETRY_BASE_MS = 30_000;
+export const MEMORY_REVIEW_RETRY_MAX_MS = 15 * 60_000;
+
 const canonicalMemoryBotId = (value: string): string => {
   if (!UUID_FOLDER.test(value)) throw new ApiError(404, "bot_not_found", "Bot not found");
   return canonicalAgentId(value);
@@ -752,6 +756,8 @@ export class AgentDataStore {
   private readonly agentAttachmentPaths = new Map<string, string>();
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
+  /** Bots whose last memory review failed, and when background recovery may try again. */
+  private readonly memoryReviewBackoff = new Map<string, { failures: number; retryAt: number }>();
   /** Held exchanges whose review is running in this process; the rest were left by one that stopped. */
   private timelineEventSink:
     | ((
@@ -3564,6 +3570,20 @@ export class AgentDataStore {
   }
 
   /** True acknowledges review (or an intentional skip); false preserves durable work for retry. */
+  /**
+   * When background recovery may next retry this bot's held memory review. A new
+   * turn still reviews at once; only the periodic scan waits, so a model outage is
+   * not retried every few seconds for every bot.
+   */
+  memoryReviewRetryAt(botId: string): number {
+    return this.memoryReviewBackoff.get(canonicalMemoryBotId(botId))?.retryAt ?? 0;
+  }
+
+  /** A new turn is a fresh reason to try: held reviews may run again right away. */
+  retryMemoryReviewsNow(botId: string): void {
+    this.memoryReviewBackoff.delete(canonicalMemoryBotId(botId));
+  }
+
   async recordTurnMemory(
     botId: string,
     input: { user: string; assistant: string; hidden?: boolean; occurredAt?: number; runId?: string; timeZone?: string; requirePendingRun?: boolean }
@@ -3602,9 +3622,16 @@ export class AgentDataStore {
       clearInterval(timer);
       await heartbeat;
       if (!reviewed || abort.signal.aborted) return false;
-      return await this.releaseMemoryExchanges(botId, ownerId, claimed);
+      const released = await this.releaseMemoryExchanges(botId, ownerId, claimed);
+      if (released) this.memoryReviewBackoff.delete(botId);
+      return released;
     } catch (error) {
       console.warn(`memory extraction for ${botId}`, error);
+      const failures = (this.memoryReviewBackoff.get(botId)?.failures ?? 0) + 1;
+      this.memoryReviewBackoff.set(botId, {
+        failures,
+        retryAt: Date.now() + Math.min(MEMORY_REVIEW_RETRY_MAX_MS, MEMORY_REVIEW_RETRY_BASE_MS * 2 ** (failures - 1)),
+      });
       return false;
     } finally {
       clearInterval(timer);

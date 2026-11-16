@@ -55,7 +55,10 @@ app
           native.emit("click");
         },
       },
-      () => clock
+      () => clock,
+      // These cases activate already-delivered banners, including twelve rapid
+      // clicks. Exercise routing independently of delivery coalescing/grace.
+      (callback) => { callback(); return () => {}; }
     );
     ipcMain.on("openteam:notifications:sync", (_event, snapshot) => {
       clock += 6000;

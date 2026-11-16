@@ -146,9 +146,9 @@ export class MessagesSendService {
       return this.settle(messageId, "failed", `Nothing was sent: ${stored.machineLabel} refused the message (${detail}).`, wake, !wake, { sendError: detail.slice(0, 500) });
     }
     const how = metadata.sentUnder
-      ? "Sent without an approval card: the user allowed this recipient, or every send, on that Mac."
-      : metadata.allowedRecipient ? `The user sent it and allowed ${String(metadata.allowedRecipient)} from now on.` : "The user approved and sent your text.";
-    const seen = result.verified === true ? "It already appears in the Messages chat." : "It has not appeared in the Messages chat yet; that is not a failure, so do not resend it.";
+      ? "Submitted to Messages without an approval card: the user allowed this recipient, or every send, on that Mac."
+      : metadata.allowedRecipient ? `The user sent it and allowed ${String(metadata.allowedRecipient)} from now on.` : "The user approved the Messages submission.";
+    const seen = result.verified === true ? "It already appears in local Messages history; this does not confirm delivery." : "Messages accepted the submission, but delivery is unconfirmed. Do not resend automatically.";
     return this.settle(messageId, "sent", `${how} ${seen}\n${JSON.stringify(result)}`, wake, !wake, { sendResult: result });
   }
 

@@ -34,7 +34,7 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
   const [error, setError] = useState("");
   useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
   // Send gathers into a blob while the send is out, then flies to where the
-  // "Sent" badge goes once this device's send is confirmed.
+  // "Submitted" badge goes once Messages accepts the submission.
   const { card, fx, discard: discarding, landed, press } = useDraftSendOff<HTMLElement>(message.id, state, async () => {
     const next = record((await api.mutateIMessageSend(message.id, "refresh")).message.metadata);
     setState(String(next.cardState ?? "pending"));
@@ -76,7 +76,7 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
 
   const header = (shown: string) => {
     const sent = shown === "sent";
-    const label = sent ? "Sent" : shown === "dismissed" ? "Discarded" : shown === "failed" ? "Not sent" : "Unconfirmed";
+    const label = sent ? "Submitted" : shown === "dismissed" ? "Discarded" : shown === "failed" ? "Not sent" : "Unconfirmed";
     return (
       <>
         <span className="imessage-title">
@@ -93,7 +93,7 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
   const summarize = (shown: string) =>
     shown === "unknown"
       ? `The send was interrupted — check Messages on ${where} to see whether it went out`
-      : `${shown === "sent" ? "Sent to" : "To"} ${name || recipient} — ${[text ? `“${firstLine(text)}”` : "", fileSummary].filter(Boolean).join(" · ")}`;
+      : `${shown === "sent" ? "Submitted to" : "To"} ${name || recipient} — ${[text ? `“${firstLine(text)}”` : "", fileSummary].filter(Boolean).join(" · ")}`;
   if (fx === "idle" && state !== "pending" && state !== "sending") {
     const sent = state === "sent";
     const summary = summarize(state);
@@ -103,9 +103,10 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
         <span className="draft-summary" title={summary}>{summary}</span>
         {sent && (metadata.allowedRecipient || metadata.sentUnder) ? (
           <p className="draft-note">
-            {metadata.allowedRecipient ? `Later messages to ${name || recipient} from this computer won't ask` : `Sent without asking, as allowed on ${where}`}
+            {metadata.allowedRecipient ? `Later messages to ${name || recipient} from this computer won't ask` : `Submitted without asking, as allowed on ${where}. Delivery is unconfirmed.`}
           </p>
         ) : null}
+        {sent && !metadata.sentUnder && <p className="draft-note">Submitted to Messages; delivery is unconfirmed.</p>}
         {state === "failed" && sendError ? <p className="draft-note" role="alert">{sendError}</p> : null}
       </section>
     );

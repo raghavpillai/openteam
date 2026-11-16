@@ -96,6 +96,19 @@ import XCTest
       XCTAssertTrue(alert.waitForExistence(timeout: 5), springboard.debugDescription)
       alert.tap()
       if app.wait(for: .runningForeground, timeout: 4) { return }
+      // Some Notification Center versions hint a swipe instead of opening on
+      // tap. Exercise the notification's real Open action, never app.activate(),
+      // so routing and cold-launch assertions still depend on the OS response.
+      let current = springboard.staticTexts[body]
+      if current.exists {
+        current.swipeRight()
+        if app.wait(for: .runningForeground, timeout: 2) { return }
+        let open = springboard.buttons["Open"].firstMatch
+        if open.waitForExistence(timeout: 2), open.isHittable {
+          open.tap()
+          if app.wait(for: .runningForeground, timeout: 4) { return }
+        }
+      }
       print("Notification Center is still visible; resolving its selected alert again")
     }
     XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)
@@ -432,9 +445,11 @@ import XCTest
     _ = try await request("/__push/control", ["readFailures": 100])
     app.buttons["channel-" + channel].tap()
     let back = app.chatBackButton
-    if back.exists { back.tap() }
+    // Opening a conversation finishes asynchronously after the sidebar tap.
+    // Wait for navigation before deciding which layout can return to the list.
+    if back.waitForExistence(timeout: 5) { back.tap() }
     let otherBot = app.buttons["channel-" + other]
-    if !otherBot.isHittable { app.buttons["chat-sidebar"].tap() }
+    if !otherBot.waitForExistence(timeout: 5) { app.buttons["chat-sidebar"].tap() }
     otherBot.tap()
     let before = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
     _ = try await request("/__push/control", ["readFailures": 0])
@@ -444,9 +459,9 @@ import XCTest
     XCTAssertEqual(before.filter { $0["path"] as? String == readPath }.count,
       after.filter { $0["path"] as? String == readPath }.count,
       "Leaving a bot must cancel its read retries")
-    if back.exists { back.tap() }
+    if back.waitForExistence(timeout: 5) { back.tap() }
     let original = app.buttons["channel-" + channel]
-    if !original.isHittable { app.buttons["chat-sidebar"].tap() }
+    if !original.waitForExistence(timeout: 5) { app.buttons["chat-sidebar"].tap() }
     original.tap()
     // Both conversations have now actually been opened and read.
     try await observe("delivered", expected: [], badge: 0)

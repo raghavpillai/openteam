@@ -90,7 +90,7 @@ export function renderControlResult(
     const where = `${what} to ${to} from ${result.machine}`;
     const id = result.message_id ? ` (card id: ${result.message_id})` : "";
     if (result.delivery === "sent")
-      return `Sent the ${where} without an approval card: the user allowed it on that Mac${id}. ${result.result?.verified === true ? "It already appears in the chat." : "verified: false means it hasn't appeared in the chat yet, not that it failed; never resend it."}`;
+      return `Submitted the ${where} to Messages without an approval card: the user allowed it on that Mac${id}. ${result.result?.verified === true ? "It appears in local Messages history; this does not confirm delivery." : "Delivery is unconfirmed; verified: false is not evidence of success or failure."} Do not resend automatically.`;
     if (result.delivery === "failed") return `Nothing was sent: the Mac refused the ${where} (${result.error})${id}.`;
     if (result.delivery === "unknown") return `The ${where} started sending, but its outcome is unknown${id}. Check the chat with ChatItems before discussing another attempt; never resend it automatically.`;
     const card = result.in_dm ? "in your own 1:1 chat with the user, not in this room (a room cannot hold approval cards); tell the room where it is" : "in the chat";

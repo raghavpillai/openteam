@@ -11,7 +11,10 @@ import {
 } from "@openteam/messaging";
 import { Effect } from "effect";
 import { NotificationService } from "../../server/src/services/notification-service";
-import { DesktopNotificationManager } from "../../desktop/src/main/notifications";
+import {
+  DesktopNotificationManager,
+  NOTIFICATION_DELIVERY_DELAY_MS,
+} from "../../desktop/src/main/notifications";
 import { PushNotificationDispatcher } from "../src/push-notifications";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
@@ -140,6 +143,8 @@ test.skipIf(!databaseUrl)(
         title: "Notification QA",
         sender: { name: "Notification QA", icon: "pod", color: "#ff6600" },
       });
+      expect(delivered).toHaveLength(0);
+      await Bun.sleep(NOTIFICATION_DELIVERY_DELAY_MS + 25);
       expect(delivered).toHaveLength(1);
       expect(await prisma.channelNotification.count({ where: { channelId: channel.id } })).toBe(1);
       expect(await prisma.outboxDelivery.count({ where: { topic: "push.notification" } })).toBe(3);
@@ -241,6 +246,7 @@ test.skipIf(!databaseUrl)(
       expect(pushes("reaction")).toHaveLength(3);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
     } finally {
+      manager.clear();
       const devices = await prisma.pushDevice.findMany({
         where: { installationId: { in: installationIds } },
       });

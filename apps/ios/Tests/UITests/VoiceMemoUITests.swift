@@ -295,7 +295,7 @@ import XCTest
     XCTAssertTrue(app.buttons["attach-files"].exists)
     XCTAssertFalse(app.buttons["attach-voice"].exists)
     let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
-    XCTAssertEqual(tray.frame.height, 230, accuracy: 1)
+    XCTAssertEqual(tray.frame.height, 228, accuracy: 1, "Three reference rows with 11 points above and below")
     app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
     XCTAssertTrue(tray.waitForNonExistence(timeout: 5))
     let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
@@ -461,8 +461,8 @@ import XCTest
     capture("review-after-failure", app)
     app.buttons["Send voice note"].tap()
     try await waitForMessage(app, transcript)
-    // The fixture logs only the uploads it accepts: the injected 503 is not counted.
+    // The fixture logs every attempt, so the rejected upload counts too.
     let count = try await uploads()
-    XCTAssertEqual(count, 1, "Retry uploads the kept recording")
+    XCTAssertEqual(count, 2, "Retry uploads the kept recording once more")
   }
 }

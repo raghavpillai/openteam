@@ -53,6 +53,28 @@ final class ActionFailureTests: SystemIntentFixture {
     XCTAssertEqual(accepted.first?["clientId"].string, failed.id)
   }
 
+  func testSendingKeepsTheAppRunningUntilTheOutboxIsDone() async throws {
+    let store = await connectedStore()
+    let ledger = BackgroundTimeLedger()
+    defer { ledger.restore() }
+    await store.flush()
+    XCTAssertTrue(ledger.names.isEmpty, "Checking an empty outbox asks for no background time")
+    let channel = try XCTUnwrap(store.channels.first)
+    var draft = Draft()
+    draft.text = "Sent after switching apps"
+    store.saveDraft(draft, channel: channel.id)
+    try await control(.object(["failures": .object([
+      "POST /api/v0/conversations/*": .object(["delayMs": .number(600), "count": .number(1)])])]))
+    let send = Task { await store.enqueue(channel) }
+    try await Task.sleep(for: .milliseconds(300))
+    XCTAssertEqual(ledger.open.count, 1, "The app keeps running while the message is in flight")
+    await send.value
+    XCTAssertTrue(store.state.outbox.isEmpty)
+    XCTAssertTrue(ledger.open.isEmpty, "Background time ends once the outbox is empty")
+    let state = try await API(server: server).request("/__qa/state")
+    XCTAssertEqual(state["messages"].array.filter { $0["content"].string == draft.text }.count, 1)
+  }
+
   func testAutomaticRetryReconcilesLostAcknowledgementWithoutDuplicateMessage() async throws {
     let store = await connectedStore()
     let channel = try XCTUnwrap(store.channels.first)
@@ -118,9 +140,15 @@ final class ActionFailureTests: SystemIntentFixture {
     XCTAssertNil(pending.failure)
     XCTAssertEqual(pending.deliveryUnconfirmed, true)
     XCTAssertLessThan(started.duration(to: .now), .seconds(14))
+    let ledger = BackgroundTimeLedger()
+    defer { ledger.restore() }
+    await store.flush()
+    XCTAssertTrue(ledger.names.isEmpty, "A message parked after a timeout doesn't hold the app open")
     try await control(.object(["failures": .object([:])]))
     await store.retry(pending.id)
     XCTAssertTrue(store.state.outbox.isEmpty)
+    XCTAssertEqual(ledger.names.count, 1, "Retrying it does")
+    XCTAssertTrue(ledger.open.isEmpty)
   }
 
   func testPermanentRejectionDoesNotRetryForTenSeconds() async throws {

@@ -57,7 +57,10 @@ type Tapback = { type: number; fromMe: boolean; date: string; emoji?: string; ha
 export class MacMessages {
   constructor(
     private readonly run: NativeCommand = nativeCommand,
-    private readonly root = join(homedir(), "Library", "Messages")
+    private readonly root = join(homedir(), "Library", "Messages"),
+    // imagent's sandbox permits ~/Pictures, but not arbitrary Application Support
+    // or process-temp paths. Keep a private directory there for every file type.
+    private readonly outbox = join(homedir(), "Pictures", ".openteam-messages-outbox")
   ) {}
   people(handles: string[], signal?: AbortSignal) {
     return new NativeContacts(this.run).people(handles, signal);
@@ -162,7 +165,12 @@ error errorMessage number errorNumber
 end try
 return "submitted"
 end run`;
-      const directory = attachments.length ? await mkdtemp(join(tmpdir(), "openteam-message-send-")) : undefined;
+      // Messages consumes file aliases asynchronously, after the AppleScript reply.
+      // Keep these files outside OS temporary storage, including uncertain/partial
+      // sends and app restarts. An age-based cleanup could break a queued retry.
+      if (attachments.length) await mkdir(this.outbox, { recursive: true, mode: 0o700 });
+      const directory = attachments.length ? await mkdtemp(join(this.outbox, "send-")) : undefined;
+      let mayHaveSubmitted = false;
       let submitted: string;
       try {
         const paths: string[] = [];
@@ -175,6 +183,8 @@ end run`;
           paths.push(path);
         }
         try {
+          signal?.throwIfAborted();
+          mayHaveSubmitted = true;
           submitted = await this.run(
             "/usr/bin/osascript",
             [
@@ -188,13 +198,14 @@ end run`;
             ],
             signal
           );
+          if (submitted.trim() === "automation_denied") mayHaveSubmitted = false;
         } catch (error) {
           // A process failure can follow an earlier successful item. Never claim nothing went out.
           if (attachments.length) throw new Error("Messages send outcome is uncertain; some items may have been sent. Check ChatItems and do not resend automatically.");
           throw error;
         }
       } finally {
-        if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+        if (directory && !mayHaveSubmitted) await rm(directory, { recursive: true, force: true }).catch(() => {});
       }
       if (submitted.trim() === "automation_denied")
         throw new NativeCommandError("macOS refused to let OpenTeam control Messages (Automation)", "automation_denied");

@@ -2,21 +2,10 @@
 
 import Image from "next/image";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import {
-  CalendarClock,
-  ChevronsRight,
-  PanelLeftClose,
-  Plug,
-  Clock3,
-  FileText,
-  Monitor,
-  Plus,
-  Search,
-  Settings,
-  Terminal,
-} from "lucide-react";
+import { CalendarClock, Clock3, Grid2x2Plus, Plus, Search, Terminal, X } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
+import { ConversationPill, FileCard } from "./app-ui";
 import "./desktop-demo.css";
 
 const examples = [
@@ -292,66 +281,58 @@ export function ProductDemo() {
         <aside className="dt-sidebar" aria-label="Demo conversations">
           <div className="dt-sidebar-toolbar">
             <TrafficLights />
-            <div className="dt-icon-button" aria-hidden="true">
-              <PanelLeftClose size={15} />
-            </div>
-            <span className="dt-icon-button dt-new" aria-hidden="true">
-              <Plus size={16} />
+            <span className="dt-round-button" aria-hidden="true">
+              <Search size={17} strokeWidth={1.9} />
+            </span>
+            <span className="dt-round-button" aria-hidden="true">
+              <Plus size={18} strokeWidth={1.9} />
             </span>
           </div>
-          <div className="dt-search" aria-hidden="true">
-            <Search size={14} />
-            <span className="dt-search-placeholder">Search</span>
-          </div>
           <div className="dt-conversations">
-            {examples.map((item, i) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`dt-conversation ${i === selected ? "is-active" : ""}`}
-                aria-label={`${item.name} example`}
-                aria-pressed={i === selected}
-                onClick={() => selectScenario(i)}
-              >
-                <BotAvatar
-                  shape={item.shape}
-                  color={item.color}
-                  size={36}
-                  mode={i === selected ? avatarMode : "still"}
-                />
-                <span className="dt-conversation-text">
-                  <span>
-                    <strong>{item.name}</strong>
-                    <time>{i === 0 ? "8:01 AM" : i === 1 ? "8:00 AM" : "Yesterday"}</time>
+            {examples.map((item, i) => {
+              const working = i === selected && active && !done;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`dt-conversation ${i === selected ? "is-active" : ""}`}
+                  aria-label={`${item.name} example`}
+                  aria-pressed={i === selected}
+                  onClick={() => selectScenario(i)}
+                >
+                  <span className="dt-row-avatar">
+                    <BotAvatar
+                      shape={item.shape}
+                      color={item.color}
+                      size={36}
+                      mode={i === selected ? avatarMode : "still"}
+                    />
+                    {working ? <span className="dt-working-dot" aria-hidden="true" /> : null}
                   </span>
-                  <small>{i === selected && !done ? "Working…" : item.preview}</small>
-                </span>
-              </button>
-            ))}
+                  <span className="dt-conversation-text">
+                    <strong>{item.name}</strong>
+                    <small>{i === selected && !done ? (stage > 0 ? item.acknowledgment : item.prompt) : item.preview}</small>
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <div className="dt-sidebar-footer">
-            <div>
-              <span className="dt-footer-icon">
-                <Plug size={14} />
-              </span>
-              <span className="dt-footer-label">Marketplace</span>
-            </div>
-            <div>
-              <span className="dt-account-avatar">JL</span>
-              <span className="dt-footer-label">Jordan Lee</span>
-            </div>
+            <span className="dt-account-avatar" aria-hidden="true">JL</span>
+            <span className="dt-footer-label">Jordan Lee</span>
+            <span className="dt-apps-button" aria-hidden="true">
+              <Grid2x2Plus size={16} strokeWidth={1.8} />
+            </span>
           </div>
         </aside>
         <section className="dt-chat" aria-label={`${scenario.name} sample conversation`}>
           <header className="dt-chat-header">
-            <BotAvatar shape={scenario.shape} color={scenario.color} size={16} mode={avatarMode} />
-            <strong>{scenario.name}</strong>
-            <div className="dt-icon-button dt-open-details" aria-hidden="true">
-              <Monitor size={16} />
-            </div>
-            <div className="dt-icon-button dt-mobile-screen" aria-label="Worker computer">
-              <Monitor size={16} />
-            </div>
+            <ConversationPill
+              avatar={
+                <BotAvatar shape={scenario.shape} color={scenario.color} size={24} mode={avatarMode} />
+              }
+              name={scenario.name}
+            />
           </header>
           <div
             className="dt-transcript"
@@ -374,10 +355,8 @@ export function ProductDemo() {
                 <div className="dt-bubble">{scenario.acknowledgment}</div>
               </div>
               {stage === 0 && (
-                <div className={`dt-thinking ${!active ? "is-paused" : ""}`} aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
+                <div className="dt-thinking" aria-hidden="true">
+                  <BotAvatar shape={scenario.shape} color={scenario.color} size={24} mode={active ? "thinking" : "still"} />
                 </div>
               )}
             </div>
@@ -389,33 +368,16 @@ export function ProductDemo() {
                 inert={!done}
               >
                 <div className="dt-bubble">{scenario.reply}</div>
-                <article className="dt-file">
-                  <div className="dt-file-open" aria-label={scenario.file}>
-                    <span className="dt-file-icon">
-                      <FileText size={17} strokeWidth={1.65} />
-                    </span>
-                    <span>
-                      <strong>
-                        {scenario.file.slice(0, scenario.file.lastIndexOf("."))}
-                        <span className="dt-file-extension">
-                          {scenario.file.slice(scenario.file.lastIndexOf("."))}
-                        </span>
-                      </strong>
-                      <small>{fileSize}</small>
-                    </span>
-                  </div>
-                </article>
+                <FileCard className="dt-file" fileName={scenario.file} detail={fileSize} />
               </div>
               {stage > 0 && !done && (
                 <div
-                  className={`dt-thinking ${!active ? "is-paused" : ""}`}
+                  className="dt-thinking"
                   role="status"
                   aria-live="off"
                   aria-label={`${scenario.name} is working`}
                 >
-                  <span />
-                  <span />
-                  <span />
+                  <BotAvatar shape={scenario.shape} color={scenario.color} size={24} mode={active ? "thinking" : "still"} />
                 </div>
               )}
             </div>
@@ -434,21 +396,32 @@ export function ProductDemo() {
         </section>
         <aside className="dt-inspector" aria-label="Conversation details">
           <header className="dt-inspector-header">
-            <span className="dt-icon-button" aria-hidden="true">
-              <Settings size={14} />
+            <span className="dt-round-button" aria-hidden="true">
+              <X size={17} strokeWidth={1.9} />
             </span>
-            <div className="dt-icon-button" aria-hidden="true">
-              <ChevronsRight size={16} />
-            </div>
           </header>
-          <div className="dt-screen-preview" aria-label="Worker computer">
-            <DesktopScreenCanvas scenario={scenario} />
-          </div>
-          <p className="dt-screen-label">{scenario.name}&apos;s screen</p>
-          <div className="dt-routines">
-            <div className="dt-routines-heading">
-              <h3>Routines</h3>
+          <section className="dt-profile" aria-label="Bot profile">
+            <BotAvatar shape={scenario.shape} color={scenario.color} size={56} mode={avatarMode} />
+            <strong>{scenario.name}</strong>
+            <div className="dt-tabs" aria-hidden="true">
+              <span className="is-selected">Activity</span>
+              <span>Library</span>
             </div>
+          </section>
+          <section className="dt-details-section" aria-label="Computer preview">
+            <h3>Computer</h3>
+            <div className="dt-computer-card">
+              <span>
+                {scenario.name}&apos;s computer
+                <small>{active && !done ? "Working" : "Ready"}</small>
+              </span>
+              <span className="dt-screen-preview">
+                <DesktopScreenCanvas scenario={scenario} />
+              </span>
+            </div>
+          </section>
+          <section className="dt-details-section dt-routines" aria-label="Routines">
+            <h3>Routines</h3>
             <div className="dt-routine-row">
               <CalendarClock size={14} />
               <div>
@@ -466,7 +439,7 @@ export function ProductDemo() {
                 </small>
               </div>
             </div>
-          </div>
+          </section>
         </aside>
       </div>
     </div>

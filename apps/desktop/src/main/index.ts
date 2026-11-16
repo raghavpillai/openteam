@@ -61,6 +61,7 @@ import {
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
   parseNotificationTarget,
+  parseNotificationReadState,
 } from "./notifications";
 import {
   createComputerSettingsStore,
@@ -776,6 +777,12 @@ ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
 
 ipcMain.on("openteam:notifications:clear", (event) => {
   if (mainWindow && event.sender === mainWindow.webContents) desktopNotifications?.clear();
+});
+
+ipcMain.on("openteam:notifications:read", (event, request: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  const state = parseNotificationReadState(request);
+  if (state) desktopNotifications?.markRead(state);
 });
 
 ipcMain.on("openteam:notifications:visible-channel", (event, channelId: unknown) => {

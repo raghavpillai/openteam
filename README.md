@@ -9,7 +9,7 @@ take over when needed, or come back when the work is done.
 [Website](https://openteam.so) · [Get started](#get-started) · [Download apps](#apps) · [Documentation](https://openteam.so/docs) ·
 [Develop from source](https://openteam.so/docs/development/from-source)
 
-[![OpenTeam desktop and iPhone apps showing the same vendor comparison and weekday pricing check](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
+[![OpenTeam desktop and iPhone apps showing a vendor comparison, bot details, and a weekday pricing routine](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
 
 ## What you can do
 

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BotAvatar } from "./bot-avatar";
+import { ConversationPill } from "./app-ui";
 import { useDemoCycle } from "./use-demo-cycle";
 import "./connections-polish.css";
 
@@ -221,17 +222,17 @@ export function AppConnections({ children }: { children: ReactNode }) {
           aria-label="Chief of staff prepares a meeting brief using connected apps"
         >
           <header className="ac-chat-header">
-            <BotAvatar
-              shape="helmet"
-              color="#ff7a1a"
-              size={32}
-              mode={playing && !done ? "working" : "idle"}
+            <ConversationPill
+              avatar={
+                <BotAvatar
+                  shape="helmet"
+                  color="#ff7a1a"
+                  size={24}
+                  mode={playing && !done ? "working" : "idle"}
+                />
+              }
+              name="Chief of staff"
             />
-            <strong>Chief of staff</strong>
-            <span data-done={done}>
-              <span className="ac-run-working" aria-hidden={done}><i /> Working</span>
-              <span className="ac-run-ready" aria-hidden={!done}><Check size={12} /> Ready</span>
-            </span>
           </header>
           <div className="ac-chat-body">
             <div className="ac-request">Prep me for my call with Maya at Meridian.</div>

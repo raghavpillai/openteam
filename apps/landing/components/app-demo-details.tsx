@@ -12,12 +12,13 @@ import {
   Mic,
   LoaderCircle,
   X,
-  Monitor,
+  Ellipsis,
   MonitorUp,
   Pencil,
   Plus,
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
+import { ConversationPill, FileCard } from "./app-ui";
 import { useDemoCycle } from "./use-demo-cycle";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
 import { Button } from "./ui/button";
@@ -38,14 +39,12 @@ export function ComputerDemo() {
       <div className="dc-window" aria-label="Desktop computer handoff demo">
         <section className="dc-chat" aria-label="Research handoff conversation">
           <header className="dc-chat-header">
-            <BotAvatar
-              shape="helmet"
-              color="#ff7a1a"
-              size={16}
-              mode={ready ? "idle" : "working"}
+            <ConversationPill
+              avatar={
+                <BotAvatar shape="helmet" color="#ff7a1a" size={24} mode={ready ? "idle" : "working"} />
+              }
+              name="Research"
             />
-            <strong>Research</strong>
-            <span className="dc-live-status">{ready ? "Needs your input" : "Working…"}</span>
           </header>
           <div className="dc-chat-content" aria-label="Sample handoff messages">
             <p className="dc-chat-date">Today 8:04 AM</p>
@@ -411,14 +410,14 @@ export function MobileDemo() {
             </div>
             <header className="dm-header">
               <span className="dm-circle">
-                <ChevronLeft size={18} />
+                <ChevronLeft size={21} strokeWidth={2.2} />
               </span>
               <div className="dm-identity">
-                <BotAvatar shape="helmet" color="#ff7a1a" size={27} mode="idle" />
+                <BotAvatar shape="helmet" color="#ff7a1a" size={24} mode="idle" />
                 <strong>Research</strong>
               </div>
-              <span className="dm-circle dm-computer">
-                <Monitor size={18} />
+              <span className="dm-circle dm-more">
+                <Ellipsis size={21} strokeWidth={2.4} />
               </span>
             </header>
             <div className="dm-messages">
@@ -429,13 +428,9 @@ export function MobileDemo() {
               </div>
               <div className="dm-bubble" data-visible={cycle.index >= 2}>
                 I saved the comparison in vendor-review.md.
-                <div className="dm-attachment">
-                  <FileText size={22} />
-                  <span>
-                    <strong>vendor-review.md</strong>
-                    <small>1 KB</small>
-                  </span>
-                </div>
+              </div>
+              <div className="dm-file-row" data-visible={cycle.index >= 2}>
+                <FileCard className="dm-file-card" fileName="vendor-review.md" detail="1 KB" />
               </div>
               <div className="dm-bubble dm-user" data-visible={cycle.index >= 3}>
                 Check their pricing every Monday at 9 AM.
@@ -449,9 +444,9 @@ export function MobileDemo() {
                 <Plus size={20} />
               </span>
               <div className="dm-composer">
-                <span>Message Research</span>
+                <span>Ask Research</span>
                 <span className="dm-mic">
-                  <Mic size={16} />
+                  <Mic size={17} />
                 </span>
               </div>
             </div>

@@ -64,9 +64,6 @@
   }
   .ot-home .pd-scenario svg { display: block; width: 16px; height: 16px; flex-shrink: 0; }
   .ot-home .dt-app { border-radius: 11px; }
-  .ot-home .dt-bubble { font-size: 14px; line-height: 1.55; }
-  .ot-home .dt-chat-header { min-height: 51px; }
-  .ot-home .dt-chat-header strong { font-size: 14px; }
   .ot-home .dt-transcript { padding-inline: 12px; }
   .ot-home .ot-proof-strip { margin-top: 30px; border-radius: 0; background: transparent; }
   .ot-home .ot-proof-strip > a { padding: 18px 2px; gap: 13px; }

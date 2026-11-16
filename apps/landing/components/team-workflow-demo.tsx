@@ -1,17 +1,15 @@
 "use client";
 
 import {
-  FileJson,
   Check,
   ChevronsRight,
-  FileText,
   FolderOpen,
-  Info,
   Settings,
 } from "lucide-react";
 import { useDemoCycle } from "./use-demo-cycle";
 import { DataStream } from "./data-stream";
 import { BotAvatar } from "./bot-avatar";
+import { ConversationPill, FileCard } from "./app-ui";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
 import "./team-workflow-demo.css";
 import "./team-polish.css";
@@ -78,21 +76,11 @@ function GroupAvatar() {
 
 function FileAttachment({ file }: { file: SampleFile }) {
   return (
-    <div className="twd-file">
-      <span className="twd-file-icon" aria-hidden="true">
-        {file === "options" ? (
-          <FileJson size={17} strokeWidth={1.65} />
-        ) : (
-          <FileText size={17} strokeWidth={1.65} />
-        )}
-      </span>
-      <span>
-        <strong>{files[file].name}</strong>
-        <small>
-          {file === "options" ? "Shared workspace · JSON" : "Shared workspace · Markdown"}
-        </small>
-      </span>
-    </div>
+    <FileCard
+      className="twd-file-card"
+      fileName={files[file].name}
+      detail={file === "options" ? "Shared workspace · JSON" : "Shared workspace · Markdown"}
+    />
   );
 }
 
@@ -141,14 +129,7 @@ export function TeamWorkflowDemo() {
       <div className="twd-app">
         <section className="twd-chat" aria-label="Boston trip sample group conversation">
           <header className="twd-header">
-            <GroupAvatar />
-            <strong>Boston trip</strong>
-            <span className="twd-header-members">
-              Finance <span>+ </span>Travel planner
-            </span>
-            <span className="twd-info" aria-hidden="true">
-              <Info size={16} />
-            </span>
+            <ConversationPill avatar={<GroupAvatar />} name="Boston trip" />
           </header>
 
           <div className="twd-transcript">

@@ -794,6 +794,7 @@ private extension View {
 private struct NativePlaceMap: View {
   let places: [PresentationPlace]
   let route: PresentationRoute?
+  @Environment(AppStore.self) private var store
   @Binding var selected: String?
   var hasCards = false
   /// Points of map covered by glass at the bottom (cards or the preview);
@@ -901,6 +902,9 @@ private struct NativePlaceMap: View {
               .offset(x: fanOffsets[place.id] ?? 0)
           }.buttonStyle(SquishButtonStyle(scale: 0.88)).accessibilityLabel(place.name).accessibilityIdentifier("place-pin-" + place.id)
             .accessibilityAddTraits(selected == place.id ? .isSelected : [])
+            // MapKit hosts each pin in a view of its own. One it makes while the map
+            // resizes for full screen has no store, which the pin's photo loads through.
+            .environment(store)
         }.annotationTitles(place.name.count > 24 && selected != place.id ? .hidden : .automatic)
       }
     }

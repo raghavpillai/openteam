@@ -265,7 +265,8 @@ electronFileBudget("main.js", 177_000);
 const updaterChunks = result.electron.files.filter(file => /^chunks\/main(?:-[^.]+)?\.js$/.test(file.path));
 if (updaterChunks.length !== 1) failures.push("Expected exactly one Electron updater chunk");
 else atMost("Electron updater chunk bytes", updaterChunks[0]!.bytes, 600_000);
-electronFileBudget("preload.cjs", 10_000);
+// Main with the Share location settings bridge measures 10,154 bytes.
+electronFileBudget("preload.cjs", 10_500);
 // AwaitShell adds the bounded RE2 engine and durable job/environment receipts.
 // Measured unminified utility: 280,140 bytes; retain the total Electron ceiling.
 electronFileBudget("host-utility.js", 285_000);
@@ -393,8 +394,8 @@ const lazyBudgets: Record<string, number> = {
   search: 100_000,
   groupAvatarEditor: 10_000,
   // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes;
-  // 46,297 with the Timezone page.
-  settingsInitial: 55_000,
+  // 46,297 with the Timezone page; 56,026 on main with Share location.
+  settingsInitial: 58_000,
   // The Voice notes entry and microphone icon bring the settings shell to 10,728;
   // 11,132 with the Messages entry and the Settings cleanup.
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
@@ -403,8 +404,9 @@ const lazyBudgets: Record<string, number> = {
   // The Keyboard entry and its icon: 14,714.
   settingsShell: 20_000,
   settingsAbout: 10_000,
-  // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
-  settingsGeneral: 42_000,
+  // Main already measures 33,930 with auto-review rules; 37,276 with Timezone;
+  // 42,696 with Share location.
+  settingsGeneral: 44_000,
   settingsComputer: 31_000,
   // Dedicated network priority controls, including their on-demand stylesheet.
   settingsNetwork: 26_000,

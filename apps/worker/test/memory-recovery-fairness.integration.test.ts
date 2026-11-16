@@ -238,3 +238,23 @@ databaseTest("background recovery keeps at most 32 slow reviews active across sc
   expect(await db.run.count({ where: { id: { in: runIds }, memoryReviewPending: false } })).toBe(33);
   expect(worker.memoryReviews.size).toBe(0);
 }), 15_000);
+
+databaseTest("chaos: background recovery waits out a failed review instead of retrying the outage every scan", () => fixture(async ({ db, worker, addBot, addRun, setInference, inferenceCalls }) => {
+  const bot = await addBot("Outage backoff");
+  const run = await addRun(bot, 0);
+  setInference(async () => { throw new Error("Injected model outage"); });
+  await scanAndSettle(worker);
+  const failedCalls = inferenceCalls.length;
+  expect(failedCalls).toBeGreaterThan(0);
+  expect((await db.run.findUniqueOrThrow({ where: { id: run } })).memoryReviewPending).toBe(true);
+  // Later scans inside the backoff do not call the model again.
+  for (let scan = 0; scan < 5; scan++) await scanAndSettle(worker);
+  expect(inferenceCalls.length).toBe(failedCalls);
+  // Once the backoff lapses and the model is back, the held review completes.
+  setInference(async () => `profile: ${healthyFact}`);
+  const backoff = (worker as unknown as { agentData: { memoryReviewBackoff: Map<string, { retryAt: number }> } }).agentData.memoryReviewBackoff;
+  backoff.get(bot.id)!.retryAt = Date.now() - 1;
+  await scanAndSettle(worker);
+  expect((await db.run.findUniqueOrThrow({ where: { id: run } })).memoryReviewPending).toBe(false);
+  expect(backoff.has(bot.id)).toBe(false);
+}), 60_000);

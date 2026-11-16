@@ -74,6 +74,11 @@ const LEASE_MS = 2 * 60_000;
 export const BOOTSTRAP_ATTEMPT_LIMIT = 4;
 /** How often a cut-off greeting asks whether the computer is ready again. */
 export const BOOTSTRAP_RETRY_PROBE_MS = 5_000;
+/** Waits before each retry of a routine run, handoff or request check that failed before it acted. */
+export const AUTOMATION_RETRY_DELAYS_MS = [30_000, 120_000, 300_000] as const;
+// A failed request check would otherwise spend the request's bounded
+// reconciliations within seconds and leave it blocked after a short outage.
+const RETRIED_AUTOMATION_WAKES = new Set(["routine.scheduled", "routine.manual", "routine.event", "automation.wake_parent", "request.check"]);
 export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
 export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
@@ -466,6 +471,7 @@ export class WakeWorker {
   private agentStoreTimer: ReturnType<typeof setInterval> | null = null;
   private pushNotificationTimer: ReturnType<typeof setInterval> | null = null;
   private memoryReviewTimer: ReturnType<typeof setInterval> | null = null;
+  private stalledWakeTimer: ReturnType<typeof setInterval> | null = null;
   private memoryReviewScanActive = false;
   private memoryReviewCursor: string | null = null;
   private readonly memoryReviews = new Map<string, Promise<void>>();
@@ -536,6 +542,7 @@ export class WakeWorker {
     await this.boss.schedule("routine-dispatch", "* * * * *");
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
+    await this.kickStalledWakes();
     await dispatchTaskContinuations(this.prisma, this.messaging);
     await dispatchRequestChecks(this.prisma, this.messaging);
     await recoverRequestProgress(this.prisma, this.messaging);
@@ -588,6 +595,10 @@ export class WakeWorker {
       void this.recoverMemoryReviews().catch((error) => console.error("memory review recovery", error));
     }, 5_000);
     this.memoryReviewTimer.unref();
+    this.stalledWakeTimer = setInterval(() => {
+      void this.kickStalledWakes().catch((error) => console.error("stalled wake recovery", error));
+    }, 30_000);
+    this.stalledWakeTimer.unref();
   }
 
   async stop(): Promise<void> {
@@ -600,6 +611,8 @@ export class WakeWorker {
     this.pushNotificationTimer = null;
     if (this.memoryReviewTimer) clearInterval(this.memoryReviewTimer);
     this.memoryReviewTimer = null;
+    if (this.stalledWakeTimer) clearInterval(this.stalledWakeTimer);
+    this.stalledWakeTimer = null;
     await this.boss.stop({ graceful: true });
     await Promise.allSettled([...this.concurrentAutomations]);
     await Promise.allSettled([...this.memoryReviews.values()]);
@@ -852,6 +865,31 @@ export class WakeWorker {
       await this.boss.send("transcript-project", { botId: bot.id });
     }
     return adopted;
+  }
+
+  /**
+   * A wake left processing by a worker that crashed, or whose failure could not be
+   * recorded, is reclaimed by the next claim for its bot once its lease lapses. A bot
+   * with no other wake never claims again, and a routine's own ticks are skipped as
+   * overlapping that run, so queue the claim here.
+   */
+  async kickStalledWakes(): Promise<void> {
+    const now = new Date();
+    const stalled = await this.prisma.inboxEvent.findMany({
+      where: {
+        status: "processing",
+        claimedAt: { lt: new Date(now.getTime() - LEASE_MS) },
+        availableAt: { lte: now },
+        bot: { status: "active" },
+        run: { status: { in: ["queued", "running"] }, NOT: { lease: { is: { expiresAt: { gt: now } } } } },
+      },
+      distinct: ["botId"],
+      select: { botId: true },
+      take: 100,
+    });
+    for (const { botId } of stalled) {
+      await this.boss.send("bot-wake", { botId }, { retryLimit: 5, retryDelay: 2, retryBackoff: true, expireInSeconds: 3 * 60 });
+    }
   }
 
   private async recoverDurableWork(): Promise<void> {
@@ -1230,8 +1268,11 @@ export class WakeWorker {
       const claimed = await this.claim(botId);
       if (!claimed) return;
       if (claimed.origin === "routine") {
-        const task = this.execute(claimed).catch(() => {
-          console.warn("Automation execution failed; durable recovery will reconcile its run", { runId: claimed.runId });
+        const task = this.execute(claimed).catch((error) => {
+          console.warn("Automation execution failed; durable recovery will reconcile its run", {
+            runId: claimed.runId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }).finally(() => {
           this.concurrentAutomations.delete(task);
           if (!this.stopping) void this.handle(job).catch(() => { if (!this.stopping) console.warn("Automation queue resume failed", { botId }); });
@@ -1756,7 +1797,10 @@ export class WakeWorker {
       if (claimed.deliveryId && !needsMemoryReview) {
         await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);
       }
-      if (needsMemoryReview) await this.reviewMemoryRun(claimed.runId);
+      if (needsMemoryReview) {
+        this.agentData.retryMemoryReviewsNow(claimed.botId);
+        await this.reviewMemoryRun(claimed.runId);
+      }
       await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     } catch (error) {
       // Without a completion the computer never settled the turn: it was
@@ -1809,6 +1853,83 @@ export class WakeWorker {
       },
       signal: init.signal ?? AbortSignal.timeout(10_000),
     });
+  }
+
+  /**
+   * A routine run, its handoff or a request check has no user waiting to resend it:
+   * an outage that fails it is otherwise a silently lost run, message or request.
+   * Retry in place, a bounded number of times, only while nothing has acted yet,
+   * so a retry cannot repeat a command, tool call or message.
+   */
+  private async requeueFailedAutomationWake(claimed: Claimed, error: unknown): Promise<boolean> {
+    if (!RETRIED_AUTOMATION_WAKES.has(claimed.inboxType) || error instanceof TurnStoppedError) return false;
+    const delayMs = await this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, claimed.botId);
+      await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
+      const [run, inbox, bot] = await Promise.all([
+        tx.run.findUnique({ where: { id: claimed.runId }, select: { status: true, error: true, requestStoppedAt: true } }),
+        tx.inboxEvent.findUnique({ where: { id: claimed.inboxId }, select: { attempts: true, status: true } }),
+        tx.bot.findUnique({ where: { id: claimed.botId }, select: { status: true } }),
+      ]);
+      const delay = AUTOMATION_RETRY_DELAYS_MS[(inbox?.attempts ?? Infinity) - 1];
+      const errorCode = run?.error && typeof run.error === "object" && !Array.isArray(run.error)
+        ? (run.error as { code?: unknown }).code : undefined;
+      if (
+        delay === undefined ||
+        bot?.status !== "active" ||
+        inbox?.status !== "processing" ||
+        !run || !["running", "failed"].includes(run.status) ||
+        errorCode === "priority_peer_interrupt" ||
+        requestIsStopped(run)
+      ) return null;
+      const acted = await tx.runItem.count({
+        where: {
+          runId: claimed.runId,
+          kind: { in: ["command", "file_change", "tool"] },
+          // Every turn records its prompt fingerprint as a tool item before the model runs.
+          OR: [{ upstreamItemId: null }, { NOT: { upstreamItemId: { startsWith: "prompt:" } } }],
+        },
+      }) + await tx.channelMessage.count({ where: { sourceRunId: claimed.runId, sender: "agent" } });
+      if (acted) return null;
+      if (claimed.origin === "routine") {
+        // A routine deleted or paused since it fired is not run again.
+        const execution = await tx.routineExecution.findUnique({
+          where: { runId: claimed.runId },
+          select: { routine: { select: { deletedAt: true, pausedAt: true, enabled: true } } },
+        });
+        if (!execution || execution.routine.deletedAt || execution.routine.pausedAt || !execution.routine.enabled) return null;
+      }
+      await finalizeInterruptedItems(tx, claimed.runId, false);
+      await tx.botRunLease.deleteMany({ where: { botId: claimed.botId, ownerId: claimed.ownerId } });
+      await tx.inboxEvent.update({
+        where: { id: claimed.inboxId },
+        data: { status: "pending", claimedAt: null, availableAt: new Date(Date.now() + delay) },
+      });
+      await tx.run.update({
+        where: { id: claimed.runId },
+        data: { status: "queued", error: Prisma.DbNull, completedAt: null },
+      });
+      await tx.event.create({
+        data: {
+          topic: "run.retry_queued",
+          entityId: claimed.runId,
+          payload: {
+            botId: claimed.botId,
+            attempt: inbox!.attempts,
+            delayMs: delay,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+      return delay;
+    });
+    if (delayMs === null) return false;
+    await this.boss.send(
+      "bot-wake",
+      { botId: claimed.botId },
+      { startAfter: Math.ceil(delayMs / 1000), retryLimit: 5, retryDelay: 2, retryBackoff: true, expireInSeconds: 3 * 60 }
+    );
+    return true;
   }
 
   /**
@@ -1962,6 +2083,7 @@ export class WakeWorker {
       void this.wakeBootstrapWhenComputerReady(claimed.botId);
       return;
     }
+    if (await this.requeueFailedAutomationWake(claimed, error)) return;
     const details = {
       code: "runtime_interrupted",
       message: error instanceof Error ? error.message : String(error),
@@ -2191,6 +2313,8 @@ export class WakeWorker {
         // Foreground settlement may have started a review while this query ran.
         if (this.memoryReviews.size >= 32) break;
         this.memoryReviewCursor = run.botId;
+        // A bot whose last review failed waits out its backoff; its next turn still reviews.
+        if (this.agentData.memoryReviewRetryAt(run.botId) > Date.now()) continue;
         void this.reviewMemoryRun(run.id);
       }
     } finally {

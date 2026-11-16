@@ -22,7 +22,16 @@ export const managedBrowserNetworkArguments = (port = browserProxyPort) =>
         "--disable-extensions",
       ];
 
-export async function startBrowserNetwork(serverUrl: string, token: string) {
+/** Start attempts, each with double the previous deadline, before the computer gives up. */
+export const FIRST_START_ATTEMPTS = 3;
+
+export async function startBrowserNetwork(
+  serverUrl: string,
+  token: string,
+  timings: { startMs?: number; retryMs?: number } = {}
+) {
+  const startMs = timings.startMs ?? 10_000;
+  const retryMs = timings.retryMs ?? 3000;
   const logNetwork = createNetworkDiagnostics("computer");
   const computerNetwork = process.env.OPENTEAM_COMPUTER_NETWORK === "1";
   if (computerNetwork && !existsSync("/run/openteam-network-ready"))
@@ -32,6 +41,7 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
   let child: ChildProcess | undefined,
     stopping = false,
     retry: ReturnType<typeof setTimeout> | undefined,
+    starting = true,
     tun: ChildProcess | undefined;
   type Diagnostic = NetworkEgress | NetworkQuality;
   const probes = new Map<
@@ -94,7 +104,7 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
     tun.kill();
     throw new Error("Computer network interface did not become ready");
   };
-  const launch = async () => {
+  const launch = async (deadlineMs = startMs) => {
     await ensureTun();
     return new Promise<void>((resolve, reject) => {
       const adjacent = join(import.meta.dirname, "browser-network-worker.mjs");
@@ -119,7 +129,7 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
       const timeout = setTimeout(() => {
         worker.kill();
         reject(new Error("Browser network worker failed to start"));
-      }, 10_000);
+      }, deadlineMs);
       worker.stdout!.setEncoding("utf8");
       worker.stdout!.on("data", (chunk: string) => {
         pending += chunk;
@@ -170,32 +180,41 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
         failProbes();
         state = { ready: false, mode: null, activeConnections: 0 };
         if (!started) reject(new Error("Browser network worker exited before startup"));
-        if (!stopping) {
-          retry = setTimeout(() => void restart(), 3000);
-          retry.unref();
-        }
+        // A worker that timed out at startup exits after its launch already failed
+        // and scheduled a restart; a superseded worker must not start another chain.
+        if (child === worker) scheduleRestart();
       });
     });
+  };
+  // Exactly one pending restart: the startup-timeout and exit paths both ask for one.
+  // The first start retries in place below, so nothing is scheduled until it succeeds.
+  const scheduleRestart = () => {
+    if (stopping || starting) return;
+    clearTimeout(retry);
+    retry = setTimeout(() => void restart(), retryMs);
+    retry.unref();
   };
   const restart = async () => {
     if (stopping) return;
     try {
       await launch();
     } catch {
-      if (!stopping) {
-        clearTimeout(retry);
-        retry = setTimeout(() => void restart(), 3000);
-        retry.unref();
-      }
+      scheduleRestart();
     }
   };
-  try {
-    await launch();
-  } catch (error) {
-    stopping = true;
-    tun?.kill();
-    child?.kill();
-    throw error;
+  // A starved host can miss one start deadline. Exiting would restart the whole
+  // computer into the same race, so give the first start more time before failing.
+  for (let attempt = 1; starting; attempt++) {
+    try {
+      await launch(startMs * 2 ** (attempt - 1));
+      starting = false;
+    } catch (error) {
+      if (attempt < FIRST_START_ATTEMPTS) continue;
+      stopping = true;
+      tun?.kill();
+      child?.kill();
+      throw error;
+    }
   }
   const diagnostic = <T extends Diagnostic>(kind: "egress" | "quality"): Promise<T> => {
     const existing = probes.get(kind);

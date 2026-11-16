@@ -271,12 +271,15 @@ const routineWakeContent = (input: {
   provenance?: string;
   kind: "scheduled" | "manual" | "event";
   events?: readonly AutomationEvent[];
+  /** When a scheduled run starts well after its slot, the slot it is catching up on. */
+  lateFor?: Date;
 }): string => {
   const trusted = input.provenance === "user" ? "[SAND_TRUSTED_AUTOMATION_PROMPT]" : "";
   const events = input.events ?? [];
   const schedule = input.schedule ?? "scheduled routine";
   const folder = input.folder ?? input.name;
-  const firedAt = input.firedAt.toLocaleString("en-US", { timeZone: input.timeZone ?? "UTC", timeZoneName: "short" });
+  const localTime = (date: Date) => date.toLocaleString("en-US", { timeZone: input.timeZone ?? "UTC", timeZoneName: "short" });
+  const firedAt = localTime(input.firedAt);
   const described = input.trigger
     ? describeWakeSchedule(schedule, input.trigger)
     : `${describeWakeSchedule(schedule)} (${schedule})`;
@@ -294,7 +297,7 @@ const routineWakeContent = (input: {
           "The user pressed Run now on this routine in the app; this is that run, not a message they typed.",
         ]
       : [
-          `[routine] ${JSON.stringify(input.name)} (folder ${folder}) is due. Trigger: ${described}, fired ${firedAt}.`,
+          `[routine] ${JSON.stringify(input.name)} (folder ${folder}) is due. Trigger: ${described}, fired ${firedAt}.${input.lateFor ? ` It was due ${localTime(input.lateFor)}.` : ""}`,
           "This is your own routine firing on schedule, not a message the user just typed.",
         ];
   const selfContained = input.kind === "manual"
@@ -313,21 +316,29 @@ const routineWakeContent = (input: {
   ].join("\n");
 };
 
+/** A scheduled run this far behind its slot says so, rather than presenting the slot as now. */
+export const LATE_ROUTINE_RUN_MS = 5 * 60_000;
+
 export const scheduledRoutineWakeContent = (input: {
   name: string;
   folder?: string;
   schedule?: string;
   trigger?: unknown;
   scheduledFor: Date;
+  /** When the run actually starts; after downtime this is later than its slot. */
+  firedAt?: Date;
   timeZone?: string;
   prompt: string;
   provenance?: string;
-}): string =>
-  routineWakeContent({
+}): string => {
+  const firedAt = input.firedAt ?? input.scheduledFor;
+  return routineWakeContent({
     ...input,
-    firedAt: input.scheduledFor,
+    firedAt,
     kind: "scheduled",
+    ...(firedAt.getTime() - input.scheduledFor.getTime() >= LATE_ROUTINE_RUN_MS ? { lateFor: input.scheduledFor } : {}),
   });
+};
 
 export const manualRoutineWakeContent = (input: {
   name: string;
@@ -1989,13 +2000,14 @@ export class RoutineService {
               schedule: routine.scheduleText,
               trigger: routine.trigger,
               scheduledFor,
+              firedAt: now,
               timeZone: routine.timezone,
               prompt: routine.prompt,
               provenance: routine.provenance,
             }),
             clientId: dedupeKey,
             priority: 100,
-            occurredAt: scheduledFor,
+            occurredAt: now,
             timeZone: routine.timezone,
           });
           runId = wake.run.id;

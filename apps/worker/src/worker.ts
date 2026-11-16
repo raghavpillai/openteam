@@ -1757,10 +1757,14 @@ export class WakeWorker {
       await lockAgentLifecycle(tx, claimed.botId);
       await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
       const current = await tx.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
-      if (current?.status !== "completed" || await tx.botRunLease.findFirst({
+      if (await tx.botRunLease.findFirst({
         where: { runId: claimed.runId, ownerId: { not: claimed.ownerId } },
         select: { runId: true },
       })) return null;
+      // Stop can win before a buffered successful completion is projected. Keep its
+      // cancellation authoritative, but still settle the inbox and release our lease.
+      if (current?.status === "cancelled") return "cancelled" as const;
+      if (current?.status !== "completed") return null;
       const inbox = await tx.inboxEvent.findUnique({ where: { id: claimed.inboxId }, select: { status: true } });
       if (!inbox) return null;
       // A later file or delivery error must not re-arm memory review or repeat
@@ -1817,6 +1821,10 @@ export class WakeWorker {
       return "settled" as const;
     });
     if (!settlement) return;
+    if (settlement === "cancelled") {
+      await this.fail(claimed, new TurnStoppedError("Turn was stopped before completion settled"));
+      return;
+    }
     // Memory extraction needs the published replies, not the buffered group outbox.
     if (claimed.deliveryId && !needsMemoryReview) {
       await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);

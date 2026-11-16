@@ -12,11 +12,32 @@ type Internals = {
   boss: { send: (...args: unknown[]) => Promise<unknown> };
   claim(botId: string): Promise<Claimed | null>;
   fail(claimed: Claimed, error: unknown, interrupted?: boolean): Promise<void>;
+  settleCompletedWake(claimed: Claimed): Promise<void>;
   projection: { apply(runId: string, conversationId: string, botId: string, event: { type: "turn.completed"; turnId: string; status: "completed" }): Promise<unknown> };
   syncRoutineRunFile(botId: string, runId: string): Promise<void>;
 };
 
 const outage = () => new Error('500: {"message":"upstream exploded","type":"server_error"}');
+
+test.skipIf(!databaseUrl)("a buffered completion after Stop settles cancellation without retaining its lease", async () => {
+  const h = await harness("Stop before buffered completion");
+  try {
+    const claimed = (await h.internals.claim(h.botId))!;
+    await h.db.run.update({ where: { id: claimed.runId }, data: {
+      status: "cancelled", completedAt: new Date(), error: { code: "cancelled_by_user", message: "Stopped" },
+    } });
+    await h.internals.projection.apply(claimed.runId, h.conversationId, h.botId,
+      { type: "turn.completed", turnId: claimed.runId, status: "completed" });
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("cancelled");
+    await h.internals.settleCompletedWake(claimed);
+    expect((await h.db.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe("failed");
+    expect(await h.db.botRunLease.count({ where: { runId: claimed.runId } })).toBe(0);
+    expect((await h.db.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe("cancelled");
+    expect((await h.db.routineExecution.findFirstOrThrow({ where: { routineId: h.routineId } })).status).toBe("cancelled");
+  } finally {
+    await h.cleanup();
+  }
+}, 30_000);
 
 const harness = async (name: string) => {
   const root = await mkdtemp(join(tmpdir(), "automation-retry-"));

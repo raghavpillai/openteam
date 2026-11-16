@@ -26,7 +26,9 @@ type Story = Awaited<ReturnType<typeof tools>>;
 const results: { story: string; ok: boolean; problems: string[] }[] = [];
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-function tools(page: import("../../computer/node_modules/playwright-core").Page, problems: string[]) {
+const receiptLabel = (kind: string) => kind === "imessage" ? "Submitted" : "Sent";
+
+function tools(page: import("../../computer/node_modules/playwright-core").Page, problems: string[], kind: string) {
   const qa = <T,>(run: string, value?: unknown) => page.evaluate(`(${run})(${JSON.stringify(value ?? null)})`) as Promise<T>;
   const api = {
     page,
@@ -61,7 +63,7 @@ function tools(page: import("../../computer/node_modules/playwright-core").Page,
     button: (seen: Look, text: string) => seen.buttons?.find((button) => button.text.startsWith(text)),
     // The settled receipt, with nothing of the send-off left behind.
     async sent() {
-      await api.until("settled as Sent", (now) => now.status === "Sent" && now.summary.startsWith("Sent to") && !now.layer && now.fx !== "flying" && now.fx !== "charging");
+      await api.until("settled as Sent", (now) => now.status === receiptLabel(kind) && now.summary.startsWith(`${receiptLabel(kind)} to`) && !now.layer && now.fx !== "flying" && now.fx !== "charging");
       await sleep(250);
       const after = await api.look();
       api.expect("no Send button on the receipt", !api.button(after, "Send"), after.buttons);
@@ -90,7 +92,7 @@ async function story(name: string, kind: string, query: string, body: (t: Story)
     await page.goto(`${server.resolvedUrls!.local[0]}test/browser/draft-send-off.html?${kind === "imessage" ? "card=imessage&" : ""}${query}`);
     await page.waitForFunction("Boolean(window.draftSendOffQA)");
     await sleep(500);
-    await body(tools(page, problems));
+    await body(tools(page, problems, kind));
   } catch (error) {
     problems.push(`threw: ${(error as Error).message}`);
   }
@@ -183,7 +185,7 @@ try {
       await t.back();
       await sleep(60);
       const seen = await t.look();
-      t.expect("already the receipt on return", seen.status === "Sent" && seen.fx !== "charging" && seen.fx !== "flying", seen);
+      t.expect("already the receipt on return", seen.status === receiptLabel(kind) && seen.fx !== "charging" && seen.fx !== "flying", seen);
       await t.sent();
       t.expect("no send-off replayed", !(await t.trace()).includes("flying"), await t.trace());
     });
@@ -196,7 +198,7 @@ try {
       await t.back();
       await sleep(60);
       const seen = await t.look();
-      t.expect("the receipt on return", seen.status === "Sent" && seen.fx !== "flying", seen);
+      t.expect("the receipt on return", seen.status === receiptLabel(kind) && seen.fx !== "flying", seen);
       await t.sent();
     });
     await story("leave, the request throws while away, back before it does", kind, "latency=2000&fail", async (t) => {
@@ -274,13 +276,13 @@ try {
         await t.click(button);
         const flying = await t.until("flying", (now) => now.fx === "flying" && now.closesFrom !== null);
         t.expect("the card closes from its real height, not its scaled one", Math.abs((flying.closesFrom ?? 0) - before.layoutHeight) < 1, [flying.closesFrom, before.layoutHeight]);
-        await t.until("settled", (now) => now.status === (button === "Send" ? "Sent" : "Discarded") && !now.layer && now.fx !== "flying");
+        await t.until("settled", (now) => now.status === (button === "Send" ? receiptLabel(kind) : "Discarded") && !now.layer && now.fx !== "flying");
       });
       // The chat applies a row's new height a frame late. Held at its bottom, it
       // then slides down by what the card gave up; the card's bottom edge, which
       // the blob rides, must already be there and not lift off while it catches up.
       const settled = async (t: Story) => {
-        await t.until("settled", (now) => now.status === (button === "Send" ? "Sent" : "Discarded") && !now.layer && now.fx !== "flying");
+        await t.until("settled", (now) => now.status === (button === "Send" ? receiptLabel(kind) : "Discarded") && !now.layer && now.fx !== "flying");
         await sleep(250);
         return (await t.edges(60)).at(-1)!;
       };

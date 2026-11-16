@@ -339,6 +339,11 @@ private struct PlaceDetails: View {
 }
 
 private struct PresentationMapView: View {
+  /// The band of map left clear below the cards, where Apple's logo and Legal link sit.
+  static let creditStrip: CGFloat = 22
+  /// How far the map runs on below its visible edge. MapKit keeps its logo about 9 pt
+  /// above the map's bottom; this brings it nearer the corner so the cards can sit lower.
+  static let creditDrop: CGFloat = 5
   let block: PresentationMap
   let allPlaces: [PresentationPlace]
   var memoryKey = ""
@@ -426,9 +431,12 @@ private struct PresentationMapView: View {
         // Legal stuck under the cards). The preview is framed by the camera alone.
         NativePlaceMap(places: places, route: block.route, selected: $selected, hasCards: hasCards,
                        // The expand button covers the top-right corner; keep pins clear of it.
-                       obscuredBottom: hasCards ? 132 : 0, obscuredTop: 56,
-                       panelTop: preview != nil ? 400 - panelHeight - 12 : nil,
+                       obscuredBottom: hasCards ? 120 + Self.creditStrip + Self.creditDrop : 0,
+                       // Clear of the map's rounded corner.
+                       creditSide: 3, obscuredTop: 56,
+                       panelTop: preview != nil ? 400 - panelHeight - Self.creditStrip : nil,
                        onPin: { place in open(place, fromPin: true) })
+          .padding(.bottom, -Self.creditDrop)
         if hasCards { carousel }
       }
       .frame(maxWidth: .infinity).frame(height: 400)
@@ -450,7 +458,8 @@ private struct PresentationMapView: View {
         if let preview {
           PlaceInlineDetail(place: preview, label: previewIndex.flatMap { stopLabel(block.route, $0) }, mode: block.route?.mode,
                             namespace: morph, morphs: morphFromCard, onHeight: { panelHeight = $0 }, onClose: close)
-            .padding(12)
+            // A map without cards keeps the same strip, so an open place never covers the logo.
+            .padding([.horizontal, .top], 12).padding(.bottom, Self.creditStrip)
             // Only the glass and photo travel back into the card; the panel's
             // text is gone at once so nothing is drawn twice, and it stops
             // taking touches the moment it starts leaving.
@@ -525,7 +534,7 @@ private struct PresentationMapView: View {
             .offset(y: hidden ? 28 : 0)
             .animation(PlaceMotion.soft(reduceMotion).delay(reduceMotion ? 0 : distance * 0.015), value: hidden)
           }
-        }.scrollTargetLayout().padding(.vertical, 12)
+        }.scrollTargetLayout().padding(.top, 12).padding(.bottom, Self.creditStrip)
       }.contentMargins(.horizontal, 12, for: .scrollContent)
         .scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned).accessibilityIdentifier("place-carousel")
         // Observe (never drive) which card is fully in view: each new one ticks
@@ -795,11 +804,17 @@ private struct NativePlaceMap: View {
   let places: [PresentationPlace]
   let route: PresentationRoute?
   @Environment(AppStore.self) private var store
+  @Environment(\.layoutDirection) private var layoutDirection
   @Binding var selected: String?
   var hasCards = false
-  /// Points of map covered by glass at the bottom (cards or the preview);
-  /// MapKit frames places inside the rest, and its logo and Legal stay visible.
+  /// Points of map covered by glass at the bottom (cards or the sheet). Stops are
+  /// framed in the rest.
   var obscuredBottom: CGFloat = 0
+  /// Where Apple's logo and Legal link sit: this far above the map's bottom edge, in
+  /// the strip left clear below the cards or the sheet.
+  var creditBottom: CGFloat = 0
+  /// Extra room between the logo and the map's side edge, to clear a rounded corner.
+  var creditSide: CGFloat = 0
   /// Glass covering the top (fullscreen: status bar and close button).
   var obscuredTop: CGFloat = 0
   /// With the preview open: the y of its top edge. The selected pin is placed
@@ -809,38 +824,59 @@ private struct NativePlaceMap: View {
   var bottomInset: Double = 0
   var onPin: ((PresentationPlace) -> Void)?
   @State private var camera: MapCameraPosition
-  /// Measured from the live map: its height and degrees of latitude per point.
-  @State private var mapHeight: CGFloat = 0
+  /// Measured from the live map: its size and degrees of latitude per point.
+  @State private var mapSize: CGSize = .zero
+  private var mapHeight: CGFloat { mapSize.height }
   @State private var degreesPerPoint: Double = 0
   /// Computed once per map: a thinned route line and fan-outs for shared spots.
   @State private var routeLine: [CLLocationCoordinate2D] = []
   @State private var fanOffsets: [String: CGFloat] = [:]
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   init(places: [PresentationPlace], route: PresentationRoute?, selected: Binding<String?>, hasCards: Bool = false,
-       obscuredBottom: CGFloat = 0, obscuredTop: CGFloat = 0, panelTop: CGFloat? = nil, bottomInset: Double = 0,
-       onPin: ((PresentationPlace) -> Void)? = nil) {
+       obscuredBottom: CGFloat = 0, creditBottom: CGFloat = 0, creditSide: CGFloat = 0, obscuredTop: CGFloat = 0,
+       panelTop: CGFloat? = nil, bottomInset: Double = 0, size: CGSize = .zero, onPin: ((PresentationPlace) -> Void)? = nil) {
     self.places = places; self.route = route; _selected = selected; self.hasCards = hasCards
-    self.obscuredBottom = obscuredBottom; self.obscuredTop = obscuredTop; self.panelTop = panelTop
-    self.bottomInset = bottomInset; self.onPin = onPin
-    // Start framed, so a fullscreen zoom never lands on an empty grid.
-    _camera = State(initialValue: .region(Self.fittedRegion(places, route, bottomInset)))
+    self.obscuredBottom = obscuredBottom; self.creditBottom = creditBottom; self.creditSide = creditSide
+    self.obscuredTop = obscuredTop
+    self.panelTop = panelTop; self.bottomInset = bottomInset; self.onPin = onPin
+    // Start framed, so a fullscreen zoom never lands on an empty grid. Where the size is
+    // not known yet, the first layout frames it again.
+    _mapSize = State(initialValue: size)
+    _camera = State(initialValue: .region(Self.framedRegion(places, route, size: size, top: obscuredTop,
+                                                           covered: obscuredBottom, credit: creditBottom, bottomInset: bottomInset)))
     _routeLine = State(initialValue: route.map { displayRoute($0.geometry.coordinates) } ?? [])
     _fanOffsets = State(initialValue: pinFanOffsets(places))
   }
-  private static func fittedRegion(_ places: [PresentationPlace], _ route: PresentationRoute?, _ bottomInset: Double) -> MKCoordinateRegion {
-    // Fit in map (Mercator) space, so continent-scale routes frame correctly;
-    // a route across the antimeridian keeps the degree-based fit below.
+  /// Every stop and the route with 20% padding, in map (Mercator) space, so
+  /// continent-scale routes frame correctly. Nil for a route across the antimeridian.
+  private static func fittedRect(_ places: [PresentationPlace], _ route: PresentationRoute?) -> MKMapRect? {
     let all = places.map { [$0.longitude, $0.latitude] } + (route?.geometry.coordinates ?? [])
     let lngs = all.map { $0[0] }
-    if (lngs.max() ?? 0) - (lngs.min() ?? 0) <= 180, !all.isEmpty {
-      let points = all.map { MKMapPoint(CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0])) }
-      let minX = points.map(\.x).min()!, maxX = points.map(\.x).max()!, minY = points.map(\.y).min()!, maxY = points.map(\.y).max()!
-      // At least ~1.2 km across, and 20% padding on every side.
-      let floor = MKMapPointsPerMeterAtLatitude(all[0][1]) * 1200
-      let width = max(maxX - minX, floor), height = max(maxY - minY, floor)
-      let rect = MKMapRect(x: (minX + maxX) / 2 - width * 0.7, y: (minY + maxY) / 2 - height * 0.7, width: width * 1.4, height: height * 1.4)
-      return MKCoordinateRegion(rect)
-    }
+    guard (lngs.max() ?? 0) - (lngs.min() ?? 0) <= 180, !all.isEmpty else { return nil }
+    let points = all.map { MKMapPoint(CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0])) }
+    let minX = points.map(\.x).min()!, maxX = points.map(\.x).max()!, minY = points.map(\.y).min()!, maxY = points.map(\.y).max()!
+    // At least ~1.2 km across.
+    let floor = MKMapPointsPerMeterAtLatitude(all[0][1]) * 1200
+    let width = max(maxX - minX, floor), height = max(maxY - minY, floor)
+    return MKMapRect(x: (minX + maxX) / 2 - width * 0.7, y: (minY + maxY) / 2 - height * 0.7, width: width * 1.4, height: height * 1.4)
+  }
+  /// The region to hand MapKit so every stop lands in the uncovered part of a map of
+  /// this size. MapKit fits a region inside its safe area, and puts its logo at the
+  /// bottom of that area. The safe area here ends at the logo's strip, below the cards
+  /// or the sheet, so this fit leaves the room they cover itself.
+  private static func framedRegion(_ places: [PresentationPlace], _ route: PresentationRoute?, size: CGSize, top: CGFloat,
+                                   covered: CGFloat, credit: CGFloat, bottomInset: Double) -> MKCoordinateRegion {
+    let safe = Double(size.height - top - credit), open = Double(size.height - top - covered)
+    guard size.width > 0, open > 0, safe > open else { return fittedRegion(places, route, bottomInset) }
+    guard let content = fittedRect(places, route) else { return fittedRegion(places, route, 1 - open / safe) }
+    // Map points per screen point at which the content just fits the uncovered area.
+    let scale = max(content.width / Double(size.width), content.height / open)
+    return MKCoordinateRegion(MKMapRect(x: content.midX - Double(size.width) * scale / 2, y: content.midY - open * scale / 2,
+                                        width: Double(size.width) * scale, height: safe * scale))
+  }
+  private static func fittedRegion(_ places: [PresentationPlace], _ route: PresentationRoute?, _ bottomInset: Double) -> MKCoordinateRegion {
+    // A route across the antimeridian keeps the degree-based fit below.
+    if let rect = fittedRect(places, route) { return MKCoordinateRegion(rect) }
     let latitudes = places.map(\.latitude) + (route?.geometry.coordinates.map { $0[1] } ?? [])
     let longitudes = places.map(\.longitude) + (route?.geometry.coordinates.map { $0[0] } ?? [])
     let minLat = latitudes.min() ?? 0, maxLat = latitudes.max() ?? 0
@@ -852,7 +888,9 @@ private struct NativePlaceMap: View {
     let lift = bottomInset * 0.5
     return MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: min(85, max(-85, (minLat + maxLat) / 2 - span * lift)), longitude: centerLng > 180 ? centerLng - 360 : centerLng), span: MKCoordinateSpan(latitudeDelta: min(170, span), longitudeDelta: min(350, max(0.015, (maxLng - minLng) * 1.8))))
   }
-  private var region: MKCoordinateRegion { Self.fittedRegion(places, route, bottomInset) }
+  private var region: MKCoordinateRegion {
+    Self.framedRegion(places, route, size: mapSize, top: obscuredTop, covered: obscuredBottom, credit: creditBottom, bottomInset: bottomInset)
+  }
   private func focus(_ id: String?) {
     let fitted = region
     guard let place = places.first(where: { $0.id == id }) else {
@@ -866,7 +904,10 @@ private struct NativePlaceMap: View {
     // (MapKit fits the region by its wider axis, so the measured degrees per
     // point run slightly high; the extra margin keeps the tail off the glass.)
     let target = panelTop.map { $0 - 24 } ?? visibleCentre + 22
-    let offset = mapHeight > 0 && degreesPerPoint > 0 ? Double(target - visibleCentre) * degreesPerPoint : 0
+    // The camera's centre lands in the middle of MapKit's safe area, which reaches
+    // down to the logo's strip.
+    let cameraCentre = obscuredTop + (mapHeight - obscuredTop - creditBottom) / 2
+    let offset = mapHeight > 0 && degreesPerPoint > 0 ? Double(target - cameraCentre) * degreesPerPoint : 0
     // If another stop would sit under this pin, zoom in just enough that the
     // nearest one separates (a pin is ~44pt wide; aim for ~56pt apart).
     var span = fitted.span
@@ -905,17 +946,36 @@ private struct NativePlaceMap: View {
             // MapKit hosts each pin in a view of its own. One it makes while the map
             // resizes for full screen has no store, which the pin's photo loads through.
             .environment(store)
+            .environment(\.layoutDirection, layoutDirection)
         }.annotationTitles(place.name.count > 24 && selected != place.id ? .hidden : .automatic)
       }
     }
     // Apple's own landmark photo pins would read as stops; leave them out.
     .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excluding([.landmark, .museum, .library, .nationalMonument, .castle])))
     .mapControls { MapCompass(); MapScaleView() }
-      .safeAreaPadding(.bottom, obscuredBottom).safeAreaPadding(.top, obscuredTop)
-      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { mapHeight = $0 }
+      .safeAreaPadding(.bottom, creditBottom).safeAreaPadding(.top, obscuredTop).safeAreaPadding(.leading, creditSide)
+      // MapKit puts its logo and Legal link in the leading bottom corner. Laid out right
+      // to left, that is the right-hand corner, the usual place for a map's credits and
+      // clear of most labels. The pins keep the app's own direction.
+      .environment(\.layoutDirection, .rightToLeft)
+      .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+        let first = mapSize == .zero
+        guard size != mapSize else { return }
+        mapSize = size
+        if first {
+          // The first layout gives the size the stops are framed for.
+          var transaction = Transaction()
+          transaction.disablesAnimations = true
+          withTransaction(transaction) { camera = .region(region) }
+        } else if !camera.positionedByUser {
+          // A rotation or a resized window changes what fits; a map the user has moved
+          // themselves is left where they put it.
+          focus(selected)
+        }
+      }
       .onMapCameraChange(frequency: .onEnd) { context in
         // MapKit reports the region of the safe-area-inset viewport.
-        let visible = mapHeight - obscuredTop - obscuredBottom
+        let visible = mapHeight - obscuredTop - creditBottom
         if visible > 0 { degreesPerPoint = context.region.span.latitudeDelta / Double(visible) }
       }
       .onChange(of: selected) { _, id in focus(id) }
@@ -994,9 +1054,19 @@ private struct PlaceMapPreview: View {
       // The sheet hugs its content up to 46% of the screen (phones), and the
       // map frames every stop between the status bar and the sheet.
       let sheetMax = regular ? screen.size.height : screen.size.height * 0.46
+      // The strip of map below the sheet holds Apple's logo: about 9 pt of MapKit's own
+      // margin, the 14 pt logo and a small gap. A phone with a home indicator already
+      // leaves more than that; one without gets the sheet raised to make it.
+      let creditStrip = max(12 + screen.safeAreaInsets.bottom, 27)
       ZStack(alignment: regular ? .trailing : .bottom) {
         NativePlaceMap(places: places, route: block.route, selected: $selected,
-                       obscuredBottom: regular ? 0 : sheetMax + 12 + screen.safeAreaInsets.bottom, obscuredTop: screen.safeAreaInsets.top + 56,
+                       obscuredBottom: regular ? 0 : sheetMax + creditStrip,
+                       // The logo sits just under the sheet and in from the edge, where the
+                       // display's rounded corner cannot clip it.
+                       creditBottom: regular ? 0 : creditStrip - 27, creditSide: regular ? 0 : 6,
+                       obscuredTop: screen.safeAreaInsets.top + 56,
+                       size: CGSize(width: screen.size.width - (regular ? 374 : 0),
+                                    height: screen.size.height + screen.safeAreaInsets.top + screen.safeAreaInsets.bottom),
                        onPin: { place in show(place) })
           .padding(.leading, regular ? 0 : 0).padding(.trailing, regular ? 374 : 0)
           .ignoresSafeArea()
@@ -1012,7 +1082,7 @@ private struct PlaceMapPreview: View {
         }
         .frame(width: regular ? 360 : nil)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: regular ? .trailing : .bottom)
-        .padding(12)
+        .padding([.horizontal, .top], 12).padding(.bottom, regular ? 12 : creditStrip - screen.safeAreaInsets.bottom)
         .offset(x: appeared || !regular || reduceMotion ? 0 : 60, y: appeared || regular || reduceMotion ? 0 : 80)
         .opacity(appeared ? 1 : 0)
       }

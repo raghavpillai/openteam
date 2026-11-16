@@ -101,3 +101,84 @@ test("chaos: diagnostic admission uses live worker state rather than its last st
     await rm(directory, { recursive: true, force: true });
   }
 }, 10000);
+
+test("chaos: workers that miss their start deadline are restarted one at a time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "openteam-network-restarts-"));
+  let network:
+    | Awaited<ReturnType<typeof import("../src/browser-network").startBrowserNetwork>>
+    | undefined;
+  const logger = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const build = await Bun.build({
+      entrypoints: [resolve(import.meta.dirname, "../src/browser-network.ts")],
+      target: "bun",
+      outdir: directory,
+      naming: "supervisor.mjs",
+    });
+    expect(build.success).toBe(true);
+    // The first worker starts and then exits, as on a route change. Every later
+    // one is too slow to report ready, as on a starved host.
+    await writeFile(
+      join(directory, "browser-network-worker.mjs"),
+      `
+      import { appendFileSync, readFileSync } from 'node:fs';
+      const log = new URL('./spawns.log', import.meta.url);
+      appendFileSync(log, 'x');
+      if (readFileSync(log, 'utf8').length === 1) {
+        console.log(JSON.stringify({ started: true }));
+        setTimeout(() => process.exit(0), 100);
+      } else setInterval(() => {}, 1000);
+    `
+    );
+    const { startBrowserNetwork } = await import(join(directory, "supervisor.mjs"));
+    network = await startBrowserNetwork("http://127.0.0.1:1", "token", { startMs: 300, retryMs: 50 });
+    await Bun.sleep(3000);
+    const spawns = (await Bun.file(join(directory, "spawns.log")).text()).length;
+    // About one spawn per 350 ms cycle. Duplicated restart chains double every cycle.
+    expect(spawns).toBeLessThanOrEqual(12);
+    expect(spawns).toBeGreaterThanOrEqual(4);
+  } finally {
+    await network?.close();
+    logger.mockRestore();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15000);
+
+test("chaos: a first start that misses its deadline on a starved host is retried instead of failing the computer", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "openteam-network-first-start-"));
+  let network:
+    | Awaited<ReturnType<typeof import("../src/browser-network").startBrowserNetwork>>
+    | undefined;
+  const logger = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const build = await Bun.build({
+      entrypoints: [resolve(import.meta.dirname, "../src/browser-network.ts")],
+      target: "bun",
+      outdir: directory,
+      naming: "supervisor.mjs",
+    });
+    expect(build.success).toBe(true);
+    // The first two workers are too slow to report ready; the third starts.
+    await writeFile(
+      join(directory, "browser-network-worker.mjs"),
+      `
+      import { appendFileSync, readFileSync } from 'node:fs';
+      const log = new URL('./spawns.log', import.meta.url);
+      appendFileSync(log, 'x');
+      if (readFileSync(log, 'utf8').length >= 3) console.log(JSON.stringify({ started: true }));
+      setInterval(() => {}, 1000);
+    `
+    );
+    const { startBrowserNetwork } = await import(join(directory, "supervisor.mjs"));
+    network = await startBrowserNetwork("http://127.0.0.1:1", "token", { startMs: 200, retryMs: 50 });
+    const spawns = async () => (await Bun.file(join(directory, "spawns.log")).text()).length;
+    expect(await spawns()).toBe(3);
+    // The slow attempts leave no restart behind to replace the running worker.
+    await Bun.sleep(500);
+    expect(await spawns()).toBe(3);
+  } finally {
+    await network?.close();
+    logger.mockRestore();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15000);

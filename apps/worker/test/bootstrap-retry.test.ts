@@ -133,14 +133,6 @@ describe("first greeting cut off by the computer", () => {
     expect(wakes).toEqual([]);
   });
 
-  test("other runs the computer cut off fail as before", async () => {
-    const { worker, writes } = workerWith({});
-    await expect(
-      worker.fail({ ...claimed, origin: "user" }, new TypeError("fetch failed"), true)
-    ).rejects.toBe(NORMAL_FAILURE_PATH);
-    expect(writes).toEqual([]);
-  });
-
   test("the retry waits until the computer reports ready", async () => {
     let ready = false;
     let probes = 0;

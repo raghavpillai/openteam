@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHostBridge } from "../../src/main/host/bridge";
+import { isAddressInUseError, listenForHostBridge } from "../../src/main/host/bridge-listener";
 import { executeHostJob } from "../../src/main/host/jobs";
 import { createComputerSettingsStore } from "../../src/main/computer-settings";
 
@@ -80,18 +81,22 @@ describe("host bridge direct execution", () => {
     expect((await post("/v1/await-shell", {shell_id:"../unknown",block_until_ms:0})).status).toBe(400);
   });
 
-  test("retired review and permission endpoints do not exist", async () => {
-    const { post } = await bridge();
-    const response = await post("/v1/auto-review", {
-      surface:"subagentLaunch",summary:"Open the page",target:"computerUse",arguments:{task:"Open the page"},
-    });
-    expect(response.status).toBe(404);
-    expect((await post("/v1/permissions/update", {})).status).toBe(404);
-  });
+});
 
-  test("machine labels survive removal of permission controls", async () => {
-    const { computerSettings, post } = await bridge();
-    await computerSettings.update({ machineLabel:"Studio Mac" });
-    expect(await (await post("/v1/machines",{})).json()).toMatchObject({machines:[{machineId:"machine-1",label:"Studio Mac"}]});
+describe("host bridge listener", () => {
+  test("rejects a port collision instead of emitting an uncaught error", async () => {
+    const first = createServer();
+    const second = createServer();
+    servers.push(first, second);
+    await listenForHostBridge(first, 0);
+    const address = first.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+
+    try {
+      await listenForHostBridge(second, address.port);
+      throw new Error("Expected the second listener to fail");
+    } catch (error) {
+      expect(isAddressInUseError(error)).toBe(true);
+    }
   });
 });

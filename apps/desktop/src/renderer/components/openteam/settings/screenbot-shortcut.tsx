@@ -88,12 +88,12 @@ const keycap = (part: string) => {
   return KEYCAP[part] ?? part;
 };
 
-export const shortcutKeycaps = (shortcut: Shortcut): string[] =>
+const shortcutKeycaps = (shortcut: Shortcut): string[] =>
   shortcut.kind === "chord"
     ? [MODIFIER_SYMBOL[shortcut.modifier], MODIFIER_SYMBOL[shortcut.modifier]]
     : shortcut.accelerator.split("+").map(keycap);
 
-export const describeShortcut = (shortcut: Shortcut): string =>
+const describeShortcut = (shortcut: Shortcut): string =>
   shortcut.kind === "chord"
     ? `Both ${MODIFIER_NAME[shortcut.modifier]} keys`
     : shortcutKeycaps(shortcut).join(mac() ? "" : "+");

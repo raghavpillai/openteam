@@ -2,7 +2,7 @@ import type { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 import { API_PORT, VIEWER_PORT_END, VIEWER_PORT_START } from "./constants";
 
-export const portAvailable = (host: string, port: number): Promise<boolean> =>
+const portAvailable = (host: string, port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const server = createServer();
     server.unref();

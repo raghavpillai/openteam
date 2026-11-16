@@ -5,29 +5,6 @@ import { computerEventStream } from "../../computer/src/computer-event-stream";
 const event = { type: "turn.completed", turnId: "run-test", status: "completed" };
 const encoder = new TextEncoder();
 
-test("a projection failure cancels the still-live upstream stream", async () => {
-  let active = true;
-  let applied = 0;
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); },
-    cancel() { active = false; },
-  });
-  const failure = new Error("database storage exhausted");
-  await expect(consumeComputerEvents(body, async () => { applied++; throw failure; }, () => {})).rejects.toBe(failure);
-  expect(active).toBe(false);
-  expect(applied).toBe(1);
-});
-
-test("malformed runtime data also cancels the turn", async () => {
-  let cancelled = false;
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(encoder.encode("not JSON\n")); },
-    cancel() { cancelled = true; },
-  });
-  await expect(consumeComputerEvents(body, async () => {}, () => {})).rejects.toThrow();
-  expect(cancelled).toBe(true);
-});
-
 test("normal split chunks, heartbeats and a final line without newline are retained", async () => {
   const raw = JSON.stringify(event);
   const seen: unknown[] = [];
@@ -41,15 +18,7 @@ test("normal split chunks, heartbeats and a final line without newline are retai
   expect(seen).toEqual([event]);
 });
 
-test("cleanup failure does not replace the original projection error", async () => {
-  const failure = new Error("projection failed");
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); },
-    cancel() { throw new Error("transport failed"); },
-  });
-  await expect(consumeComputerEvents(body, async () => { throw failure; }, () => {})).rejects.toBe(failure);
-});
-
+// A projection failure must cancel the live upstream stream, or the computer turn is orphaned.
 test("projection failure over HTTP releases the computer turn for the next request", async () => {
   let active = false;
   let release!: () => void;

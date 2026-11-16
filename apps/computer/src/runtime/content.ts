@@ -26,7 +26,7 @@ export const thinkingFromContent = (content: unknown): string => {
     .join("");
 };
 
-export const boundedText = (value: string, limit = 100_000): string =>
+const boundedText = (value: string, limit = 100_000): string =>
   value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by OpenTeam`;
 
 export const safeToolResult = (result: unknown, isError = false): unknown => {

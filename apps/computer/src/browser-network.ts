@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createNetworkDiagnostics, sanitizeNetworkDiagnostic } from "@openteam/plugin-sdk/browser-network/diagnostics";
 import { nodeBinary } from "./node-runtime";
 
-export const browserProxyPort = Number(process.env.OPENTEAM_BROWSER_PROXY_PORT ?? 18791);
+const browserProxyPort = Number(process.env.OPENTEAM_BROWSER_PROXY_PORT ?? 18791);
 if (!Number.isInteger(browserProxyPort) || browserProxyPort < 1024 || browserProxyPort > 65535)
   throw new Error("Invalid browser proxy port");
 export const managedBrowserNetworkArguments = (port = browserProxyPort) =>

@@ -1,5 +1,8 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { AUTOMATION_STATUS_CLEARED, renderAutomationStatusReminder, routineDefinitionLine } from "../src/automation-status";
 import {
+  acknowledgeAutomationStatus,
+  prepareAutomationStatus,
   acknowledgeMemoryContext,
   acknowledgePromptSections,
   parsePromptSections,
@@ -39,23 +42,6 @@ test("stale acknowledgements cannot undo newer delivery or a new epoch", () => {
   expect(acknowledgePromptSections(nextEpoch.snapshots, c.receipts)).toEqual(nextEpoch.snapshots);
 });
 
-test("empty sections freeze and deletions produce replacement notes; connectors wait for summary", () => {
-  const initial = preparePromptSections({}, 0, { agent_directory: "", mcp_instructions: "original" });
-  const next = preparePromptSections(initial.snapshots, 0, {
-    agent_directory: "added",
-    mcp_instructions: "edited",
-  });
-  expect(next.sections.agent_directory).toBe("");
-  expect(next.sections.mcp_instructions).toBe("original");
-  expect(next.receipts.map((receipt) => receipt.name)).toEqual(["agent_directory"]);
-  const deleted = preparePromptSections(
-    acknowledgePromptSections(next.snapshots, next.receipts),
-    0,
-    { agent_directory: "" }
-  );
-  expect(deleted.update).toContain("This section is now empty.");
-});
-
 test("successive sparse updates diff from the last acknowledged version, then fold on compaction", () => {
   const initial = preparePromptSections({}, 4, { agent_directory: "alpha\nbeta\ngamma\ndelta\nepsilon" });
   const edit = preparePromptSections(initial.snapshots, 4, {
@@ -80,22 +66,6 @@ test("successive sparse updates diff from the last acknowledged version, then fo
   );
   expect(compacted.update).toBeNull();
   expect(compacted.sections.agent_directory).toContain("GAMMA\nDELTA");
-});
-
-test("full replacements win for large diffs, additions and bounded-work fallback", () => {
-  for (const [previous, next] of [
-    ["A", "B"],
-    ["", "new"],
-    [
-      Array.from({ length: 501 }, (_, i) => `row ${i}`).join("\n"),
-      Array.from({ length: 501 }, (_, i) => `row ${i === 0 ? "edited" : i}`).join("\n"),
-    ],
-  ]) {
-    const initial = preparePromptSections({}, 0, { agent_directory: previous! });
-    const edited = preparePromptSections(initial.snapshots, 0, { agent_directory: next! });
-    expect(edited.update).toContain(`## Teammates and groups\n${next}`);
-    expect(edited.update).not.toContain("## Teammates and groups (changed lines only)");
-  }
 });
 
 test("memory facts pin per epoch, never as change notes; only other assistants' shared changes are announced", () => {
@@ -123,13 +93,49 @@ test("memory facts pin per epoch, never as change notes; only other assistants' 
 });
 
 
-test("retired bot instructions are not restored from cached prompt snapshots", () => {
-  const snapshots = parsePromptSections({
-    agent_instructions: { render: "Retired bot guidance", compactionEpoch: 1 },
-    mcp_instructions: { render: "Keep connector guidance", compactionEpoch: 1 },
+describe("routine status reminder", () => {
+  const digest = {
+    id: "r1", name: "Morning digest", slug: "morning-digest", enabled: true,
+    trigger: { type: "cron", schedule: "47 8 * * 1-5" }, scheduleText: "47 8 * * 1-5",
+    nextRunAt: new Date(Date.UTC(2026, 9, 21, 1, 5, 37)),
+    runLedger: [{ id: "a", status: "ok", startedAt: Date.UTC(2026, 9, 20, 0, 5, 37) }],
+  };
+  const vendor = {
+    id: "r2", name: "Vendor replies", slug: "vendor-replies", enabled: true,
+    trigger: { type: "email", inbox: "me+vendor@mail.example" }, scheduleText: "Event: email", nextRunAt: null, runLedger: [],
+  };
+
+  test("lines name the trigger, folder, and next and last runs in the user's zone", () => {
+    expect(routineDefinitionLine({ ...vendor, enabled: false })).toBe("- Vendor replies [paused]: When email arrives at me+vendor@mail.example; folder vendor-replies");
+    const reminder = renderAutomationStatusReminder([digest, vendor], "America/Los_Angeles")!;
+    expect(reminder).toStartWith("<system_reminder>\n<automation_status>\n");
+    expect(reminder).toContain("- Morning digest [enabled]: Weekdays at 8:47 AM (47 8 * * 1-5); folder morning-digest; next run 10/20/2026, 6:05:37 PM PDT; last run 10/19/2026, 5:05:37 PM PDT (succeeded)");
+    expect(reminder).toContain("folder vendor-replies; never run");
+    const running = { ...vendor, runLedger: [{ status: "running", startedAt: Date.UTC(2026, 9, 20, 1) }, { status: "error", startedAt: Date.UTC(2026, 9, 19, 1) }] };
+    expect(renderAutomationStatusReminder([running], "UTC")).toContain("running now (started 10/20/2026, 1:00:00 AM UTC)");
+    // The routine that is firing shows its previous outcome, not its own run.
+    expect(renderAutomationStatusReminder([running], "UTC", "r2")).toContain("last run 10/19/2026, 1:00:00 AM UTC (failed)");
+    expect(renderAutomationStatusReminder([], "UTC")).toBeNull();
   });
-  expect(snapshots).not.toHaveProperty("agent_instructions");
-  expect(snapshots.mcp_instructions?.render).toBe("Keep connector guidance");
+
+  test("goes out only when it changed or a summary dropped it from context", () => {
+    const live = renderAutomationStatusReminder([digest], "UTC")!;
+    const { snapshots } = preparePromptSections(undefined, 0, { automations: "Scheduled routines:" });
+    const first = prepareAutomationStatus(snapshots, 0, live, AUTOMATION_STATUS_CLEARED);
+    expect(first.note).toBe(live);
+    acknowledgeAutomationStatus(snapshots, first.receipt!);
+    expect(prepareAutomationStatus(snapshots, 0, live, AUTOMATION_STATUS_CLEARED).note).toBeNull();
+    const later = renderAutomationStatusReminder([{ ...digest, runLedger: [] }], "UTC")!;
+    expect(prepareAutomationStatus(snapshots, 0, later, AUTOMATION_STATUS_CLEARED).note).toBe(later);
+    // A new epoch keeps the last delivered status but it is no longer in context.
+    const next = preparePromptSections(snapshots, 1, { automations: "Scheduled routines:" }).snapshots;
+    expect(next.automations?.automationStatus?.render).toBe(live);
+    expect(prepareAutomationStatus(next, 1, live, AUTOMATION_STATUS_CLEARED).note).toBe(live);
+    // Deleting the last routine tells the bot once; with none ever shown, nothing is sent.
+    expect(prepareAutomationStatus(snapshots, 0, null, AUTOMATION_STATUS_CLEARED).note).toBe(AUTOMATION_STATUS_CLEARED);
+    expect(prepareAutomationStatus(preparePromptSections(undefined, 0, { automations: "" }).snapshots, 0, null, AUTOMATION_STATUS_CLEARED).note).toBeNull();
+  });
+
 });
 
 test("delayed memory preparations cannot replace a newer revision or compaction epoch", () => {

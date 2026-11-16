@@ -93,7 +93,7 @@ const addSummaryUsage = (
   return result as BotSummaryUsage;
 };
 
-export interface PendingSummary {
+interface PendingSummary {
   contextSessionId: string;
   id: string;
   reason: BotCompactionReason;
@@ -137,7 +137,7 @@ export interface BotObservation {
   infer: (request: BotSummaryRequest, signal: AbortSignal) => Promise<BotSummaryResult>;
 }
 
-export interface BotPreparedCompaction {
+interface BotPreparedCompaction {
   summary: string;
   firstKeptEntryId: string;
   retainedTail: BotMessage[];
@@ -1029,10 +1029,3 @@ export class BotCompactionCoordinator {
     }
   }
 }
-
-export const isContextLimitError = (value: unknown): boolean => {
-  const text = value instanceof Error ? value.message : String(value ?? "");
-  return /context[_ -]?length[_ -]?exceeded|prompt is too long|input.{0,40}(?:context window|too long)|request.{0,20}size.{0,20}bytes|input\s*\+\s*max_tokens/i.test(
-    text
-  );
-};

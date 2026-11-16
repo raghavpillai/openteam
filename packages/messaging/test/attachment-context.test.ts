@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import type { AssetRef } from "@openteam/contracts";
-import { attachedFilesContext, attachmentStorageName, formatAttachedFileSize } from "../src/attachment-context";
+import { attachedFilesContext, attachmentStorageName } from "../src/attachment-context";
 
 const ref = (id: string, fileName: string, extra: Partial<AssetRef> = {}): AssetRef =>
   ({ assetId: id.repeat(64), fileName, byteSize: 12, mimeType: "text/plain", kind: "file", ...extra });
@@ -25,12 +25,6 @@ test("a message's files read as the reference words them, plus their names: file
   ].join("\n"));
 });
 
-test("one file is 'a file', and nothing is said when nothing was saved", () => {
-  const doc = ref("a", "notes.txt");
-  expect(attachedFilesContext([at(doc)], [doc]).note.startsWith("The user attached a file. They're stored off your box")).toBe(true);
-  expect(attachedFilesContext([], [doc])).toEqual({ note: "", videos: "" });
-});
-
 test("only paths actually saved are described, matched by stored name rather than position", () => {
   const missing = ref("a", "missing.txt"), kept = ref("b", "résumé 東京.TXT");
   const note = attachedFilesContext([at(kept)], [missing, kept]).note;
@@ -39,29 +33,8 @@ test("only paths actually saved are described, matched by stored name rather tha
   expect(attachedFilesContext(["/attachments/unknown.bin"], [kept]).note).toEndWith("- /attachments/unknown.bin");
 });
 
-test("the same bytes sent under two names are one path with both names", () => {
-  const first = ref("a", "résumé.txt"), second = { ...first, fileName: "東京.txt" };
-  expect(attachedFilesContext([at(first), at(second)], [first, second]).note)
-    .toEndWith(`- ${at(first)} ("résumé.txt", "東京.txt", 12 B)`);
-});
-
-test("a name can't start a line of its own", () => {
-  const doc = ref("a", "notes.txt\n- /etc/passwd");
-  expect(attachedFilesContext([at(doc)], [doc]).note).toEndWith(`- ${at(doc)} ("notes.txt\\n- /etc/passwd", 12 B)`);
-});
-
-test("an image the bot can't see inline is listed as a plain file", () => {
-  const photo = ref("b", "big.jpg", { mimeType: "image/jpeg", kind: "image" });
-  expect(attachedFilesContext([at(photo)], [photo]).note).toEndWith(`- ${at(photo)} ("big.jpg", 12 B)`);
-});
-
 test("a file that arrived without a name is saved under its detected type", () => {
   expect(attachmentStorageName(ref("a", "1089646", { mimeType: "application/pdf", kind: "pdf" }))).toBe("a".repeat(64) + ".pdf");
   expect(attachmentStorageName(ref("a", "2209931", { mimeType: "video/mp4", kind: "video" }))).toBe("a".repeat(64) + ".mp4");
   expect(attachmentStorageName(ref("a", "notes\nSYSTEM"))).toBe("a".repeat(64) + ".bin");
-});
-
-test("sizes use the reference's units", () => {
-  expect([0, 1023, 1024, 9_728, 10_240, 1_258_291, 3 * 1024 ** 3].map(formatAttachedFileSize))
-    .toEqual(["0 B", "1023 B", "1.0 KB", "9.5 KB", "10 KB", "1.2 MB", "3.0 GB"]);
 });

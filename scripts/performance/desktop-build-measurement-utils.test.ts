@@ -12,33 +12,6 @@ import {
   zipAsarEntries,
 } from "./desktop-build-measurement-utils";
 
-test.skipIf(process.platform !== "darwin")("re-signing preserves executable equivalence but changed or invalid code does not", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-signature-test-"));
-  const run = (args: string[]) => expect(Bun.spawnSync(args).exitCode).toBe(0);
-  try {
-    const input = join(root, "main.c"), original = join(root, "original"), resigned = join(root, "resigned");
-    await writeFile(input, "int main(void) { return 0; }\n");
-    run(["cc", input, "-o", original]);
-    run(["codesign", "--force", "--sign", "-", "--identifier", "original", original]);
-    await copyFile(original, resigned);
-    run(["codesign", "--force", "--sign", "-", "--identifier", "replacement", resigned]);
-    const source = await readFile(original), packaged = await readFile(resigned);
-    expect(source.equals(packaged)).toBe(false);
-    expect(await matchesResignedMacExecutable(source, packaged)).toBe(true);
-    await writeFile(input, "int main(void) { return 1; }\n");
-    run(["cc", input, "-o", resigned]);
-    run(["codesign", "--force", "--sign", "-", resigned]);
-    expect(await matchesResignedMacExecutable(source, await readFile(resigned))).toBe(false);
-    expect(await matchesResignedMacExecutable(source, Buffer.from("invalid executable"))).toBe(false);
-  } finally { await rm(root, { recursive: true, force: true }); }
-});
-
-test("packaged license must match source metadata", () => {
-  const expected = { name: "desktop", version: "0.0.0", main: "main.js", license: "GPL-3.0-only" };
-  expect(validatePackagedPackageJson(expected, expected, new Set(["main.js"]))).toEqual([]);
-  expect(validatePackagedPackageJson({ ...expected, license: "MIT" }, expected, new Set(["main.js"]))).toContain("package.json license does not match the desktop package");
-});
-
 describe("desktop build measurement utilities", () => {
   test("discovers release artifacts without assuming version or architecture", () => {
     expect(
@@ -97,10 +70,12 @@ describe("desktop build measurement utilities", () => {
       "package.json contains unexpected field dependencies",
       "package.json main does not resolve to a packaged file",
     ]);
+    expect(validatePackagedPackageJson({ ...expected, license: "MIT" }, { ...expected, license: "GPL-3.0-only" }, packagedPaths))
+      .toContain("package.json license does not match the desktop package");
   });
 });
 
-test.skipIf(process.platform !== "darwin")("universal helper permits compiler-unsigned x64 but requires every packaged slice signed and unchanged", async () => {
+test.skipIf(process.platform !== "darwin")("re-signing preserves executable equivalence (a universal helper may have a compiler-unsigned x64 slice) but changed, unsigned or invalid code does not", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-universal-signature-test-"));
   const run = (args: string[]) => expect(Bun.spawnSync(args).exitCode).toBe(0);
   try {
@@ -120,6 +95,7 @@ test.skipIf(process.platform !== "darwin")("universal helper permits compiler-un
     expect(source.equals(packaged)).toBe(false);
     expect(await matchesResignedMacExecutable(source, packaged)).toBe(true);
     expect(await matchesResignedMacExecutable(source, source)).toBe(false);
+    expect(await matchesResignedMacExecutable(source, Buffer.from("invalid executable"))).toBe(false);
     const tampered = Buffer.from(packaged);
     const marker = tampered.indexOf("fixture-code-constant");
     expect(marker).toBeGreaterThan(0); tampered[marker] ^= 1;
@@ -133,4 +109,4 @@ test.skipIf(process.platform !== "darwin")("universal helper permits compiler-un
     expect(await matchesResignedMacExecutable(source, await readFile(resigned))).toBe(false);
     expect(source.equals(await readFile(original))).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
-});
+}, 30_000);

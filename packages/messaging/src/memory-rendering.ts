@@ -5,7 +5,7 @@ export interface PromptMemoryRecord {
   createdAt: number;
   via: string;
 }
-export interface PromptMemoryRecall {
+interface PromptMemoryRecall {
   profile: PromptMemoryRecord[];
   recent: PromptMemoryRecord[];
 }

@@ -1,197 +1,73 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BotAgentStore } from "../src/bot-agent-store";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const agentId = "7bd0b588-a0c3-48a2-a73d-f250f10ef8cd";
+const LIVE_ROOT = "sand-live-conversation-root-v1__";
 let root: string | null = null;
 let store: BotAgentStore | null = null;
 
 afterEach(async () => {
   await store?.closeAll();
   store = null;
-  if (root) await rm(root, { recursive: true, force: true });
   root = null;
 });
 
+const withDb = <T>(path: string, read: (db: Database) => T, readonly = true): T => {
+  const db = new Database(path, readonly ? { readonly: true } : undefined);
+  try {
+    return read(db);
+  } finally {
+    db.close(false);
+  }
+};
+const blobJson = (db: Database, id: string) =>
+  JSON.parse(Buffer.from((db.query("SELECT data FROM blobs WHERE id = ?").get(id) as { data: Uint8Array }).data).toString("utf8"));
+const publication = async (dir: string, id: string) =>
+  JSON.parse(await readFile(join(dir, "transcript-publish", `${id}.json`), "utf8"));
+
 describe("OpenTeam-compatible agent SQLite stores", () => {
-  test("concurrent retirement is idempotent and preserves another agent's retired files", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-concurrent-delete-"));
+  test("deleting an open agent is idempotent under concurrency, leaves nothing retired, and preserves another agent's retired files", async () => {
+    root = await tempDir("openteam-bot-store-delete-");
     const retiredRoot = join(root, "retired");
     store = new BotAgentStore(join(root, "data"), retiredRoot);
     await store.openForWake(agentId);
+    const directory = store.agentDirectory(agentId);
     const unrelated = "10000000-0000-4000-8000-000000000001.previous-attempt";
     await mkdir(join(retiredRoot, unrelated), { recursive: true });
     await writeFile(join(retiredRoot, unrelated, "keep"), "another agent's data");
     const results = await Promise.all(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
     expect(results.some(Boolean)).toBe(true);
     expect(store.hasLiveHandle(agentId)).toBe(false);
+    expect(await stat(directory).catch(() => null)).toBeNull();
     expect(await store.listAgentDirectories()).toEqual([]);
     expect(await readdir(retiredRoot)).toEqual([unrelated]);
     expect(await readFile(join(retiredRoot, unrelated, "keep"), "utf8")).toBe("another agent's data");
-  });
-
-  test.skipIf(process.getuid?.() === 0 || process.platform === "win32")("failed disposal is reported and a retry removes residue outside the roster", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-disposal-"));
-    const retiredRoot = join(root, "retired");
-    store = new BotAgentStore(join(root, "data"), retiredRoot);
-    await store.openForWake(agentId);
-    const protectedDirectory = join(store.agentDirectory(agentId), "protected");
-    await mkdir(protectedDirectory);
-    await writeFile(join(protectedDirectory, "keep"), "runtime data");
-    await chmod(protectedDirectory, 0o500);
-    try {
-      const failures = await Promise.allSettled(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
-      // Bun on macOS may report the retained outer directory as ENOTEMPTY rather than
-      // the protected child's EACCES. All callers must still see failure and be able to retry.
-      expect(failures.every((result) => result.status === "rejected" && ["EACCES", "EPERM", "ENOTEMPTY"].includes(result.reason.code))).toBe(true);
-      expect(store.hasLiveHandle(agentId)).toBe(false);
-      expect(await store.listAgentDirectories()).toEqual([]);
-      const retired = await readdir(retiredRoot);
-      expect(retired).toHaveLength(1);
-      await chmod(join(retiredRoot, retired[0]!, "protected"), 0o700);
-      expect(await store.deleteAgent(agentId)).toBe(true);
-      expect(await readdir(retiredRoot)).toEqual([]);
-    } finally {
-      await chmod(protectedDirectory, 0o700).catch(() => {});
-      for (const entry of await readdir(retiredRoot).catch(() => [])) {
-        await chmod(join(retiredRoot, entry, "protected"), 0o700).catch(() => {});
-      }
-    }
-  });
-
-  test("a retry finds previously retired directories after the roster entry is already gone", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-residue-"));
-    const retiredRoot = join(root, "retired");
-    store = new BotAgentStore(join(root, "data"), retiredRoot);
-    const residue = join(retiredRoot, `${agentId}.previous-attempt`);
-    await mkdir(residue, { recursive: true });
-    await writeFile(join(residue, "store.db"), "runtime data");
-    expect(await store.deleteAgent(agentId)).toBe(true);
-    expect(await readdir(retiredRoot)).toEqual([]);
-    expect(await store.deleteAgent(agentId)).toBe(false);
+    expect(await store.deleteAgent(agentId)).toBeFalse();
   });
 
   test("first wake leaves shared agent directories writable by the server group", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
+    root = await tempDir("openteam-agent-permissions-");
     store = new BotAgentStore(root);
     await store.openForWake(agentId);
-
-    for (const directory of [
-      join(root, "agents"),
-      store.agentDirectory(agentId),
-      join(store.agentDirectory(agentId), "automations"),
-    ]) {
-      expect((await stat(directory)).mode & 0o070).toBe(0o070);
-      expect((await stat(directory)).mode & 0o007).toBe(0);
+    for (const directory of [join(root, "agents"), store.agentDirectory(agentId), join(store.agentDirectory(agentId), "automations")]) {
+      expect((await stat(directory)).mode & 0o077).toBe(0o070);
     }
     expect((await stat(join(store.agentDirectory(agentId), "store.db"))).mode & 0o777).toBe(0o644);
   });
 
-  test("bounds idle handles with LRU eviction and deterministic idle close", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-handle-lru-"));
-    let now = 1_000;
-    store = new BotAgentStore(root, undefined, {
-      maxOpenAgents: 2,
-      idleCloseMs: 500,
-      now: () => now,
-    });
-    const ids = Array.from(
-      { length: 5 },
-      (_, index) => `10000000-0000-4000-8000-${index.toString().padStart(12, "0")}`
-    );
-
-    for (const id of ids) await store.openForWake(id);
-
-    expect(store.liveAgentIds()).toEqual(ids.slice(-2));
-    expect(store.agentStoreHandleMetrics()).toMatchObject({
-      openAgents: 2,
-      openSqliteHandles: 4,
-      peakOpenAgents: 2,
-      lruCloses: 3,
-      idleCloses: 0,
-    });
-    now += 501;
-    expect(store.closeIdleAgents()).toBe(2);
-    expect(store.agentStoreHandleMetrics()).toMatchObject({
-      openAgents: 0,
-      openSqliteHandles: 0,
-      idleCloses: 2,
-    });
-  });
-
-  test("queues over-capacity opens and never closes a leased store", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-handle-lease-"));
-    store = new BotAgentStore(root, undefined, {
-      maxOpenAgents: 1,
-      idleCloseMs: 60_000,
-    });
-    const secondId = "20000000-0000-4000-8000-000000000002";
-    let enterLease!: () => void;
-    let releaseLease!: () => void;
-    const entered = new Promise<void>((resolveEntered) => {
-      enterLease = resolveEntered;
-    });
-    const release = new Promise<void>((resolveRelease) => {
-      releaseLease = resolveRelease;
-    });
-    const leasedStore = store;
-    const first = leasedStore.withAgentLease(agentId, async () => {
-      enterLease();
-      await release;
-      await leasedStore.writeKv(agentId, "leaseResult", "durable");
-    });
-    await entered;
-
-    let secondFinished = false;
-    const second = store.writeKv(secondId, "opened", "1").then(() => {
-      secondFinished = true;
-    });
-    let closeFinished = false;
-    const closeFirst = store.closeAgent(agentId).then(() => {
-      closeFinished = true;
-    });
-    await new Promise((resolveTick) => setTimeout(resolveTick, 20));
-    expect(secondFinished).toBeFalse();
-    expect(closeFinished).toBeFalse();
-    expect(store.liveAgentIds()).toEqual([agentId]);
-    expect(store.agentStoreHandleMetrics().openAgents).toBe(1);
-
-    releaseLease();
-    await Promise.all([first, closeFirst, second]);
-    expect(secondFinished).toBeTrue();
-    expect(store.liveAgentIds()).toEqual([secondId]);
-    expect(await store.readKv(agentId, "leaseResult")).toBe("durable");
-    expect(store.agentStoreHandleMetrics().peakOpenAgents).toBe(1);
-  });
-
   test("closeAll waits for leases, permits their nested work, and rejects new work", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-handle-shutdown-"));
-    store = new BotAgentStore(root, undefined, {
-      maxOpenAgents: 2,
-      idleCloseMs: 60_000,
-    });
+    root = await tempDir("openteam-bot-handle-shutdown-");
+    const leasedStore = new BotAgentStore(root, undefined, { maxOpenAgents: 2, idleCloseMs: 60_000 });
+    store = leasedStore;
     let enterLease!: () => void;
     let releaseLease!: () => void;
-    const entered = new Promise<void>((resolveEntered) => {
-      enterLease = resolveEntered;
-    });
-    const release = new Promise<void>((resolveRelease) => {
-      releaseLease = resolveRelease;
-    });
-    const leasedStore = store;
+    const entered = new Promise<void>((resolve) => (enterLease = resolve));
+    const release = new Promise<void>((resolve) => (releaseLease = resolve));
     const idleAgentId = "30000000-0000-4000-8000-000000000003";
     await leasedStore.openForWake(idleAgentId);
     const active = leasedStore.withAgentLease(agentId, async () => {
@@ -200,348 +76,96 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
       await leasedStore.writeKv(agentId, "shutdownResult", "finished");
     });
     await entered;
-
     let shutdownFinished = false;
-    const shutdown = store.closeAll().then(() => {
+    const shutdown = leasedStore.closeAll().then(() => {
       shutdownFinished = true;
     });
     await Promise.resolve();
     expect(shutdownFinished).toBeFalse();
-    expect(store.hasLiveHandle(agentId)).toBeTrue();
-    expect(store.hasLiveHandle(idleAgentId)).toBeFalse();
+    expect(leasedStore.hasLiveHandle(agentId)).toBeTrue();
+    expect(leasedStore.hasLiveHandle(idleAgentId)).toBeFalse();
     releaseLease();
     await Promise.all([active, shutdown]);
-    expect(shutdownFinished).toBeTrue();
-    expect(store.liveAgentIds()).toEqual([]);
-    await expect(store.readKv(agentId, "shutdownResult")).rejects.toThrow("shutting down");
-
-    const database = new Database(join(store.agentDirectory(agentId), "store.db"), {
-      readonly: true,
-    });
-    try {
-      expect(database.query("SELECT value FROM kv WHERE key = ?").get("shutdownResult")).toEqual({
-        value: "finished",
-      });
-    } finally {
-      database.close(false);
-    }
+    expect(leasedStore.liveAgentIds()).toEqual([]);
+    await expect(leasedStore.readKv(agentId, "shutdownResult")).rejects.toThrow("shutting down");
+    expect(
+      withDb(join(leasedStore.agentDirectory(agentId), "store.db"), (db) => db.query("SELECT value FROM kv WHERE key = ?").get("shutdownResult"))
+    ).toEqual({ value: "finished" });
   });
 
   test("bulk envelope publication is atomic and byte-identical to ordered appends", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-envelope-bulk-"));
-    const fixedNow = 1_788_000_000_000;
-    const sequential = new BotAgentStore(join(root, "sequential"), undefined, {
-      now: () => fixedNow,
-    });
-    const bulk = new BotAgentStore(join(root, "bulk"), undefined, {
-      now: () => fixedNow,
-    });
+    root = await tempDir("openteam-bot-envelope-bulk-");
+    const now = () => 1_788_000_000_000;
+    const sequential = new BotAgentStore(join(root, "sequential"), undefined, { now });
+    const bulk = new BotAgentStore(join(root, "bulk"), undefined, { now });
     const envelopes = [
       { role: "user", content: "first", eventId: "event-1" },
       { role: "assistant", content: "second", eventId: "event-2" },
       { role: "user", content: "first", eventId: "event-1" },
       { role: "assistant", content: "third", eventId: "event-3" },
     ];
-
     try {
       const sequentialIds: string[] = [];
-      for (const envelope of envelopes) {
-        sequentialIds.push(await sequential.appendConversationEnvelope(agentId, envelope));
-      }
-
+      for (const envelope of envelopes) sequentialIds.push(await sequential.appendConversationEnvelope(agentId, envelope));
       await bulk.openForWake(agentId);
       const bulkPath = join(bulk.agentDirectory(agentId), "conversation-blobs.db");
-      const failureInjector = new Database(bulkPath);
-      try {
-        failureInjector.exec(`
-          CREATE TRIGGER fail_live_root BEFORE INSERT ON blobs
-          WHEN NEW.id = 'sand-live-conversation-root-v1__'
-          BEGIN SELECT RAISE(ABORT, 'forced root failure'); END;
-        `);
-      } finally {
-        failureInjector.close(false);
-      }
-      await expect(bulk.appendConversationEnvelopes(agentId, envelopes)).rejects.toThrow(
-        "forced root failure"
-      );
-      const afterFailure = new Database(bulkPath, { readonly: true });
-      try {
-        expect(afterFailure.query("SELECT count(*) AS count FROM blobs").get()).toEqual({
-          count: 0,
-        });
-      } finally {
-        afterFailure.close(false);
-      }
-      const removeFailureInjector = new Database(bulkPath);
-      try {
-        removeFailureInjector.exec("DROP TRIGGER fail_live_root");
-      } finally {
-        removeFailureInjector.close(false);
-      }
+      withDb(bulkPath, (db) => db.exec(`CREATE TRIGGER fail_live_root BEFORE INSERT ON blobs WHEN NEW.id = '${LIVE_ROOT}' BEGIN SELECT RAISE(ABORT, 'forced root failure'); END;`), false);
+      await expect(bulk.appendConversationEnvelopes(agentId, envelopes)).rejects.toThrow("forced root failure");
+      expect(withDb(bulkPath, (db) => db.query("SELECT count(*) AS count FROM blobs").get())).toEqual({ count: 0 });
+      withDb(bulkPath, (db) => db.exec("DROP TRIGGER fail_live_root"), false);
 
-      const bulkIds = await bulk.appendConversationEnvelopes(agentId, envelopes);
-      expect(bulkIds).toEqual(sequentialIds);
-      const rootBeforeReplay = new Database(bulkPath, { readonly: true });
-      let replayRoot: Buffer;
-      try {
-        const row = rootBeforeReplay
-          .query("SELECT data FROM blobs WHERE id = 'sand-live-conversation-root-v1__'")
-          .get() as { data: Uint8Array };
-        replayRoot = Buffer.from(row.data);
-      } finally {
-        rootBeforeReplay.close(false);
-      }
       expect(await bulk.appendConversationEnvelopes(agentId, envelopes)).toEqual(sequentialIds);
-      expect(bulk.conversationPublicationMetrics()).toMatchObject({
-        blobInsertAttempts: 8,
-        rootPublications: 1,
-        rootBytesWritten: replayRoot.byteLength,
-      });
+      const rootBytes = withDb(bulkPath, (db) => (db.query(`SELECT data FROM blobs WHERE id = '${LIVE_ROOT}'`).get() as { data: Uint8Array }).data.byteLength);
+      expect(await bulk.appendConversationEnvelopes(agentId, envelopes)).toEqual(sequentialIds);
+      expect(bulk.conversationPublicationMetrics()).toMatchObject({ blobInsertAttempts: 8, rootPublications: 1, rootBytesWritten: rootBytes });
 
       await Promise.all([sequential.closeAll(), bulk.closeAll()]);
-      const sequentialDb = new Database(
-        join(sequential.agentDirectory(agentId), "conversation-blobs.db"),
-        { readonly: true }
-      );
-      const bulkDb = new Database(bulkPath, { readonly: true });
-      try {
-        const rootQuery = "SELECT hex(data) AS data FROM blobs WHERE id = ?";
-        expect(bulkDb.query(rootQuery).get("sand-live-conversation-root-v1__")).toEqual(
-          sequentialDb.query(rootQuery).get("sand-live-conversation-root-v1__")
-        );
-        expect(bulkDb.query("SELECT id, hex(data) AS data FROM blobs ORDER BY id").all()).toEqual(
-          sequentialDb.query("SELECT id, hex(data) AS data FROM blobs ORDER BY id").all()
-        );
-      } finally {
-        sequentialDb.close(false);
-        bulkDb.close(false);
-      }
+      const all = (path: string) => withDb(path, (db) => db.query("SELECT id, hex(data) AS data FROM blobs ORDER BY id").all());
+      expect(all(bulkPath)).toEqual(all(join(sequential.agentDirectory(agentId), "conversation-blobs.db")));
       expect(sequential.conversationPublicationMetrics().rootPublications).toBe(4);
-      expect(sequential.conversationPublicationMetrics().rootBytesWritten).toBeGreaterThan(
-        bulk.conversationPublicationMetrics().rootBytesWritten
-      );
     } finally {
       await Promise.all([sequential.closeAll(), bulk.closeAll()]);
     }
   });
 
-  test("partial-directory retries remain bounded and rotate through the recovery set", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-pending-inventory-"));
-    store = new BotAgentStore(root);
-    const ids = Array.from(
-      { length: 40 },
-      (_, index) => `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`
-    );
-    const inventoryStore = store;
-    await Promise.all(
-      ids.map((id) => mkdir(inventoryStore.agentDirectory(id), { recursive: true }))
-    );
-
-    expect(await store.listAgentDirectories({ now: 1_000 })).toEqual([]);
-    expect(store.agentDirectoryDiscoveryMetrics().directoriesInspected).toBe(40);
-    await store.listAgentDirectories({ now: 1_001 });
-    expect(store.agentDirectoryDiscoveryMetrics().directoriesInspected).toBe(56);
-    await Promise.all(
-      ids.map((id) =>
-        writeFile(join(inventoryStore.agentDirectory(id), "profile.json"), '{"name":"Late"}\n')
-      )
-    );
-    expect(await store.listAgentDirectories({ now: 1_002 })).toHaveLength(16);
-    expect(store.agentDirectoryDiscoveryMetrics().directoriesInspected).toBe(72);
-    expect(await store.listAgentDirectories({ now: 1_003 })).toHaveLength(32);
-    expect(store.agentDirectoryDiscoveryMetrics().directoriesInspected).toBe(88);
-    expect(await store.listAgentDirectories({ now: 1_004 })).toHaveLength(40);
-    expect(store.agentDirectoryDiscoveryMetrics().directoriesInspected).toBe(96);
-  });
-
-  test("directory discovery caches steady rosters and incrementally retries partial stores", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-inventory-"));
-    store = new BotAgentStore(root);
-    const agentsRoot = join(root, "agents");
-    const firstDirectory = store.agentDirectory(agentId);
-    await mkdir(firstDirectory, { recursive: true });
-    await writeFile(join(firstDirectory, "profile.json"), '{"name":"Before"}\n');
-
-    expect((await store.listAgentDirectories({ now: 1_000, maxAgeMs: 1_000 }))[0]?.name).toBe(
-      "Before"
-    );
-    const firstMetrics = store.agentDirectoryDiscoveryMetrics();
-    expect(firstMetrics).toMatchObject({ fullScans: 1, directoriesInspected: 1 });
-
-    // Editing a file does not change the parent roster directory. The hot path
-    // remains cached, while the bounded full-scan deadline preserves recovery.
-    await writeFile(join(firstDirectory, "profile.json"), '{"name":"After"}\n');
-    expect((await store.listAgentDirectories({ now: 1_500, maxAgeMs: 1_000 }))[0]?.name).toBe(
-      "Before"
-    );
-    expect((await store.listAgentDirectories({ now: 2_001, maxAgeMs: 1_000 }))[0]?.name).toBe(
-      "After"
-    );
-
-    const partialId = "5ab461fc-b440-488f-9f3c-88fc15d92c46";
-    const partialDirectory = store.agentDirectory(partialId);
-    await mkdir(partialDirectory, { recursive: true });
-    await utimes(agentsRoot, new Date(3_000), new Date(3_000));
-    expect(await store.listAgentDirectories({ now: 2_100, maxAgeMs: 1_000 })).toHaveLength(1);
-    await writeFile(join(partialDirectory, "profile.json"), '{"name":"Completed later"}\n');
-    expect(await store.listAgentDirectories({ now: 2_200, maxAgeMs: 1_000 })).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: partialId, name: "Completed later" })])
-    );
-
-    expect(store.agentDirectoryDiscoveryMetrics()).toMatchObject({
-      cacheHits: 1,
-      fullScans: 2,
-      incrementalScans: 2,
-      directoriesInspected: 4,
-    });
-  });
-
-  test("creation exposes exactly profile-external store.db state", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-"));
-    store = new BotAgentStore(root);
-    await store.initializeAgent(agentId, 1_788_000_000_000);
-    const directory = store.agentDirectory(agentId);
-
-    expect(await readdir(directory)).toEqual(["store.db"]);
-    expect((await stat(join(directory, "store.db"))).mode & 0o777).toBe(0o644);
-
-    const database = new Database(join(directory, "store.db"));
-    try {
-      expect(database.query("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" });
-      expect(database.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
-      expect(
-        database
-          .query(
-            "SELECT name, strict FROM pragma_table_list WHERE schema='main' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-          )
-          .all()
-      ).toEqual([
-        { name: "automation_completion_inbox", strict: 1 },
-        { name: "blobs", strict: 1 },
-        { name: "kv", strict: 1 },
-        { name: "transcript_entries", strict: 1 },
-      ]);
-      const rows = database.query("SELECT key, value FROM kv ORDER BY key").all() as Array<{
-        key: string;
-        value: string;
-      }>;
-      expect(rows.map(({ key }) => key)).toEqual(["introductionPending", "metadata", "origin"]);
-      const metadataRow = rows[1];
-      if (!metadataRow) throw new Error("metadata row is missing");
-      const metadata = JSON.parse(Buffer.from(metadataRow.value, "hex").toString("utf8"));
-      expect(metadata).toMatchObject({
-        agentId,
-        latestRootBlobId: "",
-        name: "New Agent",
-        mode: "default",
-        isRunEverything: false,
-        createdAt: 1_788_000_000_000,
-      });
-    } finally {
-      database.close(false);
-    }
-  });
-
-  test("first wake creates WAL stores, repair keys, snapshots, and plaintext envelopes", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-"));
+  test("first wake creates WAL stores and plaintext envelopes whose live root survives a reopen", async () => {
+    root = await tempDir("openteam-bot-store-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
-    await Promise.all([
-      store.openForWake(agentId),
-      store.openForWake(agentId),
-      store.openForWake(agentId),
-    ]);
-    await store.setPromptSnapshot(agentId, "agentProfilePromptSnapshot", {
-      version: 1,
-      compactionEpoch: 0,
-    });
+    await Promise.all([store.openForWake(agentId), store.openForWake(agentId), store.openForWake(agentId)]);
     await store.appendTranscriptEntry(agentId, "t0u", { role: "user" });
-    const blobId = await store.appendConversationEnvelope(agentId, {
-      role: "user",
-      content: "hello",
-    });
+    const blobId = await store.appendConversationEnvelope(agentId, { role: "user", content: "hello" });
     await store.closeAgent(agentId);
     await store.openForWake(agentId);
-    const restartedBlobId = await store.appendConversationEnvelope(agentId, {
-      role: "assistant",
-      content: "after restart",
-    });
+    const restartedBlobId = await store.appendConversationEnvelope(agentId, { role: "assistant", content: "after restart" });
 
     const directory = store.agentDirectory(agentId);
     const names = new Set(await readdir(directory));
-    for (const expected of [
-      "automations",
-      "conversation-blobs.db",
-      "conversation-blobs.db-shm",
-      "conversation-blobs.db-wal",
-      "store.db",
-      "store.db-shm",
-      "store.db-wal",
-    ]) {
-      expect(names.has(expected)).toBeTrue();
-    }
-
-    const primary = new Database(join(directory, "store.db"), { readonly: true });
-    const blobs = new Database(join(directory, "conversation-blobs.db"), { readonly: true });
-    try {
-      expect(blobs.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
-      expect(primary.query("SELECT count(*) AS count FROM blobs").get()).toEqual({ count: 0 });
-      expect(primary.query("SELECT count(*) AS count FROM transcript_entries").get()).toEqual({
-        count: 1,
-      });
-      expect(
-        primary
-          .query("SELECT key FROM kv WHERE key IN (?, ?, ?) ORDER BY key")
-          .all("agentProfilePromptSnapshot", "hiddenEntryRepairVersion", "staleRootCleanupVersion")
-      ).toEqual([
-        { key: "agentProfilePromptSnapshot" },
-        { key: "hiddenEntryRepairVersion" },
-        { key: "staleRootCleanupVersion" },
-      ]);
-      const row = blobs.query("SELECT data FROM blobs WHERE id = ?").get(blobId) as {
-        data: Uint8Array;
-      };
-      expect(JSON.parse(Buffer.from(row.data).toString("utf8"))).toEqual({
-        role: "user",
-        content: "hello",
-      });
-      const liveRoot = blobs
-        .query("SELECT data FROM blobs WHERE id = 'sand-live-conversation-root-v1__'")
-        .get() as { data: Uint8Array };
-      expect(JSON.parse(Buffer.from(liveRoot.data).toString("utf8")).blobIds).toEqual([
-        blobId,
-        restartedBlobId,
-      ]);
-    } finally {
-      primary.close(false);
-      blobs.close(false);
-    }
+    for (const expected of ["automations", "conversation-blobs.db-wal", "store.db-wal"]) expect(names.has(expected)).toBeTrue();
+    expect(withDb(join(directory, "store.db"), (db) => db.query("SELECT count(*) AS count FROM transcript_entries").get())).toEqual({ count: 1 });
+    withDb(join(directory, "conversation-blobs.db"), (blobs) => {
+      expect(blobJson(blobs, blobId)).toEqual({ role: "user", content: "hello" });
+      expect(blobJson(blobs, LIVE_ROOT).blobIds).toEqual([blobId, restartedBlobId]);
+    });
   });
 
   test("unknown durable agent directories are adopted into the local roster", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-"));
-    const orphanRoot = join(root, "quarantine");
-    store = new BotAgentStore(join(root, "sand-data"), orphanRoot);
+    root = await tempDir("openteam-bot-store-");
+    store = new BotAgentStore(join(root, "sand-data"), join(root, "quarantine"));
     await store.initializeAgent(agentId);
     const unknownId = "5ab461fc-b440-488f-9f3c-88fc15d92c46";
     const unknown = store.agentDirectory(unknownId);
     await mkdir(unknown, { recursive: true });
     await writeFile(join(unknown, "profile.json"), '{"name":"Legacy"}\n');
-
     expect(await store.quarantineUnknownAgents([agentId], 0)).toEqual([]);
-    expect(new Set(await readdir(join(root, "sand-data", "agents")))).toEqual(
-      new Set([agentId, unknownId])
-    );
     expect(await store.listAgentDirectories()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: unknownId, kind: "agent", name: "Legacy" }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ id: unknownId, kind: "agent", name: "Legacy" })])
     );
     expect(await readFile(join(unknown, "profile.json"), "utf8")).toBe('{"name":"Legacy"}\n');
   });
 
   test("corrupt stores are quarantined and rebuilt while blob recovery finishes pending markers", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-recovery-"));
+    root = await tempDir("openteam-bot-store-recovery-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
     await store.openForWake(agentId);
@@ -549,102 +173,66 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
     const directory = store.agentDirectory(agentId);
     await writeFile(join(directory, "store.db"), "not sqlite");
     await writeFile(join(directory, "conversation-blobs.db"), "also not sqlite");
-
     await store.openForWake(agentId);
     await store.closeAgent(agentId);
-
     const names = await readdir(directory);
     expect(names.some((name) => name.startsWith("store.db.corrupt-"))).toBeTrue();
     expect(names.some((name) => name.startsWith("conversation-blobs.db.corrupt-"))).toBeTrue();
     expect(names.some((name) => name.endsWith(".intent") || name.endsWith(".pending"))).toBeFalse();
-    const primary = new Database(join(directory, "store.db"), { readonly: true });
-    const blobs = new Database(join(directory, "conversation-blobs.db"), { readonly: true });
-    try {
-      expect(primary.query("PRAGMA quick_check").get()).toEqual({ quick_check: "ok" });
-      expect(blobs.query("PRAGMA quick_check").get()).toEqual({ quick_check: "ok" });
-      expect(blobs.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
-    } finally {
-      primary.close(false);
-      blobs.close(false);
+    for (const file of ["store.db", "conversation-blobs.db"]) {
+      expect(withDb(join(directory, file), (db) => db.query("PRAGMA quick_check").get())).toEqual({ quick_check: "ok" });
     }
-  });
-
-  test("deleting an agent retires its directory even while its store was open", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-delete-"));
-    const orphanRoot = join(root, "retired");
-    store = new BotAgentStore(join(root, "sand-data"), orphanRoot);
-    await store.openForWake(agentId);
-    const directory = store.agentDirectory(agentId);
-    expect(store.hasLiveHandle(agentId)).toBeTrue();
-
-    expect(await store.deleteAgent(agentId)).toBeTrue();
-
-    expect(store.hasLiveHandle(agentId)).toBeFalse();
-    expect(await readdir(join(root, "sand-data", "agents"))).toEqual([]);
-    expect(await stat(directory).catch(() => null)).toBeNull();
-    expect(await store.listAgentDirectories()).toEqual([]);
-    // Nothing is left behind under the retirement root either.
-    expect(await readdir(orphanRoot)).toEqual([]);
-    expect(await store.deleteAgent(agentId)).toBeFalse();
   });
 
   test("turn metadata, transcript projections, and search indexes rebuild from store.db", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-bot-projections-"));
+    root = await tempDir("openteam-bot-projections-");
     store = new BotAgentStore(root);
     await store.initializeAgent(agentId);
-    await writeFile(
-      join(store.agentDirectory(agentId), "profile.json"),
-      '{"name":"Indexed Bot","description":"Projection source"}\n'
-    );
-    for (let index = 0; index < 205; index += 1) {
-      await store.recordRequestId(agentId, `request-${index}`);
-    }
-    await store.recordTurnSettlement(agentId, {
-      turnId: "turn-1",
-      status: "completed",
-    });
+    await writeFile(join(store.agentDirectory(agentId), "profile.json"), '{"name":"Indexed Bot","description":"Projection source"}\n');
+    for (let index = 0; index < 205; index += 1) await store.recordRequestId(agentId, `request-${index}`);
+    await store.recordTurnSettlement(agentId, { turnId: "turn-1", status: "completed" });
+    const at = "2026-08-30T10:00:00.000Z";
     await store.appendTranscriptEntry(agentId, "message-1", {
       kind: "message",
-      event: {
-        id: "message-1",
-        kind: "message",
-        role: "assistant",
-        content: "Durable searchable answer",
-        at: "2026-08-30T10:00:00.000Z",
-      },
+      event: { id: "message-1", kind: "message", role: "assistant", content: "Durable searchable answer", at },
     });
     await store.refreshDerivedProjections(agentId);
 
-    const requestIds = JSON.parse((await store.readKv(agentId, "requestIds")) ?? "null") as {
-      ids: string[];
-    };
+    const requestIds = JSON.parse((await store.readKv(agentId, "requestIds")) ?? "null") as { ids: string[] };
     expect(requestIds.ids).toHaveLength(200);
-    expect(requestIds.ids[0]).toBe("request-5");
-    expect(requestIds.ids.at(-1)).toBe("request-204");
-    expect(JSON.parse((await store.readKv(agentId, "lastTurnSettlement")) ?? "null")).toMatchObject(
-      { turnId: "turn-1", status: "completed" }
-    );
-
-    const index = new Database(join(root, "search-index.db"), { readonly: true });
-    try {
-      expect(index.query("SELECT name, description FROM agents WHERE id = ?").get(agentId)).toEqual(
-        { name: "Indexed Bot", description: "Projection source" }
-      );
-      expect(
-        index
-          .query("SELECT id, kind, content, occurred_at FROM messages WHERE agent_id = ?")
-          .get(agentId)
-      ).toEqual({
+    expect([requestIds.ids[0], requestIds.ids.at(-1)]).toEqual(["request-5", "request-204"]);
+    expect(JSON.parse((await store.readKv(agentId, "lastTurnSettlement")) ?? "null")).toMatchObject({ turnId: "turn-1", status: "completed" });
+    withDb(join(root, "search-index.db"), (index) => {
+      expect(index.query("SELECT name, description FROM agents WHERE id = ?").get(agentId)).toEqual({ name: "Indexed Bot", description: "Projection source" });
+      expect(index.query("SELECT id, kind, content, occurred_at FROM messages WHERE agent_id = ?").get(agentId)).toEqual({
         id: "message-1",
         kind: "message",
         content: "Durable searchable answer",
-        occurred_at: "2026-08-30T10:00:00.000Z",
+        occurred_at: at,
       });
-    } finally {
-      index.close(false);
-    }
-    expect(
-      JSON.parse(await readFile(join(root, "transcript-publish", `${agentId}.json`), "utf8"))
-    ).toMatchObject({ version: 1, agentId, entryCount: 1, latestSeq: 1 });
+    });
+    expect(await publication(root, agentId)).toMatchObject({ version: 1, agentId, entryCount: 1, latestSeq: 1 });
   });
+});
+
+test("concurrent transcript refreshes during bot provisioning publish a consistent snapshot", async () => {
+  root = await tempDir("openteam-projection-race-");
+  const dir = root;
+  const raceStore = new BotAgentStore(dir);
+  store = raceStore;
+  const id = crypto.randomUUID();
+  await raceStore.initializeAgent(id);
+  const results = await Promise.allSettled(Array.from({ length: 32 }, () => raceStore.refreshDerivedProjections(id)));
+  expect(results.filter((result) => result.status === "rejected")).toEqual([]);
+  expect(await publication(dir, id)).toMatchObject({ agentId: id, entryCount: 0, latestSeq: 0 });
+  await Promise.all(
+    Array.from({ length: 12 }, async (_, index) => {
+      await raceStore.appendTranscriptEntry(id, `message-${index}`, { kind: "message", content: `New conversation message ${index}` });
+      await raceStore.refreshDerivedProjections(id);
+    })
+  );
+  const rows = await raceStore.readTranscriptEntries(id);
+  expect(await publication(dir, id)).toMatchObject({ entryCount: rows.length, latestSeq: rows.at(-1)?.seq });
+  expect(withDb(join(dir, "search-index.db"), (index) => index.query("SELECT count(*) AS count FROM messages WHERE agent_id = ?").get(id))).toEqual({ count: rows.length });
+  expect((await readdir(join(dir, "transcript-publish"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 });

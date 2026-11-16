@@ -1,22 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   BrowserProfileAuthority,
   PORTABLE_PROFILE_ENTRIES,
 } from "../../src/browser/profile-authority";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 describe("computer-scoped native browser profile authority", () => {
   let home: string | undefined;
 
   afterEach(async () => {
-    if (home) await rm(home, { recursive: true, force: true });
     home = undefined;
   });
 
   test("publishes stopped-profile state and hydrates a new bot profile", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-browser-profile-"));
+    home = await tempDir("openteam-browser-profile-");
     const alpha = join(home, "chrome-profile");
     const beta = join(home, "chrome-profile-2");
     await mkdir(join(alpha, "Default", "Extensions", "probe"), { recursive: true });
@@ -49,7 +49,7 @@ describe("computer-scoped native browser profile authority", () => {
   });
 
   test("does not let an older dormant profile replace an existing authority", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-browser-profile-seed-"));
+    home = await tempDir("openteam-browser-profile-seed-");
     const alpha = join(home, "chrome-profile");
     const staleBeta = join(home, "chrome-profile-2");
     const gamma = join(home, "chrome-profile-3");

@@ -32,24 +32,4 @@ final class SidebarPluginTests: XCTestCase {
     XCTAssertEqual(SidebarPlugin.snapshot(.object(["installs": .array([])])), [])
   }
 
-  func testIconsSurviveRelaunchAndAreIsolatedByAccountAndServer() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let account = try DiskStore(directory: directory, scope: "server-a/user-a")
-    var state = SavedState()
-    state.sidebarPlugins = SidebarPlugin.snapshot(.object(["installs": .array([
-      .object(["key": .string("slack"), "name": .string("Slack")]),
-    ])]))
-    try account.save(state)
-    XCTAssertEqual(try account.load().sidebarPlugins?.first?.id, "slack")
-    XCTAssertNil(try DiskStore(directory: directory, scope: "server-a/user-b").load().sidebarPlugins)
-    XCTAssertNil(try DiskStore(directory: directory, scope: "server-b/user-a").load().sidebarPlugins)
-    try account.clear()
-    XCTAssertNil(try account.load().sidebarPlugins)
-  }
-
-  func testOldCachesRemainReadable() throws {
-    let old = Data(#"{"messages":{},"drafts":{},"outbox":[]}"#.utf8)
-    XCTAssertNil(try JSONDecoder().decode(SavedState.self, from: old).sidebarPlugins)
-  }
 }

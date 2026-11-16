@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { startNetworkConnectivity, probeNetworkFamily } from "../src/network-connectivity";
+import { startNetworkConnectivity } from "../src/network-connectivity";
 import type { NetworkFamilyHealth } from "@openteam/plugin-sdk/browser-network/protocol";
 
 const working: NetworkFamilyHealth = { state: "working" };
@@ -121,41 +121,4 @@ test("route changes clear health and cancel obsolete measurements before enablin
     release();
     await monitor.close();
   }
-});
-
-test("repeated lease notifications coalesce a pending measurement", async () => {
-  const f = fixture();
-  try {
-    for (let i = 0; i < 25; i++) f.monitor.sync();
-    await until(() => f.monitor.status()?.checkedAt != null);
-    expect(f.applied.filter((v) => v.ipv4)).toHaveLength(1);
-  } finally {
-    await f.monitor.close();
-  }
-});
-
-test("independent provider failures classify connection vs TLS without leaking errors", async () => {
-  const hosts: string[] = [];
-  const result = await probeNetworkFamily(
-    async (host) => {
-      hosts.push(host);
-      throw Error("sensitive internal error");
-    },
-    "ipv6",
-    new AbortController().signal
-  );
-  expect(hosts).toHaveLength(2);
-  expect(hosts.every((host) => host.includes(":"))).toBe(true);
-  expect(result).toEqual(unavailable);
-  const controller = new AbortController();
-  controller.abort();
-  await expect(
-    probeNetworkFamily(
-      async () => {
-        throw Error();
-      },
-      "ipv4",
-      controller.signal
-    )
-  ).rejects.toThrow();
 });

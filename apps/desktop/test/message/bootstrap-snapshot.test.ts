@@ -61,127 +61,58 @@ const project = (latest: ChannelMessageView[], loaded: LoadedChannelHistory) =>
 
 describe("bootstrap snapshot", () => {
   test("withholds a newer bootstrap message from a loaded transcript until history has it", () => {
-    const transcript = [message("loaded", 1), message("loaded", 2)];
-    const newest = message("loaded", 5);
-    const { snapshot, detachedMessageIds } = project(
-      [newest, message("preview", 3)],
-      history(transcript)
-    );
-
+    const { snapshot, detachedMessageIds } = project([message("loaded", 5), message("preview", 3)], history([message("loaded", 1), message("loaded", 2)]));
     // Previews and unread state still see the newest message.
-    expect(snapshot.channelMessages.map(({ id }) => id)).toEqual([
-      "loaded-m1",
-      "loaded-m2",
-      "loaded-m5",
-      "preview-m3",
-    ]);
-    // Messages 3 and 4 are unknown, so the transcript must not show 5 yet.
+    expect(snapshot.channelMessages.map(({ id }) => id)).toEqual(["loaded-m1", "loaded-m2", "loaded-m5", "preview-m3"]);
+    // Messages 3 and 4 are unknown, so the transcript must not show 5 yet; an unloaded chat's newest is its preview.
     expect([...detachedMessageIds]).toEqual(["loaded-m5"]);
   });
 
-  test("keeps a newest message the loaded transcript already contains", () => {
+  test("keeps a newest message the transcript already has, and shows no preview row before the first page", () => {
     const newest = message("loaded", 2);
-    const { detachedMessageIds } = project(
-      [{ ...newest, content: "edited" }],
-      history([message("loaded", 1), newest])
-    );
-    expect(detachedMessageIds.size).toBe(0);
-  });
-
-  test("never shows a bootstrap preview row before the first history page", () => {
-    const { detachedMessageIds } = project([message("loaded", 4)], history([], 0));
-    expect([...detachedMessageIds]).toEqual(["loaded-m4"]);
-  });
-
-  test("treats an unloaded channel's newest message as its preview", () => {
-    const { snapshot, detachedMessageIds } = project([message("preview", 3)], history([]));
-    expect(snapshot.channelMessages.map(({ id }) => id)).toContain("preview-m3");
-    expect(detachedMessageIds.has("preview-m3")).toBe(false);
+    expect(project([{ ...newest, content: "edited" }], history([message("loaded", 1), newest])).detachedMessageIds.size).toBe(0);
+    expect([...project([message("loaded", 4)], history([], 0)).detachedMessageIds]).toEqual(["loaded-m4"]);
   });
 });
 
 describe("background history", () => {
-  const withUnread = (
-    latest: ChannelMessageView[],
-    unread: Record<string, number>,
-    hidden = ""
-  ) => {
+  const need = (latest: ChannelMessageView[], channelId: string, loaded: LoadedChannelHistory | undefined, options: { active?: string; unread?: number; hidden?: boolean } = {}) => {
     const base = bootstrap(latest);
-    return {
-      ...base,
-      channels: base.channels.map((candidate) => ({
-        ...candidate,
-        unreadCount: unread[candidate.id] ?? 0,
-        hiddenFromSidebar: candidate.id === hidden,
-      })),
-    } as unknown as ClientBootstrapView;
+    return backgroundHistoryNeed({
+      bootstrap: {
+        ...base,
+        channels: base.channels.map((candidate) => ({
+          ...candidate,
+          unreadCount: candidate.id === channelId ? options.unread ?? 0 : 0,
+          hiddenFromSidebar: candidate.id === channelId && !!options.hidden,
+        })),
+      } as unknown as ClientBootstrapView,
+      channelId,
+      activeChannelId: options.active ?? (channelId === "loaded" ? "preview" : "loaded"),
+      history: loaded,
+      detachedMessageIds: loaded ? project(latest, loaded).detachedMessageIds : new Set(),
+    });
   };
 
-  test("reads a loaded chat in the background when its transcript withholds the newest message", () => {
+  test("refreshes a background chat only while its transcript withholds the newest message", () => {
     const loaded = history([message("loaded", 1), message("loaded", 2)]);
-    const latest = [message("loaded", 5)];
-    const { detachedMessageIds } = project(latest, loaded);
-    const need = (activeChannelId: string | undefined) =>
-      backgroundHistoryNeed({
-        bootstrap: withUnread(latest, {}),
-        channelId: "loaded",
-        activeChannelId,
-        history: loaded,
-        detachedMessageIds,
-      });
-    expect(need("preview")).toBe("refresh");
+    expect(need([message("loaded", 5)], "loaded", loaded)).toBe("refresh");
     // The open chat reads its own history after every event.
-    expect(need("loaded")).toBeNull();
+    expect(need([message("loaded", 5)], "loaded", loaded, { active: "loaded" })).toBeNull();
+    expect(need([message("loaded", 2)], "loaded", loaded)).toBeNull();
+    // A first page still loading is left to finish.
+    expect(need([message("loaded", 4)], "loaded", history([], 0), { unread: 1 })).toBeNull();
   });
 
-  test("leaves a loaded chat alone once its transcript has the newest message", () => {
-    const loaded = history([message("loaded", 1), message("loaded", 2)]);
-    const latest = [message("loaded", 2)];
-    const { detachedMessageIds } = project(latest, loaded);
-    expect(
-      backgroundHistoryNeed({
-        bootstrap: withUnread(latest, {}),
-        channelId: "loaded",
-        activeChannelId: "preview",
-        history: loaded,
-        detachedMessageIds,
-      })
-    ).toBeNull();
-  });
-
-  test("loads a never-opened chat only when it has unread messages", () => {
+  test("loads a never-opened, visible chat only when it has unread messages", () => {
     const latest = [message("preview", 3)];
-    const need = (unread: number, hidden = "") =>
-      backgroundHistoryNeed({
-        bootstrap: withUnread(latest, { preview: unread }, hidden),
-        channelId: "preview",
-        activeChannelId: "loaded",
-        history: undefined,
-        detachedMessageIds: new Set(),
-      });
-    expect(need(1)).toBe("load");
-    expect(need(0)).toBeNull();
-    expect(need(1, "preview")).toBeNull();
-  });
-
-  test("waits for a chat whose first page is still loading", () => {
-    const latest = [message("loaded", 4)];
-    const loading = history([], 0);
-    const { detachedMessageIds } = project(latest, loading);
-    expect(
-      backgroundHistoryNeed({
-        bootstrap: withUnread(latest, { loaded: 1 }),
-        channelId: "loaded",
-        activeChannelId: "preview",
-        history: loading,
-        detachedMessageIds,
-      })
-    ).toBeNull();
+    expect(need(latest, "preview", undefined, { unread: 1 })).toBe("load");
+    expect(need(latest, "preview", undefined, { unread: 0 })).toBeNull();
+    expect(need(latest, "preview", undefined, { unread: 1, hidden: true })).toBeNull();
   });
 });
 
-describe("open chat history", () => {
-  const state = (revision: string) => ({ channelId: "loaded", revision }) as unknown as ChannelClientState;
+test("an open chat reuses a recent page only if it holds the newest message and run state caught up", () => {
   const now = 10_000;
   const need = (transcript: ChannelMessageView[], revision: string, loadedAt = now - 20) => {
     const latest = [message("loaded", 5)];
@@ -190,25 +121,16 @@ describe("open chat history", () => {
       bootstrap: bootstrap(latest),
       channelId: "loaded",
       history: loaded,
-      state: state(revision),
+      state: { channelId: "loaded", revision } as unknown as ChannelClientState,
       detachedMessageIds: project(latest, loaded).detachedMessageIds,
       now,
     });
   };
-
-  test("reuses a page read moments ago when it already holds the newest message", () => {
-    expect(need([message("loaded", 4), message("loaded", 5)], "100")).toBe(false);
-  });
-
-  test("reads again when a page read moments ago missed the newest message", () => {
-    // History and run state are separate reads. A reply that lands between them
-    // is in the state read's revision but not on the page, and bootstrap then
-    // shows its notification while the open transcript withholds it.
-    expect(need([message("loaded", 3), message("loaded", 4)], "100")).toBe(true);
-  });
-
-  test("reads again when run state is behind bootstrap or the page is not recent", () => {
-    expect(need([message("loaded", 4), message("loaded", 5)], "99")).toBe(true);
-    expect(need([message("loaded", 4), message("loaded", 5)], "100", now - 250)).toBe(true);
-  });
+  const complete = [message("loaded", 4), message("loaded", 5)];
+  expect(need(complete, "100")).toBe(false);
+  // History and run state are separate reads: a reply landing between them is in the state's
+  // revision but not on the page, so bootstrap would notify while the transcript withholds it.
+  expect(need([message("loaded", 3), message("loaded", 4)], "100")).toBe(true);
+  expect(need(complete, "99")).toBe(true);
+  expect(need(complete, "100", now - 250)).toBe(true);
 });

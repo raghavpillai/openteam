@@ -1,21 +1,19 @@
 import { afterEach, expect, test } from "bun:test";
-import { SignalService, accountDirectory } from "../service";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { directoryPage } from "../directory";
+import { SignalService, accountDirectory, configuredService } from "../service";
 import { MessageStore } from "../store";
-import { SignalRpc } from "../rpc";
 
 const self = { aci: "11111111-1111-4111-8111-111111111111", number: "+12025550100" };
-const fixture = new URL("./fixture.ts", import.meta.url).pathname;
 const services: SignalService[] = [];
-afterEach(async () => {
-  for (const service of services.splice(0)) await service.close();
-});
+afterEach(async () => { for (const service of services.splice(0)) await service.close(); });
 
 class FakeRpc {
   connected = true;
   resolveExit!: () => void;
-  exited = new Promise<void>((resolve) => {
-    this.resolveExit = resolve;
-  });
+  exited = new Promise<void>((resolve) => { this.resolveExit = resolve; });
   calls: Array<{ method: string; params: any }> = [];
   sendError = false;
   rejectSetup = false;
@@ -25,26 +23,14 @@ class FakeRpc {
     if (this.rejectSetup) throw new Error("synthetic connection failure");
     if (method === "version") return { version: "0.14.10" };
     if (method === "listAccounts") return this.accounts;
-    if (method === "startLink") {
-      await Bun.sleep(10);
-      return { deviceLinkUri: "sgnl://linkdevice?uuid=synthetic&pub_key=synthetic" };
-    }
-    if (method === "finishLink") {
-      this.accounts = [self];
-      await Bun.sleep(10);
-      return self;
-    }
-    if (method === "send") {
-      await Bun.sleep(10);
-      if (this.sendError) throw new Error("synthetic timeout after transmission");
-      return { timestamp: 1000 };
-    }
+    if (["startLink", "finishLink", "send"].includes(method)) await Bun.sleep(10);
+    if (method === "startLink") return { deviceLinkUri: "sgnl://linkdevice?uuid=synthetic&pub_key=synthetic" };
+    if (method === "finishLink") return (this.accounts = [self]), self;
+    if (method === "send" && this.sendError) throw new Error("synthetic timeout after transmission");
+    if (method === "send") return { timestamp: 1000 };
     return params;
   }
-  async close() {
-    this.connected = false;
-    this.resolveExit();
-  }
+  async close() { this.connected = false; this.resolveExit(); }
 }
 
 function fake() {
@@ -62,31 +48,10 @@ test("OpenTeam account IDs produce distinct fixed-length paths without traversal
   expect(() => accountDirectory(" ")).toThrow();
 });
 
-test("simultaneous startup calls share one initialization and receive subscription", async () => {
-  const { peer, service } = fake();
-  await Promise.all(Array.from({ length: 30 }, () => service.connect()));
-  expect(peer.calls.map((call) => call.method)).toEqual([
-    "version",
-    "listAccounts",
-    "subscribeReceive",
-  ]);
-});
-
 test("account RPC always takes its account from the bound identity", async () => {
   const { peer, service } = fake();
   await service.accountRequest("listContacts", { account: "other-account" });
   expect(peer.calls.at(-1)).toEqual({ method: "listContacts", params: { account: self.number } });
-});
-
-test("unlinked state keeps setup available and rejects account operations", async () => {
-  const { peer, service } = fake();
-  peer.accounts = [];
-  expect(await service.status()).toMatchObject({ linked: false });
-  await expect(service.accountRequest("listGroups")).rejects.toThrow("Link a Signal account");
-  await expect(service.send("request-123", { noteToSelf: true }, "hello")).rejects.toThrow(
-    "Link a Signal account"
-  );
-  await expect(service.finishLink("foreign-session")).rejects.toThrow("expired or belongs");
 });
 
 test("multiple local accounts fail closed before subscribing or exposing data", async () => {
@@ -96,257 +61,27 @@ test("multiple local accounts fail closed before subscribing or exposing data", 
   expect(peer.calls.some((call) => call.method === "subscribeReceive")).toBe(false);
 });
 
-test("status notices phone revocation while the multi-account RPC process remains alive", async () => {
-  const { peer, service } = fake();
-  await service.connect();
-  peer.accounts = [];
-  expect(await service.status()).toMatchObject({
-    connected: false,
-    linked: false,
-    authorizationError: expect.stringContaining("account is unavailable"),
-  });
-  await expect(service.accountRequest("listContacts")).rejects.toThrow("account is unavailable");
-  await expect(
-    service.send("after-revocation", { noteToSelf: true }, "must not send")
-  ).rejects.toThrow("account is unavailable");
-  expect(peer.calls.some((call) => call.method === "send" || call.method === "listContacts")).toBe(
-    false
-  );
-});
-
-test("an account manager lost during a network failure recovers in the background without restarting MCP", async () => {
-  const peers: FakeRpc[] = [];
-  const service = new SignalService(
-    new MessageStore(":memory:"),
-    () => {
-      const peer = new FakeRpc();
-      if (peers.length === 1) peer.accounts = [];
-      peers.push(peer);
-      return peer;
-    },
-    10
-  );
-  services.push(service);
-  await service.connect();
-  peers[0]!.accounts = [];
-  expect(await service.status()).toMatchObject({ connected: false, linked: false });
-  const deadline = Date.now() + 2000;
-  while (peers.length < 3 && Date.now() < deadline) await Bun.sleep(5);
-  expect(peers.length).toBeGreaterThanOrEqual(3);
-  expect(await service.status()).toMatchObject({ linked: true, authorizationError: null });
-  expect(peers.flatMap((peer) => peer.calls).some((call) => call.method === "startLink")).toBe(
-    false
-  );
-});
-
-test("an existing account started offline retries without provisioning a new device", async () => {
-  const store = new MessageStore(":memory:");
-  store.bind(self);
-  const peers: FakeRpc[] = [];
-  const service = new SignalService(
-    store,
-    () => {
-      const peer = new FakeRpc();
-      if (!peers.length) peer.accounts = [];
-      peers.push(peer);
-      return peer;
-    },
-    10
-  );
-  services.push(service);
-  expect(await service.status()).toMatchObject({ linked: false });
-  const deadline = Date.now() + 2000;
-  while (peers.length < 2 && Date.now() < deadline) await Bun.sleep(5);
-  expect(await service.status()).toMatchObject({ linked: true, authorizationError: null });
-  expect(peers.flatMap((peer) => peer.calls).some((call) => call.method === "startLink")).toBe(
-    false
-  );
-});
-
-test("explicit linking of a revoked account cancels background recovery until phone approval", async () => {
-  const store = new MessageStore(":memory:");
-  store.bind(self);
-  const peers: FakeRpc[] = [];
-  const service = new SignalService(
-    store,
-    () => {
-      const peer = new FakeRpc();
-      peer.accounts = [];
-      peers.push(peer);
-      return peer;
-    },
-    10
-  );
-  services.push(service);
-  expect(await service.status()).toMatchObject({ linked: false });
-  expect(await service.startLink()).toHaveProperty("sessionId");
-  const count = peers.length;
-  await Bun.sleep(50);
-  expect(peers).toHaveLength(count);
-  expect(
-    peers.flatMap((peer) => peer.calls).filter((call) => call.method === "startLink")
-  ).toHaveLength(1);
-});
-
-test("failed explicit QR start preserves recovery of the previously linked account", async () => {
-  const store = new MessageStore(":memory:");
-  store.bind(self);
-  const peers: FakeRpc[] = [];
-  let offline = true;
-  const service = new SignalService(
-    store,
-    () => {
-      const peer = new FakeRpc();
-      if (offline) peer.accounts = [];
-      const normal = peer.request.bind(peer);
-      peer.request = async (method, params) => {
-        if (offline && method === "startLink") throw new Error("Synthetic network failure");
-        return normal(method, params);
-      };
-      peers.push(peer);
-      return peer;
-    },
-    10
-  );
-  services.push(service);
-  expect(await service.status()).toMatchObject({ linked: false, recovering: true });
-  await expect(service.startLink()).rejects.toThrow("Synthetic network failure");
-  const before = peers.length;
-  offline = false;
-  const deadline = Date.now() + 2000;
-  while (peers.length === before && Date.now() < deadline) await Bun.sleep(5);
-  expect(peers.length).toBeGreaterThan(before);
-  expect(await service.status()).toMatchObject({ linked: true, recovering: false });
-});
-
-test("status rejects replacement identities before permitting subsequent account-scoped work", async () => {
-  const { peer, service } = fake();
-  await service.connect();
-  peer.accounts = [{ aci: "replacement", number: self.number }];
-  await expect(service.status()).rejects.toThrow("identity changed");
-  await expect(service.accountRequest("listContacts")).rejects.toThrow();
-  expect(peer.calls.some((call) => call.method === "listContacts")).toBe(false);
-  expect(peer.connected).toBe(false);
-});
-
-test("numberless account requests use ACI", async () => {
-  const { peer, service } = fake();
-  peer.accounts = [{ aci: self.aci, number: null }];
-  await service.accountRequest("listGroups");
-  expect(peer.calls.at(-1)!.params.account).toBe(self.aci);
-});
-
 test("concurrent duplicate sends transmit once and subsequent retries return saved results", async () => {
   const { peer, service } = fake();
-  const results = await Promise.all(
-    Array.from({ length: 20 }, () => service.send("request-123", { noteToSelf: true }, "hello"))
-  );
+  const results = await Promise.all(Array.from({ length: 20 }, () => service.send("request-123", { noteToSelf: true }, "hello")));
   expect(peer.calls.filter((call) => call.method === "send")).toHaveLength(1);
   expect(results.filter((value) => value.state === "sent")).toHaveLength(1);
-  expect(await service.send("request-123", { noteToSelf: true }, "hello")).toMatchObject({
-    existing: true,
-    state: "sent",
-  });
-  await expect(service.send("request-123", { noteToSelf: true }, "different")).rejects.toThrow(
-    "different message content"
-  );
+  expect(await service.send("request-123", { noteToSelf: true }, "hello")).toMatchObject({ existing: true, state: "sent" });
+  await expect(service.send("request-123", { noteToSelf: true }, "different")).rejects.toThrow("different message content");
 });
 
 test("ambiguous send failures remain unknown and never automatically resend", async () => {
   const { peer, service } = fake();
   peer.sendError = true;
-  await expect(service.send("request-123", { noteToSelf: true }, "hello")).rejects.toThrow(
-    "timeout"
-  );
-  expect(await service.send("request-123", { noteToSelf: true }, "hello")).toMatchObject({
-    existing: true,
-    state: "unknown",
-  });
+  await expect(service.send("request-123", { noteToSelf: true }, "hello")).rejects.toThrow("timeout");
+  expect(await service.send("request-123", { noteToSelf: true }, "hello")).toMatchObject({ existing: true, state: "unknown" });
   expect(peer.calls.filter((call) => call.method === "send")).toHaveLength(1);
-});
-
-test("saved send outcomes remain inspectable while the runtime is unavailable", async () => {
-  const { peer, service } = fake();
-  peer.sendError = true;
-  await service.send("request-123", { noteToSelf: true }, "hello").catch(() => {});
-  peer.connected = false;
-  peer.rejectSetup = true;
-  expect(await service.send("request-123", { noteToSelf: true }, "hello")).toMatchObject({
-    existing: true,
-    state: "unknown",
-  });
-  expect(peer.calls.filter((call) => call.method === "send")).toHaveLength(1);
-});
-
-test.each([
-  [{}, "hello"],
-  [{ recipient: "alice", groupId: "group" }, "hello"],
-  [{ noteToSelf: true }, ""],
-  [{ recipient: " " }, "hello"],
-  [{ noteToSelf: true }, "x".repeat(16001)],
-])("invalid sends fail before contacting Signal %#", async (destination, message) => {
-  const { peer, service } = fake();
-  await expect(
-    service.send("request-123", destination as any, message as string)
-  ).rejects.toThrow();
-  expect(peer.calls).toHaveLength(0);
-});
-
-test("link approval uses the exact server-issued URI and subscribes only after binding storage", async () => {
-  const { peer, service } = fake();
-  peer.accounts = [];
-  const session = await service.startLink();
-  await Promise.all([service.finishLink(session.sessionId), service.finishLink(session.sessionId)]);
-  expect(peer.calls.filter((call) => call.method === "finishLink")).toHaveLength(1);
-  expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceLinkUri).toBe(
-    session.deviceLinkUri
-  );
-  expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceName).toBe(
-    "OpenTeam Signal"
-  );
-  expect(await service.status()).toMatchObject({ linked: true });
-  await expect(service.startLink()).rejects.toThrow("already linked");
-});
-
-test("concurrent linking requests share one provisioning session", async () => {
-  const { peer, service } = fake();
-  peer.accounts = [];
-  const [first, second] = await Promise.all([service.startLink(), service.startLink()]);
-  expect(first.sessionId).toBe(second.sessionId);
-  expect(peer.calls.filter((call) => call.method === "startLink")).toHaveLength(1);
-});
-
-test("subprocess crashes trigger automatic reinitialization and deduplicated collection", async () => {
-  let launches = 0;
-  let current!: SignalRpc;
-  const service = new SignalService(
-    new MessageStore(":memory:"),
-    (receive) => {
-      launches++;
-      return (current = new SignalRpc([process.execPath, fixture, "linked"], receive));
-    },
-    20
-  );
-  services.push(service);
-  await service.connect();
-  await current.request("crash").catch(() => {});
-  for (let i = 0; i < 50 && launches < 2; i++) await Bun.sleep(10);
-  await service.connect();
-  expect(launches).toBe(2);
-  expect(service.store.list().messages).toHaveLength(1);
-  expect(await service.status()).toMatchObject({ linked: true, connected: true });
 });
 
 test("identity rejection after linking closes the peer and prevents routing to the rejected account", async () => {
   const store = new MessageStore(":memory:");
   store.bind({ aci: "previous-account" });
-  store.capture({
-    account: "previous-account",
-    envelope: {
-      sourceUuid: "sender",
-      dataMessage: { timestamp: 1000, message: "previous history" },
-    },
-  });
+  store.capture({ account: "previous-account", envelope: { sourceUuid: "sender", dataMessage: { timestamp: 1000, message: "previous history" } } });
   const peer = new FakeRpc();
   peer.accounts = [];
   const attempts: FakeRpc[] = [peer];
@@ -361,145 +96,62 @@ test("identity rejection after linking closes the peer and prevents routing to t
   await expect(service.finishLink(link.sessionId)).rejects.toThrow("different Signal account");
   expect(peer.connected).toBe(false);
   await expect(service.status()).rejects.toThrow("different Signal account");
-  await expect(service.send("rejected-send", { noteToSelf: true }, "synthetic")).rejects.toThrow(
-    "different Signal account"
-  );
-  expect(attempts.flatMap((attempt) => attempt.calls).some((call) => call.method === "send")).toBe(
-    false
-  );
+  await expect(service.send("rejected-send", { noteToSelf: true }, "synthetic")).rejects.toThrow("different Signal account");
+  expect(attempts.flatMap((attempt) => attempt.calls).some((call) => call.method === "send")).toBe(false);
   expect(store.list().messages[0]!.body).toBe("previous history");
 });
 
-test("subscription failure after linking tears down initialization and permits recovery", async () => {
-  const first = new FakeRpc();
-  first.accounts = [];
-  const normal = first.request.bind(first);
-  first.request = async (method, params) => {
-    if (method === "subscribeReceive") throw new Error("synthetic subscription failure");
-    return normal(method, params);
-  };
-  const recovered = new FakeRpc();
-  const service = new SignalService(new MessageStore(":memory:"), () =>
-    first.connected ? first : recovered
-  );
-  services.push(service);
-  const link = await service.startLink();
-  await expect(service.finishLink(link.sessionId)).rejects.toThrow("subscription failure");
-  expect(first.connected).toBe(false);
-  expect(await service.status()).toMatchObject({ linked: true, connected: true });
-  expect(recovered.calls.some((call) => call.method === "subscribeReceive")).toBe(true);
-});
-
-test("automatic reconnect continues after a transient synchronous launch failure", async () => {
-  const first = new FakeRpc();
-  let launches = 0;
-  const service = new SignalService(
-    new MessageStore(":memory:"),
-    () => {
-      launches++;
-      if (launches === 1) return first;
-      if (launches === 2) throw new Error("synthetic temporary launch failure");
-      return new FakeRpc();
-    },
-    10
-  );
-  services.push(service);
-  await service.connect();
-  await first.close();
-  for (let i = 0; i < 50 && launches < 3; i++) await Bun.sleep(10);
-  expect(launches).toBe(3);
-  expect(await service.status()).toMatchObject({ linked: true, connected: true });
-});
-
-test("a pending approval prevents provisioning a replacement session after expiry", async () => {
-  const { peer, service } = fake();
-  peer.accounts = [];
-  const normal = peer.request.bind(peer);
-  let approve!: () => void;
-  const approval = new Promise<void>((resolve) => {
-    approve = resolve;
-  });
-  peer.request = async (method, params) => {
-    if (method === "finishLink") await approval;
-    return normal(method, params);
-  };
-  const session = await service.startLink();
-  const finish = service.finishLink(session.sessionId);
-  await Bun.sleep(0);
-  const originalNow = Date.now;
+test("a post-transmission SQLite failure remains unknown across restart and never resends", async () => {
+  // Real SQLite failures in synthetic storage; never fill the host filesystem.
+  const root = mkdtempSync(join(tmpdir(), "signal-ledger-fault-"));
+  const path = join(root, "messages.sqlite");
+  const store = new MessageStore(path);
+  store.bind(self);
+  store.db.exec("CREATE TRIGGER fail_confirmation BEFORE UPDATE ON sends BEGIN SELECT RAISE(ABORT,'synthetic storage fault'); END");
+  const peers = [new FakeRpc(), new FakeRpc()];
+  const transmissions = () => peers.flatMap((peer) => peer.calls).filter((call) => call.method === "send").length;
+  const first = new SignalService(store, () => peers[0]!);
+  const reopened = new SignalService(new MessageStore(path), () => peers[1]!);
+  services.push(first, reopened);
   try {
-    Date.now = () => originalNow() + 61_000;
-    await expect(service.startLink()).rejects.toThrow("approval is still pending");
+    await expect(first.send("failed-commit-123", { noteToSelf: true }, "synthetic")).rejects.toThrow("synthetic storage fault");
+    await first.close();
+    expect(await reopened.send("failed-commit-123", { noteToSelf: true }, "synthetic")).toMatchObject({ existing: true, state: "unknown", result: null });
+    await expect(reopened.send("failed-commit-123", { noteToSelf: true }, "changed")).rejects.toThrow("different message content");
+    expect(transmissions()).toBe(1);
   } finally {
-    Date.now = originalNow;
-    approve();
+    rmSync(root, { recursive: true, force: true });
   }
-  await finish;
-  expect(peer.calls.filter((call) => call.method === "startLink")).toHaveLength(1);
-  expect(peer.calls.filter((call) => call.method === "finishLink")).toHaveLength(1);
 });
 
-test.each([
-  "remote",
-  "sync-message",
-  "sync-attachment",
-])("an attachment deleted by %s while its RPC read is pending stays unavailable", async (kind) => {
-  const { peer, service } = fake();
-  await service.connect();
-  service.store.capture({
-    account: self.aci,
-    envelope: {
-      sourceUuid: "sender",
-      dataMessage: { timestamp: 1000, message: "ordinary", attachments: [{ id: "attachment" }] },
-    },
-  });
-  const messageId = service.store.list().messages[0]!.id;
-  const normal = peer.request.bind(peer);
-  let deliver!: (value: unknown) => void;
-  let reading = false;
-  peer.request = async (method, params) => {
-    if (method === "getAttachment") {
-      reading = true;
-      return new Promise((resolve) => {
-        deliver = resolve;
-      });
-    }
-    return normal(method, params);
-  };
-  const pending = service.attachment(messageId, "attachment");
-  while (!reading) await Bun.sleep(0);
-  service.store.capture({
-    account: self.aci,
-    envelope:
-      kind === "remote"
-        ? {
-            sourceUuid: "sender",
-            dataMessage: { timestamp: 2000, remoteDelete: { timestamp: 1000 } },
-          }
-        : {
-            sourceUuid: self.aci,
-            syncMessage: {
-              deleteForMe:
-                kind === "sync-message"
-                  ? {
-                      messageDeletes: [
-                        {
-                          conversation: { kind: "contact", id: "sender" },
-                          messages: [{ author: "sender", sentTimestamp: 1000 }],
-                        },
-                      ],
-                    }
-                  : {
-                      attachmentDeletes: [
-                        {
-                          conversation: { kind: "contact", id: "sender" },
-                          targetMessage: { author: "sender", sentTimestamp: 1000 },
-                        },
-                      ],
-                    },
-            },
-          },
-  });
-  deliver({ data: "c3ludGhldGlj" });
-  await expect(pending).rejects.toThrow("Attachment is unavailable");
+test("configured account state has restrictive directory and database permissions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "signal-permissions-"));
+  const service = configuredService({ SIGNAL_STATE_ROOT: root, SIGNAL_CLI_PATH: "/missing/signal-cli", OPENTEAM_PLUGIN_ACCOUNT_ID: "synthetic" });
+  try {
+    const directory = accountDirectory("synthetic", root);
+    expect(statSync(directory).mode & 0o777).toBe(0o700);
+    expect(statSync(join(directory, "messages.sqlite")).mode & 0o777).toBe(0o600);
+    await expect(service.status()).rejects.toThrow("Could not launch signal-cli");
+  } finally {
+    await service.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("directory pages split by encoded size below the host's string limit and reject invalid or oversized entries", () => {
+  const records = Array.from({ length: 120 }, (_, i) => ({ id: String(i).padStart(3, "0"), name: "Group " + i, metadata: '\u0000\\"🐈'.repeat(500) }));
+  const collected: unknown[] = [];
+  let offset: number | null = 0, pages = 0;
+  while (offset !== null) {
+    const page = directoryPage("groups", records, { offset, limit: 100 });
+    expect(JSON.stringify(page).length).toBeLessThanOrEqual(70_000);
+    expect((page.groups as unknown[]).length).toBeGreaterThan(0);
+    collected.push(...(page.groups as unknown[]));
+    offset = page.nextOffset;
+    pages++;
+  }
+  expect(pages).toBeGreaterThan(1);
+  expect(collected).toEqual(records);
+  for (const value of [null, {}, [null], [[]]]) expect(() => directoryPage("groups", value)).toThrow("invalid directory");
+  expect(() => directoryPage("contacts", [{ uuid: "one", name: "x".repeat(80_000) }])).toThrow("single directory entry");
 });

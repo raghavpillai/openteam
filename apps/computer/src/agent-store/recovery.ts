@@ -6,13 +6,13 @@ import { hexJson } from "./encoding";
 
 export const SQLITE_MODE = 0o644;
 
-export const configure = (database: Database): void => {
+const configure = (database: Database): void => {
   database.exec("PRAGMA journal_mode=WAL");
   database.exec("PRAGMA synchronous=NORMAL");
   database.exec("PRAGMA foreign_keys=OFF");
 };
 
-export const storeSchema = (database: Database): void => {
+const storeSchema = (database: Database): void => {
   database.exec(`
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
@@ -47,7 +47,7 @@ export const storeSchema = (database: Database): void => {
   `);
 };
 
-export const blobSchema = (database: Database, userVersion = 1): void => {
+const blobSchema = (database: Database, userVersion = 1): void => {
   database.exec(`
     CREATE TABLE IF NOT EXISTS blobs (
       id TEXT PRIMARY KEY,
@@ -57,27 +57,27 @@ export const blobSchema = (database: Database, userVersion = 1): void => {
   `);
 };
 
-export const sqliteStamp = (): string =>
+const sqliteStamp = (): string =>
   new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
 
-export const quickCheck = (database: Database): void => {
+const quickCheck = (database: Database): void => {
   const row = database.query("PRAGMA quick_check").get() as Record<string, unknown> | null;
   if (!row || !Object.values(row).includes("ok")) throw new Error("sqlite quick_check failed");
 };
 
-export const sqliteSidecars = (path: string): string[] => [
+const sqliteSidecars = (path: string): string[] => [
   `${path}-wal`,
   `${path}-shm`,
   `${path}-journal`,
 ];
 
-export const removeSqlite = async (path: string): Promise<void> => {
+const removeSqlite = async (path: string): Promise<void> => {
   await Promise.all(
     [path, ...sqliteSidecars(path)].map((candidate) => rm(candidate, { force: true }))
   );
 };
 
-export const quarantineSqlite = async (path: string, destination: string): Promise<void> => {
+const quarantineSqlite = async (path: string, destination: string): Promise<void> => {
   try {
     await rename(path, destination);
   } catch {
@@ -92,7 +92,7 @@ export const quarantineSqlite = async (path: string, destination: string): Promi
   );
 };
 
-export const attachAndSalvage = (
+const attachAndSalvage = (
   database: Database,
   source: string,
   statements: readonly string[]
@@ -117,7 +117,7 @@ export const attachAndSalvage = (
   }
 };
 
-export function ensureStoreDefaults(database: Database, agentId: string, createdAt: number): void {
+function ensureStoreDefaults(database: Database, agentId: string, createdAt: number): void {
   const metadata = {
     agentId,
     latestRootBlobId: "",
@@ -181,7 +181,7 @@ export async function openStoreWithRecovery(
   }
 }
 
-export async function pendingBlobRecovery(blobPath: string): Promise<string | null> {
+async function pendingBlobRecovery(blobPath: string): Promise<string | null> {
   const directory = dirname(blobPath);
   const base = blobPath.slice(directory.length + 1);
   const markers = (await readdir(directory).catch(() => []))
@@ -196,7 +196,7 @@ export async function pendingBlobRecovery(blobPath: string): Promise<string | nu
   return marker ? join(directory, marker) : null;
 }
 
-export async function finishBlobRecovery(blobPath: string, markerPath: string): Promise<void> {
+async function finishBlobRecovery(blobPath: string, markerPath: string): Promise<void> {
   const pendingPath = markerPath.endsWith(".intent")
     ? `${markerPath.slice(0, -".intent".length)}.pending`
     : markerPath;

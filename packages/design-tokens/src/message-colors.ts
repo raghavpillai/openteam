@@ -5,9 +5,6 @@ import {
 } from "@openteam/contracts/bot-avatar";
 import colors from "./message-colors.json";
 
-/** Measured from Grok Bot 0.79.3's light/dark message tokens. */
-export const BOT_MESSAGE_COLORS = colors;
-
 export function botMessagePalette(color?: string): { light: string; dark: string } | null {
   const hex = resolveBotAvatarColorName(color?.trim().toLowerCase() ?? "");
   if (!/^#[\da-f]{6}$/i.test(hex)) return null;

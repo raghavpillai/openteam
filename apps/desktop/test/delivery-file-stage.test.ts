@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   discardDeliveryFiles,
   readDeliveryFile,
   stageDeliveryFile,
+  sweepIncompleteDeliveryStages,
 } from "../src/main/delivery-file-stage";
 
 const temporaryDirectories: string[] = [];
@@ -43,5 +44,20 @@ describe("desktop durable attachment staging", () => {
     await expect(
       stageDeliveryFile(root, { stagingId: "stage-empty-123", bytes: new Uint8Array() })
     ).rejects.toThrow("size");
+  });
+
+  test("drops old half-written stages and keeps finished ones and fresh writes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "stage-sweep-"));
+    try {
+      await writeFile(join(directory, "aaaaaaaa-1111"), "finished");
+      await writeFile(join(directory, "bbbbbbbb-2222.next"), "crashed mid-write");
+      await writeFile(join(directory, "cccccccc-3333.next"), "being written now");
+      const old = new Date(Date.now() - 60 * 60_000);
+      await utimes(join(directory, "bbbbbbbb-2222.next"), old, old);
+      expect(await sweepIncompleteDeliveryStages(directory)).toBe(1);
+      expect((await readdir(directory)).sort()).toEqual(["aaaaaaaa-1111", "cccccccc-3333.next"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

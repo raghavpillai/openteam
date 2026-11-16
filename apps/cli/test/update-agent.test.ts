@@ -1,59 +1,55 @@
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
+import { type SpawnOptions, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SpawnOptions, spawn } from "node:child_process";
-import { installationPaths, writeManifest } from "../src/config";
+import { ServerUpdates } from "../../server/src/server-updates";
+import { readManifest, writeManifest } from "../src/config";
+import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
-  UpdateAgent,
-  updateAgentArguments,
-  updateAgentExecutable,
+  isUpdateAgentProcess,
+  runUpdateAgent,
   stableRuntimePath,
   UPDATE_AGENT_ENV,
-  UPDATE_AGENT_CLI_ENV,
+  UpdateAgent,
+  updateAgentArguments,
 } from "../src/update-agent";
-import { CLI_VERSION } from "../src/constants";
+import {
+  installUpdateAgentService,
+  launchAgent,
+  type ServiceHost,
+  systemdUnit,
+  updateAgentService,
+} from "../src/update-agent-service";
 import { writeUpdateState } from "../src/update-safety";
-import { ServerUpdates } from "../../server/src/server-updates";
+import { installStack, scratch } from "./fixtures/harness";
 
-const directories: string[] = [];
-afterEach(() => {
-  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-const fixture = () => {
-  const directory = mkdtempSync(join(tmpdir(), "openteam-update-agent-"));
-  directories.push(directory);
-  const paths = installationPaths(directory);
-  writeFileSync(
-    paths.environment,
-    "OPENTEAM_CONTROL_TOKEN=fixture-private-token\nOPENTEAM_API_PORT=9787\n"
-  );
-  writeManifest(paths, {
-    schemaVersion: 1,
-    repository: "raghavpillai/openteam",
-    version: "1.2.3",
-    composeUrl: "https://example.invalid/compose.yaml",
-    installedAt: "now",
-    updatedAt: "now",
-    ownerUsername: "owner",
+const s = scratch();
+
+/** An installation in a directory with a space, plus a fake home for service files. */
+const installed = () => {
+  const root = s.dir("openteam-update-agent-");
+  const { paths } = installStack(join(root, "install dir"), {
+    environment: "OPENTEAM_CONTROL_TOKEN=fixture-private-token\nOPENTEAM_API_PORT=9787\n",
   });
-  const updates = new ServerUpdates(join(directory, "server-assets"), "1.2.3");
-  let posts = 0;
+  return { root, paths, home: join(root, "home") };
+};
+
+const fixture = () => {
+  const { root, paths } = installed();
+  const updates = new ServerUpdates(join(root, "server-assets"), "1.2.3");
   const request = (async (input: URL | RequestInfo, init?: RequestInit) => {
     expect(String(input)).toBe("http://127.0.0.1:9787/api/v0/internal/system/update-agent");
     expect(init?.redirect).toBe("error");
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-private-token");
-    posts++;
     return Response.json(updates.heartbeat(JSON.parse(String(init?.body))));
   }) as typeof fetch;
-  const child = new EventEmitter();
   const launches: Array<{ args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
   const launch = ((_exe: string, args?: readonly string[], options?: SpawnOptions) => {
     launches.push({ args: args!, env: options!.env! });
-    return child;
+    return new EventEmitter();
   }) as unknown as typeof spawn;
-  return { paths, updates, request, child, launches, launch, posts: () => posts };
+  return { paths, updates, request, launches, launch };
 };
 
 test("connected server request reaches only its own host updater, survives API restart, and completes", async () => {
@@ -141,93 +137,129 @@ test("rejects unsafe versions again on the host and reports spawn failures", asy
   expect(f.updates.view()).toMatchObject({ status: "error", message: "Cannot launch updater" });
 });
 
-test("CLI daemon entrypoint authenticates to its installation without a desktop process", async () => {
-  const f = fixture();
-  let received!: () => void;
-  const heartbeat = new Promise<void>((resolve) => {
-    received = resolve;
-  });
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request) {
-      expect(new URL(request.url).pathname).toBe("/api/v0/internal/system/update-agent");
-      expect(request.headers.get("authorization")).toBe("Bearer fixture-private-token");
-      f.updates.heartbeat({});
-      received();
-      return Response.json({ request: null });
-    },
-  });
-  writeFileSync(
-    f.paths.environment,
-    `OPENTEAM_CONTROL_TOKEN=fixture-private-token\nOPENTEAM_API_PORT=${server.port}\n`
-  );
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      new URL("../src/main.ts", import.meta.url).pathname,
-      "status",
-      "--dir",
-      f.paths.directory,
-    ],
-    {
-      env: { ...process.env, [UPDATE_AGENT_ENV]: "1" },
-      stdout: "ignore",
-      stderr: "pipe",
-    }
-  );
-  const timeout = setTimeout(() => received(), 4_000);
-  try {
-    await heartbeat;
-    expect(f.updates.view().updaterAvailable).toBe(true);
-  } finally {
-    clearTimeout(timeout);
-    child.kill();
-    await child.exited;
-    server.stop(true);
-  }
-});
-
-test("a staged CLI starts its daemon from the promoted installation, and private daemons invoke that CLI", () => {
-  const target = "/tmp/openteam";
-  const source = `/tmp/.openteam.update-${CLI_VERSION}-fixture`;
-  expect(
-    updateAgentExecutable(
-      {
-        OPENTEAM_CLI_UPDATE_SOURCE: source,
-        OPENTEAM_CLI_UPDATE_TARGET: target,
-        OPENTEAM_CLI_UPDATE_VERSION: CLI_VERSION,
-      },
-      source
-    )
-  ).toBe(target);
-  expect(updateAgentExecutable({ [UPDATE_AGENT_CLI_ENV]: target }, "/tmp/private-agent")).toBe(
-    target
-  );
-});
-
 test("a Homebrew runtime starts the agent by a path that survives brew upgrade", () => {
-  const prefix = realpathSync(mkdtempSync(join(tmpdir(), "openteam-brew-")));
-  directories.push(prefix);
+  const prefix = s.dir("openteam-brew-");
   const versioned = join(prefix, "Cellar", "node@24", "24.13.1", "bin", "node");
   mkdirSync(join(versioned, ".."), { recursive: true });
   writeFileSync(versioned, "");
   mkdirSync(join(prefix, "opt"));
   symlinkSync(join("..", "Cellar", "node@24", "24.13.1"), join(prefix, "opt", "node@24"));
   // A keg-only formula isn't linked into bin; its opt link follows each upgrade.
-  expect(stableRuntimePath(versioned, { PATH: "/usr/bin:/bin" })).toBe(join(prefix, "opt", "node@24", "bin", "node"));
+  expect(stableRuntimePath(versioned, { PATH: "/usr/bin:/bin" })).toBe(
+    join(prefix, "opt", "node@24", "bin", "node")
+  );
+});
 
-  // Elsewhere the PATH entry that runs the same binary is kept, never a different runtime.
-  const other = join(prefix, "other", "bin");
-  const linked = join(prefix, "bin");
-  mkdirSync(other, { recursive: true });
-  mkdirSync(linked);
-  writeFileSync(join(other, "node"), "");
-  const runtime = join(prefix, "runtime", "24.13.1", "node");
-  mkdirSync(join(runtime, ".."), { recursive: true });
-  writeFileSync(runtime, "");
-  symlinkSync(runtime, join(linked, "node"));
-  expect(stableRuntimePath(runtime, { PATH: `relative:${other}:${linked}` })).toBe(join(linked, "node"));
-  expect(stableRuntimePath(runtime, { PATH: other })).toBe(runtime);
-  expect(stableRuntimePath(join(prefix, "missing"), { PATH: linked })).toBe(join(prefix, "missing"));
+class FakeRunner implements CommandRunner {
+  calls: string[] = [];
+  constructor(private readonly respond: (command: string) => Partial<RunResult> = () => ({})) {}
+  run(command: string, args: readonly string[], _options?: RunOptions): RunResult {
+    const line = [command, ...args].join(" ");
+    this.calls.push(line);
+    return { status: 0, stdout: "", stderr: "", ...this.respond(line) };
+  }
+}
+
+const host = (
+  platform: NodeJS.Platform,
+  home: string,
+  runner: CommandRunner,
+  overrides: Partial<ServiceHost> = {}
+): ServiceHost => ({
+  platform,
+  uid: 501,
+  home,
+  environment: { HOME: home, USER: "owner" },
+  runner,
+  systemd: true,
+  sleep: () => undefined,
+  ...overrides,
+});
+
+const command = {
+  executable: "/opt/open team/openteam",
+  args: ["status", "--dir", "/srv/50% $HOME"],
+  environment: { OPENTEAM_UPDATE_AGENT: "1", PATH: "/usr/bin:/bin" },
+};
+
+test("the systemd unit escapes its arguments and never stops an update the agent started", () => {
+  const { paths } = installed();
+  const unit = systemdUnit(paths, command);
+  expect(unit).toContain('ExecStart="/opt/open team/openteam" "status" "--dir" "/srv/50%% $$HOME"');
+  expect(unit).toContain('Environment="OPENTEAM_UPDATE_AGENT=1"');
+  expect(unit).toContain(`\nWorkingDirectory=${paths.directory}\n`);
+  expect(unit).toContain("KillMode=process");
+  expect(unit).toContain("Restart=on-failure");
+  expect(unit).toContain("WantedBy=default.target");
+});
+
+test("the LaunchAgent starts at load, restarts only after a crash, and leaves updates running", () => {
+  const { paths } = installed();
+  const plist = launchAgent(paths, "so.openteam.update-agent", {
+    ...command,
+    args: ["status", "--dir", "/a&b<c>"],
+  });
+  expect(plist).toContain("<string>/a&amp;b&lt;c&gt;</string>");
+  expect(plist).toContain("<key>RunAtLoad</key><true/>");
+  expect(plist).toContain("<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>");
+  expect(plist).toContain("<key>AbandonProcessGroup</key><true/>");
+});
+
+test("launchd: bootstraps once, kickstarts a stopped agent, and never restarts a running one", () => {
+  const { paths, home } = installed();
+  const fresh = new FakeRunner((line) =>
+    line.startsWith("launchctl print") ? { status: 113 } : {}
+  );
+  const service = updateAgentService(paths, host("darwin", home, fresh))!;
+  expect(installUpdateAgentService(paths, command, false, host("darwin", home, fresh))).toEqual({
+    managed: true,
+  });
+  expect(fresh.calls).toEqual([
+    `launchctl print gui/501/${service.name}`,
+    `launchctl bootstrap gui/501 ${service.file}`,
+  ]);
+  const loaded = new FakeRunner();
+  installUpdateAgentService(paths, command, false, host("darwin", home, loaded));
+  expect(loaded.calls).toEqual([
+    `launchctl print gui/501/${service.name}`,
+    `launchctl kickstart gui/501/${service.name}`,
+  ]);
+  const changed = { ...command, args: [...command.args, "--changed"] };
+  const busy = new FakeRunner();
+  installUpdateAgentService(paths, changed, true, host("darwin", home, busy));
+  expect(busy.calls).toEqual([`launchctl print gui/501/${service.name}`]);
+  expect(readFileSync(service.file, "utf8")).toContain("--changed");
+  const failed = new FakeRunner((line) =>
+    line.startsWith("launchctl print")
+      ? { status: 113 }
+      : { status: 5, stderr: "Input/output error" }
+  );
+  expect(installUpdateAgentService(paths, command, false, host("darwin", home, failed))).toEqual({
+    managed: false,
+    warning: "launchctl bootstrap failed: Input/output error",
+  });
+});
+
+const waitFor = async (condition: () => boolean) => {
+  for (let i = 0; i < 100 && !condition(); i++) await Bun.sleep(50);
+  expect(condition()).toBe(true);
+};
+
+test("an agent starts after a reboot even when its old PID now belongs to another process", async () => {
+  const { paths } = installed();
+  const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
+  try {
+    const lock = join(paths.directory, "update-agent.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "pid"), String(unrelated.pid));
+    expect(isUpdateAgentProcess(unrelated.pid!, paths.directory)).toBe(false);
+    const agent = runUpdateAgent(paths);
+    await waitFor(() => readFileSync(join(lock, "pid"), "utf8") === String(process.pid));
+    expect(isUpdateAgentProcess(process.pid, paths.directory)).toBe(false);
+    writeManifest(paths, { ...readManifest(paths)!, uninstalledAt: "now" });
+    await agent;
+    expect(existsSync(lock)).toBe(false);
+  } finally {
+    unrelated.kill();
+  }
 });

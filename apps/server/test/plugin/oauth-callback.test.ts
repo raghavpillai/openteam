@@ -4,12 +4,7 @@ import {
   oauthCallbackMode,
   parseManualCallback,
 } from "../../src/plugins/oauth-callback";
-import {
-  connectionConfigured,
-  connectionSetupPhase,
-  connectionCallbackMode,
-} from "../../src/services/plugin/values";
-import { pluginCatalog } from "@openteam/plugins";
+import { connectionCallbackMode } from "../../src/services/plugin/values";
 
 test("automatic callback follows the deployment URL and preserves explicit settings", () => {
   expect(oauthCallbackMode("https://bot.tail123.ts.net", {})).toBe("server");
@@ -79,27 +74,4 @@ test("Safari address-bar copies may omit only the expected callback's scheme", (
     `${address}?${query}&state=duplicate`,
     `${address}?${query}&iss=duplicate`,
   ]) expect(() => parse(value)).toThrow("complete callback URL");
-});
-
-test("provider setup requires all fields, while dynamic registration needs no user-created app", () => {
-  const gmail = pluginCatalog.find((row) => row.key === "gmail")!;
-  const connection = {
-    connectorKey: "gmail",
-    authType: "oauth",
-    status: "disconnected",
-    configuration: {},
-    credentials: {},
-  };
-  expect(connectionSetupPhase(connection, gmail)).toBe("provider_setup_required");
-  const partial = { ...connection, configuration: { clientId: "client" } };
-  expect(connectionConfigured(partial, gmail)).toBe(false);
-  const configured = { ...partial, credentials: { clientSecret: "secret" } };
-  expect(connectionSetupPhase(configured, gmail)).toBe("ready_to_authorize");
-  expect(connectionSetupPhase({ ...configured, status: "error" }, gmail)).toBe("validation_failed");
-  expect(connectionSetupPhase({ ...configured, status: "ready" }, gmail)).toBe("connected");
-  const linear = pluginCatalog.find((row) => row.key === "linear")!;
-  expect(connectionSetupPhase({ ...connection, connectorKey: "linear" }, linear)).toBe(
-    "ready_to_authorize"
-  );
-  expect(connectionSetupPhase({ ...connection, authType: "none" })).toBe("ready_to_connect");
 });

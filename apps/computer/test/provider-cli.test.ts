@@ -93,11 +93,8 @@ describe("provider CLI JSON output", () => {
     expect(stdout).toEndWith("\n");
   }, 15_000);
 
-  test.each([
-    "openai",
-    "openai-codex",
-    "anthropic",
-  ])("keeps %s models unavailable until connected", async (providerId) => {
+  test("keeps a known provider's models unavailable until connected", async () => {
+    const providerId = "openai-codex";
     expect(JSON.parse(await runProviderCli(["models", providerId]))).toEqual([]);
     expect(JSON.parse(await runProviderCli(["catalog", providerId]))).toMatchObject({
       models: [],

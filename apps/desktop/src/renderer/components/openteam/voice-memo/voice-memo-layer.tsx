@@ -14,7 +14,7 @@ import "./voice-memo.css";
 
 export type VoiceMemoMode = "recording" | "processing";
 
-export interface VoiceMemoLayerProps {
+interface VoiceMemoLayerProps {
   mode: VoiceMemoMode;
   /** The last mode, kept on screen while the layer animates away. */
   exiting?: boolean;

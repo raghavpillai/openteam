@@ -28,7 +28,7 @@ const ATTACHED_MEDIA_LINE_SUFFIX: Readonly<Record<AttachedKind, string>> = {
 };
 
 /** The reference's attachment sizes: "658 B", "9.5 KB", "74 KB", "1.2 MB". */
-export function formatAttachedFileSize(bytes: number): string {
+function formatAttachedFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
@@ -36,7 +36,7 @@ export function formatAttachedFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-export interface AttachedFilesContext {
+interface AttachedFilesContext {
   /** Follows the user's text inside <user_query>; empty when nothing was saved. */
   note: string;
   /** Precedes the turn's text when videos came with it; empty otherwise. */

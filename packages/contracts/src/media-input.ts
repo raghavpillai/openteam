@@ -2,7 +2,7 @@ import { CLIENT_CAPABILITIES, type ClientCapabilities } from "./capabilities";
 
 // GrokBot 0.47 / host 886e13a: the filename determines the upload allowance.
 // A declared video MIME must not turn an arbitrary file into a 200 MiB upload.
-export const VIDEO_MIME_FROM_EXTENSION: Readonly<Record<string, string>> = {
+const VIDEO_MIME_FROM_EXTENSION: Readonly<Record<string, string>> = {
   ".m4v": "video/mp4",
   ".mov": "video/quicktime",
   ".mp4": "video/mp4",
@@ -10,7 +10,7 @@ export const VIDEO_MIME_FROM_EXTENSION: Readonly<Record<string, string>> = {
   ".webm": "video/webm",
 };
 
-export const mediaExtension = (name: string): string => {
+const mediaExtension = (name: string): string => {
   const base = name.slice(Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\")) + 1);
   const dot = base.lastIndexOf(".");
   return dot <= 0 ? "" : base.slice(dot).toLowerCase();
@@ -34,7 +34,7 @@ export const tooLargeAttachmentMessage = (path: string): string => {
   return `${name} is over the ${Math.floor(attachmentLimitForName(name) / (1024 * 1024))} MB ${videoMimeForName(name) ? "video attachment" : "attachment"} limit, so nothing was sent. Compress, shrink, or split it on the box and attach the smaller file.`;
 };
 
-export type AttachmentRejection = "empty" | "too-large";
+type AttachmentRejection = "empty" | "too-large";
 
 export const attachmentSizeRejection = (
   name: string,

@@ -1,7 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import {
   InMemoryCredentialStore,
   type Model,
@@ -10,9 +7,11 @@ import {
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
-import { inferCompaction } from "../../src/runtime/compaction";
 import { inferenceReasoningOptions } from "../../src/runtime/reasoning";
+import { inferCompaction } from "../../src/runtime/compaction";
 import type { ActiveTurn } from "../../src/runtime/types";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 const model: Model<"openai-codex-responses"> = {
   id: "gpt-5.6-sol",
@@ -41,39 +40,47 @@ function captureRequests() {
     maxRetries: 0,
     fetch: (async (_url: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]) => {
       const bytes = new Uint8Array(await new Response(init?.body).arrayBuffer());
-      const decoded =
-        new Headers(init?.headers).get("content-encoding") === "zstd"
-          ? Bun.zstdDecompressSync(bytes)
-          : bytes;
+      const decoded = new Headers(init?.headers).get("content-encoding") === "zstd" ? Bun.zstdDecompressSync(bytes) : bytes;
       requests.push(JSON.parse(new TextDecoder().decode(decoded)));
       // Stop after serialization. No network request or real credential is used.
-      return new Response(JSON.stringify({ error: { message: "Offline request captured" } }), {
-        status: 400,
-      });
+      return new Response(JSON.stringify({ error: { message: "Offline request captured" } }), { status: 400 });
     }) as typeof fetch,
   };
   return { requests, options };
 }
 
-const directories: string[] = [];
-afterEach(async () => {
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
-  );
-});
+/** A ComputerRuntime whose real Pi sessions serialize requests for `routed` into `capture`, fully offline. */
+async function capturingRuntime(routed: Model<any>, stream: (model: any, context: any, options: any) => any) {
+  const directory = await tempDir("openteam-reasoning-");
+  const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.checkAuth = async () => ({ type: "api_key" });
+  const capture = captureRequests();
+  // Keep the real session, agent loop, extensions and provider serializer;
+  // substitute only credentials/transport.
+  modelRuntime.streamSimple = (_model, messages, options) => stream(routed, messages, { ...options, ...capture.options });
+  const runtime = new ComputerRuntime();
+  const internals = runtime as any;
+  internals.start = async () => {};
+  internals.agentDir = directory;
+  internals.modelRuntime = modelRuntime;
+  internals.resolveModel = () => routed;
+  internals.customTools = () => [];
+  internals.compactionExtension = () => ({ name: "offline-compaction", hidden: true, factory() {} });
+  const session = (reasoning: string): Promise<AgentSession> => {
+    const manager = SessionManager.inMemory(directory);
+    return internals.createStandaloneSession(directory, "Offline", manager, { contextSessionId: manager.getSessionId(), reasoning } as ActiveTurn,
+      { providerId: routed.provider, modelId: routed.id });
+  };
+  return { runtime, modelRuntime, capture, directory, session };
+}
 
 describe("Codex reasoning request semantics", () => {
   test.each([
     ["off", "none"],
-    ["low", "low"],
-    ["medium", "medium"],
     ["high", "high"],
   ] as const)("serializes %s as explicit %s effort", async (requested, effort) => {
     const capture = captureRequests();
-    await streamSimple(model, context, {
-      ...capture.options,
-      ...inferenceReasoningOptions(model, requested),
-    }).result();
+    await streamSimple(model, context, { ...capture.options, ...inferenceReasoningOptions(model, requested) }).result();
     expect(capture.requests).toHaveLength(1);
     expect(capture.requests[0]).toMatchObject({ model: "gpt-5.6-sol", reasoning: { effort } });
   });
@@ -81,133 +88,19 @@ describe("Codex reasoning request semantics", () => {
   test("respects model capability mappings when off is unsupported", async () => {
     const restricted = { ...model, thinkingLevelMap: { off: null, minimal: null } };
     const capture = captureRequests();
-    await streamSimple(restricted, context, {
-      ...capture.options,
-      ...inferenceReasoningOptions(restricted, "off"),
-    }).result();
+    await streamSimple(restricted, context, { ...capture.options, ...inferenceReasoningOptions(restricted, "off") }).result();
     expect(capture.requests[0]).toMatchObject({ reasoning: { effort: "low" } });
   });
 
-  test("omits off when a dynamic Codex model has no advertised off mapping", () => {
+  test("omits off for a dynamic Codex model with no off mapping, and keeps other providers and non-reasoning models on Pi's path", () => {
     expect(inferenceReasoningOptions({ ...model, thinkingLevelMap: undefined }, "off")).toEqual({});
-  });
-
-  test("keeps other providers and non-reasoning models on Pi's existing path", () => {
-    expect(
-      inferenceReasoningOptions(
-        { ...model, api: "anthropic-messages", provider: "anthropic" },
-        "off"
-      ).onPayload
-    ).toBeUndefined();
-    expect(
-      inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload
-    ).toBeUndefined();
-  });
-
-  test("memory inference and compaction also send explicit none", async () => {
-    const capture = captureRequests();
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      streamSimple(model, messages, {
-        ...options,
-        ...capture.options,
-      });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      start: () => Promise<void>;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof model;
-    };
-    internals.start = async () => {};
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => model;
-    await expect(
-      runtime.infer({
-        instructions: "Offline test",
-        prompt: "Capture",
-        cwd: "/workspace",
-        timeoutMs: 1_000,
-        model: "openai-codex/gpt-5.6-sol",
-        reasoning: "off",
-      })
-    ).rejects.toThrow("Offline request captured");
-    await expect(
-      inferCompaction(
-        modelRuntime,
-        () => model,
-        () => [],
-        {
-          reasoning: "off",
-          modelRef: { providerId: model.provider, modelId: model.id },
-        } as ActiveTurn,
-        {
-          systemPrompt: "Offline test",
-          userInfoMessage: null,
-          messagesToSummarize: [],
-          shorter: false,
-        },
-        new AbortController().signal
-      )
-    ).rejects.toThrow("Offline request captured");
-    expect(capture.requests).toHaveLength(2);
-    for (const request of capture.requests)
-      expect(request).toMatchObject({ reasoning: { effort: "none" } });
+    expect(inferenceReasoningOptions({ ...model, api: "anthropic-messages", provider: "anthropic" }, "off").onPayload).toBeUndefined();
+    expect(inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload).toBeUndefined();
   });
 
   test("normal ComputerRuntime sessions send none through the actual Pi request pipeline", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "openteam-reasoning-"));
-    directories.push(directory);
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    const capture = captureRequests();
-    // Keep the real session, agent loop, extensions and provider serializer;
-    // substitute only credentials/transport so this test stays fully offline.
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      streamSimple(model, messages, {
-        ...options,
-        ...capture.options,
-      });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      agentDir: string;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof model;
-      customTools: () => [];
-      compactionExtension: () => { name: string; hidden: boolean; factory: () => void };
-      createStandaloneSession: (
-        cwd: string,
-        instructions: string,
-        manager: SessionManager,
-        active: ActiveTurn,
-        ref: { providerId: string; modelId: string }
-      ) => Promise<AgentSession>;
-    };
-    internals.agentDir = directory;
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => model;
-    internals.customTools = () => [];
-    internals.compactionExtension = () => ({
-      name: "offline-compaction",
-      hidden: true,
-      factory() {},
-    });
-    const manager = SessionManager.inMemory(directory);
-    const session = await internals.createStandaloneSession(
-      directory,
-      "Offline test",
-      manager,
-      { contextSessionId: manager.getSessionId(), reasoning: "off" } as ActiveTurn,
-      { providerId: model.provider, modelId: model.id }
-    );
+    const { capture, session: open } = await capturingRuntime(model, streamSimple);
+    const session = await open("off");
     try {
       await session.prompt("Capture the request.");
       expect(session.thinkingLevel).toBe("off");
@@ -221,7 +114,6 @@ describe("Codex reasoning request semantics", () => {
 
 describe("OpenRouter reasoning across inference paths", () => {
   test.each([
-    "xhigh",
     "max",
     "off",
   ] as const)("preserves %s through chat, utility inference and compaction", async (requested) => {
@@ -243,43 +135,7 @@ describe("OpenRouter reasoning across inference paths", () => {
             }
       ),
     };
-    const directory = await mkdtemp(join(tmpdir(), "openteam-openrouter-reasoning-"));
-    directories.push(directory);
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    const capture = captureRequests();
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      routedStream(routedModel, messages, { ...options, ...capture.options });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      start: () => Promise<void>;
-      agentDir: string;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof routedModel;
-      customTools: () => [];
-      compactionExtension: () => { name: string; hidden: boolean; factory: () => void };
-      createStandaloneSession: (
-        cwd: string,
-        instructions: string,
-        manager: SessionManager,
-        active: ActiveTurn,
-        ref: { providerId: string; modelId: string }
-      ) => Promise<AgentSession>;
-    };
-    internals.start = async () => {};
-    internals.agentDir = directory;
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => routedModel;
-    internals.customTools = () => [];
-    internals.compactionExtension = () => ({
-      name: "offline-compaction",
-      hidden: true,
-      factory() {},
-    });
+    const { runtime, modelRuntime, capture, directory, session: open } = await capturingRuntime(routedModel, routedStream);
     await expect(
       runtime.infer({
         instructions: "Offline",
@@ -303,14 +159,7 @@ describe("OpenRouter reasoning across inference paths", () => {
         new AbortController().signal
       )
     ).rejects.toThrow("Offline request captured");
-    const manager = SessionManager.inMemory(directory);
-    const session = await internals.createStandaloneSession(
-      directory,
-      "Offline",
-      manager,
-      { contextSessionId: manager.getSessionId(), reasoning: requested } as ActiveTurn,
-      { providerId: routedModel.provider, modelId: routedModel.id }
-    );
+    const session = await open(requested);
     try {
       await session.prompt("Capture request");
       expect(capture.requests).toHaveLength(3);

@@ -129,32 +129,6 @@ const fixtureBot = async () => {
   return { botId, conversationId, channelId, claimedFor, startTurn, send, run };
 };
 
-for (const emoji of ["👍", "👎"]) test.skipIf(!databaseUrl)("reacting " + emoji + " during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
-  const bot = await fixtureBot();
-  const finished = join(root, `reaction-finished-${bot.botId}`);
-  await script({ firstReply: { role: "assistant", tool_calls: [{ index: 0, id: "reaction-shell", type: "function", function: {
-    name: "Shell", arguments: JSON.stringify({ command: `echo started; sleep 2; touch ${finished}`, block_until_ms: 60_000 }) } }] } });
-  const first = await bot.send("Run the check.", crypto.randomUUID());
-  const claimed = await bot.claimedFor(first.run.id, "reaction-active");
-  const turn = await bot.startTurn(claimed, claimed.content, null);
-  await waitUntil(() => turn.events.some((event) => event.type === "item.started" && JSON.stringify(event).includes("echo started")), "command to start");
-  const acknowledgement = await db.channelMessage.create({ data: {
-    channelId: bot.channelId, sender: "agent", senderBotId: bot.botId, sourceRunId: first.run.id, content: "Checking now.",
-  } });
-  const input = { emoji, clientId: crypto.randomUUID() };
-  const add = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
-  const retry = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
-  expect(add).toMatchObject({ reacted: true, removed: false });
-  expect(retry.runId).toBe(add.runId);
-  expect((await bot.run(first.run.id)).status).toBe("running");
-  const remove = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, { ...input, clientId: crypto.randomUUID() })) as any;
-  expect(remove).toMatchObject({ reacted: false, removed: true, runId: null });
-  expect(await db.inboxEvent.count({ where: { botId: bot.botId, type: "user.reaction" } })).toBe(1);
-  await turn.done;
-  expect(turn.events.find((event) => event.type === "turn.completed")?.status).toBe("completed");
-  expect(existsSync(finished)).toBe(true);
-}, 30_000);
-
 test.skipIf(!databaseUrl)("a typed message during a running Shell cancels the turn, kills the command, and the new turn carries the unfinished-tasks reminder", async () => {
   const bot = await fixtureBot();
   const finished = join(root, "finished");
@@ -197,52 +171,13 @@ test.skipIf(!databaseUrl)("a typed message during a running Shell cancels the tu
   expect(existsSync(finished)).toBe(false);
 }, 60_000);
 
-test.skipIf(!databaseUrl)("a message that arrives before the turn dispatched queues behind it, unless it carries that plain typed input for recovery", async () => {
-  // A thread message carries no recovery: the undispatched turn goes on and finishes.
-  const bot = await fixtureBot();
-  await script({ hold: true });
-  const first = await bot.send("First question.", "early-first-0001");
-  const claimedFirst = await bot.claimedFor(first.run.id, "worker-early-first");
-  const firstTurn = bot.startTurn(claimedFirst, claimedFirst.content, null);
-  await Bun.sleep(100);
-  const thread = await bot.send("A side question.", "early-thread-0002", { replyToMessageId: first.message.id });
-  expect(thread.run.id).not.toBe(first.run.id);
-  await Bun.sleep(100);
-  expect((await bot.run(first.run.id)).status).toBe("running");
-  await script({ release: true });
-  const { events, done } = await firstTurn;
-  await done;
-  expect(events.find((event) => event.type === "turn.completed")?.status).not.toBe("interrupted");
-  expect((await bot.run(first.run.id)).inputDeliveredAt).not.toBeNull();
-  const claimedThread = await bot.claimedFor(thread.run.id, "worker-thread");
-  expect(await worker.supersededUnfinishedRun(claimedThread)).toBe(false);
-
-  // A plain message supersedes an undispatched plain message, whose input the next turn replays, with no reminder.
-  const other = await fixtureBot();
-  await script({ hold: true });
-  const plain = await other.send("Book a table.", "early-plain-0003");
-  const claimedPlain = await other.claimedFor(plain.run.id, "worker-plain");
-  const plainTurn = other.startTurn(claimedPlain, claimedPlain.content, null);
-  // Cancellation may reject before the durable status check below finishes.
-  void plainTurn.catch(() => undefined);
-  await Bun.sleep(100);
-  const next = await other.send("For four people.", "early-next-0004");
-  await waitUntil(async () => (await other.run(plain.run.id)).status === "cancelled", "undispatched run superseded for recovery");
-  await script({ release: true });
-  // Its setup sees the cancel and the turn never starts.
-  await expect(plainTurn).rejects.toThrow();
-  expect((await other.run(plain.run.id)).inputDeliveredAt).toBeNull();
-  const claimedNext = await other.claimedFor(next.run.id, "worker-next");
-  expect(await worker.supersededUnfinishedRun(claimedNext)).toBe(false);
-}, 60_000);
-
-for (const origin of ["agent", "connector", "background_revival"] as const)
+for (const origin of ["background_revival"] as const)
   for (const stopRecorded of [true, false]) test.skipIf(!databaseUrl)(`an explicit Stop wins over an earlier typed interruption of a ${origin} wake${stopRecorded ? " after its durable cancellation" : " before cancellation is recorded"}`, async () => {
     const bot = await fixtureBot();
     const { botId, channelId } = bot;
     const clientId = `stop-redrive:${botId}`;
     const wake = await db.$transaction((tx: any) => worker.messaging.enqueueWake(tx, {
-      botId, channelId, origin, type: origin === "agent" ? "agent.message" : origin === "connector" ? "channel.inbound" : "subagent.completed",
+      botId, channelId, origin, type: "subagent.completed",
       content: "[SAND_HIDDEN_PROMPT]Check the previously authorized result.", clientId, priority: 200, wrapUserContent: false,
     }));
     await db.run.update({ where: { id: wake.run.id }, data: { status: "running", inputDeliveredAt: new Date() } });

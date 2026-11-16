@@ -3,24 +3,12 @@ import XCTest
 @testable import OpenTeamCore
 
 final class LocalDataResetTests: XCTestCase {
-  func testClearsContentsWithoutRemovingProtectedSandboxRoot() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let data = root.appendingPathComponent("protected-container/data")
-    let parent = data.deletingLastPathComponent()
-    defer {
-      try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
-      try? FileManager.default.removeItem(at: root)
-    }
-    try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
-    try Data("private data".utf8).write(to: data.appendingPathComponent("session"))
-    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
-    try LocalDataReset.erase(directories: [data])
-    XCTAssertTrue(FileManager.default.fileExists(atPath: data.path))
-    XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: data.path).isEmpty)
-  }
   func testErasesEveryAccountAndStagedAttachmentWithoutTouchingOtherRoots() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: root) }
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+      try? FileManager.default.removeItem(at: root)
+    }
     let data = root.appendingPathComponent("app-data")
     let unrelated = root.appendingPathComponent("unrelated")
     try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
@@ -33,7 +21,10 @@ final class LocalDataResetTests: XCTestCase {
       saved.drafts["channel"] = draft
       try disk.save(saved)
     }
+    // The data root itself may be undeletable (sandbox container): only its contents go.
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
     try LocalDataReset.erase(directories: [data])
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
     XCTAssertTrue(FileManager.default.fileExists(atPath: data.path))
     XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: data.path).isEmpty)
     XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))

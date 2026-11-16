@@ -25,7 +25,7 @@ export interface OpenTeamAuthSnapshot {
   user: OpenTeamAuthUser | null;
 }
 
-export interface OpenTeamAuthSession {
+interface OpenTeamAuthSession {
   session: unknown;
   user: OpenTeamAuthUser;
 }
@@ -59,7 +59,7 @@ const responseBody = async (response: Response): Promise<Record<string, unknown>
   return isRecord(value) ? value : null;
 };
 
-export const authResponseError = async (response: Response): Promise<string> => {
+const authResponseError = async (response: Response): Promise<string> => {
   const body = await responseBody(response);
   const nested = isRecord(body?.error) ? body.error : null;
   return (
@@ -77,7 +77,7 @@ export const authResponseError = async (response: Response): Promise<string> => 
   );
 };
 
-export interface OpenTeamAuthClientOptions {
+interface OpenTeamAuthClientOptions {
   baseUrl: string;
   fetch?: OpenTeamFetch;
   /** Includes receiving and parsing the response body, not just connecting. */
@@ -229,9 +229,9 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
   return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut, validateServer };
 };
 
-export type OpenTeamAuthClient = ReturnType<typeof createOpenTeamAuthClient>;
+type OpenTeamAuthClient = ReturnType<typeof createOpenTeamAuthClient>;
 
-export interface OpenTeamAuthAssessment {
+interface OpenTeamAuthAssessment {
   status: Exclude<OpenTeamAuthStatus, "checking">;
   mode: OpenTeamAuthMode;
   connection: Exclude<OpenTeamAuthConnection, "unknown">;
@@ -242,14 +242,14 @@ export interface OpenTeamAuthAssessment {
   clearCredentials: boolean;
 }
 
-export interface AssessOpenTeamAuthSessionOptions {
+interface AssessOpenTeamAuthSessionOptions {
   client: OpenTeamAuthClient;
   loadToken: () => Promise<string | null>;
   loadCachedMode?: () => Promise<OpenTeamAuthMode | null>;
   isCurrent?: () => boolean;
 }
 
-export class AuthSessionSupersededError extends Error {
+class AuthSessionSupersededError extends Error {
   constructor() {
     super("The OpenTeam server changed while authentication was in progress.");
     this.name = "AuthSessionSupersededError";

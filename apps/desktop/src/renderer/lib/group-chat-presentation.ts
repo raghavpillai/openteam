@@ -51,7 +51,7 @@ export function groupSenderColors(color?: string): readonly [string, string] {
   return senderColors[BOT_AVATAR_COLOR_NAMES[nearest]!];
 }
 
-export function groupParticipantNames(names: readonly string[]): string {
+function groupParticipantNames(names: readonly string[]): string {
   const displayed =
     names.length <= 3 ? names : [...names.slice(0, 2), `${names.length - 2} others`];
   return displayed.length < 2

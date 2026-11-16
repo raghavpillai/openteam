@@ -17,7 +17,7 @@ const FENCE_LINE_PATTERN = /^ {0,3}(`{3,}|~{3,})(?:[\t ]*([^\s`~]+))?.*$/;
  * Determines the independently loadable Streamdown capabilities used by a
  * message. A Mermaid-only fence deliberately does not initialize Shiki.
  */
-export const detectAdvancedMessageCapabilities = (content: string): AdvancedMessageCapabilities => {
+const detectAdvancedMessageCapabilities = (content: string): AdvancedMessageCapabilities => {
   let activeFence: { character: "`" | "~"; length: number } | undefined;
   let code = false;
   let mermaid = false;

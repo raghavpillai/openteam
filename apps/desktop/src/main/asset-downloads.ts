@@ -1,4 +1,4 @@
-export interface DownloadAssetRequest {
+interface DownloadAssetRequest {
   fileName: string;
   url: string;
 }

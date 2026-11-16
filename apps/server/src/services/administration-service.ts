@@ -12,11 +12,11 @@ import { Effect } from "effect";
 import type { BotService } from "./bot-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "./service-utils";
 
-export const CHANNEL_UPDATE_NOTHING_TO_CHANGE =
+const CHANNEL_UPDATE_NOTHING_TO_CHANGE =
   "Nothing to change: provide add_member_ids and/or remove_member_ids.";
-export const CHANNEL_UPDATE_NEEDS_MEMBER =
+const CHANNEL_UPDATE_NEEDS_MEMBER =
   "A channel needs at least one member, so this removal was not applied.";
-export const channelNotFoundMessage = (channelId: string) =>
+const channelNotFoundMessage = (channelId: string) =>
   `No channel found with id ${channelId}.`;
 
 export const nextChannelMemberIds = (input: {

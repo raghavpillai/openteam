@@ -1,5 +1,5 @@
 export type { ServerUpdateView, ServerUpdateRequest, ServerUpdateHeartbeat } from "./server-updates";
-export { stillWorking, updateBusyMessage, isUpdateBusyMessage } from "./server-updates";
+export { updateBusyMessage } from "./server-updates";
 import { DeviceLocation } from "./user-location";
 export * from "./user-location";
 import type { NotificationRouting } from "./notification-presence";
@@ -30,7 +30,7 @@ export * from "./memory-management";
 export * from "./automation-tools";
 export * from "./state-tools";
 
-export interface NativeToolDefinition {
+interface NativeToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -53,10 +53,7 @@ const nativeTool = <const Name extends string>(name: Name) => {
   return { ...definition, name };
 };
 
-/** The attachment's native catalog. */
-export const NATIVE_TOOL_NAMES = NATIVE_TOOLS.map(({ name }) => name);
-
-export interface CursorToolDefinition {
+interface CursorToolDefinition {
   tool: string;
   description: string;
   inputSchema: Record<string, unknown>;
@@ -346,8 +343,6 @@ export const TodoStatus = Schema.Literal("pending", "in_progress", "completed", 
 export type TodoStatus = typeof TodoStatus.Type;
 
 export const TODO_MAX_ITEMS = 64;
-export const TODO_ID_MAX_LENGTH = 120;
-export const TODO_CONTENT_MAX_LENGTH = 1_000;
 
 export const TodoWriteInput = Schema.Struct({
   todos: Schema.Array(
@@ -655,7 +650,7 @@ export const CallDynamicToolInput = Schema.Struct({
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 
-export const PluginToolDescriptor = Schema.Struct({
+const PluginToolDescriptor = Schema.Struct({
   connectionId: Schema.String,
   name: Schema.String,
   description: Schema.String,
@@ -664,7 +659,7 @@ export const PluginToolDescriptor = Schema.Struct({
   /** The server declares that the tool only reads. */
   readOnly: Schema.optional(Schema.Boolean),
 });
-export type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
+type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
 
 export const PluginDynamicNamespace = Schema.Struct({
   name: Schema.String,
@@ -734,7 +729,7 @@ export interface PluginCatalogToolView {
 export interface PluginCatalogConnectionView {
   key: string;
   name: string;
-  transport: "http" | "stdio" | "builtin";
+  transport: "http" | "stdio";
   auth: "none" | "oauth" | "token";
   tools: PluginCatalogToolView[];
 }
@@ -744,8 +739,8 @@ export interface PluginCatalogSkillView {
   description: string;
 }
 
-export type { PluginField as PluginCatalogSetupFieldView, PluginField as PluginSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
-import type { PluginField as PluginCatalogSetupFieldView, PluginField as PluginSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
+export type { PluginField as PluginCatalogSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
+import type { PluginField as PluginCatalogSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
 export * from "./plugin-management";
 
 export interface PluginCatalogItemView {
@@ -788,7 +783,7 @@ export interface PluginConnectionView {
   connectorKey: string;
   name: string;
   alias: string;
-  transport: "http" | "stdio" | "builtin";
+  transport: "http" | "stdio";
   auth: "none" | "oauth" | "token";
   status: "disconnected" | "needs_auth" | "ready" | "error" | "revoked";
   statusMessage: string | null;
@@ -1119,8 +1114,8 @@ export const RequestBoxHelpInput = Schema.Struct({
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
 /** profile and journal are the bot's own memory; shared_profile and shared_journal are its shard of shared user memory. */
-export const MemoryType = Schema.Literal("profile", "journal", "shared_profile", "shared_journal");
-export type MemoryType = typeof MemoryType.Type;
+const MemoryType = Schema.Literal("profile", "journal", "shared_profile", "shared_journal");
+type MemoryType = typeof MemoryType.Type;
 
 /** The shared durable-state handler's input. Each state tool is one fixed target of it. */
 export const UpdateStateInput = Schema.Struct({
@@ -1227,89 +1222,6 @@ export const UPDATE_AVATAR_TOOL = cursorTool("UpdateAvatar");
 export const DISCONNECT_CHANNEL_TOOL = cursorTool("DisconnectChannel");
 
 export const SCREENSHOT_TOOL = nativeTool("Screenshot");
-
-export const COMPUTER_TOOL = {
-  type: "function",
-  name: "Computer",
-  description:
-    "Interact with your persistent OpenTeam Linux graphical screen. Coordinates use the 1280x800 screenshot. Actions are move, click, type, key, scroll, open_app, and wait. Human takeover or emergency stop can temporarily reject input. A successful action returns a fresh screenshot.",
-  inputSchema: {
-    oneOf: [
-      {
-        type: "object",
-        properties: {
-          action: { const: "move" },
-          x: { type: "integer", minimum: 0, maximum: 1279 },
-          y: { type: "integer", minimum: 0, maximum: 799 },
-        },
-        required: ["action", "x", "y"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "click" },
-          x: { type: "integer", minimum: 0, maximum: 1279 },
-          y: { type: "integer", minimum: 0, maximum: 799 },
-          button: { type: "string", enum: ["left", "middle", "right"] },
-          double: { type: "boolean" },
-        },
-        required: ["action", "x", "y"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "type" },
-          text: { type: "string", maxLength: 10000 },
-        },
-        required: ["action", "text"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "key" },
-          keys: {
-            type: "array",
-            minItems: 1,
-            maxItems: 12,
-            items: { type: "string", pattern: "^[A-Za-z0-9_+-]+$" },
-          },
-        },
-        required: ["action", "keys"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "scroll" },
-          deltaY: { type: "integer", minimum: -20, maximum: 20 },
-        },
-        required: ["action", "deltaY"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "open_app" },
-          app: { type: "string", enum: ["chromium", "thunar", "terminal"] },
-        },
-        required: ["action", "app"],
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        properties: {
-          action: { const: "wait" },
-          ms: { type: "integer", minimum: 0, maximum: 10000 },
-        },
-        required: ["action", "ms"],
-        additionalProperties: false,
-      },
-    ],
-  },
-} as const;
 
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 

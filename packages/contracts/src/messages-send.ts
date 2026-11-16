@@ -13,7 +13,7 @@ export const MESSAGES_SEND_MAX_FILES = 10;
 export const MESSAGES_SEND_MAX_BYTES = 25 * 1024 * 1024;
 export const MESSAGES_SEND_FILES_TOOL = "SendIMessageWithAttachments";
 /** Private server-to-Mac payload. Bytes never belong in approval-card metadata. */
-export interface MessagesSendFile {
+interface MessagesSendFile {
   fileName: string;
   bytesBase64: string;
 }
@@ -46,7 +46,7 @@ const RECIPIENT_NAME_MAX_CHARS = 80;
 const HIDDEN_NAME_CHARS = /[\u00AD\u061C\u115F\u1160\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\u2800\u3164\uFEFF\uFFA0]/gu;
 
 /** A display name the card can show: no hidden characters or line breaks, at most 80 characters. */
-export function boundedRecipientName(name: unknown): string | undefined {
+function boundedRecipientName(name: unknown): string | undefined {
   if (typeof name !== "string") return undefined;
   const bounded = name.replace(HIDDEN_NAME_CHARS, "").replace(/[\s\p{Cc}]+/gu, " ").trim().slice(0, RECIPIENT_NAME_MAX_CHARS);
   return bounded || undefined;

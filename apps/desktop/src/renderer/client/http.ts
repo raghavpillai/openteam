@@ -1,5 +1,4 @@
 import {
-  createJsonTransport,
   OpenTeamClientError,
   type OpenTeamFetch,
   type OpenTeamTransportOptions,
@@ -49,7 +48,4 @@ export const desktopTransportOptions: OpenTeamTransportOptions = {
   onUnauthorized: expireAuthToken,
 };
 
-const transport = createJsonTransport(desktopTransportOptions);
-
-export const request = transport.request;
 export { OpenTeamClientError as ClientError };

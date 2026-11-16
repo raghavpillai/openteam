@@ -6,9 +6,9 @@ import { MachineRelay } from "../machine-relay";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Allowed recipients match the exact handle a send names; emails ignore case. */
-export const messagesRecipientKey = (recipient: string) => recipient.includes("@") ? recipient.trim().toLowerCase() : recipient.trim();
+const messagesRecipientKey = (recipient: string) => recipient.includes("@") ? recipient.trim().toLowerCase() : recipient.trim();
 
-export type MachineMessagesState = "ready" | "needs_permission" | "off" | "unavailable";
+type MachineMessagesState = "ready" | "needs_permission" | "off" | "unavailable";
 /** What tools and clients may see of a Mac's Messages state. */
 const messagesView = (row: { messagesEnabled: boolean; messagesPermissions: unknown }) => {
   const permissions = row.messagesPermissions as { fullDiskAccess?: boolean; automation?: string; contacts?: string } | null;

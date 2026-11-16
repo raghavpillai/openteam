@@ -12,57 +12,24 @@ describe("message delivery status", () => {
     let idempotency: { status: string } | null = null;
     const prisma = {
       channelMessage: { findUnique: async () => storedMessage },
-      channel: {
-        findUnique: async () => ({ id: channelId, kind: "group", members: [] }),
-      },
+      channel: { findUnique: async () => ({ id: channelId, kind: "group", members: [] }) },
       idempotencyRecord: { findUnique: async () => idempotency },
     };
-    const service = new ChannelService(
-      prisma as never,
-      {} as never,
-      "/workspace",
-      async () => new Response(null)
-    );
+    const service = new ChannelService(prisma as never, {} as never, "/workspace", async () => new Response(null));
     const status = () =>
-      Effect.runPromise(
-        service.messageDeliveryStatus(channelId, clientId)
-      ) as Promise<MessageDeliveryStatusView>;
-
+      Effect.runPromise(service.messageDeliveryStatus(channelId, clientId)) as Promise<MessageDeliveryStatusView>;
     expect(await status()).toMatchObject({ status: "not_found", message: null });
-
     idempotency = { status: "processing" };
     expect(await status()).toMatchObject({ status: "pending", message: null });
-
     idempotency = { status: "failed" };
-    expect(await status()).toMatchObject({
-      status: "rejected",
-      code: "server_rejected",
-      message: null,
-    });
-
+    expect(await status()).toMatchObject({ status: "rejected", code: "server_rejected", message: null });
     idempotency = { status: "completed" };
     expect(await status()).toMatchObject({ status: "unknown_durability", message: null });
-
-    storedMessage = {
-      id: "00000000-0000-0000-0000-000000000022",
-      sequence: 42n,
-      channelId,
-      sender: "user",
-      senderBotId: null,
-      sourceRunId: null,
-      clientId,
-      content: "durably accepted",
-      metadata: {},
-      createdAt: new Date("2026-09-01T12:00:00.000Z"),
-    };
+    const createdAt = new Date("2026-09-01T12:00:00.000Z");
+    storedMessage = { id: "00000000-0000-0000-0000-000000000022", sequence: 42n, channelId, sender: "user", senderBotId: null,
+      sourceRunId: null, clientId, content: "durably accepted", metadata: {}, createdAt };
     expect(await status()).toMatchObject({
-      status: "accepted",
-      acceptedAtMs: Date.parse("2026-09-01T12:00:00.000Z"),
-      message: {
-        sequence: "42",
-        channelId,
-        content: "durably accepted",
-      },
+      status: "accepted", acceptedAtMs: createdAt.getTime(), message: { sequence: "42", channelId, content: "durably accepted" },
     });
   });
 });

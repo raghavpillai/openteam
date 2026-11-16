@@ -14,7 +14,7 @@ import {
   validateOwnerUsername,
 } from "./setup";
 
-export interface AccountUpdateOptions {
+interface AccountUpdateOptions {
   username?: string;
   password: boolean;
 }

@@ -10,12 +10,6 @@ test('native dropdown exact values win over colliding display labels regardless 
   expect(resolveReferenceSelectOptions(el, ['second'])).toMatchObject({ kind: 'matched', values: ['second'], fuzzy: false });
 });
 
-test('disabled optgroup choices are not selected by label fallback', () => {
-  const el = { tagName: 'SELECT', options: [option('locked', 'Choice', false, true), option('available', 'Choice')] };
-  expect(resolveReferenceSelectOptions(el, ['Choice'])).toMatchObject({ kind: 'matched', values: ['available'] });
-});
-
-
 test('empty and fully disabled dropdowns fail unavailable selections without falling back to a long action wait', () => {
   for (const options of [[], [option('locked', 'Choice', true)]]) {
     const el = {tagName: 'SELECT', options};

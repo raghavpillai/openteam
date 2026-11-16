@@ -23,9 +23,9 @@ type Client = Pick<PrismaClient, "webSearchSettings" | "webFetchSettings" | "web
 type Row = { secret: string | null; check: WebProviderState["check"] };
 type ToolState = { selected: string | null; rows: Map<string, Row> };
 type State = Record<WebTool, ToolState>;
-export type WebProviderChecker = (request: WebProviderCheckRequest) => Promise<WebProviderCheckResult>;
+type WebProviderChecker = (request: WebProviderCheckRequest) => Promise<WebProviderCheckResult>;
 
-export function validateWebApiKey(value: unknown): void {
+function validateWebApiKey(value: unknown): void {
   if (
     value !== undefined &&
     value !== null &&
@@ -69,7 +69,7 @@ function parseTool(tool: WebTool, input: unknown): WebToolInput {
   return parsed;
 }
 
-export function parseWebProviderSettings(input: unknown): WebProvidersInput {
+function parseWebProviderSettings(input: unknown): WebProvidersInput {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Web provider settings are required.");
   const value = input as Record<string, unknown>;
   if (Object.keys(value).some((key) => !WEB_TOOLS.includes(key as WebTool))) throw invalid("Unknown web provider setting.");

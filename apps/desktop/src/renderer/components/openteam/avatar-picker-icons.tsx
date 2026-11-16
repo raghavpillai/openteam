@@ -115,7 +115,7 @@ function useSteadyMode(mode: BotAvatarMode, handsOff = true): BotAvatarMode {
   return handedOff && handedOff.since === since.current ? handedOff.to : shown;
 }
 
-export type BotAvatarGlyphProps = Omit<SVGProps<SVGSVGElement>, "color"> & {
+type BotAvatarGlyphProps = Omit<SVGProps<SVGSVGElement>, "color"> & {
   shape?: RobotAvatarShape;
   color?: string;
   eyeColor?: string;

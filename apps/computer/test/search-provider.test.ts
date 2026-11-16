@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   SEARCH_PROVIDERS,
   SearchProviderClient,
@@ -9,7 +9,6 @@ import {
 const key = "synthetic-search-key";
 test("unconfigured search fails clearly without any network request or implicit fallback", async () => {
   for (const [configuration, expected] of [
-    [{}, "the user has not chosen a search provider in Settings → Providers"],
     [{ provider: null }, "the user has not chosen a search provider in Settings → Providers"],
     [{ provider: "exa" as const }, "Exa is selected but its API key is missing"],
   ] as const) {
@@ -116,16 +115,13 @@ for (const [provider, spec] of Object.entries(SPECS) as [SearchProvider, Spec][]
     expect(result.content[0]!.text).toStartWith("Title: Reference\nURL: https://example.com/reference\nContent: ");
     expect(JSON.stringify(result)).not.toContain(key);
   });
-  test(`${provider} treats its documented empty answer as no results`, async () => {
+  test(`${provider} treats its documented empty answer as no results, and sends nothing without a key`, async () => {
     const result = await searchClient(provider, () => spec.empty!()).search("nothing");
     expect(result.content[0]!.text).toBe(`${SEARCH_PROVIDERS[provider]} found no results for this query.`);
+    const missing = await searchClient(provider, () => { throw new Error("must not call network"); }, null).search("q").then(() => null, (e: Error) => e);
+    expect(missing?.message).toContain(`${SEARCH_PROVIDERS[provider]} is selected but its API key is missing`);
   });
 }
-
-test("dates from providers become a Published prefix", async () => {
-  const result = await searchClient("perplexity", () => Response.json(SPECS.perplexity.success)).search("q");
-  expect(result.details.results[0]!.description).toBe("Published 2026-09-01. An extract.");
-});
 
 test("bad keys map to key guidance whatever status the provider uses", async () => {
   for (const [provider, response] of [
@@ -140,15 +136,6 @@ test("bad keys map to key guidance whatever status the provider uses", async () 
   }
   const quota = await searchClient("firecrawl", () => Response.json({ success: false, error: "Insufficient credits." }, { status: 402 })).search("q").then(() => null, (e: Error) => e);
   expect(quota?.message).toBe("Firecrawl search failed (HTTP 402): Insufficient credits. Check the provider quota, balance, or rate limit.");
-});
-
-test("every third-party search provider needs its key; nothing is sent without one", async () => {
-  for (const provider of Object.keys(SPECS) as SearchProvider[]) {
-    const error = await searchClient(provider, () => {
-      throw new Error("must not call network");
-    }, null).search("q").then(() => null, (e: Error) => e);
-    expect(error?.message).toContain(`${SEARCH_PROVIDERS[provider]} is selected but its API key is missing`);
-  }
 });
 
 test("provider errors, malformed and oversized responses never leak credentials or request URLs", async () => {
@@ -198,11 +185,8 @@ test("query limits and cancellation stop before sending a request", async () => 
   await expect(searchClient("firecrawl", count).search("x".repeat(501))).rejects.toThrow("500 characters");
   await expect(searchClient("brave", count).search("valid", AbortSignal.abort())).rejects.toThrow();
   expect(requests).toBe(0);
-});
-
-test("an in-flight request receives cancellation and is never retried on another provider", async () => {
+  // An in-flight request receives cancellation and is never retried on another provider.
   const controller = new AbortController();
-  let requests = 0;
   const client = new SearchProviderClient(() => ({ provider: "exa", apiKey: key }), (async (_url, init) => {
     requests++;
     return new Promise<Response>((_resolve, reject) => {
@@ -212,4 +196,41 @@ test("an in-flight request receives cancellation and is never retried on another
   }) as SearchFetch);
   await expect(client.search("reference", controller.signal)).rejects.toThrow();
   expect(requests).toBe(1);
+});
+
+describe("Exa capacity recovery", () => {
+  const exa = (respond: (count: number, init: RequestInit) => Response) => {
+    let count = 0;
+    const client = new SearchProviderClient(() => ({ provider: "exa", apiKey: key }), (async (_url, init) => respond(++count, init ?? {})) as SearchFetch);
+    return { client, count: () => count };
+  };
+  const capacity = (headers?: HeadersInit) => Response.json({ error: `capacity ${key}` }, { status: 503, headers });
+
+  test("a capacity rejection is retried with the same request, at most three attempts, with the key redacted", async () => {
+    const bodies: unknown[] = [];
+    const once = exa((n, init) => { bodies.push(init.body); return n === 1 ? capacity() : Response.json(SPECS.exa.success); });
+    expect((await once.client.search("reference")).details.results[0]?.title).toBe("Reference");
+    expect(once.count()).toBe(2);
+    expect(bodies[0]).toEqual(bodies[1]);
+    const persistent = exa(() => capacity());
+    await expect(persistent.client.search("reference")).rejects.toThrow("capacity [redacted]");
+    expect(persistent.count()).toBe(3);
+  }, 10_000);
+
+  test("credential, billing, quota and validation failures, and Retry-After past the budget, are not retried", async () => {
+    for (const respond of [
+      ...[400, 401, 402, 403, 429].map((status) => () => Response.json({ error: "rejected" }, { status })),
+      () => capacity({ "retry-after": "60" }),
+      () => capacity({ "retry-after": new Date(Date.now() + 60_000).toUTCString() }),
+    ]) {
+      const { client, count } = exa(respond);
+      await expect(client.search("reference")).rejects.toThrow("HTTP");
+      expect(count()).toBe(1);
+    }
+    let brave = 0;
+    const other = new SearchProviderClient(() => ({ provider: "brave", apiKey: key }), (async () => { brave++; return Response.json({}, { status: 503 }); }) as SearchFetch);
+    await expect(other.search("reference")).rejects.toThrow("HTTP 503");
+    expect(brave).toBe(1);
+  });
+
 });

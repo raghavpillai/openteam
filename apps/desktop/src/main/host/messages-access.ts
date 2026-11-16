@@ -2,8 +2,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { nativeCommand, sqliteRows, sqlText, type NativeCommand } from "./native-command";
 
-export type MessagesGrant = "fullDiskAccess" | "automation" | "contacts";
-export interface MessagesPermissions {
+type MessagesGrant = "fullDiskAccess" | "automation" | "contacts";
+interface MessagesPermissions {
   fullDiskAccess: boolean;
   automation: "granted" | "denied" | "notAsked" | "unknown";
   contacts: "granted" | "denied" | "notAsked" | "unknown";

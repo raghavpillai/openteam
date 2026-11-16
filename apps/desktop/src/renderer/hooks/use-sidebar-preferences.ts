@@ -18,7 +18,6 @@ export const PINNED_GROUP_ID = "__pinned";
 export const UNASSIGNED_GROUP_ID = "__unassigned";
 
 export type SidebarSection = SidebarSectionPreference;
-export type { SidebarPreferences } from "@openteam/contracts/client-preferences";
 
 const EMPTY_PREFERENCES = emptySidebarPreferences();
 

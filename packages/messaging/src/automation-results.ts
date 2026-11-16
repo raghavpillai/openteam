@@ -150,7 +150,7 @@ export async function automationShellState(
   };
 }
 
-export async function pendingAutomationShells(
+async function pendingAutomationShells(
   tx: Prisma.TransactionClient,
   botId: string,
   familyIds: string[],

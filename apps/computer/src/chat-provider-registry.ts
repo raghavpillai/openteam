@@ -26,7 +26,7 @@ import {
 
 export const CHAT_PROVIDERS = new Set(Object.keys(CHAT_PROVIDER_DEFINITIONS));
 export const KEYLESS_API_KEY = "openteam-no-auth";
-export type ChatModel = Model<Api> & {
+type ChatModel = Model<Api> & {
   reasoningLevels?: PiReasoningLevel[];
   defaultReasoningLevel?: PiReasoningLevel;
   recommended?: boolean;
@@ -54,7 +54,7 @@ export const inputWindow = (limits: readonly unknown[], fallback: number): numbe
  * OpenRouter publishes per-endpoint prompt caps (max_prompt_tokens) only on a
  * model's endpoints listing. Any endpoint may serve a request, so the lowest cap applies.
  */
-export const openRouterEndpointPromptCap = (body: unknown): number | undefined => {
+const openRouterEndpointPromptCap = (body: unknown): number | undefined => {
   const data = object(body) && object(body.data) ? body.data : undefined;
   const caps = (Array.isArray(data?.endpoints) ? data.endpoints : [])
     .map((endpoint) => (object(endpoint) ? positive(endpoint.max_prompt_tokens, 0) : 0))

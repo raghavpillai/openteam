@@ -70,7 +70,7 @@ const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A>
 /** Typed user turns; wakes from revivals, agents, events, routines and channels are not the user asking. */
 const USER_STARTED_RUN_ORIGINS: ReadonlySet<RunOrigin> = new Set(["user"]);
 
-export const describeInstallNotUserTurn = (displayName: string, origin?: RunOrigin) =>
+const describeInstallNotUserTurn = (displayName: string, origin?: RunOrigin) =>
   origin === "group"
     // Adapted: a user can start a room turn, so the reference's "did not start this turn" would be false there.
     ? `Nothing was installed: this is a group-room turn, and installing adds ${displayName} to your user's account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants ${displayName}, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.`

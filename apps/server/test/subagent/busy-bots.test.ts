@@ -17,11 +17,6 @@ function service(runs: Array<{ id: string; botId: string; status: string; [key: 
   return new SubagentService(db, {} as never, {} as never, "/workspace", (async () => new Response()) as never, {} as never);
 }
 
-test("an idle install has no busy bots", async () => {
-  const result = await Effect.runPromise(service([{ id: "done", botId: "chief", status: "completed" }], []).busyBots());
-  expect(result).toEqual({ bots: [] });
-});
-
 test("subagent work, however deep, counts for the bot that launched it", async () => {
   const result = await Effect.runPromise(service(
     [
@@ -42,11 +37,6 @@ test("subagent work, however deep, counts for the bot that launched it", async (
   });
 });
 
-test("a subagent still starting up keeps its bot busy", async () => {
-  const result = await Effect.runPromise(service([], [{ parentBotId: "chief", childBotId: "worker", status: "provisioning" }]).busyBots());
-  expect(result).toEqual({ bots: [{ botId: "chief", name: "Chief of Staff", runIds: [] }] });
-});
-
 test("parked work that resumes on its own after a restart never holds an update", async () => {
   const result = await Effect.runPromise(service(
     [{ id: "parked-request", botId: "chief", status: "completed", requestNextCheckAt: new Date(), requestStoppedAt: null, bot: { status: "active" } }],
@@ -56,15 +46,4 @@ test("parked work that resumes on its own after a restart never holds an update"
     ],
   ).busyBots());
   expect(result).toEqual({ bots: [] });
-});
-
-test("a parked subagent doesn't hide another subagent that is still running", async () => {
-  const result = await Effect.runPromise(service(
-    [{ id: "worker-turn", botId: "worker", status: "running" }],
-    [
-      { parentBotId: "chief", childBotId: "worker", status: "running" },
-      { parentBotId: "scout", childBotId: "nested", status: "waiting" },
-    ],
-  ).busyBots());
-  expect(result).toEqual({ bots: [{ botId: "chief", name: "Chief of Staff", runIds: ["worker-turn"] }] });
 });

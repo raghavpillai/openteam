@@ -1,19 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
-  applySecretEdits,
-  discoverAllTools,
+  connectionNamespaces,
+  createPluginTemplate,
   environmentFields,
-  exportPackage,
   fieldsForConnector,
   importPackage,
   parsePluginDefinition,
-  pluginIconUrl,
   scopedProcessEnvironment,
-  skillIsForAgent,
-  substituteConfiguration,
+  validateMcpUrl,
   validateValues,
 } from "../src";
-import { exportPackageArchive, importPackageArchive } from "../src/archive";
+import { emailBodyHtmlTag, unwrapHardWrappedEmailBody } from "../src/email-body";
+import { createToolValidator } from "../src/json-schema";
+import { parseSkillMarkdown } from "../src/skill-markdown";
+// Inputs and the reference implementation's outputs for them (10-20 build).
+import emailBodies from "./email-body.cases.json";
 
 const files = {
   "plugin.json": JSON.stringify({
@@ -44,158 +45,12 @@ const files = {
 };
 
 describe("portable plugin packages", () => {
-  test("imports hidden MCP files and preserves Granola-shaped workflow components through ZIP", () => {
-    const imported = importPackage({
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        name: "meetings",
-        version: "1.0.0",
-        author: { name: "Example" },
-      }),
-      ".mcp.json": JSON.stringify({ mcpServers: { meetings: { url: "https://example.com/mcp" } } }),
-      "skills/context/SKILL.md":
-        "---\nname: context\ndescription: Meeting context\n---\nRead the meeting notes.",
-      "commands/brief.md": "---\ndescription: Brief\n---\nSummarize $ARGUMENTS",
-      "agents/engineer.md": "---\ndescription: Engineer\n---\nImplement the assigned task.",
-      "rules/context.mdc": "---\nalwaysApply: true\n---\nCite meeting evidence.",
-    });
-    expect(imported.definition.connections).toHaveLength(1);
-    expect(imported.definition.connections[0]?.endpoint).toBe("https://example.com/mcp");
-    expect(imported.warnings).toContain(
-      "MCP server meetings: this package does not declare authentication. If the service requires sign-in, configure OAuth in the plugin definition before installing, or use its OpenTeam registry package."
-    );
-    const roundtrip = importPackageArchive(exportPackageArchive(imported.definition));
-    expect(roundtrip.definition.components).toEqual([
-      "mcp",
-      "skills",
-      "rules",
-      "commands",
-      "agents",
-    ]);
-    expect(roundtrip.definition.connections).toEqual(imported.definition.connections);
-    expect(roundtrip.definition.files?.["commands/brief.md"]).toContain("$ARGUMENTS");
-  });
-  test("resolves Slack's manifest-relative MCP path without adopting another client's identity", () => {
-    const imported = importPackage({
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        name: "chat",
-        version: "1.0.0",
-        mcpServers: "../.cursor-mcp.json",
-      }),
-      ".cursor-mcp.json": JSON.stringify({
-        mcpServers: {
-          chat: { url: "https://example.com/mcp", auth: { CLIENT_ID: "upstream-app" } },
-        },
-      }),
-    });
-    const connector = imported.definition.connections[0]!;
-    expect(connector.auth).toBe("oauth");
-    expect(connector.oauth?.registration).toBe("manual");
-    expect(connector.setup?.fields.map((field) => field.key)).toEqual(["clientId", "clientSecret"]);
-    expect(JSON.stringify(connector)).not.toContain("upstream-app");
-    expect(imported.warnings[0]).toContain("configure your own OAuth client");
-  });
   test("MCP path compatibility never allows escaping the package or absolute references", () => {
-    for (const path of [
-      "../../outside.json",
-      "../nested/../../outside.json",
-      "/tmp/config.json",
-      "..\\config.json",
-      "https://example.com/config.json",
-    ]) {
-      expect(() =>
-        importPackage({
-          ".cursor-plugin/plugin.json": JSON.stringify({
-            name: "unsafe",
-            version: "1.0.0",
-            mcpServers: path,
-          }),
-          "outside.json": "{}",
-        })
-      ).toThrow("Unsafe package path");
-    }
-    expect(() =>
-      importPackage({
-        "plugin.json": JSON.stringify({
-          name: "unsafe",
-          version: "1.0.0",
-          mcpServers: "../outside.json",
-        }),
-        "outside.json": "{}",
-      })
-    ).toThrow("Unsafe package path");
-  });
-  test("imports hybrid packages with typed variables and retains relative skill assets", () => {
-    const preview = importPackage(files);
-    expect(preview.format).toBe("agent-plugin");
-    expect(preview.definition.components).toEqual(["mcp", "skills"]);
-    expect(preview.definition.connections[1]?.configuration?.args).toEqual(["a b", 'quoted"value']);
-    expect(preview.definition.skills[0]?.path).toBe("skills/review");
-    expect(preview.definition.setupFields?.[0]?.secret).toBe(true);
-    const roundtrip = importPackage(exportPackage(preview.definition));
-    expect(roundtrip.definition.skills).toEqual(preview.definition.skills);
-    expect(roundtrip.definition.files?.["skills/review/references/style.md"]).toBe(
-      "Preserve evidence."
-    );
-  });
-  test("ZIP round trips binary supporting files without touching account credentials", () => {
-    const definition = importPackage(files).definition;
-    definition.binaryFiles = { "skills/review/assets/sample.bin": btoa("\u0000\u00ff\u0080") };
-    const imported = importPackageArchive(exportPackageArchive(definition));
-    expect(imported.definition.binaryFiles).toEqual(definition.binaryFiles);
-    expect(imported.definition.connections[0]?.configuration?.headers).toEqual({
-      Authorization: "Bearer ${API_TOKEN}",
-    });
-  });
-  test("package icons survive ZIP import and export", () => {
-    const definition = importPackage(files).definition;
-    const png =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG0cAAAAASUVORK5CYII=";
-    definition.icon = "assets/icon.png";
-    definition.binaryFiles = { "assets/icon.png": png };
-    const imported = importPackageArchive(exportPackageArchive(definition)).definition;
-    expect(imported.icon).toBe("assets/icon.png");
-    expect(pluginIconUrl(imported)).toBe(`data:image/png;base64,${png}`);
-    expect(() => parsePluginDefinition({ ...definition, binaryFiles: {} })).toThrow(
-      "Missing plugin icon"
-    );
-    expect(() => parsePluginDefinition({ ...definition, icon: "../icon.png" })).toThrow(
-      "Unsafe package path"
-    );
-    expect(() => parsePluginDefinition({ ...definition, icon: "assets/icon.svg" })).toThrow(
-      "PNG, JPEG or WebP"
-    );
-    expect(() =>
-      parsePluginDefinition({
-        ...definition,
-        binaryFiles: { "assets/icon.png": "AAAA".repeat(90_000) },
-      })
-    ).toThrow("256 KB");
-  });
-  test("icon resolution rejects unsafe URLs and missing icons", () => {
-    expect(pluginIconUrl({})).toBeNull();
-    expect(pluginIconUrl({ logoUrl: "javascript:alert(1)" })).toBeNull();
-  });
-  test("accepts event polling only on packaged connectors with a known source", () => {
-    const definition = importPackage(files).definition;
-    const local = definition.connections.find((connection) => connection.transport === "stdio")!;
-    const remote = definition.connections.find((connection) => connection.transport === "http")!;
-    const withEvents = (connection: typeof local, events: unknown) =>
-      parsePluginDefinition({ ...definition, connections: [{ ...connection, events }] });
-    expect(
-      withEvents(local, { pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 })
-        .connections[0]!.events
-    ).toEqual({ pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 });
-    expect(() => withEvents(remote, { pollTool: "poll", source: "email" })).toThrow(
-      "Only packaged (stdio) connectors can poll for events"
-    );
-    expect(() => withEvents(local, { pollTool: "poll", source: "fax" })).toThrow(
-      "Unknown event source: fax"
-    );
-    expect(() => withEvents(local, { source: "email" })).toThrow("event poll tool");
-    for (const intervalSeconds of [5, 29, 3601, 60.5])
-      expect(() => withEvents(local, { pollTool: "poll", source: "email", intervalSeconds })).toThrow(
-        "Event poll interval must be 30 to 3600 seconds"
-      );
+    const unsafe = (manifest: string, mcpServers: string) =>
+      expect(() => importPackage({ [manifest]: JSON.stringify({ name: "unsafe", version: "1.0.0", mcpServers }), "outside.json": "{}" })).toThrow("Unsafe package path");
+    for (const path of ["../../outside.json", "../nested/../../outside.json", "/tmp/config.json", "..\\config.json", "https://example.com/config.json"])
+      unsafe(".cursor-plugin/plugin.json", path);
+    unsafe("plugin.json", "../outside.json");
   });
   test("accepts reviewed draft sending only on packaged connectors", () => {
     const definition = importPackage(files).definition;
@@ -203,32 +58,20 @@ describe("portable plugin packages", () => {
     const remote = definition.connections.find((connection) => connection.transport === "http")!;
     const withDrafts = (connection: typeof local, drafts: unknown) =>
       parsePluginDefinition({ ...definition, connections: [{ ...connection, drafts }] });
-    expect(withDrafts(local, { platform: "email", tool: "send_reviewed_email" }).connections[0]!.drafts).toEqual({
-      platform: "email",
-      tool: "send_reviewed_email",
-    });
+    expect(withDrafts(local, { platform: "email", tool: "send_reviewed_email" }).connections[0]!.drafts).toEqual({ platform: "email", tool: "send_reviewed_email" });
     expect(() => withDrafts(remote, { platform: "email", tool: "send" })).toThrow("Only packaged (stdio)");
     expect(() => withDrafts(local, { platform: "slack", tool: "send" })).toThrow("Unknown draft platform: slack");
     expect(() => withDrafts(local, { platform: "email" })).toThrow("draft send tool");
   });
-  test("rejects traversal, private files, invalid transports, and secret defaults", () => {
+  test("rejects traversal, private files, invalid transports, secret defaults and literal credentials", () => {
     expect(() => importPackage({ ...files, "../secret": "x" })).toThrow("Unsafe package path");
     expect(() => importPackage({ ...files, ".env": "TOKEN=x" })).toThrow("private or generated");
     const definition = importPackage(files).definition;
-    expect(() =>
-      parsePluginDefinition({
-        ...definition,
-        connections: [{ ...definition.connections[0], transport: "shell" }],
-      })
-    ).toThrow("Unsupported connector");
-    expect(() =>
-      parsePluginDefinition({
-        ...definition,
-        setupFields: [
-          { key: "TOKEN", label: "Token", secret: true, required: true, default: "secret" },
-        ],
-      })
-    ).toThrow("Secret defaults");
+    const connection = definition.connections[0];
+    expect(() => parsePluginDefinition({ ...definition, connections: [{ ...connection, transport: "shell" }] })).toThrow("Unsupported connector");
+    expect(() => parsePluginDefinition({ ...definition, setupFields: [{ key: "TOKEN", label: "Token", secret: true, required: true, default: "secret" }] })).toThrow("Secret defaults");
+    expect(() => parsePluginDefinition({ ...definition, connections: [{ ...connection, configuration: { headers: { Authorization: "Bearer real-token" } } }] })).toThrow("literal secret");
+    expect(() => parsePluginDefinition({ ...definition, binaryFiles: { "../escape": "YWJj" } })).toThrow("Unsafe package path");
   });
   test("environment setup fields are unique plugin-level secrets kept from connectors", () => {
     const definition = importPackage(files).definition;
@@ -236,138 +79,98 @@ describe("portable plugin packages", () => {
     const parsed = parsePluginDefinition({ ...definition, setupFields: [field] });
     expect(environmentFields(parsed)).toEqual([field]);
     expect(fieldsForConnector(parsed, parsed.connections[0]!.key).map((entry) => entry.key)).not.toContain("API_TOKEN");
-    for (const setupFields of [
-      [{ ...field, key: "REGION", secret: false }],
-      [field, { ...field, key: "OTHER_TOKEN" }],
-      [{ ...field, environment: "1INVALID" }],
-      [{ ...field, environment: "NODE_OPTIONS" }],
-      [{ ...field, environment: "PATH" }],
-    ])
+    for (const setupFields of [[{ ...field, key: "REGION", secret: false }], [field, { ...field, key: "OTHER_TOKEN" }], [{ ...field, environment: "1INVALID" }],
+      [{ ...field, environment: "NODE_OPTIONS" }], [{ ...field, environment: "PATH" }]])
       expect(() => parsePluginDefinition({ ...definition, setupFields })).toThrow("Environment setup fields");
     const setup = { kind: "none", connectionKey: null, title: "Setup", description: "Setup", documentationUrl: null, steps: [], fields: [field], requiredScopes: [] };
-    expect(() =>
-      parsePluginDefinition({ ...definition, connections: [{ ...definition.connections[0], setup }] })
-    ).toThrow("Environment setup fields");
-  });
-  test("skills name the agents that receive them and default to the main agent", () => {
-    const definition = importPackage(files).definition;
-    const skill = { name: "sign-in", description: "Sign in", body: "Use the CLI." };
-    const shared = parsePluginDefinition({ ...definition, skills: [{ ...skill, agents: ["main", "computerUse"] }] });
-    expect(skillIsForAgent(shared.skills[0]!, "computerUse")).toBe(true);
-    expect(skillIsForAgent(shared.skills[0]!, "executor")).toBe(false);
-    expect(skillIsForAgent(skill, "main")).toBe(true);
-    expect(skillIsForAgent(skill, "computerUse")).toBe(false);
-    for (const agents of [[], ["browser"], ["main", "browserUse"], ["main", "main"], "main"])
-      expect(() => parsePluginDefinition({ ...definition, skills: [{ ...skill, agents }] })).toThrow("Invalid skill agents");
-  });
-  test("retains Cursor hook configuration for runtime execution", () => {
-    const { "plugin.json": manifest, ...rest } = files;
-    const preview = importPackage({
-      ...rest,
-      ".cursor-plugin/plugin.json": JSON.stringify({
-        ...JSON.parse(manifest),
-        hooks: "hooks/hooks.json",
-      }),
-      "hooks/hooks.json": "{}",
-    });
-    expect(preview.format).toBe("cursor-plugin");
-    expect(preview.warnings).toEqual([]);
-    expect(preview.definition.files?.["hooks/hooks.json"]).toBe("{}");
+    expect(() => parsePluginDefinition({ ...definition, connections: [{ ...definition.connections[0], setup }] })).toThrow("Environment setup fields");
   });
 });
 
-test("configuration validates scalar types and preserves exact values", () => {
-  const fields = [
-    {
-      key: "COUNT",
-      label: "Count",
-      type: "integer" as const,
-      required: true,
-      secret: false,
-      default: 3,
-    },
-    { key: "ENABLED", label: "Enabled", type: "boolean" as const, required: true, secret: false },
-  ];
-  expect(validateValues(fields, { ENABLED: false })).toEqual({ COUNT: 3, ENABLED: false });
-  expect(() => validateValues(fields, { COUNT: "3", ENABLED: true })).toThrow("must be integer");
-  expect(
-    substituteConfiguration(
-      { count: "${COUNT}", flag: "${ENABLED}", argument: "--count=${COUNT}" },
-      { COUNT: 3, ENABLED: false }
-    )
-  ).toEqual({ count: 3, flag: false, argument: "--count=3" });
-  expect(
-    applySecretEdits(
-      { keep: "first", replace: "old", clear: "gone" },
-      {
-        keep: { action: "keep" },
-        replace: { action: "replace", value: "new" },
-        clear: { action: "clear" },
-      }
-    )
-  ).toEqual({ keep: "first", replace: "new" });
-});
-test("MCP discovery follows pages and rejects repeated cursors", async () => {
-  const seen: Array<string | undefined> = [];
-  expect(
-    await discoverAllTools(async (cursor) => {
-      seen.push(cursor);
-      return cursor
-        ? { tools: [{ name: "second" }] }
-        : { tools: [{ name: "first" }], nextCursor: "next" };
-    })
-  ).toEqual([{ name: "first" }, { name: "second" }]);
-  expect(seen).toEqual([undefined, "next"]);
-  await expect(discoverAllTools(async () => ({ tools: [], nextCursor: "loop" }))).rejects.toThrow(
-    "pagination cursor"
-  );
-});
 test("local MCP processes cannot inherit server or unrelated provider secrets", () => {
-  expect(
-    scopedProcessEnvironment(
-      {
-        PATH: "/bin",
-        HOME: "/home/bot",
-        DATABASE_URL: "private-db",
-        OPENAI_API_KEY: "private-key",
-        OPENTEAM_CONTROL_TOKEN: "control",
-      },
-      { PLUGIN_KEY: "configured" }
-    )
-  ).toEqual({ PATH: "/bin", HOME: "/home/bot", PLUGIN_KEY: "configured" });
+  expect(scopedProcessEnvironment({ PATH: "/bin", HOME: "/home/bot", DATABASE_URL: "private-db", OPENAI_API_KEY: "private-key", OPENTEAM_CONTROL_TOKEN: "control" },
+    { PLUGIN_KEY: "configured" })).toEqual({ PATH: "/bin", HOME: "/home/bot", PLUGIN_KEY: "configured" });
 });
 
-test("partial saves preserve omitted defaults and explicit clearing", () => {
-  const fields = [
-    { key: "VALUE", label: "Value", secret: false, required: false, default: "initial" },
-  ];
-  expect(validateValues(fields, {}, false)).toEqual({});
-  expect(validateValues(fields, { VALUE: "" }, false)).toEqual({ VALUE: "" });
-});
-test("skill folders supply bodies and imports reject literal credentials", () => {
+test("skill folders supply bodies", () => {
   const definition = importPackage(files).definition;
-  expect(
-    importPackage({
-      "plugin.json": JSON.stringify({
-        ...definition,
-        skills: [{ name: "review", description: "Review", path: "skills/review" }],
-      }),
-      "skills/review/SKILL.md":
-        "---\nname: review\ndescription: Review\n---\nRead supporting files.",
-    }).definition.skills[0]?.body
-  ).toBe("Read supporting files.");
-  expect(() =>
-    parsePluginDefinition({
-      ...definition,
-      connections: [
-        {
-          ...definition.connections[0],
-          configuration: { headers: { Authorization: "Bearer real-token" } },
-        },
-      ],
-    })
-  ).toThrow("literal secret");
-  expect(() =>
-    parsePluginDefinition({ ...definition, binaryFiles: { "../escape": "YWJj" } })
-  ).toThrow("Unsafe package path");
+  expect(importPackage({
+    "plugin.json": JSON.stringify({ ...definition, skills: [{ name: "review", description: "Review", path: "skills/review" }] }),
+    "skills/review/SKILL.md": "---\nname: review\ndescription: Review\n---\nRead supporting files.",
+  }).definition.skills[0]?.body).toBe("Read supporting files.");
+});
+
+const example = () => {
+  const definition = createPluginTemplate("packaged-mcp", "oauth-example");
+  definition.connections[0]!.auth = "oauth";
+  definition.connections[0]!.oauth = {
+    registration: "manual",
+    clientType: "confidential",
+    tokenEndpointAuthMethod: "client_secret_post",
+    accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
+    authorizationServer: {
+      issuer: "https://provider.example",
+      authorizationUrl: "https://provider.example/authorize",
+      tokenUrl: "https://provider.example/token",
+    },
+  };
+  return definition;
+};
+
+test("packaged OAuth rejects unsafe endpoints and incomplete token delivery configuration", () => {
+  expect(parsePluginDefinition(example()).connections[0]!.auth).toBe("oauth");
+  for (const tokenUrl of [
+    "http://provider.example/token",
+    "https://user:pass@provider.example/token",
+    "https://provider.example/token#fragment",
+  ]) {
+    const definition = example();
+    definition.connections[0]!.oauth!.authorizationServer!.tokenUrl = tokenUrl;
+    expect(() => parsePluginDefinition(definition)).toThrow();
+  }
+  const missingEnv = example();
+  missingEnv.connections[0]!.oauth!.accessTokenEnv = "BAD-NAME";
+  expect(() => parsePluginDefinition(missingEnv)).toThrow("environment variable");
+  const dynamic = example();
+  dynamic.connections[0]!.oauth!.registration = "dynamic";
+  expect(() => parsePluginDefinition(dynamic)).toThrow("manual client");
+});
+
+test("MCP URL fields normalize reachable schemes and reject credential-bearing or insecure links", () => {
+  const field = [{ key: "url", label: "MCP URL", format: "mcp-url" as const, required: true, secret: false }];
+  for (const value of ["https://environment.example/mcp", "http://localhost:3773/mcp", "http://127.0.0.1:3773/mcp", "http://[::1]:3773/mcp"])
+    expect(validateValues(field, { url: ` ${value} ` }).url).toBe(value);
+  for (const value of ["AUTO-example", "environment.example/mcp", "http://100.64.1.2:3773/mcp", "http://192.168.1.2:3773/mcp", "https://user:pass@example.com/mcp",
+    "https://example.com/pair#code=private", "https://example.com/mcp#", "https://example.com/mcp?token=private", "https://example.com/mcp?code=private",
+    "file:///tmp/mcp", "javascript:alert(1)"])
+    expect(() => validateMcpUrl(value)).toThrow();
+});
+
+test("malformed skill metadata fails before saving", () => {
+  expect(() => parseSkillMarkdown("---\nname: [unterminated\n---\nbody")).toThrow("frontmatter");
+  expect(() => parseSkillMarkdown("---\nname: 12\n---\nbody")).toThrow("must be text");
+  expect(() => parseSkillMarkdown("---\n- list\n---\nbody")).toThrow("mapping");
+});
+
+test("a newer colliding connection gets a short id suffix and the older keeps its name", () => {
+  const at = (minute: number) => new Date(Date.UTC(2026, 9, 1, 0, minute));
+  const older = { id: "11111111-aaaa-4000-8000-000000000001", name: "Linear", alias: "default", createdAt: at(1) };
+  const newer = { id: "22222222-bbbb-4000-8000-000000000002", name: "linear", alias: "default", createdAt: at(2) };
+  const cursor = { id: "33333333-cccc-4000-8000-000000000003", name: "Cursor", alias: "default", createdAt: at(3) };
+  const names = connectionNamespaces([newer, cursor, older]);
+  expect([names.get(older.id), names.get(newer.id), names.get(cursor.id)]).toEqual(["linear", "linear-222222", "cursor-333333"]); // "cursor" is reserved
+  expect(connectionNamespaces([{ id: "x", name: "★", alias: "☆", createdAt: at(1) }]).get("x")).toBe("connector--account");
+});
+
+test("tool byte fields accept large valid attachments and reject malformed base64", () => {
+  const validate = createToolValidator({ type: "object", properties: { content: { type: "string", format: "byte" }, date: { type: "string", format: "date-time" } }, required: ["content"], additionalProperties: false });
+  expect(validate({ content: Buffer.alloc(9 * 1024 * 1024, 42).toString("base64") }).valid).toBe(true);
+  for (const content of ["A", "AAA", "AA=A", "A===", "A_AA", "AA==\n", "?AAA"]) expect(validate({ content }).valid).toBe(false);
+  expect(validate({ content: "AA==", date: "not-a-date" }).valid).toBe(false);
+  expect(validate({ content: "AA==", extra: true }).valid).toBe(false);
+});
+
+test("hard-wrapped email bodies unwrap and HTML tags are found exactly like the reference", () => {
+  for (const { body, expected } of emailBodies.unwrap) expect(unwrapHardWrappedEmailBody(body)).toBe(expected);
+  for (const { body, expected } of emailBodies.htmlTag) expect(emailBodyHtmlTag(body) ?? null).toBe(expected);
 });

@@ -1,6 +1,7 @@
 import { ApiError } from "@openteam/contracts";
 import { createPrismaClient } from "@openteam/db";
 import { createPluginTemplate } from "@openteam/plugin-sdk";
+import { createOpenTeamClient } from "../../../../../packages/client-core/src";
 import type { AppService } from "../../../src/app-service";
 import { pluginMutationRoutes } from "../../../src/routes/plugin-mutation";
 import { pluginQueryRoutes } from "../../../src/routes/plugin-query";
@@ -8,9 +9,9 @@ import { PluginService } from "../../../src/services/plugin-service";
 import { createOAuthMcpFixture } from "./oauth-mcp";
 
 /** Real plugin routes/DB/MCP, with a synthetic catalog and local OAuth provider. */
-export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean; refreshTokens?: boolean } = {}) {
+export async function createPluginFlowFixture(databaseUrl: string, options: { callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean } = {}) {
   const db = createPrismaClient(databaseUrl);
-  const provider = createOAuthMcpFixture(0, {refreshTokens:options.refreshTokens});
+  const provider = createOAuthMcpFixture();
   const suffix = crypto.randomUUID();
   const oauth = createPluginTemplate(options.packaged ? "packaged-mcp" : "remote-mcp", `flow-oauth-${suffix}`);
   oauth.name = "Flow OAuth";
@@ -18,43 +19,24 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
   oauth.connections[0]!.auth = "oauth";
   oauth.connections[0]!.configuration = { oauthCallbackMode: options.callbackMode ?? "server" };
   oauth.setupFields = [];
-  const configured = structuredClone(oauth);
-  configured.key = `flow-configured-${suffix}`;
-  configured.name = "Flow Manual Setup";
-  configured.setup = {
-    kind: "oauth_client",
-    connectionKey: configured.connections[0]!.key,
-    title: "Connect your account",
-    description: "Configure the synthetic OAuth application once.",
-    documentationUrl: null,
-    requiredScopes: ["read"],
-    steps: ["Copy the callback URL to your provider."],
-    fields: [
-      { key: "clientId", label: "Client ID", required: true, secret: false },
-      { key: "clientSecret", label: "Client secret", required: true, secret: true },
-    ],
-  };
   if (options.packaged) {
-    oauth.setup = structuredClone(configured.setup);
-    for (const definition of [oauth, configured]) {
-      const connector = definition.connections[0]!;
-      connector.endpoint = "";
-      connector.configuration = { ...connector.configuration, command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
-      connector.oauth = {
-        clientType: "confidential", registration: "manual", tokenEndpointAuthMethod: "client_secret_post",
-        authorizationServer: { issuer: provider.server.url.origin, authorizationUrl: `${provider.server.url.origin}/authorize`, tokenUrl: `${provider.server.url.origin}/token` },
-        accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
-      };
-    }
+    oauth.setup = {
+      kind: "oauth_client", connectionKey: oauth.connections[0]!.key, title: "Connect your account", description: "Configure the synthetic OAuth application once.",
+      documentationUrl: null, requiredScopes: ["read"], steps: ["Copy the callback URL to your provider."],
+      fields: [{ key: "clientId", label: "Client ID", required: true, secret: false }, { key: "clientSecret", label: "Client secret", required: true, secret: true }],
+    };
+    const connector = oauth.connections[0]!;
+    connector.endpoint = "";
+    connector.configuration = { ...connector.configuration, command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
+    connector.oauth = {
+      clientType: "confidential", registration: "manual", tokenEndpointAuthMethod: "client_secret_post",
+      authorizationServer: { issuer: provider.server.url.origin, authorizationUrl: `${provider.server.url.origin}/authorize`, tokenUrl: `${provider.server.url.origin}/token` },
+      accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
+    };
   }
-  const skill = createPluginTemplate("skills", `flow-skills-${suffix}`);
-  skill.name = "Flow Skills";
-  const definitions = [oauth, configured, skill];
-  const requests: Array<{ method: string; path: string }> = [];
+  const definitions = [oauth];
   let app: AppService;
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
     async fetch(request) {
       const url = new URL(request.url);
       const headers = {
@@ -64,7 +46,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
       };
       if (request.method === "OPTIONS") return new Response(null, { headers });
       const path = url.pathname.replace(/^\/api\/v0\//, "/api/");
-      requests.push({ method: request.method, path });
       try {
         // Synthetic login tokens exercise the real routes with distinct session
         // identities. OAuth itself still uses the real local provider and DB.
@@ -72,41 +53,22 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
         const authenticatedSessionId = session && options.authSessions?.includes(session) ? session : null;
         if (options.authSessions && !authenticatedSessionId && path !== "/api/plugin-oauth/callback")
           return Response.json({ error: { code: "unauthorized", message: "Sign in to OpenTeam to continue" } }, { status: 401, headers });
-        const context = {
-          app,
-          request,
-          url,
-          path,
-          authMode: options.authSessions ? "required" as const : "disabled" as const,
-          authenticatedSessionId,
-        };
-        const response =
-          (await pluginMutationRoutes(context)) ??
-          (await pluginQueryRoutes(context)) ??
-          new Response("Not found", { status: 404 });
+        const context = { app, request, url, path, authMode: options.authSessions ? "required" as const : "disabled" as const, authenticatedSessionId };
+        const response = (await pluginMutationRoutes(context)) ?? (await pluginQueryRoutes(context)) ?? new Response("Not found", { status: 404 });
         for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
         return response;
       } catch (cause) {
-        return Response.json(
-          {
-            error: {
-              code: cause instanceof ApiError ? cause.code : "fixture_error",
-              message: cause instanceof Error ? cause.message : "Fixture error",
-            },
-          },
-          { status: cause instanceof ApiError ? cause.status : 500, headers }
-        );
+        return Response.json({ error: { code: cause instanceof ApiError ? cause.code : "fixture_error", message: cause instanceof Error ? cause.message : "Fixture error" } },
+          { status: cause instanceof ApiError ? cause.status : 500, headers });
       }
     },
   });
   const previousPublicUrl = process.env.OPENTEAM_PUBLIC_URL;
   const previousAuthMode = process.env.OPENTEAM_AUTH_MODE;
-  process.env.OPENTEAM_PUBLIC_URL = options.publicUrl ?? server.url.origin;
+  process.env.OPENTEAM_PUBLIC_URL = server.url.origin;
   process.env.OPENTEAM_AUTH_MODE = options.authSessions ? "required" : "disabled";
   const runtimes = new Map<string, "ready" | "stopped">();
-  const computerRequests: string[] = [];
   const service = new PluginService(db, options.packaged ? async (path, init) => {
-    computerRequests.push(`${init?.method ?? "POST"} ${path}`);
     const id = path.split("/")[4]!;
     const runtime = runtimes.get(id) ?? "stopped";
     if (init?.method === "DELETE") { runtimes.set(id, "stopped"); return Response.json({}); }
@@ -147,21 +109,35 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
     removePluginAccount: service.removeAccount,
     setMcpInstructions: service.setInstructions,
   } as unknown as AppService;
+  /** A portable client against the fixture routes, signed in as `session` when given. */
+  const client = (session?: string) => createOpenTeamClient({ baseUrl: server.url.origin, ...(session ? { getAuthToken: () => session } : {}) });
+  /** Approves (or, with "cancel", denies) at the provider and returns the redirect it sends. */
+  const approve = async (authorizationUrl: string, account = "Account A") => {
+    const url = new URL(authorizationUrl);
+    url.pathname = "/approve";
+    const response = await fetch(url, { method: "POST", body: new URLSearchParams({ account }), redirect: "manual" });
+    if (response.status !== 302) throw new Error(`Provider approval returned ${response.status}`);
+    return response.headers.get("location")!;
+  };
+  /** Installs a fixture plugin through the routes and returns its first account. */
+  const install = async (session = options.authSessions?.[0]) => {
+    const key = oauth.key;
+    await client(session).installPlugin(key);
+    return (await client(session).pluginSettings()).installs.find(row => row.pluginKey === key)!.connections[0]!;
+  };
+  const row = (id: string) => db.pluginConnection.findUniqueOrThrow({ where: { id } });
+  /** Marks stored tokens expired (and the provider's too) so the next use must refresh. */
+  const expireTokens = async (id: string) => {
+    const credentials = (await row(id)).credentials as any;
+    await db.pluginConnection.update({ where: { id }, data: { credentials: { ...credentials, oauth: { ...credentials.oauth, tokensExpireAt: 1 } } } });
+  };
   return {
-    db,
-    server,
-    service,
-    provider,
-    definitions,
-    requests,
-    computerRequests,
+    db, server, service, provider, client, approve, install, row, expireTokens,
     async close() {
       await service.close();
       server.stop(true);
       provider.close();
-      await db.pluginInstallation.deleteMany({
-        where: { pluginKey: { in: definitions.map((row) => row.key) } },
-      });
+      await db.pluginInstallation.deleteMany({ where: { pluginKey: oauth.key } });
       await db.$disconnect();
     },
   };

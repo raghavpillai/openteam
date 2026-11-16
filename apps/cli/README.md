@@ -273,41 +273,25 @@ Run these from `apps/cli`:
 bun run test                 # all CLI tests
 bun run test:doctor          # doctor checks, recovery steps, and terminal output
 bun run test:status          # status/health, start, and their terminal output
-bun run test:model           # model editor keyboard, HTTP, and terminal tests
+bun run test:model           # model and provider commands, editor, HTTP, and terminal tests
 bun run test:install         # installer preflight and setup countdown
 bun run test:install:fresh   # real installer in a clean Debian container (needs privileged Docker)
 ```
 
-Process tests run the real CLI against fake Docker executables and local HTTP fixtures. The
-pseudo-terminal tests need macOS or Linux with Python 3 and are skipped on Windows.
-
-Preview terminal output from the test fixtures without touching a server:
-
-```sh
-bun run preview:doctor --list
-bun run preview:doctor --scenario docker-stopped --width 40 --compact
-bun run preview:status --scenario unhealthy --no-color
-bun run preview:doctor --gallery /tmp/openteam-doctor-gallery
-bun run preview:status --gallery /tmp/openteam-status-gallery
-bun run preview:model --gallery /tmp/openteam-model-ui
-```
-
-Open a gallery's `index.html` to compare scenarios and widths. After a deliberate layout change, update
-snapshots with `bun test ./test/doctor-matrix-ui.test.ts --update-snapshots` (or
-`./test/status.test.ts`).
+Process tests run the real CLI against fake Docker executables and local HTTP fixtures; shared
+fakes (temporary installs, the fake Docker runner, release servers) live in
+`test/fixtures/harness.ts`. The pseudo-terminal test needs macOS or Linux with Python 3 and is
+skipped on Windows.
 
 Other harnesses:
 
 - `bun scripts/test-windows-install.ts` tests the Windows installer under Windows PowerShell 5.1 and
   PowerShell 7 (needs Python `pywinpty` and `pyte`; Docker is simulated). Use a disposable Windows
   machine: it temporarily hides any installed Docker CLI.
-- `python scripts/render-installer-demo.py` renders the fresh-install recordings as MP4 and GIF (needs
-  `pillow`, `pyte`, and `ffmpeg`; pass `--font` outside macOS).
-- From the repository root, `bun run test:health:chaos` injects health-check faults.
 - From the repository root, `OPENTEAM_TEST_DOCKER_CONTEXT=<throwaway-context> bun apps/cli/scripts/test-disk-maintenance-docker.ts`
   tests image and backup retention against a real Docker daemon. It removes only its own fixtures.
 - From the repository root, `OPENTEAM_TEST_CHROMIUM_EXECUTABLE=<chromium> bun apps/computer/scripts/test-browser-cache-maintenance.ts`
   tests browser cache cleanup with a temporary profile.
 
-Reports, recordings, and demo media go to `output/` at the repository root. The `CLI installer`
+Reports and recordings go to `output/` at the repository root. The `CLI installer`
 GitHub Actions workflow runs the installer checks on Linux, macOS, and Windows.

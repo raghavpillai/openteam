@@ -9,7 +9,7 @@ const MAX_LISTED = 5;
 const SHELLS = new Set(["bash", "sh", "dash", "zsh", "nohup", "setsid"]);
 const MAX_COMMAND_CHARS = 160;
 
-export interface StoppedProcess {
+interface StoppedProcess {
   shellId: string;
   command: string;
   programs: string[];
@@ -89,7 +89,7 @@ export async function leftRunningProcesses(terminalDir: string, procRoot = "/pro
   return ledger;
 }
 
-export function processNotice(entries: readonly StoppedProcess[]): string | null {
+function processNotice(entries: readonly StoppedProcess[]): string | null {
   if (!entries.length) return null;
   const lines = entries.slice(0, MAX_LISTED).map(({ command, programs }) => `- \`${command}\`${programs.length ? ` (${programs.join(", ")})` : ""}`);
   if (entries.length > MAX_LISTED) lines.push(`- and ${entries.length - MAX_LISTED} more`);

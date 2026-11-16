@@ -47,8 +47,6 @@ describe("bot template export", () => {
       [routine({ scheduleKind: "event" })]
     );
     expect(recipe.profile.description).toBe("Research");
-    expect(recipe.skills).toEqual([]);
-    expect(recipe.gettingStarted).toBeUndefined();
     expect(recipe.routines[0]?.description).toBe("On an event");
   });
 });

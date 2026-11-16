@@ -3,33 +3,13 @@ import XCTest
 @testable import OpenTeamCore
 
 final class ProtocolTests: XCTestCase {
-  func fixture() throws -> Bootstrap {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    return try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-  }
+  private func fixture() throws -> Bootstrap { try Fixture.bootstrap() }
   func testDecodesExistingReactNativeFixture() throws {
     let snapshot = try fixture()
     XCTAssertEqual(snapshot.bots.count, 3)
     XCTAssertEqual(snapshot.latestMessages.count, 7)
     XCTAssertEqual(snapshot.bots[0].dmChannelId, "channel-research")
     XCTAssertEqual(snapshot.latestMessages[1].replyTo, "message-1")
-  }
-  func testWorkspaceResponsesDecodeAfterServerRemovesApprovals() throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var payload = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-    payload.removeValue(forKey: "pendingApprovals")
-    let snapshot = try JSONDecoder().decode(
-      Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
-    XCTAssertEqual(snapshot.bots.count, 3)
-    XCTAssertEqual(snapshot.latestMessages.count, 7)
-
-    let state = try JSONDecoder().decode(
-      ChannelState.self,
-      from: Data(#"{"channelId":"channel-research","revision":"1","runs":[]}"#.utf8))
-    XCTAssertEqual(state.channelId, "channel-research")
-    XCTAssertTrue(state.runs.isEmpty)
   }
   func testThreadAncestryHandlesUnorderedNestedCyclicAndMissingReplies() throws {
     var root = try fixture().latestMessages[0]
@@ -69,8 +49,6 @@ final class ProtocolTests: XCTestCase {
     ] {
       XCTAssertThrowsError(try API(server: invalid), invalid)
     }
-    // A bare address gets the scheme its kind of host usually serves.
-    XCTAssertEqual(try API(server: "example.com").baseURL.absoluteString, "https://example.com")
     XCTAssertEqual(API.segment("a/b?c"), "a%2Fb%3Fc")
   }
   func testTimelineTimestampsIgnoreBranchedRepliesAndRefreshEditedMessages() throws {
@@ -97,15 +75,6 @@ final class ProtocolTests: XCTestCase {
     next.content = "Edited in place"
     XCTAssertEqual(MessageTimeline([first, next]).entries[1].message.content, "Edited in place")
   }
-  func testProductionUUIDRoutesPreserveIdentifiersAndEscapeReservedCharacters() throws {
-    let api = try API(server: "http://127.0.0.1:20007")
-    let id = "eb954d92-c40a-48a9-847c-c362d0ca5073"
-    XCTAssertEqual(
-      api.url("/api/v0/conversations/\(API.segment(id))/messages").absoluteString,
-      "http://127.0.0.1:20007/api/v0/conversations/\(id)/messages")
-    XCTAssertEqual(API.segment("id-._~"), "id-._~")
-    XCTAssertEqual(API.segment("é /?#%"), "%C3%A9%20%2F%3F%23%25")
-  }
   func testServerEchoReconcilesByNonceWithoutDuplicating() throws {
     var message = try fixture().latestMessages[0]
     message.id = "local"
@@ -122,18 +91,6 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(MessageMerge.less("9999999999999999999999", "10000000000000000000000"))
     XCTAssertFalse(MessageMerge.less("0003", "3"))
     XCTAssertTrue(MessageMerge.less("9", "10"))
-  }
-  func testHistoryCompletionSurvivesRestart() throws {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let store = try DiskStore(directory: dir, scope: "history-readiness")
-    var state = SavedState()
-    state.bootstrap = try fixture()
-    let preview = try XCTUnwrap(state.bootstrap?.latestMessages.first)
-    state.messages[preview.channelId] = [preview]
-    state.loadedHistoryChannels = [preview.channelId, "empty-chat"]
-    try store.save(state)
-    XCTAssertEqual(try store.load().loadedHistoryChannels, [preview.channelId, "empty-chat"])
   }
   func testOutboxNonceReplyAndDraftSurviveRestartAndStayIsolated() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

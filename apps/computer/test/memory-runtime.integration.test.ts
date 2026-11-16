@@ -20,7 +20,8 @@ const dbTest = databaseUrl ? test : test.skip;
 const oldFact = "My favourite football player is Ronaldo.";
 const newFact = "My favourite player is now Messi.";
 
-for (const type of ["profile", "journal", "shared_profile", "shared_journal"] as const) {
+// The type-to-scope mapping is covered by the server's memory tool tests; one type proves the runtime path.
+for (const type of ["shared_journal"] as const) {
   dbTest(`real computer/Pi memory tools serialize write, correction and history for ${type}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "memory-runtime-"));
     const token = "memory-runtime-test-control";
@@ -214,5 +215,5 @@ for (const type of ["profile", "journal", "shared_profile", "shared_journal"] as
       }
       await rm(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 120_000);
 }

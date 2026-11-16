@@ -7,16 +7,16 @@ type StreamFunction = AgentSession["agent"]["streamFunction"];
 export const FIRST_OUTPUT_DEADLINE_MS = 150_000;
 export const MODEL_STREAM_WALL_CLOCK_LIMIT_MS = 15 * 60_000;
 
-export const firstOutputStallMessage = (deadlineMs: number) =>
+const firstOutputStallMessage = (deadlineMs: number) =>
   `The model provider did not start responding within ${Math.round(deadlineMs / 1000)}s.`;
-export const wallClockCutMessage = (limitMs = MODEL_STREAM_WALL_CLOCK_LIMIT_MS) =>
+const wallClockCutMessage = (limitMs = MODEL_STREAM_WALL_CLOCK_LIMIT_MS) =>
   `Model stream exceeded the ${limitMs} ms wall-clock limit`;
-export const wallClockLimitMessage = (limitMs = MODEL_STREAM_WALL_CLOCK_LIMIT_MS) =>
+const wallClockLimitMessage = (limitMs = MODEL_STREAM_WALL_CLOCK_LIMIT_MS) =>
   `Model stream exceeded the ${limitMs} ms wall-clock limit again after one retry`;
 
 const FIRST_OUTPUT_STALL = /^The model provider did not start responding within \d+s\.$/;
 /** A first-output stall is retried like a transient provider failure, as the reference does. */
-export const isFirstOutputStall = (message: { stopReason?: string; errorMessage?: string }) =>
+const isFirstOutputStall = (message: { stopReason?: string; errorMessage?: string }) =>
   message.stopReason === "error" && FIRST_OUTPUT_STALL.test(message.errorMessage ?? "");
 
 /** The first wall-clock cut of a turn continues as an output-limit stop. */

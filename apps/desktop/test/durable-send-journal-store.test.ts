@@ -33,7 +33,7 @@ const storedFiles = async (directory: string) =>
   );
 
 describe("desktop durable-send journal store", () => {
-  test("retains the other backup slot even when writes land on the same clock parity", async () => {
+  test("falls back to the other backup slot when the newest is corrupt, even on the same clock parity", async () => {
     const { directory, store } = await fixture();
     const clock = spyOn(Date, "now").mockReturnValue(1_000);
     try {
@@ -69,20 +69,6 @@ describe("desktop durable-send journal store", () => {
     for (const { name } of files) {
       expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
     }
-  });
-
-  test("falls back to the previous slot when the newest generation is corrupt", async () => {
-    const { directory, store } = await fixture();
-    const scope = "desktop:server:account";
-    await store.write(scope, { revision: 1 });
-    await store.write(scope, { revision: 2 });
-    const newest = (await storedFiles(directory)).sort(
-      (left, right) => right.value.generation - left.value.generation
-    )[0];
-    if (!newest) throw new Error("missing journal generation");
-    await writeFile(join(directory, newest.name), "{corrupt", "utf8");
-
-    expect(await new DurableSendJournalStore(directory).read(scope)).toEqual({ revision: 1 });
   });
 
   test("recovers a fully written temporary generation after an interrupted rename", async () => {

@@ -22,7 +22,7 @@ const markShown = (key: string) => {
  * How something arrives, from how long ago it first appeared (null: never) and whether a
  * view transition is bringing it in: see useEnterAnimation and useEntranceResume.
  */
-export function entrance(
+function entrance(
   since: number | null,
   inTransition: boolean
 ): { mode: EnterMode; resumeAt: number } {
@@ -91,7 +91,7 @@ export function changeScreen(update: () => void, direction: "forward" | "back" =
  * on screen before and simply stays. Decided once per key, so later renders never restart
  * or cut an animation.
  */
-export type EnterMode = "enter" | "transition" | null;
+type EnterMode = "enter" | "transition" | null;
 export function useEnterAnimation(key: string): EnterMode {
   const state = useRef<{ key: string; mode: EnterMode } | null>(null);
   if (state.current?.key !== key) {

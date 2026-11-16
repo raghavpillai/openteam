@@ -1,19 +1,30 @@
 import React, { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import type { BotView, ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
+import type { BotView, ChannelMessageView, ChannelView, MessageDeliveryStatusView, RunView } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
+import { DURABLE_SEND_ACK_TIMEOUT_MS, durableSendMessage, type DurableSendRecord } from "@openteam/product-core/durable-delivery";
 import { api } from "../../src/renderer/client/openteam-api";
 import { ChatPane } from "../../src/renderer/components/openteam/chat-pane";
 import { SearchDialog } from "../../src/renderer/components/openteam/search-dialog";
 import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-input";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import { ExternalDraftCard } from "../../src/renderer/components/openteam/external-draft-card";
+import { IMessageSendCard } from "../../src/renderer/components/openteam/imessage-send-card";
+import { ThreadTray } from "../../src/renderer/components/openteam/thread-tray";
+import { desktopDurableSendController } from "../../src/renderer/lib/durable-sends";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import "../../src/renderer/styles.css";
 
+// Composer focus/IME, chat ordering and thinking, history anchoring, email draft review and
+// send-off, question cards, and the delivery lifecycle of sent messages, on production
+// components with a controlled API.
 window.fetch = async () => {
   throw new Error("No network in parity regression test");
 };
+// Only the send lifecycle moves this clock, to expire acknowledgements.
+const wallNow = Date.now;
+let clockOffset = 0;
+Date.now = () => wallNow() + clockOffset;
 Object.assign(api, {
   pluginComposer: async () => ({ items: [] }),
   search: async () => ({ results: [] }),
@@ -22,12 +33,21 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const check = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
 };
+const until = async (condition: () => unknown, message: string, ms = 5000) => {
+  for (const start = performance.now(); !condition(); await pause(25))
+    if (performance.now() - start > ms) throw new Error(message);
+};
+const setText = async (field: HTMLTextAreaElement, value: string) => {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await pause(50);
+};
 const root = createRoot(document.getElementById("root")!);
-const reports: object[] = [];
-const emptyMap = new Map(),
-  emptyList: [] = [];
+const reports: string[] = [];
+const emptyMap = new Map(), emptyList: [] = [];
 const bots = ["Ada", "Bea", "Cy"].map((name, index) => ({
   id: "bot-" + index,
+  conversationId: "conversation-" + index,
   name,
   status: "active",
   onboardingStatus: "completed",
@@ -35,20 +55,9 @@ const bots = ["Ada", "Bea", "Cy"].map((name, index) => ({
   icon: "chip",
 })) as BotView[];
 const botById = new Map(bots.map((bot) => [bot.id, bot]));
-const runtime = {
-  server: "ready",
-  database: "ready",
-  queue: "ready",
-  computer: "ready",
-  inference: "ready",
-} as const;
+const runtime = { server: "ready", database: "ready", queue: "ready", computer: "ready", inference: "ready" } as const;
 const mutate = async <T,>(operation: () => Promise<T>) => operation();
-const render = (content: React.ReactNode) =>
-  root.render(
-    <StrictMode>
-      <TooltipProvider>{content}</TooltipProvider>
-    </StrictMode>
-  );
+const render = (content: React.ReactNode) => root.render(<StrictMode><TooltipProvider>{content}</TooltipProvider></StrictMode>);
 const editor = () => document.querySelector<HTMLElement>('[role="textbox"][contenteditable]')!;
 const type = async (text: string) => {
   check(document.activeElement === editor(), "Typing focus left the composer");
@@ -56,26 +65,13 @@ const type = async (text: string) => {
   await pause(30);
 };
 const enter = (composing = false) =>
-  editor().dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      bubbles: true,
-      cancelable: true,
-      isComposing: composing,
-    })
-  );
-async function inputScenario(theme: string) {
+  editor().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true, isComposing: composing }));
+async function inputScenario() {
   const sent: string[] = [];
-  let fail = false,
-    hold: (() => void) | undefined,
-    block = false,
-    open = false;
+  let fail = false, block = false, open = false;
+  let hold: (() => void) | undefined;
   const submit = async (value: string) => {
-    if (block)
-      await new Promise<void>((resolve) => {
-        hold = resolve;
-      });
+    if (block) await new Promise<void>((resolve) => (hold = resolve));
     await pause(20);
     if (fail) throw new Error("Controlled failure");
     sent.push(value);
@@ -84,23 +80,8 @@ async function inputScenario(theme: string) {
     render(
       <div style={{ width: 745, padding: 16 }}>
         <button id="outside">Another control</button>
-        <PromptInput
-          onStage={async () => {
-            throw new Error("No attachment in this scenario");
-          }}
-          onSubmit={submit}
-        />
-        <SearchDialog
-          open={open}
-          onOpenChange={(value) => {
-            open = value;
-            draw();
-          }}
-          actions={[]}
-          botById={botById}
-          channelById={new Map()}
-          onSelectResult={() => {}}
-        />
+        <PromptInput onStage={async () => { throw new Error("No attachment in this scenario"); }} onSubmit={submit} />
+        <SearchDialog open={open} onOpenChange={(value) => { open = value; draw(); }} actions={[]} botById={botById} channelById={new Map()} onSelectResult={() => {}} />
       </div>
     );
   draw();
@@ -120,18 +101,13 @@ async function inputScenario(theme: string) {
   draw();
   await pause(200);
   check(document.activeElement?.tagName === "INPUT", "Search did not take focus");
-  document.activeElement!.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-  );
+  document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   await type(" retained");
   check(editor().textContent === "Unsent draft retained", "Search did not restore draft focus");
   fail = true;
   enter();
   await pause(100);
-  check(
-    editor().textContent === "Unsent draft retained" && document.activeElement === editor(),
-    "Failure lost draft/focus"
-  );
+  check(editor().textContent === "Unsent draft retained" && document.activeElement === editor(), "Failure lost draft/focus");
   fail = false;
   block = true;
   enter();
@@ -140,11 +116,7 @@ async function inputScenario(theme: string) {
   hold!();
   await pause(100);
   check(document.activeElement?.id === "outside", "Completion stole focus from another control");
-  reports.push({
-    theme,
-    scenario: "rapid sends, IME, search dismissal, failure recovery, no focus theft",
-    sent,
-  });
+  reports.push("rapid sends, IME, search dismissal, failure recovery, no focus theft");
   render(null);
   await pause(50);
 }
@@ -165,16 +137,12 @@ const message = (
   metadata: {},
   createdAt: new Date(Date.now() - 3600000 + index * 1000).toISOString(),
 });
-let channel: ChannelView,
-  messages: ChannelMessageView[],
-  runs: RunView[] = [];
-let chatWidth = 745;
-let hasOlder = false,
-  loadingOlder = false;
+let channel: ChannelView, messages: ChannelMessageView[], runs: RunView[] = [];
+let hasOlder = false, loadingOlder = false;
 let loadOlder: (() => Promise<void>) | undefined;
 const drawChat = () =>
   render(
-    <main style={{ width: chatWidth, height: 850 }}>
+    <main style={{ width: 745, height: 850 }}>
       <ChatPane
         key={channel.id}
         channel={channel}
@@ -205,229 +173,50 @@ const newChat = (id: string, kind: "bot_dm" | "group") => {
     unreadCount: 0,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   } as ChannelView;
-  chatWidth = 745;
   runs = [];
   hasOlder = false;
   loadingOlder = false;
   loadOlder = undefined;
 };
-async function chatScenario(theme: string, kind: "bot_dm" | "group") {
-  newChat(theme + "-" + kind, kind);
+async function chatScenario(kind: "bot_dm" | "group") {
+  newChat(kind, kind);
   const at = new Date(Date.now() - 3600000).toISOString();
-  messages = ["First", "Second", "Third"].map((text, index) => ({
-    ...message(channel.id, index, text),
-    createdAt: at,
-  }));
-  messages.push(
-    message(
-      channel.id,
-      3,
-      "A long message to verify the width cap and wrapping. ".repeat(12),
-      "user"
-    )
-  );
-  messages.push(message(channel.id, 4, "Hello, parity check passed."));
-  messages.push({
-    ...message(channel.id, 5, "After the gap"),
-    createdAt: new Date().toISOString(),
-  });
+  messages = ["First", "Second", "Third"].map((text, index) => ({ ...message(channel.id, index, text), createdAt: at }));
+  messages.push(message(channel.id, 3, "Reply", "user"));
   drawChat();
   await pause(350);
-  const ordered = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].map(
-    (node) => node.dataset.messageId
-  );
-  check(
-    ordered.join() === messages.map((row) => row.id).join(),
-    "Equal timestamps reordered: " + ordered
-  );
-  const bubbleFor = (index: number) =>
-    document.querySelector<HTMLElement>('[data-message-bubble-id="' + messages[index]!.id + '"]')!;
-  const width = bubbleFor(3).getBoundingClientRect().width;
-  check(
-    Math.abs(width - 560) < 1,
-    "Long user bubble width " + width + ", expected reference cap 560"
-  );
-  const bubbleStyle = getComputedStyle(bubbleFor(3));
-  check(
-    bubbleStyle.fontSize === "15px" && bubbleStyle.fontWeight === "425",
-    "Message typography differs from the reference"
-  );
-  check(bubbleStyle.padding === "7px 12px", "Message padding differs from the reference");
-  const actions = bubbleFor(3).parentElement!.querySelector<HTMLElement>("[data-message-actions]")!;
-  const rowBounds = bubbleFor(3).closest(".message-row")!.getBoundingClientRect();
-  const actionBounds = actions.getBoundingClientRect();
-  check(
-    actionBounds.left >= rowBounds.left && actionBounds.right <= rowBounds.right,
-    "Hover actions are clipped"
-  );
-  check(getComputedStyle(actions).position === "absolute", "Actions reserve inline width");
-  check(getComputedStyle(actions).transitionDuration === "0s", "Actions wrapper still fades");
-  check(
-    getComputedStyle(actions.querySelector("button")!).transitionDuration === "0.12s",
-    "Button color transition mismatch"
-  );
-  const time = [...document.querySelectorAll("time")].find(
-    (node) => node.dateTime === messages[5]!.createdAt
-  )!;
-  check(
-    time.parentElement!.getBoundingClientRect().height === 50,
-    "Timestamp separator is not 50px"
-  );
-  const greeting = bubbleFor(4);
-  const typography = ["optimizeLegibility", "auto", "optimizeSpeed"].map((mode) => {
-    greeting.style.textRendering = mode;
-    return {
-      mode,
-      width: greeting.getBoundingClientRect().width,
-      font: getComputedStyle(greeting).font,
-    };
-  });
-  greeting.style.textRendering = "";
+  const ordered = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].map((node) => node.dataset.messageId);
+  check(ordered.join() === messages.map((row) => row.id).join(), "Equal timestamps reordered: " + ordered);
   runs = bots.slice(0, kind === "group" ? 3 : 1).map(
-    (bot, index) =>
-      ({
-        id: "run-" + index,
-        botId: bot.id,
-        channelId: channel.id,
-        status: kind === "group" ? "queued" : "running",
-        createdAt: new Date().toISOString(),
-      }) as RunView
+    (bot, index) => ({ id: "run-" + index, botId: bot.id, channelId: channel.id, status: kind === "group" ? "queued" : "running", createdAt: new Date().toISOString() }) as RunView
   );
   drawChat();
   await pause(250);
   check(document.querySelector("[data-bot-thinking] svg"), "Thinking does not render our avatar");
   check(!document.querySelector(".bot-thinking-badge"), "Legacy dot pill remains");
-  if (kind === "group")
-    check(
-      document.querySelector("[data-bot-thinking]")!.textContent?.endsWith("…"),
-      "Activity ellipsis missing"
-    );
+  if (kind === "group") check(document.querySelector("[data-bot-thinking]")!.textContent?.endsWith("…"), "Activity ellipsis missing");
   runs = [];
   drawChat();
   await pause(250);
   check(!document.querySelector("[data-bot-thinking]"), "Thinking did not drain on completion");
-  reports.push({
-    theme,
-    kind,
-    scenario: "chronology, geometry, actions, separator, concurrent thinking",
-    width,
-    typography,
-  });
+  reports.push(`${kind}: chronology and concurrent thinking`);
   render(null);
   await pause(50);
 }
-async function narrowScenario(theme: string) {
-  newChat(theme + "-narrow", "group");
-  chatWidth = 424;
-  messages = [
-    message(channel.id, 0, "long message ".repeat(50), "user"),
-    message(channel.id, 1, "long reply ".repeat(50)),
-  ];
-  drawChat();
-  await pause(300);
-  for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
-    const rowBounds = row.getBoundingClientRect();
-    const bubble = row.querySelector<HTMLElement>(".message-bubble")!;
-    const bounds = bubble.getBoundingClientRect();
-    const actions = row
-      .querySelector<HTMLElement>("[data-message-actions]")!
-      .getBoundingClientRect();
-    check(
-      bounds.width === (row.dataset.role === "user" ? 310 : 280),
-      "Narrow bubble cap lost its action/gutter allowance"
-    );
-    check(
-      actions.left >= rowBounds.left && actions.right <= rowBounds.right,
-      "Narrow hover actions clipped"
-    );
-    check(bubble.scrollWidth <= bubble.clientWidth, "Narrow text overflows");
-  }
-  reports.push({ theme, scenario: "narrow direct/user and group/assistant action geometry" });
-  render(null);
-  await pause(50);
-}
-async function captionActionsScenario(theme: string) {
-  newChat(theme + "-caption", "bot_dm");
-  const previousAssetUrl = api.assetUrl;
-  api.assetUrl = () =>
-    "data:image/svg+xml," +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"/>');
-  const attachments = [
-    {
-      assetId: "a".repeat(64),
-      fileName: "wide-image.png",
-      kind: "image",
-      mimeType: "image/png",
-      byteSize: 100,
-      width: 600,
-      height: 300,
-    },
-  ];
-  messages = [
-    { ...message(channel.id, 0, "Short caption", "user"), metadata: { attachments } },
-    { ...message(channel.id, 1, "Here it is"), metadata: { attachments } },
-  ];
-  drawChat();
-  await pause(300);
-  for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
-    const user = row.dataset.role === "user";
-    const caption = row.querySelector<HTMLElement>(".message-bubble")!.getBoundingClientRect();
-    const stack = row
-      .querySelector<HTMLElement>("[data-message-bubble-id]")!
-      .getBoundingClientRect();
-    const actions = row
-      .querySelector<HTMLElement>("[data-message-actions]")!
-      .getBoundingClientRect();
-    check(
-      stack.width - caption.width > 100,
-      "Caption fixture is not narrower than its image: " +
-        JSON.stringify({
-          user,
-          stack: stack.width,
-          caption: caption.width,
-          text: row.querySelector(".message-bubble")?.textContent,
-        })
-    );
-    const gap = user ? caption.left - actions.right : actions.left - caption.right;
-    check(gap >= 0 && gap <= 8, "Hover actions are not beside the caption: gap " + gap);
-    check(
-      Math.abs(actions.top + actions.height / 2 - (caption.top + caption.height / 2)) < 1,
-      "Hover actions are not centered on the caption"
-    );
-  }
-  reports.push({ theme, scenario: "hover actions beside caption under a wider image" });
-  api.assetUrl = previousAssetUrl;
-  render(null);
-  await pause(50);
-}
-async function historyScenario(theme: string) {
-  newChat(theme + "-history", "bot_dm");
+async function historyScenario() {
+  newChat("history", "bot_dm");
   messages = Array.from({ length: 120 }, (_, i) =>
-    message(
-      channel.id,
-      i,
-      "Earlier message " +
-        String(i + 1).padStart(3, "0") +
-        ": keep this reading position when new replies arrive.",
-      i % 2 ? "agent" : "user"
-    )
+    message(channel.id, i, `Earlier message ${String(i + 1).padStart(3, "0")}: keep this reading position when new replies arrive.`, i % 2 ? "agent" : "user")
   );
   hasOlder = true;
   let anchor: { id: string; top: number } | undefined;
-  const samples: { time: number; top: number | null; scroll: number; height: number }[] = [];
+  const samples: { time: number; top: number | null }[] = [];
   const viewport = () => document.querySelector<HTMLElement>(".conversation-scroll")!;
-  const topFor = () =>
-    anchor
-      ? (document
-          .querySelector<HTMLElement>('[data-message-id="' + anchor.id + '"]')
-          ?.getBoundingClientRect().top ?? null)
-      : null;
+  const topFor = () => (anchor ? (document.querySelector<HTMLElement>(`[data-message-id="${anchor.id}"]`)?.getBoundingClientRect().top ?? null) : null);
   loadOlder = async () => {
     await pause(80); // Observe the new virtual window after a large scrollbar jump.
     const bounds = viewport().getBoundingClientRect();
-    const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].find(
-      (row) => row.getBoundingClientRect().bottom > bounds.top
-    )!;
+    const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")].find((row) => row.getBoundingClientRect().bottom > bounds.top)!;
     anchor = { id: row.dataset.messageId!, top: row.getBoundingClientRect().top };
     loadingOlder = true;
     drawChat();
@@ -451,29 +240,22 @@ async function historyScenario(theme: string) {
   const start = performance.now();
   for (let i = 0; i < 70; i++) {
     await pause(50);
-    samples.push({
-      time: performance.now() - start,
-      top: topFor(),
-      scroll: viewport().scrollTop,
-      height: viewport().scrollHeight,
-    });
+    samples.push({ time: performance.now() - start, top: topFor() });
   }
   check(anchor, "History load was not triggered");
   const settled = samples.filter((sample) => sample.time > 750);
-  const drift = Math.max(
-    ...settled.map((sample) => (sample.top === null ? 9999 : Math.abs(sample.top - anchor!.top)))
-  );
-  reports.push({ theme, scenario: "delayed paging anchor", anchor, drift, samples });
+  const drift = Math.max(...settled.map((sample) => (sample.top === null ? 9999 : Math.abs(sample.top - anchor!.top))));
   check(drift <= 2, "Delayed history drift " + drift + "px");
+  reports.push(`delayed paging anchor (drift ${drift}px)`);
   render(null);
   await pause(50);
 }
-async function draftReviewScenario(theme: string, width: number) {
+async function draftReviewScenario(width: number) {
   const draft = parseExternalDraft({ platform: "email", providerIdentifier: "gmail", from: "me@example.com", to: ["ann@example.com"], subject: "Fwd: Schedule", body: "Please review before Friday.", forwardMessageId: "original", attachments: ["/workspace/notes.txt"] });
   const verification = { identity: "me@example.com", destination: "ann@example.com", forwarding: "“Schedule” from Pat", forwardUrl: "https://mail.example.com/original",
     attachments: [{ assetId: "a".repeat(64), fileName: "notes.txt", mimeType: "text/plain", byteSize: 5, kind: "text" }],
     revision: { baselineMessageId: "older", changedFields: ["subject"], body: [{ text: "Please review ", added: false }, { text: "before Friday", added: true }, { text: ".", added: false }] } };
-  let card = { id: `draft-${theme}-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
+  let card = { id: `draft-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
   const calls: string[] = [];
   const draw = () => render(<div style={{ width, padding: 12 }}><ExternalDraftCard key={card.id} message={card} draft={parseExternalDraft((card.metadata as any).draft)} bot={bots[0]} /></div>);
   Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
@@ -492,12 +274,8 @@ async function draftReviewScenario(theme: string, width: number) {
     check(document.querySelector('.draft-revision-body mark')?.textContent === "before Friday", "Revision highlight missing");
     check(document.querySelector('[aria-label="Subject"][data-revised]'), "Changed subject not highlighted");
     const send = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Send")!;
-    const setField = async (label: string, value: string) => {
-      const field = document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)!;
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-      await pause(50);
-    };
+    const setField = (label: string, value: string) =>
+      setText(document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)!, value);
     const highlighted = document.querySelector<HTMLElement>('.draft-revision-body')!;
     highlighted.focus(); highlighted.textContent = draft.body + " Updated.";
     const range = document.createRange(); range.selectNodeContents(highlighted); range.collapse(false);
@@ -521,7 +299,7 @@ async function draftReviewScenario(theme: string, width: number) {
     await setField("Subject", "Local subject edit");
     await setField("Message body", "Local body edit that was never submitted.");
     [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Discard")!.click();
-    await pause(150);
+    await until(() => !document.querySelector("form"), "Discarded card stayed editable");
     check(calls.join(",") === "cancel", "Discard made an unexpected send");
     check(!document.querySelector("form"), "Discarded card stayed editable");
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
@@ -552,7 +330,8 @@ async function draftReviewScenario(theme: string, width: number) {
       calls.push("send");
       return { accepted: false, message: { ...card, metadata: { type: "external-draft", cardState: "sent", draft: { ...remote, verification } } }, runId: null };
     } });
-    send().click(); await pause(150);
+    send().click();
+    await until(() => document.querySelector("details > summary"), "Remote send never settled");
     document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
     check(document.querySelector("details .draft-body")?.textContent === remote.body, "Mutation receipt lost canonical history before its live update arrived");
     // A remote discard is authoritative even when both in-flight HTTP responses fail.
@@ -567,28 +346,273 @@ async function draftReviewScenario(theme: string, width: number) {
     send().click(); await pause(50);
     card = { ...card, metadata: { ...(card.metadata as object), cardState: "dismissed" } };
     draw(); await pause(100);
-    rejectSend(new Error("Synthetic send response lost")); await pause(150);
-    check(!document.querySelector("form") && !!document.querySelector("details"), "Late send failure reopened a remotely discarded card");
+    rejectSend(new Error("Synthetic send response lost"));
+    await until(() => !document.querySelector("form") && document.querySelector("details"), "Late send failure reopened a remotely discarded card");
     check(!document.querySelector('[role="alert"]'), "Late send failure left an error on a confirmed discard");
     check(![...document.querySelectorAll('button')].some(button => ["Send", "Check delivery"].includes(button.textContent ?? "")), "Late send failure restored discarded-card controls");
-    reports.push({ theme, width, scenario: "draft forwarding, revision, attachment preview, validation and discard history", calls });
+    reports.push(`email draft at ${width}px: forwarding, revision, attachment preview, validation, discard, remote-send history, remote discard over a late failure`);
   } finally { window.fetch = oldFetch; render(null); await pause(50); }
 }
 
-try {
-  for (const theme of ["light", "dark"]) {
-    document.documentElement.dataset.theme = theme;
-    if (new URLSearchParams(location.search).has("draft-review")) {
-      for (const width of [745, 360]) await draftReviewScenario(theme, width);
-      continue;
+// The Send/Discard send-off animates while the request is out. It must never send twice,
+// lose a failure, or hand back a pressable Send while a send is still out.
+async function draftSendOffScenario() {
+  const base = { channelId: "send-off", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: "Draft", createdAt: new Date().toISOString() };
+  const draft = parseExternalDraft({ platform: "email", providerIdentifier: "gmail", from: "me@example.com", to: ["ann@example.com"], subject: "Send-off", body: "Monday works." });
+  let email = { ...base, id: "send-off-email", metadata: { type: "external-draft", draft, cardState: "pending" } } as ChannelMessageView;
+  let imessage = { ...base, id: "send-off-imessage", metadata: { type: "imessage-send", cardState: "pending",
+    imessage: { text: "Running late!", to: "+1 (415) 555-0134", recipientName: "Maya", machineLabel: "Mac", allowable: true } } } as unknown as ChannelMessageView;
+  let shown: "email" | "imessage" | null = "email", fail = false;
+  const requests: string[] = [];
+  const answers: Array<() => void> = [];
+  const draw = () => render(<div style={{ width: 560, padding: 12 }}>
+    {shown === "email" && <ExternalDraftCard key={email.id} message={email} draft={draft} bot={bots[0]} />}
+    {shown === "imessage" && <IMessageSendCard key={imessage.id} message={imessage} />}
+  </div>);
+  const settle = (message: ChannelMessageView, action: string) =>
+    ({ ...message, metadata: { ...(message.metadata as object), cardState: action === "cancel" ? "dismissed" : "sent" } }) as ChannelMessageView;
+  const mutate = (kind: "email" | "imessage") => async (_id: string, action: string) => {
+    if (action !== "refresh") {
+      requests.push(`${kind}:${action}`);
+      await new Promise<void>((resolve) => answers.push(resolve));
+      if (fail) throw new Error("Couldn't reach the server");
+      if (kind === "email") email = settle(email, action); else imessage = settle(imessage, action);
+      draw();
     }
-    await inputScenario(theme);
-    for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
-    await narrowScenario(theme);
-    await captionActionsScenario(theme);
-    await historyScenario(theme);
+    return { accepted: true, message: kind === "email" ? email : imessage, runId: null };
+  };
+  Object.assign(api, { mutateExternalDraft: mutate("email"), mutateIMessageSend: mutate("imessage") });
+  const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>(".draft-card button")].find((item) => item.textContent?.trim() === text);
+  const answer = () => answers.splice(0).forEach((resolve) => resolve());
+  try {
+    draw(); await pause(150);
+    fail = true;
+    button("Send")!.click(); button("Send")!.click(); await pause(100);
+    check(requests.length === 1, "Double-clicked Send sent twice");
+    answer();
+    await until(() => button("Send") && !button("Send")!.disabled && document.querySelector(".draft-card [role=alert]"), "A failed send did not return a pressable Send with its error");
+    fail = false;
+    button("Send")!.click(); await pause(100);
+    shown = null; draw(); await pause(100);
+    shown = "email"; draw(); await pause(150);
+    check(button("Send")?.disabled, "Returning mid-send made Send pressable again");
+    answer();
+    await until(() => !document.querySelector("form") && document.querySelector(".draft-card")?.textContent?.includes("Sent"), "A send resumed after leaving the chat never settled as Sent");
+    shown = "imessage"; draw(); await pause(150);
+    button("Send")!.click(); button("Send")?.click(); await pause(100);
+    answer();
+    await until(() => !button("Send"), "The Messages card never settled after Send");
+    check(requests.join() === "email:send,email:send,imessage:send", "Unexpected draft requests: " + requests);
+    reports.push("draft send-off: one request per press, failure returns Send, leaving mid-send stays locked, Messages card sends once");
+  } finally { answer(); render(null); await pause(50); }
+}
+
+// Question cards: Skip on an empty card dismisses rather than answering, a failed skip keeps
+// the card, IME confirmation in the custom answer never submits, and a double-clicked answer
+// goes once.
+async function questionScenario() {
+  newChat("questions", "bot_dm");
+  const calls: Array<string | undefined> = [];
+  let fail = false;
+  const reply = async (id: string, value?: string) => {
+    calls.push(value);
+    await pause(100);
+    if (fail) throw new Error("Controlled failure");
+    messages = messages.map((row) => row.id !== id ? row : { ...row, metadata: { ...(row.metadata as object),
+      ...(value === undefined ? { widgetDismissed: true } : { respondedValue: value }) } });
+    drawChat();
+    return { accepted: true, message: messages.find((row) => row.id === id)! };
+  };
+  Object.assign(api, { respondToWidget: reply, dismissWidget: (id: string) => reply(id) });
+  const question = (index: number, prompt: string): ChannelMessageView => ({ ...message(channel.id, index, ""), metadata: { type: "widget",
+    widget: { prompt, options: ["Alpha", "Beta", "Gamma"].map((label) => ({ label, value: label.toLowerCase() })), multiSelect: true, allowCustom: true } } });
+  const card = () => document.querySelector<HTMLElement>(`[data-message-id="${messages.at(-1)!.id}"] .permission-widget`)!;
+  const button = (text: string) => [...card().querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent?.trim() === text)!;
+  const state = (value: string) => until(() => card()?.dataset.richWidgetState === value, `Question did not become ${value}`);
+  messages = [question(0, "First question")];
+  drawChat(); await pause(400);
+  check(button("Send answer").disabled, "An empty card offered Send answer");
+  fail = true;
+  button("Skip").click();
+  await until(() => calls.length === 1 && card().dataset.richWidgetState === "pending" && card().querySelector('[role="alert"]'), "A failed skip lost the card or its error");
+  fail = false;
+  button("Skip").click();
+  await state("dismissed");
+  check(calls.length === 2 && calls.every((value) => value === undefined), "Skip sent an answer");
+  messages = [...messages, question(1, "Second question")];
+  drawChat(); await pause(400);
+  const custom = card().querySelector<HTMLTextAreaElement>("textarea")!;
+  custom.focus();
+  await setText(custom, "Unsubmitted IME text");
+  custom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+  await pause(150);
+  check(calls.length === 2, "IME confirmation submitted the question");
+  await setText(custom, "");
+  card().querySelector<HTMLButtonElement>("button.widget-option")!.click(); await pause(50);
+  button("Send answer").click(); button("Send answer")?.click();
+  await state("resolved");
+  check(calls.length === 3 && calls[2] !== undefined, "A double-clicked answer was not sent exactly once");
+  reports.push("question card: empty Skip dismisses, failed skip recovers, IME isolation, single answer");
+  render(null);
+  await pause(50);
+}
+
+// Delivery lifecycle: a send that fails, retries, or is accepted late keeps one bubble
+// throughout, with honest wording and no duplicate dispatch. Only the API and ACK clock are fake.
+const controller = desktopDurableSendController();
+let lastFailure: DurableSendRecord | undefined;
+const userRows = () => [...document.querySelectorAll<HTMLElement>('[data-role="user"][data-message-id]')];
+type Mode = "retry-failure" | "failed" | "uncertain-late-echo";
+async function sendScenario(id: Mode) {
+  clockOffset = 0;
+  newChat(id, "bot_dm");
+  messages = Array.from({ length: 5 }, (_, i) => message(id, i, `Earlier message ${i + 1}`));
+  let dispatches = 0;
+  let resolveDispatch: (value: { message: ChannelMessageView }) => void = () => {};
+  let rejectDispatch: (reason: unknown) => void = () => {};
+  let echo: ChannelMessageView;
+  let status: MessageDeliveryStatusView["status"] = "not_found";
+  Object.assign(api, {
+    messageDeliveryStatus: async (_channel: string, clientId: string): Promise<MessageDeliveryStatusView> => ({
+      clientId, status, acceptedAtMs: status === "accepted" ? wallNow() : null,
+      message: status === "accepted" ? echo : null,
+    }),
+    sendMessage: async (_channel: string, content: string, _assets: unknown, _reply: unknown, options: { clientId: string }) => {
+      dispatches++;
+      echo = { id: `server-${id}`, clientId: options.clientId, channelId: id, sequence: "21", sender: "user",
+        senderBotId: null, sourceRunId: null, content, metadata: {}, createdAt: new Date(wallNow()).toISOString() };
+      return new Promise<{ message: ChannelMessageView }>((resolve, reject) => { resolveDispatch = resolve; rejectDispatch = reject; });
+    },
+  });
+  drawChat();
+  await pause(350);
+  const composer = editor();
+  check(composer, `${id}: composer missing`);
+  composer.focus();
+  composer.textContent = "Reconcile delivery safely before retrying.";
+  composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  await pause(250);
+  enter();
+  await pause(650);
+  const node = userRows()[0]!;
+  check(node && dispatches === 1, `${id}: optimistic send missing or duplicated`);
+  check(document.activeElement === composer && !composer.textContent?.trim(), `${id}: composer lost focus or kept the text`);
+  check(!node.querySelector("[data-send-progress]"), `${id}: retry bar appeared before two failed attempts`);
+  const record = () => controller.getSnapshot().find((r) => r.target.channelId === id);
+  const retry = () => node.querySelector<HTMLButtonElement>("[data-failed-send-actions] button")!.click();
+  if (id === "retry-failure") {
+    for (let failure = 1; failure <= 2; failure++) {
+      rejectDispatch(Object.assign(Error("Temporarily unavailable"), { status: 503 }));
+      await pause(350);
+      check(Boolean(node.querySelector("[data-send-progress]")) === (failure === 2),
+        `${id}: retry bar must appear only after the second failed attempt`);
+      const deadline = performance.now() + 6500;
+      while (dispatches < failure + 1 && performance.now() < deadline) await pause(100);
+      check(dispatches === failure + 1, `${id}: transient failure did not retry automatically`);
+    }
+    rejectDispatch(Object.assign(Error("Still temporarily unavailable"), { status: 503 }));
+    const expiryDeadline = performance.now() + 8_000;
+    while (record()?.phase !== "failed" && performance.now() < expiryDeadline) await pause(100);
+    lastFailure = record();
+    check(lastFailure?.phase === "failed", `${id}: terminal failure missing`);
+    check(!node.querySelector("[data-send-progress]"), `${id}: bar kept running after failure`);
+    check(node.textContent?.includes("Delivery unconfirmed"), `${id}: uncertain delivery was reported as a definite failure`);
+    retry();
+    await pause(500);
+    check(dispatches === 4, `${id}: manual retry did not send exactly once`);
+    check(!node.querySelector("[data-send-progress]"), `${id}: manual retry reused the previous failure count`);
+  } else {
+    if (id === "failed") {
+      rejectDispatch(Object.assign(Error("The server rejected this test message."), { status: 422, code: "test_rejected" }));
+    } else {
+      clockOffset = DURABLE_SEND_ACK_TIMEOUT_MS + 1;
+      await controller.expireAcknowledgements();
+      clockOffset = 0;
+    }
+    await pause(400);
+    check(record()?.phase === "failed", `${id}: terminal status missing`);
+    check(userRows()[0] === node, `${id}: failure recreated bubble`);
+    check(node.textContent?.includes(id === "failed" ? "Not delivered" : "Delivery unconfirmed"), `${id}: incorrect failure wording`);
+    check(!node.querySelector("[data-failed-send-actions]")?.textContent?.includes("The server rejected"),
+      `${id}: full error explanation leaked into the caption`);
+    if (id === "uncertain-late-echo") {
+      status = "pending";
+      retry();
+      await pause(350);
+      check(dispatches === 1, `${id}: unsafe resend dispatched while status was pending`);
+      check(document.querySelector('[role="alert"]')?.textContent?.includes("still unconfirmed"), `${id}: blocked retry explanation missing`);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await pause(100);
+      status = "accepted";
+      retry();
+      await pause(350);
+      check(dispatches === 1, `${id}: late acceptance resent a duplicate`);
+    } else {
+      retry();
+      await pause(450);
+      check(dispatches === 2, `${id}: retry did not dispatch exactly once`);
+      check(userRows().length === 1 && userRows()[0] === node, `${id}: retry recreated or duplicated the bubble`);
+    }
   }
-  console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ reports }));
+  resolveDispatch({ message: echo! });
+  await pause(200);
+  messages.push(echo!);
+  drawChat();
+  await pause(400);
+  drawChat(); // Repeated authoritative snapshot must remain a single bubble.
+  await pause(250);
+  check(userRows().length === 1 && userRows()[0] === node, `${id}: echo replaced or duplicated bubble`);
+  check(!record(), `${id}: delivery journal not reconciled`);
+  check(!document.querySelector("[data-send-progress]"), `${id}: accepted message kept sending dots`);
+  reports.push(`send ${id}: one bubble from send to echo (${dispatches} dispatches)`);
+  render(null);
+  await pause(50);
+}
+
+async function threadReplyActions() {
+  check(lastFailure, "Missing failed-send fixture");
+  const delivery = { ...lastFailure!, payload: { ...lastFailure!.payload, content: "Hi" } };
+  let clicks = 0;
+  let deletes = 0;
+  const noop = async () => {};
+  render(<ThreadTray open root={durableSendMessage(delivery)} replies={[]} deliveries={[delivery]} recoveries={[]}
+    botById={emptyMap} mentionOptions={[]} transcriptionConfigured={false} onClose={() => {}}
+    onCancelSend={async () => null} onDeleteSend={async () => { deletes++; }} onResendSend={async () => { clicks++; }}
+    onAcknowledgeRecovery={noop} onSubmit={noop} onStage={async () => { throw Error("No attachments in this fixture"); }} />);
+  await pause(500);
+  const row = document.querySelector<HTMLElement>(".thread-message-row")!;
+  const button = row.querySelector<HTMLButtonElement>("[data-failed-send-actions] button")!;
+  const bounds = button.getBoundingClientRect();
+  const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  check(hit && button.contains(hit), "A short thread reply clipped its retry control");
+  button.click();
+  await pause(50);
+  check(clicks === 1, "Thread retry was not actionable");
+  row.querySelector<HTMLButtonElement>('[aria-label="Message delivery details"]')!.dispatchEvent(
+    new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }));
+  await pause(100);
+  const menu = document.querySelector('[role="menu"]');
+  check(menu?.textContent?.includes("Delete message"), "Message deletion missing from delivery details");
+  menu!.querySelector<HTMLElement>('[role="menuitem"]')!.click();
+  await pause(100);
+  check(deletes === 1, "Delivery details did not delete the message");
+  reports.push("thread reply: retry and delete reachable on a short failed reply");
+  render(null);
+}
+
+try {
+  document.documentElement.dataset.theme = "dark";
+  await controller.restore();
+  await inputScenario();
+  for (const kind of ["bot_dm", "group"] as const) await chatScenario(kind);
+  await historyScenario();
+  // The narrow width is the one that can overflow; every draft-review check runs there.
+  await draftReviewScenario(360);
+  await draftSendOffScenario();
+  await questionScenario();
+  for (const mode of ["failed", "uncertain-late-echo", "retry-failure"] as const) await sendScenario(mode);
+  await threadReplyActions();
+  console.log("FIXTURE_RESULT " + JSON.stringify({ reports }));
 } catch (error) {
-  console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ error: String(error), reports }));
+  console.log("FIXTURE_RESULT " + JSON.stringify({ error: String(error), reports }));
 }

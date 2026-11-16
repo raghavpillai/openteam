@@ -9,14 +9,14 @@ import {
 import { compareMessageChronology } from "./history";
 import { messageRenderKey } from "./messages";
 
-export interface OutgoingMessageProjection {
+interface OutgoingMessageProjection {
   message: ChannelMessageView;
   renderKey: string;
   pending: boolean;
   delivery: DurableSendRecord | null;
 }
 
-export interface OutgoingMessageProjectionOptions {
+interface OutgoingMessageProjectionOptions {
   /** Native rows retain their optimistic key until the journal retires the send. */
   echoRenderKey?: "message" | "delivery";
   /** Final tie-break after timestamp and server sequence. */

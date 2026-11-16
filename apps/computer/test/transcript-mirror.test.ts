@@ -1,20 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
 import { TranscriptMirror } from "../src/transcript-mirror";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const botId = "329595e8-39a7-441e-9cf1-505b5d5948fe";
 let home: string | null = null;
 
 afterEach(async () => {
-  if (home) await rm(home, { recursive: true, force: true });
   home = null;
 });
 
 describe("safe transcript mirror", () => {
   test("atomically writes one private JSONL projection per bot", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-transcript-"));
+    home = await tempDir("openteam-transcript-");
     const mirror = new TranscriptMirror(home);
     const result = await mirror.replace({
       botId,
@@ -39,7 +38,7 @@ describe("safe transcript mirror", () => {
   });
 
   test("rejects path-shaped bot ids", async () => {
-    home = await mkdtemp(join(tmpdir(), "openteam-transcript-"));
+    home = await tempDir("openteam-transcript-");
     const mirror = new TranscriptMirror(home);
     await expect(
       mirror.replace({ botId: "../../escape", generatedAt: new Date().toISOString(), events: [] })

@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { botMessagePalette } from "@openteam/design-tokens/message-colors";
 
-export const BOT_MESSAGE_COLORS_KEY = "openteam:bot-message-colors";
+const BOT_MESSAGE_COLORS_KEY = "openteam:bot-message-colors";
 const CHANGE_EVENT = "openteam:bot-message-colors-change";
 
 export const readBotMessageColors = (): boolean => {

@@ -25,7 +25,7 @@ const isReminderOnly = (message: BotMessage) =>
   /^<system_reminder>[\s\S]*<\/system_reminder>$/.test(messageText(message).trim());
 
 /** The helper's latest prose since its task message, or the summary that replaced it. */
-export function latestHelperUpdate(messages: readonly BotMessage[]): string | undefined {
+function latestHelperUpdate(messages: readonly BotMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.role === "toolResult" || isReminderOnly(message)) continue;
@@ -42,7 +42,7 @@ export function latestHelperUpdate(messages: readonly BotMessage[]): string | un
   return undefined;
 }
 
-export function toolFailureReport(messages: readonly BotMessage[], streak: readonly string[]): string {
+function toolFailureReport(messages: readonly BotMessage[], streak: readonly string[]): string {
   const counts = new Map<string, number>();
   for (const failure of [...streak].reverse()) counts.set(failure, (counts.get(failure) ?? 0) + 1);
   const update = latestHelperUpdate(messages);

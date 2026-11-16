@@ -10,7 +10,7 @@ const DOCKER_DESKTOP_URL = "https://www.docker.com/products/docker-desktop/";
 const DOCKER_ENGINE_URL = "https://docs.docker.com/engine/install/";
 const START_TIMEOUT_MS = 120_000;
 
-export const dockerDesktopApplication = (
+const dockerDesktopApplication = (
   candidates: readonly string[] = [
     "/Applications/Docker.app",
     join(homedir(), "Applications", "Docker.app"),
@@ -66,7 +66,7 @@ const engineStopped = (result: RunResult): boolean =>
 /** Docker Desktop's own contexts; others, such as Colima or OrbStack, are left alone. */
 const DESKTOP_CONTEXTS = ["desktop-linux", "default"];
 
-export type DockerDesktopStart = "skipped" | "ready" | "timed-out";
+type DockerDesktopStart = "skipped" | "ready" | "timed-out";
 
 /**
  * In an interactive macOS terminal, open Docker Desktop when it is installed but its engine

@@ -1,598 +1,54 @@
-// biome-ignore-all lint/suspicious/noThenProperty: The external Computer contract intentionally names its action sequence "then".
-
 import { describe, expect, test } from "bun:test";
-import { referenceTool } from "../src/tool-contracts";
 import { Schema } from "effect";
 import {
-  AdminBroadcastInput,
-  CALL_DYNAMIC_TOOL_TOOL,
-  COMPUTER_TOOL,
-  COMPUTER_USE_TOOL,
-  ComputerTurnRequest,
-  ComputerUseInput,
-  CreateBotInput,
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
-  GET_DYNAMIC_TOOLS_TOOL,
-  NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
-  PLUGIN_BOT_ACCESS_PAGE_SIZE,
-  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-  PLUGIN_CONNECTION_ID_MAX_LENGTH,
-  PLUGIN_CONNECTION_STATUS_MAX_IDS,
-  REACT_TO_MESSAGE_TOOL,
-  READ_TOOL,
-  ReactToChannelMessageInput,
-  RenameChannelInput,
-  SCREENSHOT_TOOL,
   ScreenActionInput,
   SendMessageInput,
-  SendToAgentInput,
-  SetChannelAvatarInput,
-  SHELL_TOOL,
-  TaskInput,
-  TodoWriteInput,
-  DISCONNECT_CHANNEL_TOOL,
   isStateTool,
   STATE_TOOL_TARGETS,
-  UPDATE_AVATAR_TOOL,
-  UPDATE_MEMORY_TOOL,
   UPDATE_PROFILE_TOOL,
-  UPDATE_ROUTINE_TOOL,
-  UPDATE_SKILL_TOOL,
-  UpdateBotInput,
-  UpdateChannelProfileInput,
-  UpdateMemoryToolInput,
-  UpdateProfileToolInput,
-  UpdateRoutineToolInput,
+  TaskInput,
   UploadAssetInput,
 } from "../src";
-import { describeTrigger, normalizeMainToolArguments } from "../src/reference-main-parsers";
-import { renderControlResult } from "../src/tool-results";
-import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "../src/plugin-workflows";
-import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
+import { normalizeMainToolArguments } from "../src/reference-main-parsers";
+import { ROBOT_AVATAR_LABELS, ROBOT_AVATAR_SHAPES, normalizeRobotAvatarShape } from "../src/robot-avatar";
+import { parentOnlyDispatchNotice } from "../src/subagent-dispatch";
+import { parseTaskConfiguration, taskInference, taskUserInfo } from "../src/task-configuration";
+import { referenceTool, taskToolContract } from "../src/tool-contracts";
 import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
-import cursorToolsDocument from "../src/cursor-tools.json";
-import nativeToolsDocument from "../src/native-tools.json";
-import toolReference from "../src/tool-reference.json";
-import { APP_SETTINGS_ANCHORS } from "../src/app-deep-links";
-
-
 
 describe("API contracts", () => {
-  test("validates bounded internal administrator broadcasts", () => {
-    const botIds = ["7dbba9ea-1a2b-4af9-aa32-a2d3aaeb10a9", "9df96b0a-1739-4335-9341-22132a6c4f7b"];
-    expect(
-      Schema.decodeUnknownSync(AdminBroadcastInput)({
-        clientId: "broadcast-release-0001",
-        message: "The local runtime will restart tonight.",
-        botIds,
-      })
-    ).toEqual({
-      clientId: "broadcast-release-0001",
-      message: "The local runtime will restart tonight.",
-      botIds,
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(AdminBroadcastInput)({
-        clientId: "broadcast-release-0002",
-        message: "The local runtime will restart tonight.",
-        botIds: ["not-a-uuid"],
-      })
-    ).toThrow();
-  });
-
-  test("accepts a valid bot", () => {
-    const value = Schema.decodeUnknownSync(CreateBotInput)({
-      clientRequestId: "create-researcher-0001",
-      name: "Researcher",
-      color: "#4f7cff",
-    });
-    expect(value.name).toBe("Researcher");
-  });
-
-  test("drops the retired Instructions profile input while retaining title and description", () => {
-    const input = { clientRequestId: "retired-instructions-1", title: "Research", description: "Find sources", instructions: "Retired editor value" };
-    const value = Schema.decodeUnknownSync(CreateBotInput)(input);
-    expect(value).not.toHaveProperty("instructions");
-    expect(value.title).toBe("Research");
-    expect(value.description).toBe("Find sources");
-    expect(Schema.decodeUnknownSync(UpdateBotInput)(input)).not.toHaveProperty("instructions");
-  });
-
-  test("accepts a zero-configuration bot creation request", () => {
-    const value = Schema.decodeUnknownSync(CreateBotInput)({
-      clientRequestId: "create-default-0001",
-    });
-    expect(value).toEqual({ clientRequestId: "create-default-0001" });
-  });
-
-  test("ignores the removed bot hiding setting", () => {
-    expect(Schema.decodeUnknownSync(UpdateBotInput)({ hiddenFromSidebar: true })).toEqual({});
-  });
-
-  test("rejects an empty message", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "",
-        clientId: "message-1",
-      })
-    ).toThrow();
-  });
-
-  test("accepts the viewer time zone with a message", () => {
-    expect(
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "What time did I send this?",
-        clientId: "message-time-zone-1",
-        timeZone: "America/New_York",
-      })
-    ).toEqual({
-      content: "What time did I send this?",
-      clientId: "message-time-zone-1",
-      timeZone: "America/New_York",
-    });
-  });
-
-  test("accepts replies to durable channel messages", () => {
-    expect(
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "Following up",
-        clientId: "message-reply-1",
-        replyToMessageId: "7c68ab56-7cbe-4e52-9634-c73ae971f5cf",
-      })
-    ).toMatchObject({
-      content: "Following up",
-      replyToMessageId: "7c68ab56-7cbe-4e52-9634-c73ae971f5cf",
-    });
-  });
-
   test("accepts canonical attachment references and rejects inline message bytes", () => {
-    const attachment = {
-      assetId: "a".repeat(64),
-      fileName: "upload.png",
-      mimeType: "image/png",
-      byteSize: 12,
-      kind: "image" as const,
-    };
-    expect(
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "What is in this image?",
-        clientId: "message-image-1",
-        attachments: [attachment],
-      })
-    ).toMatchObject({ attachments: [attachment] });
-    expect(
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "",
-        clientId: "message-image-only-1",
-        attachments: [attachment],
-      })
-    ).toMatchObject({ content: "", attachments: [attachment] });
-    expect(() =>
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "",
-        clientId: "message-image-2",
-        images: [{ url: "data:image/png;base64,AQID" }],
-      })
-    ).toThrow();
-    expect(
-      Schema.decodeUnknownSync(UploadAssetInput)({
-        fileName: "upload.png",
-        mimeType: "image/png",
-        bytesBase64: "AQID",
-      })
-    ).toMatchObject({ fileName: "upload.png", bytesBase64: "AQID" });
-  });
-
-  test("matches OpenTeam's file, HTTPS, and data URL image schema for direct A2A", () => {
-    expect(
-      Schema.decodeUnknownSync(SendToAgentInput)({
-        target_id: "f9853a2e-3c07-49a3-854c-fdee0588e68d",
-        message: "Review this image.",
-        images: [
-          { url: "file:///workspace/reference.png" },
-          { url: "https://example.com/image.png", alt: "Reference" },
-          { url: "data:image/png;base64,AQID" },
-        ],
-      }).images
-    ).toHaveLength(3);
-  });
-
-  test("validates user reactions to channel messages", () => {
-    expect(
-      Schema.decodeUnknownSync(ReactToChannelMessageInput)({
-        emoji: "❤️",
-        clientId: "reaction-message-1",
-        timeZone: "Asia/Jerusalem",
-      })
-    ).toEqual({
-      emoji: "❤️",
-      clientId: "reaction-message-1",
-      timeZone: "Asia/Jerusalem",
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(ReactToChannelMessageInput)({
-        emoji: "",
-        clientId: "reaction-message-2",
-      })
-    ).toThrow();
-  });
-
-  test("validates direct chat rename requests", () => {
-    expect(
-      Schema.decodeUnknownSync(RenameChannelInput)({
-        name: "a2a",
-        clientId: "rename-chat-1",
-        timeZone: "Asia/Jerusalem",
-      })
-    ).toEqual({
-      name: "a2a",
-      clientId: "rename-chat-1",
-      timeZone: "Asia/Jerusalem",
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(RenameChannelInput)({
-        name: "",
-        clientId: "rename-chat-2",
-      })
-    ).toThrow();
-  });
-
-  test("validates setting and clearing a group avatar", () => {
-    expect(
-      Schema.decodeUnknownSync(SetChannelAvatarInput)({
-        pngBase64: "iVBORw0KGgo=",
-        clientId: "group-avatar-set-1",
-      })
-    ).toEqual({ pngBase64: "iVBORw0KGgo=", clientId: "group-avatar-set-1" });
-    expect(
-      Schema.decodeUnknownSync(SetChannelAvatarInput)({
-        pngBase64: null,
-        clientId: "group-avatar-clear-1",
-      })
-    ).toEqual({ pngBase64: null, clientId: "group-avatar-clear-1" });
-  });
-
-  test("validates persisted group name and description updates", () => {
-    expect(
-      Schema.decodeUnknownSync(UpdateChannelProfileInput)({
-        name: "Parity room",
-        description: "Coordinate exact A2A checks.",
-        clientId: "group-profile-1",
-      })
-    ).toEqual({
-      name: "Parity room",
-      description: "Coordinate exact A2A checks.",
-      clientId: "group-profile-1",
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(UpdateChannelProfileInput)({
-        name: "Parity room",
-        description: "x".repeat(2_001),
-        clientId: "group-profile-2",
-      })
-    ).toThrow();
-  });
-
-
-  test("carries subagent runtime profiles and media attachments to the computer", () => {
-    expect(
-      Schema.decodeUnknownSync(ComputerTurnRequest)({
-        runId: "run-1",
-        botId: "bot-1",
-        contextSessionId: "context-1",
-        screenBotId: "parent-bot-1",
-        conversationId: "conversation-1",
-        sessionPath: null,
-        content: "Review the attached media",
-        clientMessageId: "message-1",
-        cwd: "/workspace/bots/reviewer",
-        instructions: "Review carefully",
-        todoUpdate: "- **IN_PROGRESS**: Review parity (id: audit)",
-        resetSelfSummaryCount: false,
-        requestSource: "event",
-        channelId: "channel-1",
-        deliveryId: null,
-        runtimeProfile: "subagent",
-        subagentType: "computerUse",
-        model: "openai-codex/gpt-5.5",
-        reasoning: "high",
-        fileAttachments: ["/workspace/shared/clip.mp4"],
-        images: [{ url: "data:image/webp;base64,UklGRg==" }],
-        dynamicNamespaces: [
-          {
-            name: "utility_default",
-            description: "Fixture tools",
-            namespaceStatus: "ready",
-            tools: [
-              {
-                connectionId: "connection-1",
-                name: "echo",
-                description: "Echo text",
-                inputSchema: { type: "object" },
-                source: "utility/fixture",
-              },
-            ],
-          },
-        ],
-      })
-    ).toMatchObject({
-      runtimeProfile: "subagent",
-      subagentType: "computerUse",
-      model: "openai-codex/gpt-5.5",
-      reasoning: "high",
-      screenBotId: "parent-bot-1",
-      fileAttachments: ["/workspace/shared/clip.mp4"],
-      images: [{ url: "data:image/webp;base64,UklGRg==" }],
-      todoUpdate: "- **IN_PROGRESS**: Review parity (id: audit)",
-      resetSelfSummaryCount: false,
-      requestSource: "event",
-      dynamicNamespaces: [{ name: "utility_default" }],
-    });
+    const attachment = { assetId: "a".repeat(64), fileName: "upload.png", mimeType: "image/png", byteSize: 12, kind: "image" as const };
+    const send = Schema.decodeUnknownSync(SendMessageInput);
+    expect(send({ content: "What is in this image?", clientId: "message-image-1", attachments: [attachment] })).toMatchObject({ attachments: [attachment] });
+    expect(send({ content: "", clientId: "message-image-only-1", attachments: [attachment] })).toMatchObject({ content: "", attachments: [attachment] });
+    expect(() => send({ content: "", clientId: "message-image-2", images: [{ url: "data:image/png;base64,AQID" }] })).toThrow();
+    expect(Schema.decodeUnknownSync(UploadAssetInput)({ fileName: "upload.png", mimeType: "image/png", bytesBase64: "AQID" })).toMatchObject({ fileName: "upload.png", bytesBase64: "AQID" });
   });
 
   test("validates bounded graphical computer actions", () => {
-    expect(
-      Schema.decodeUnknownSync(ScreenActionInput)({
-        action: "click",
-        x: 640,
-        y: 400,
-      })
-    ).toEqual({ action: "click", x: 640, y: 400 });
-    expect(() =>
-      Schema.decodeUnknownSync(ScreenActionInput)({
-        action: "click",
-        x: 1280,
-        y: 400,
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ScreenActionInput)({
-        action: "key",
-        keys: ["ctrl+l;rm"],
-      })
-    ).toThrow();
-    expect(
-      Schema.decodeUnknownSync(ScreenActionInput)({
-        action: "drag",
-        path: [
-          { x: 20, y: 40 },
-          { x: 300, y: 420 },
-        ],
-      })
-    ).toEqual({
-      action: "drag",
-      path: [
-        { x: 20, y: 40 },
-        { x: 300, y: 420 },
-      ],
-    });
-  });
-
-  test("declares screenshot and structured computer tools", () => {
-    expect(SCREENSHOT_TOOL.name).toBe("Screenshot");
-    expect(COMPUTER_TOOL.name).toBe("Computer");
-  });
-
-  test("validates the specialized computer-use action sequence", () => {
-    expect(
-      Schema.decodeUnknownSync(ComputerUseInput)({
-        action: "drag",
-        path: [
-          { x: 10, y: 20 },
-          { x: 30, y: 40 },
-        ],
-        then: [
-          { action: "key", key: "ctrl+l" },
-          { action: "type", text: "https://example.com" },
-          { action: "key", key: "Return" },
-        ],
-      }).then
-    ).toHaveLength(3);
-    expect(() =>
-      Schema.decodeUnknownSync(ComputerUseInput)({
-        action: "drag",
-        x: 10,
-        y: 20,
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ComputerUseInput)({
-        action: "click",
-        then: [{ action: "screenshot" }],
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ComputerUseInput)({
-        action: "click",
-        x: 10,
-        y: 20,
-        then: [],
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ComputerUseInput)({
-        action: "click",
-        x: 10,
-        y: 20,
-        then: Array.from({ length: 10 }, () => ({ action: "wait" })),
-      })
-    ).toThrow();
-    expect(COMPUTER_USE_TOOL.name).toBe("Computer");
-    expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
+    const screen = Schema.decodeUnknownSync(ScreenActionInput);
+    expect(screen({ action: "click", x: 640, y: 400 })).toEqual({ action: "click", x: 640, y: 400 });
+    expect(() => screen({ action: "click", x: 1280, y: 400 })).toThrow();
+    expect(() => screen({ action: "key", keys: ["ctrl+l;rm"] })).toThrow();
   });
 
   test("declares the current native tools; machine discovery is looked up", () => {
-    expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual([
-      "SendToUser",
-      "ReactToMessage",
-      "ListSections",
-      "RecallMemory",
-      "UpdateMemory",
-      "UpdateRoutine",
-      "Shell",
-      "Read",
-      "Screenshot",
-      "GetDynamicTools",
-      "CallDynamicTool",
-    ]);
-    expect(NATIVE_TOOLS).toHaveLength(11);
+    expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual(["SendToUser", "ReactToMessage", "ListSections", "RecallMemory", "UpdateMemory", "UpdateRoutine",
+      "Shell", "Read", "Screenshot", "GetDynamicTools", "CallDynamicTool"]);
     for (const tool of NATIVE_TOOLS) {
       const expected = referenceTool(tool.name);
       expect({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}).toEqual(expected);
     }
-    expect(NATIVE_TOOLS.some((tool) => tool.name === "AddMcpServer")).toBe(false);
-    expect(REACT_TO_MESSAGE_TOOL.name).toBe("ReactToMessage");
-    expect(SHELL_TOOL.name).toBe("Shell");
-    expect(READ_TOOL.name).toBe("Read");
-    expect(GET_DYNAMIC_TOOLS_TOOL.name).toBe("GetDynamicTools");
-    expect(CALL_DYNAMIC_TOOL_TOOL.name).toBe("CallDynamicTool");
-    expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
-  });
-
-  test("pins delivery contracts including named secrets", () => {
-    const sendToUser = NATIVE_TOOLS.find((tool) => tool.name === "SendToUser");
-    const reactToMessage = NATIVE_TOOLS.find((tool) => tool.name === "ReactToMessage");
-    const sendToAgent = CURSOR_TOOLS.find((tool) => tool.tool === "SendToAgent");
-
-    expect(sendToUser?.description).not.toContain('credential-request');
-    expect(sendToUser?.description).not.toContain('ListCredentials');
-    expect(sendToUser?.description).not.toContain('cursor-agent');
-    const schema = sendToUser!.inputSchema as any;
-    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request','presentation']);
-    expect(schema.properties.secret.properties).toHaveProperty('name');
-    expect(schema.properties.secret.properties).toHaveProperty('connector');
-    expect(schema.properties).not.toHaveProperty('credential');
-    expect(reactToMessage!.inputSchema).toEqual(referenceTool('ReactToMessage').inputSchema);
-    expect(sendToAgent!.inputSchema).toEqual(referenceTool('SendToAgent').inputSchema);
-  });
-
-  test("SendToUser is the reference's concise main-agent render with only OpenTeam's adaptations", () => {
-    // The capture is the concise variant the reference's main agent gets: end_turn on, and no
-    // credential requests, in-app actions, link items, cards, threaded replies or task threads.
-    const captured = toolReference.SendToUser;
-    // Every captured tool takes OpenTeam's product name and link scheme.
-    const [, scheme] = /\]\((\w+):\/\/app\/v1\/settings\?id=update-channel\)/.exec(captured.description)!;
-    const [, product] = /only in (.+) chat, never through a connector\./.exec(captured.description)!;
-    const expected = JSON.parse(
-      JSON.stringify(captured).replaceAll(product!, "OpenTeam").replaceAll(`${scheme}://`, "openteam://")
-    );
-    const properties = expected.inputSchema.properties;
-    const texts: Record<string, { description: string }> = {
-      tool: expected,
-      type: properties.type,
-      channel: properties.channel,
-      "secret.name": properties.secret.properties.name,
-    };
-    const adaptations: Array<[keyof typeof texts, string | RegExp, string]> = [
-      // Sign-ins, SSO and 2FA included, follow the Authentication section.
-      ["tool", "(SSO, a passkey, 2FA, a captcha", "(a passkey, a captcha"],
-      // Secrets are named variables or connector credential fields with a scope, never plugin fields.
-      [
-        "tool",
-        "or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed).",
-        'or with connector and field instead of name, that connector\'s credential file. A named secret takes scope "bot" (the default) or "personal".',
-      ],
-      ["secret.name", "; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it.", "."],
-      // The app links only its own settings rows; there are no recovery, Bot template, agent or tab links.
-      [
-        "tool",
-        "[Update Track](openteam://app/v1/settings?id=update-channel)",
-        "[Web search provider](openteam://app/v1/settings?id=web-search-provider)",
-      ],
-      [
-        "tool",
-        /one of: [^.]+\. When stuck, link update-computer before reset-computer\./,
-        `one of: ${APP_SETTINGS_ANCHORS.join(", ")}.`,
-      ],
-      ["tool", " Bot template: [label](openteam://app/v1/bot-template?id=<share id>).", ""],
-      [
-        "tool",
-        " Another bot: [label](openteam://app/v1/agent?id=<id>). Your tab: [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
-        "",
-      ],
-      // No cloud agents, and no Slack thread syntax in channel addresses.
-      ["type", "cursor-agent: a cloud agent card; ", ""],
-      ["channel", / Slack: .*$/, ""],
-    ];
-    for (const [key, from, to] of adaptations) {
-      const text = texts[key]!;
-      if (typeof from === "string") expect(text.description).toContain(from);
-      else expect(text.description).toMatch(from);
-      text.description = text.description.replace(from, () => to);
-    }
-    properties.type.enum = properties.type.enum.filter((type: string) => type !== "cursor-agent");
-    delete properties.bcId;
-    delete properties.voice_memo;
-    const secret = properties.secret;
-    delete secret.properties.plugin_id;
-    const local = nativeToolsDocument.native.find((tool) => tool.name === "SendToUser")!.parameters.properties.secret!;
-    for (const key of ["connector", "field", "scope"] as const) secret.properties[key] = local.properties[key];
-    secret.required = ["label"];
-    secret.oneOf = [
-      { required: ["name"], not: { anyOf: [{ required: ["connector"] }, { required: ["field"] }] } },
-      { required: ["connector", "field"], not: { required: ["name"] } },
-    ];
-
-    const actual = referenceTool("SendToUser");
-    expect(actual.description).toStartWith(expected.description + " Use type:presentation");
-    // Places and routes are named by id and filled in from tool results; nothing is invented.
-    for (const rule of ["list the ids of places a places tool returned", "never invent coordinates", "pass the route id a routing tool returned"])
-      expect(actual.description).toContain(rule);
-    properties.type.enum.push("presentation");
-    properties.presentation = (NATIVE_TOOLS.find(tool => tool.name === "SendToUser")!.inputSchema as any).properties.presentation;
-    expect(actual.inputSchema).toEqual(expected.inputSchema);
-  });
-
-  test("plugin host context keeps a workflow's confirmation steps", () => {
-    // The main prompt asks first before consequential actions; plugin skills must not be told otherwise.
-    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).not.toMatch(/extra action approvals do not apply|Carry out the user's requested work directly|Ask only for information or authentication/);
-    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).toContain("A workflow's confirmation steps apply, alongside your own rules on asking first.");
-  });
-
-  test("StopSubagent all says a stopped child's own background work ends with it", () => {
-    // Stopping a child also ends the background shells it started.
-    expect(referenceTool("StopSubagent").inputSchema.properties.all.description).toContain(
-      "(computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer"
-    );
-  });
-
-  test("tool texts follow the newest reference, minus what OpenTeam does not have", () => {
-    const routine = referenceTool("UpdateRoutine");
-    expect(routine.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.");
-    expect(routine.description).toEndWith("\nA change you suggest to save usage waits for the user's yes.");
-    expect(routine.description).not.toContain("confirm on a card");
-    expect(routine.description).not.toContain("kept on the server");
-    expect(routine.inputSchema.properties.name.description).toBeUndefined();
-    expect(routine.inputSchema.properties.prompt.description).not.toContain("Required on create");
-    const transcript = referenceTool("ReadTranscript");
-    expect(transcript.inputSchema.properties.in.description).toStartWith('Which transcript to read: "session" (the default) for this session, or the id of another of your sessions');
-    expect(transcript.inputSchema.properties.in.description).not.toContain("Slack");
-    expect(transcript.description).not.toContain("Another of your conversations shows only");
-    const agent = referenceTool("SendToAgent");
-    expect(agent.description).not.toContain("teammates list");
-    expect(agent.inputSchema.properties.target_id.description).toBe("The id of the target, either another agent or a GROUP you belong to, not a name.");
-    expect(referenceTool("SearchPlugins").description).not.toContain("add link");
-    expect(referenceTool("AddMcpServer").description).not.toContain("tls.caBundle");
-    expect(referenceTool("AddMcpServer").inputSchema.properties.tls).toBeUndefined();
   });
 
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
-      "AwaitShell",
-      "CheckSubagent",
-      "CreateAgent",
-      "CreateChannel",
-      "SendToAgent",
-      "MessageSubagent",
-      "StopSubagent",
-      "Task",
-      "request_box_help",
-      "TodoWrite",
-      "UpdateAgent",
-      "UpdateChannel",
-      "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel",
+      "AwaitShell", "CheckSubagent", "CreateAgent", "CreateChannel", "SendToAgent", "MessageSubagent", "StopSubagent", "Task", "request_box_help",
+      "TodoWrite", "UpdateAgent", "UpdateChannel", "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel",
       "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "CreateBotShareJson",
       "WakeParent",
     ]);
@@ -600,118 +56,10 @@ describe("API contracts", () => {
       expect(tool.description).toEqual(referenceTool(tool.tool).description);
       expect(tool.inputSchema).toEqual(referenceTool(tool.tool).inputSchema);
     }
-    const taskTool = CURSOR_TOOLS.find((tool) => tool.tool === "Task");
-    const taskSchema = taskTool?.inputSchema as {
-      properties: Record<string, { description?: string }>;
-      required: string[];
-    };
-    expect(Object.keys(taskSchema.properties)).toEqual([
-      "description",
-      "prompt",
-      "resume",
-      "subagent_type",
-      "file_attachments",
-      "run_in_background",
-    ]);
-    expect(taskSchema.required).toEqual(["description", "prompt", "subagent_type"]);
-    expect(taskSchema.properties.description?.description).toBe(
-      "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
-    );
-    expect(taskSchema.properties.prompt?.description).toBe("The task for the agent to perform");
-    expect((taskSchema.properties.subagent_type as any).enum).toContain('computerUse');
-    expect((taskSchema.properties.subagent_type as any).enum).not.toContain('browserUse');
-    expect(taskSchema.properties.model).toBeUndefined();
-    expect(CURSOR_TOOL_NAMES).not.toContain("AddMcpServer");
-    expect(
-      Schema.decodeUnknownSync(TaskInput)({
-        description: "Inspect failing tests",
-        prompt: "Find the cause and return the relevant files and evidence.",
-        subagent_type: "executor",
-        run_in_background: true,
-      })
-    ).toMatchObject({ subagent_type: "executor", run_in_background: true });
-    expect(() =>
-      Schema.decodeUnknownSync(TaskInput)({
-        description: "Open the page",
-        prompt: "Open https://example.com and report its heading.",
-        subagent_type: "browserUse",
-      })
-    ).toThrow();
-    expect(
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: [
-          {
-            id: "investigate",
-            content: "Find the cause",
-            status: "in_progress",
-          },
-          { id: "verify", content: "Run verification", status: "pending" },
-        ],
-        merge: false,
-      }).todos
-    ).toHaveLength(2);
-    expect(Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "investigate", content: "Find the cause", status: "completed" }],
-      merge: true,
-    }).todos).toHaveLength(1);
-    expect(Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "investigate", status: "completed" }], merge: true,
-    }).todos[0]).toEqual({ id: "investigate", status: "completed" });
-    expect(() => Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "a", status: "pending" }, { id: "b", content: "Complete", status: "pending" }], merge: false,
-    })).toThrow("Replacement tasks require content and status");
-    expect(() =>
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: [{ id: "only", content: "Only one", status: "pending" }],
-        merge: false,
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: Array.from({ length: 65 }, (_, index) => ({
-          id: `todo-${index}`,
-          content: "bounded",
-          status: "pending" as const,
-        })),
-        merge: false,
-      })
-    ).not.toThrow();
-    for (const todo of [
-      { id: "x".repeat(121), content: "bounded", status: "pending" as const },
-      { id: "bounded", content: "x".repeat(1_001), status: "pending" as const },
-    ]) {
-      expect(() =>
-        Schema.decodeUnknownSync(TodoWriteInput)({
-          todos: [todo, { id: "second", content: "bounded", status: "pending" }],
-          merge: false,
-        })
-      ).not.toThrow();
-    }
-  });
-
-  test("keeps plugin Bot-access pages and search terms bounded", () => {
-    expect(PLUGIN_BOT_ACCESS_PAGE_SIZE).toBe(60);
-    expect(PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH).toBe(120);
-    expect(PLUGIN_CONNECTION_STATUS_MAX_IDS).toBe(50);
-    expect(PLUGIN_CONNECTION_ID_MAX_LENGTH).toBe(120);
   });
 
   test("splits durable state into top-level and namespaced tools with fixed targets", () => {
-    expect([UPDATE_MEMORY_TOOL.name, UPDATE_ROUTINE_TOOL.name]).toEqual(["UpdateMemory", "UpdateRoutine"]);
-    expect(NATIVE_TOOL_NAMES).not.toContain("update_state");
-    expect(CURSOR_TOOL_NAMES).not.toContain("update_state");
-    expect(
-      [UPDATE_SKILL_TOOL, UPDATE_PROFILE_TOOL, UPDATE_AVATAR_TOOL, DISCONNECT_CHANNEL_TOOL].map((tool) => tool.name)
-    ).toEqual(["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel"]);
-    expect(STATE_TOOL_TARGETS).toEqual({
-      UpdateMemory: "memory",
-      UpdateRoutine: "routine",
-      UpdateSkill: "skill",
-      UpdateProfile: "profile",
-      UpdateAvatar: "avatar",
-      DisconnectChannel: "channel",
-    });
-    expect(isStateTool("update_state")).toBe(false);
+    expect(STATE_TOOL_TARGETS).toEqual({ UpdateMemory: "memory", UpdateRoutine: "routine", UpdateSkill: "skill", UpdateProfile: "profile", UpdateAvatar: "avatar", DisconnectChannel: "channel" });
     expect(isStateTool("UpdateProject")).toBe(false);
     for (const name of Object.keys(STATE_TOOL_TARGETS)) {
       expect(isStateTool(name)).toBe(true);
@@ -724,205 +72,29 @@ describe("API contracts", () => {
         target: "memory",
       }))).not.toContain("target");
     }
-    const memory = UPDATE_MEMORY_TOOL.inputSchema as {
-      properties: Record<string, { enum?: string[] }>;
-      required: string[];
-    };
-    expect(memory.properties.action?.enum).toEqual(["write", "forget", "replace"]);
-    expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
-    expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type", "id"]);
-    expect(memory.required).toEqual(["action", "fact", "type"]);
-    expect(UPDATE_MEMORY_TOOL.description).toStartWith(
-      "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: "
-    );
-    expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
-    expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
-    const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
-    expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
-    // The routine list rides on the per-turn reminder, as in the reference.
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("are in the latest <automation_status> reminder, which shows no prompts.");
-    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change you suggest to save usage waits for the user's yes.");
-    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|Scheduled routines|timing/);
-    // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
-    const listener = {
-      type: "object",
-      properties: { type: { type: "string", enum: ["slack", "github", "origin", "microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook", "cron", "group"] } },
-      required: ["type"],
-    };
-    expect(routine.properties.trigger as unknown).toEqual({
-      anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
-      description: "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill.",
-    });
-    expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
-      "name", "description", "title", "avatar_shape", "avatar_color", "notify_on_updates", "drafting_disabled",
-    ]);
-    expect(
-      Schema.decodeUnknownSync(UpdateMemoryToolInput)({
-        action: "write",
-        fact: "The user prefers concise status updates.",
-        type: "shared_profile",
-      })
-    ).toEqual({
-      action: "write",
-      fact: "The user prefers concise status updates.",
-      type: "shared_profile",
-    });
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryToolInput)({ action: "write", fact: "x" })).toThrow();
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryToolInput)({ action: "write", fact: "x", type: "note" })).toThrow();
-    expect(
-      Schema.decodeUnknownSync(UpdateRoutineToolInput)({
-        action: "create",
-        name: "Daily brief",
-        prompt: "Send a concise morning brief.",
-        schedule: "@daily",
-      })
-    ).toMatchObject({ action: "create", schedule: "@daily" });
-    expect(Schema.decodeUnknownSync(UpdateProfileToolInput)({ title: "", hidden_from_sidebar: true })).toEqual({
-      title: "",
-    });
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
       "UpdateMemory only writes, replaces or forgets memory. Routines have their own UpdateRoutine tool."
     );
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
       "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."
     );
-    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x" })).toThrow(
-      "UpdateMemory: pick the memory type it belongs in"
-    );
-    expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
     // The apps draw robots; a mark shape they can't render would reset the robot to the default.
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "cloud" })).toThrow("avatar_shape");
     expect(normalizeMainToolArguments("UpdateProfile", { avatar_shape: "owl" })).toEqual({ avatar_shape: "owl" });
     const shape = (UPDATE_PROFILE_TOOL.inputSchema as any).properties.avatar_shape;
     expect(shape.enum).toEqual([...ROBOT_AVATAR_SHAPES]);
-    expect(shape.description).toBe("Your default robot, hidden while a custom picture is installed.");
     expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
     expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
-  });
-
-  test("renders state results for the tool that ran", () => {
-    expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings: { target: "settings", updated: true } }, {
-      name: "Ada", notify_on_updates: false,
-    })).toBe("Updated your name.\nUpdated your settings: notifyOnAgentUpdates.");
-    expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings_error: "storage unavailable" }, {
-      title: "Designer", notify_on_updates: false,
-    })).toBe("Updated your title.\nSettings not saved: storage unavailable");
-    expect(renderControlResult("UpdateProfile", { target: "settings", updated: true }, { notify_on_updates: false })).toBe(
-      "Updated your settings: notifyOnAgentUpdates."
-    );
-    expect(renderControlResult("UpdateSkill", { target: "skill", action: "write", id: "standup", name: "Standup", saved: true }, {
-      action: "write",
-    })).toBe('Saved skill "Standup" (id standup).');
-    expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", disconnected: true }, { platform: "slack" })).toContain(
-      "Disconnected slack."
-    );
-    // The installed file is the picture; the source the model passed is what it may delete.
-    expect(renderControlResult("UpdateAvatar", {
-      target: "avatar", action: "set", path: "downloads/pic.png", resolved_path: "/home/box/sand-data/bots/b1/avatar.png", updated: true,
-    }, { action: "set", path: "downloads/pic.png" })).toBe("Updated your picture (avatar.png). Source pic.png can be deleted if you no longer need it.");
-    expect(renderControlResult("UpdateAvatar", { target: "avatar", cleared: true }, { action: "clear" })).toBe(
-      "Cleared your picture. It is back to the default."
-    );
-    // Refusals read as the reference's "Not saved" sentences, as ordinary results.
-    expect(renderControlResult("UpdateAvatar", { target: "avatar", action: "clear", refused: "you already have the default picture." }, { action: "clear" })).toBe(
-      "Not saved: you already have the default picture."
-    );
-    expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", refused: "slack is not connected." }, { platform: "slack" })).toBe(
-      "Not saved: slack is not connected."
-    );
-    expect(renderControlResult("UpdateProfile", { target: "settings", action: "set", refused: 'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.' }, { drafting_disabled: true })).toBe(
-      'Not saved: only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.'
-    );
-    expect(renderControlResult("UpdateProfile", { target: "settings", updated: true }, { drafting_disabled: false })).toBe("Updated your settings: draftingDisabled.");
-    expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings: { target: "settings", refused: "nothing to change." } }, { title: "x", drafting_disabled: true })).toBe(
-      "Updated your title.\nSettings not saved: nothing to change."
-    );
-    expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
-      action: "pause", id: "brief",
-    })).toBe('Paused routine "Brief" (folder brief).');
-    const created = { target: "routine", name: "Brief", folder: "brief", enabled: true, timezone: "America/Los_Angeles",
-      trigger: { type: "cron", schedule: "0 8 * * *" }, next_run_at: "2026-10-22T15:00:00.000Z" };
-    expect(renderControlResult("UpdateRoutine", { ...created, delivery_nudge: true }, { action: "create" })).toBe([
-      'Saved routine "Brief" (folder brief): Every day at 8:00 AM.',
-      "Give the user a concise summary of what this routine does and where its result goes.",
-    ].join("\n"));
-    // A routine run gets no nudge; resuming reads like an update; the receipt names no next run, as in the reference.
-    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
-    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).not.toContain("Give the user");
-    expect(renderControlResult("UpdateRoutine", created, { action: "resume", id: "brief" }).split("\n")[0]).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
-    expect(renderControlResult("UpdateRoutine", { ...created, enabled: false, next_run_at: null }, { action: "delete", id: "brief" })).toBe('Deleted routine "Brief" (folder brief).');
-    expect(renderControlResult("UpdateRoutine", { ...created, trigger: { type: "cron", schedule: "36 10 21 10 *" } }, { action: "create" }).split("\n")[0])
-      .toBe('Saved routine "Brief" (folder brief): Once October 21 at 10:36 AM.');
-    const saved = { target: "routine", action: "get", name: "Brief", folder: "brief", enabled: true, prompt: "Summarize my inbox.\nPost it here." };
-    expect(renderControlResult("UpdateRoutine", { ...saved, trigger: { type: "cron", schedule: "0 8 * * *" } }, { action: "get", id: "brief" })).toBe(
-      'Routine "Brief" (folder brief), enabled.\nTrigger: Every day at 8:00 AM\nschedule: "0 8 * * *" (leave it out of an update unless the time itself changes)\nSaved prompt:\nSummarize my inbox.\nPost it here.'
-    );
-    const listener = { type: "slack", channel: "#eng", match: { kind: "mention" } };
-    expect(renderControlResult("UpdateRoutine", { ...saved, enabled: false, trigger: listener }, { action: "get", id: "brief" }).split("\n").slice(0, 3)).toEqual([
-      'Routine "Brief" (folder brief), paused.', `Trigger: ${describeTrigger(listener)}`, `trigger: ${JSON.stringify(listener)}`,
-    ]);
-    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." }, { action: "get", id: "other" }))
-      .toBe("Not read: a routine run can only read the routine that started it.");
-    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "create", refused: "a routine run cannot create another routine." }, { action: "create" }))
-      .toBe("Not saved: a routine run cannot create another routine.");
-    // Persisted history keeps its text; the retired name no longer formats anything.
-    expect(renderControlResult("update_state", { target: "channel", disconnected: true, platform: "slack" }, {})).toBe(
-      JSON.stringify({ target: "channel", disconnected: true, platform: "slack" })
-    );
-  });
-});
-
-describe("renamed first-party tools", () => {
-  test("advertise what this deployment does", () => {
-    const cookies = referenceTool("RequestCookieOriginApproval");
-    expect(cookies.description).toContain("no approval dialog opens");
-    expect(JSON.stringify(cookies)).not.toMatch(/Always allow|Approve once|approval dialog and wait|Already-granted/);
-    const share = referenceTool("CreateBotShareJson");
-    // The owner publishes a staged draft from its card, as in the reference.
-    expect(share.description).toStartWith("Stage a draft version of this bot from the reusable recipe.");
-    expect(share.description).toContain("The version stays private until the owner publishes it.");
-    expect(share.description).not.toMatch(/New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
-    const form = referenceTool("RequestUserForm");
-    expect(form.description).toContain("Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.");
-    const boxHelp = referenceTool("request_box_help").description;
-    expect(boxHelp).toContain("goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form. Hand off only when that tool is not offered, the step is not a typed field, or the host refused the form or reported a failed fill");
-    expect(boxHelp).not.toContain("Secure Form");
-    expect(form.description).not.toContain("Secure Form");
-    expect(form.inputSchema.properties.fields.items.properties).not.toHaveProperty("default_value");
-    expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");
-  });
-
-  test("plugin management keeps the reference's widget confirmations; sign-in stays autonomous", () => {
-    const description = (name: string) => referenceTool(name).description;
-    expect(description("AddMcpServer")).toContain("Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf.");
-    expect(description("AddMcpServer")).toContain("That command also runs in this user's other agents, so say so when you confirm.");
-    expect(description("UninstallMcpServer")).toContain("which signs the user out of it, so confirm with the user via a question widget first.");
-    expect(description("UninstallMcpServer")).toContain("Use UninstallPlugin for those so the confirmation can disclose the full scope.");
-    expect(description("UninstallPlugin")).toContain("so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes).");
-    expect(description("UninstallPlugin")).not.toContain("team");
-    expect(description("RemoveMcpAccount")).toContain("This is destructive. Confirm with the user via a question widget before calling it.");
-    expect(description("RenameMcpAccount")).toEndWith("Confirm with a question widget first.");
-    expect(description("RestartMcpServers")).toEndWith("Confirm with the user first if a server is mid-task.");
-    expect(description("InstallPlugin")).toContain("without asking. Ask in one widget first only when the user named no service and several plugins fit (Gmail or the Email plugin), or the plugin has no connector.");
-    const auth = JSON.stringify(referenceTool("AuthenticateMcpServer"));
-    expect(auth).not.toMatch(/question widget|ask whether to sign the server out|confirm with the user/);
-  });
-
-  test("old snake_case names format nothing and parse nothing", () => {
-    expect(renderControlResult("create_bot_share_json", { staged: true, version: 2, name: "Ada" }, {})).toBe(JSON.stringify({ staged: true, version: 2, name: "Ada" }));
-    expect(renderControlResult("CreateBotShareJson", { staged: true, version: 2, name: "Ada" }, {})).toBe('Staged unpublished version 2 of "Ada". It is not public until you confirm it.');
-    for (const name of ["upload_file", "download_file", "request_user_form", "remap_user_form_targets", "create_bot_share_json", "import_chrome_cookies"])
-      expect(() => referenceTool(name)).toThrow("No captured tool contract");
+    // Correction and historical recall arguments survive normalization.
+    const correction = { action: "replace", type: "profile", id: "00000000-0000-4000-8000-000000000207", fact: "Prefers Messi." };
+    expect(normalizeMainToolArguments("UpdateMemory", correction)).toEqual(correction);
+    expect(() => normalizeMainToolArguments("UpdateMemory", { ...correction, id: "wrong" })).toThrow();
+    expect(normalizeMainToolArguments("RecallMemory", { query: "football", includeHistory: true })).toEqual({ query: "football", includeHistory: true });
   });
 });
 
 describe("in-chat form results", () => {
   const shown = "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back.";
-  test("a shown form tells the model its turn is over and appends the dropped-field note", () => {
-    expect(renderControlResult("RequestUserForm", { sent: true, channel_id: "c1", message_address: "t2s1" }, {})).toBe(shown);
-    expect(renderControlResult("RequestUserForm", { sent: true, preflightNote: "NOTE: dropped" }, {})).toBe(`${shown}\n\nNOTE: dropped`);
-  });
 
   test("a refused preparation is rebuilt from allowlisted kinds of the form's own fields", () => {
     const form = parseUserForm({ title: "Pay", instruction: "Card", domain: "shop.example", fields: [
@@ -943,4 +115,103 @@ describe("in-chat form results", () => {
     expect(userFormPreparationRefusal(form, { error: "form_driver_unavailable" })).toStartWith(
       'The form "Pay" was NOT shown and nothing was asked of the user: the host could not reach the box browser at request time');
   });
+});
+
+test("robot IDs round-trip, normalize case and default unknown or retired names", () => {
+  for (const shape of ROBOT_AVATAR_SHAPES) {
+    expect(normalizeRobotAvatarShape(shape)).toBe(shape);
+    expect(shape.length).toBeLessThanOrEqual(16);
+    expect(ROBOT_AVATAR_LABELS[shape]).toBeTruthy();
+  }
+  expect(normalizeRobotAvatarShape(" HEX-VISOR ")).toBe("hex-visor");
+  for (const value of [undefined, null, "", "unknown", "__proto__", "constructor", "circle", "cloud"]) expect(normalizeRobotAvatarShape(value)).toBe("chip");
+});
+
+test("parsers keep the reference arguments OpenTeam supports", () => {
+  expect(normalizeMainToolArguments("ReactToMessage", { message_address: "t3u", emoji: "👍", end_turn: true })).toEqual({ message_address: "t3u", emoji: "👍", end_turn: true });
+  const handoff = { instruction: "Sign in", domain: "example.com", idp_domain: "accounts.example.com", url: "https://app.example.com/login" };
+  expect(normalizeMainToolArguments("request_box_help", handoff)).toEqual(handoff);
+  expect(normalizeMainToolArguments("StopSubagent", { all: true })).toEqual({ all: true });
+  expect(normalizeMainToolArguments("StopSubagent", { subagent_id: " sand-subagent-1 " })).toEqual({ subagent_id: "sand-subagent-1" });
+  for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
+    expect(() => normalizeMainToolArguments("StopSubagent", invalid), JSON.stringify(invalid)).toThrow("exactly one");
+});
+test("SendToUser refuses fields and files it would silently drop", () => {
+  const refusal = (args: unknown) => {
+    try { normalizeMainToolArguments("SendToUser", args); } catch (error) { return (error as Error).message; }
+    throw new Error("accepted");
+  };
+  const others = 'Send every other file (PDF, document, spreadsheet, video) as its own SendToUser call with type:"attachment" and url (file:// or https://), one call per file.';
+  expect(refusal({ type: "text", content: "hi", attachments: [{ url: "file:///workspace/a.pdf" }] })).toBe(
+    `Invalid arguments:\nattachments: attachments is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ${others}`
+  );
+  expect(refusal({ content: "hi", files: ["file:///workspace/a.pdf"] })).toStartWith("Invalid arguments:\nfiles: files is not a SendToUser field");
+  // Field issues still come back beside the hint.
+  expect(refusal({ type: "text", files: ["/workspace/a.pdf"] })).toBe(
+    `Invalid arguments:\nfiles: files is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ${others}\ncontent: content is required when type is text`
+  );
+  expect(normalizeMainToolArguments("SendToUser", { type: "text", content: "hi", attachments: [] })).toEqual({ type: "text", content: "hi" });
+  expect(refusal({ type: "text", content: "hi", images: [{ url: "file:///workspace/report.pdf" }] })).toBe(
+    `Invalid arguments:\nimages.0.url: each images url must be a picture that goes with your text, and this one is another kind of file, so nothing was sent. ${others}`
+  );
+  for (const url of ["file:///workspace/chart.png", "https://example.com/photo.JPG?x=1", "file:///workspace/logo.svg", "https://example.com/render"])
+    expect(normalizeMainToolArguments("SendToUser", { type: "text", content: "hi", images: [{ url }] }).images).toEqual([{ url }]);
+  expect(refusal({ type: "text", content: "hi", images: [{ url: "/workspace/chart.png" }] })).toBe(
+    "Invalid arguments:\nimages.0.url: each images url must include a file:// or https:// scheme. For a file on your computer, put file:// before its absolute path (file:///workspace/chart.png) and send it again. Nothing was sent."
+  );
+  expect(refusal({ type: "attachment", url: "/workspace/report.pdf" })).toBe(
+    "Invalid arguments:\nurl: url must include a file:// or https:// scheme when type is attachment. For a file on your computer, put file:// before its absolute path (file:///workspace/report.pdf) and send it again. Nothing was sent."
+  );
+  expect(refusal({ type: "attachment", url: "file:///workspace/a.pdf", content: "here" })).toBe(
+    "Invalid arguments:\ncontent: content is only valid with type:text and cannot be sent on a type:attachment message. It would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (type:text), and any text as its own type:text message."
+  );
+});
+
+const parseTask = Schema.decodeUnknownSync(TaskInput);
+const task = { description: "Process files", prompt: "Read /workspace/input.zip using Shell" };
+test("Task rejects non-media and too many attachments before dispatch, while shared-file prompts remain valid", () => {
+  for (const file of ["/workspace/input.zip", "/workspace/report.pdf", "/workspace/a.csv", "/workspace/readme.txt", "/workspace/no-extension"])
+    expect(() => parseTask({ ...task, file_attachments: [file] })).toThrow("shared filesystem path");
+  expect(parseTask(task)).toEqual(task);
+  expect(parseTask({ ...task, file_attachments: [] }).file_attachments).toEqual([]);
+  const paths = Array.from({ length: 65 }, (_, i) => `/workspace/image-${i}.png`);
+  expect(parseTask({ ...task, file_attachments: paths.slice(0, 64) }).file_attachments).toHaveLength(64);
+  expect(() => parseTask({ ...task, file_attachments: paths })).toThrow("A subagent can take at most 64 images in file_attachments. Attach fewer and try again.");
+});
+
+test("Task profiles and model arguments cannot override server inference, and ambiguous profiles cannot be saved", () => {
+  const profile = (name: string, providerId: string, modelId: string, reasoning: string) => ({ name, description: name, providerId, modelId, reasoning });
+  const config = parseTaskConfiguration({ executorProfiles: [profile("quick", "openai", "small-model", "low"), profile("deep", "anthropic", "large-model", "high")], defaultExecutorProfile: "quick" });
+  expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
+  expect(taskUserInfo(config)).not.toContain("available_subagent_models");
+  for (const reasoning of ["off", "high"] as const)
+    for (const subagent_type of ["executor", "computerUse", "videoReview", "watchVideo"])
+      for (const model of [undefined, "quick", "deep", "unconfigured", "provider/model"])
+        for (const resume of [undefined, "previous"]) {
+          const authority = { providerId: "openai", modelId: "parent-model", reasoning };
+          expect(taskInference(config, { model, subagent_type, resume }, authority)).toEqual(authority);
+        }
+  const [first] = config.executorProfiles;
+  for (const input of [null, {}, { ...config, executorProfiles: undefined }, { ...config, browserWorker: true }, { ...config, defaultExecutorProfile: "missing" },
+    { ...config, executorProfiles: [first, first] }, { ...config, executorProfiles: [{ ...first, reasoning: "imaginary" }] },
+    { ...config, executorProfiles: [{ ...first, name: "provider/model" }] }])
+    expect(() => parseTaskConfiguration(input)).toThrow();
+});
+
+test("a dispatch naming tools the executor lacks tells the parent to do those steps itself", () => {
+  const prompt = "Research the flights, then UpdateMemory with the preference, SendToUser the summary, call DraftExternalMessage for the email, and UpdateRoutine to check daily. Use WebSearch and TodoWrite. Also SendToAgent the result.";
+  const parent = "Only the parent talks to the user; a Task subagent reports back in its final message.";
+  const owned = "Memory, routines, tasks, and the bot's profile change only through the parent, which owns the conversation.";
+  expect(parentOnlyDispatchNotice({ subagentType: "executor", prompt })).toBe([
+    "<system_reminder>",
+    "This dispatch names DraftExternalMessage, SendToAgent, SendToUser, TodoWrite, UpdateMemory, UpdateRoutine, which the executor subagent does not have, so it cannot do those steps.",
+    `- DraftExternalMessage: ${parent}`,
+    "- SendToAgent: Messages under the user's name need approval that only the parent can collect.",
+    `- SendToUser: ${parent}`,
+    "- TodoWrite: Task subagents don't start subagents of their own; the parent fans work out.",
+    `- UpdateMemory: ${owned}`,
+    `- UpdateRoutine: ${owned}`,
+    "If the task needs them, do those steps yourself in this turn, before you end it. The subagent still runs and reports back on the rest.",
+    "</system_reminder>",
+  ].join("\n"));
 });

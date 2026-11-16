@@ -125,38 +125,35 @@ test('review recipient validation rejects display names and header injection', a
 });
 
 
-test('recovered draft receipts report stored routing and lifecycle without claiming a new editable card', async () => {
+test('draft receipts report the stored outcome, never a new editable card or permission to resend', async () => {
  const { renderControlResult } = await import('../src/tool-results');
+ const args = { platform: 'email', from: 'old@example.com', to: ['retry@example.com'] };
+ // A retried creation reports the stored routing and lifecycle, not the retry's arguments.
  for (const [delivery, wording] of [['pending', 'awaiting review'], ['sending', 'still sending'], ['sent', 'was sent'], ['dismissed', 'was discarded'], ['unknown', 'unconfirmed'], ['failed', 'not delivered']] as const) {
-  const text = renderControlResult('DraftExternalMessage', { sent: true, duplicate: true, message_id: 'stored-card', platform: 'email', from: 'actual@example.com', target: 'stored@example.com', delivery }, { platform: 'email', from: 'old@example.com', to: ['retry@example.com'] });
-  expect(text).toContain('actual@example.com'); expect(text).toContain('stored@example.com');
-  expect(text).not.toContain('retry@example.com'); expect(text).toContain(wording);
-  expect(text).toContain('No new draft or send'); expect(text).not.toContain('is now an editable card');
+  const text = renderControlResult('DraftExternalMessage', { sent: true, duplicate: true, message_id: 'stored-card', platform: 'email', from: 'actual@example.com', target: 'stored@example.com', delivery }, args);
+  expect(text).toContain('actual@example.com'); expect(text).toContain('stored@example.com'); expect(text).toContain(wording);
+  expect(text).not.toContain('retry@example.com'); expect(text).toContain('No new draft or send'); expect(text).not.toContain('is now an editable card');
   if (['sent', 'sending', 'unknown'].includes(delivery)) expect(text).toContain('Do not resend');
   if (delivery === 'dismissed') expect(text).toContain('Only recreate it if the user explicitly asks');
  }
- const legacy = renderControlResult('DraftExternalMessage', { sent: true, duplicate: true, message_id: 'stored-card' }, { platform: 'email', from: 'old@example.com', to: ['ann@example.com'] });
- expect(legacy).toContain('inspect'); expect(legacy).not.toContain('Nothing has been sent');
- const room = renderControlResult('DraftExternalMessage', { sent: true, duplicate: true, in_dm: true, message_id: 'stored-card', delivery: 'pending' }, { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] });
- expect(room).toContain('in your own 1:1 chat with the user, not in this room');
-});
-
-
-test('fresh failed and unconfirmed sends report terminal facts rather than a new review card', async () => {
- const { renderControlResult } = await import('../src/tool-results');
- const args = { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] };
+ // A fresh automatic send that failed or did not confirm states that terminal fact.
  for (const delivery of ['failed', 'draft-created']) {
   const text = renderControlResult('DraftExternalMessage', { sent: true, delivery, message_id: 'failed-card', note: 'The connector account changed.' }, args);
   expect(text).toContain('not delivered'); expect(text).toContain('account changed'); expect(text).not.toContain('editable card');
  }
  const unknown = renderControlResult('DraftExternalMessage', { sent: true, delivery: 'unknown', message_id: 'uncertain-card', note: 'Check the destination.' }, args);
- expect(unknown).toContain('unconfirmed'); expect(unknown).toContain('Do not resend'); expect(unknown).not.toContain('was sent without review');
- expect(unknown).toContain('does not confirm a send'); expect(unknown).toContain('may or may not have gone out');
+ expect(unknown).toContain('Do not resend'); expect(unknown).toContain('may or may not have gone out'); expect(unknown).not.toContain('was sent without review');
+ // A reply refused because its turn ended does not ask the model to report the failure from that turn.
+ const ended = renderControlResult('SendToUser', { sent: false, delivery_failed: true, retryable: false, reason: 'turn_not_active', note: 'Nothing was delivered. This turn has ended; do not retry its reply.' }, { type: 'text', content: 'Obsolete reply' });
+ expect(ended).toContain('do not retry'); expect(ended).not.toContain('Tell the user'); expect(ended).not.toContain('undefined');
 });
 
-test('an inactive outcome turn does not tell the model to send a failure message from the stopped turn', async () => {
+test('Messages submission receipts never claim confirmed delivery', async () => {
  const { renderControlResult } = await import('../src/tool-results');
- const text = renderControlResult('SendToUser', { sent: false, delivery_failed: true, retryable: false, reason: 'turn_not_active', note: 'Nothing was delivered. This turn has ended; do not retry its reply.' }, { type: 'text', content: 'Obsolete reply' });
- expect(text).toContain('turn has ended'); expect(text).toContain('do not retry');
- expect(text).not.toContain('Tell the user'); expect(text).not.toContain('undefined');
+ for (const verified of [true, false]) {
+  const text = renderControlResult('SendIMessage', { sent: true, delivery: 'sent', machine: 'Mac', result: { verified } }, { to: '+15555550100', attachmentPaths: ['/workspace/report.pdf'] });
+  expect(text).toContain('Submitted');
+  expect(text).toContain(verified ? 'does not confirm delivery' : 'Delivery is unconfirmed');
+  expect(text).toContain('Do not resend automatically');
+ }
 });

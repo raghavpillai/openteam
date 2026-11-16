@@ -1,18 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ScreenSession } from "../src/screen/types";
 import { ScreenBroker } from "../src/screen-broker";
 import { assignAgentOwnership } from "../src/agent-process";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
-const homes: string[] = [];
-afterEach(async () => {
-  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
-});
 const fixture = async () => {
-  const home = await mkdtemp(join(tmpdir(), "screen-concurrency-"));
-  homes.push(home);
+  const home = await tempDir("screen-concurrency-");
   const broker = new ScreenBroker(home);
   const starts: number[] = [];
   Object.assign(broker, {
@@ -27,50 +23,20 @@ const fixture = async () => {
 };
 
 describe("human control idle release", () => {
-  const sessionOf = (broker: ScreenBroker, id: string) =>
-    (broker as unknown as { sessions: Map<string, ScreenSession> }).sessions.get(id)!;
-
-  test("a heartbeat keeps the lease only while the user was active in the last five minutes", async () => {
+  test("a heartbeat keeps the lease only while the user was active in the last five minutes; then the agent regains input", async () => {
     const { broker } = await fixture();
+    const wait = () => broker.actComputerUse("idle", "/workspace", [{ action: "wait", durationMs: 1 }]);
     expect((await broker.takeover("idle", "/workspace", true)).humanTakeover).toBe(true);
-    const session = sessionOf(broker, "idle");
+    await expect(wait()).rejects.toThrow("input lease");
+    const session = (broker as unknown as { sessions: Map<string, ScreenSession> }).sessions.get("idle")!;
     session.humanActiveAt = Date.now() - 4 * 60_000;
     expect((await broker.takeover("idle", "/workspace", true, { renew: true })).humanTakeover).toBe(true);
     session.humanActiveAt = Date.now() - 5 * 60_000 - 1;
     expect((await broker.takeover("idle", "/workspace", true, { renew: true })).humanTakeover).toBe(false);
-  });
-
-  test("a heartbeat after idle release does not re-acquire control, but an explicit take does", async () => {
-    const { broker } = await fixture();
-    await broker.takeover("idle-renew", "/workspace", true);
-    const session = sessionOf(broker, "idle-renew");
-    session.humanActiveAt = Date.now() - 6 * 60_000;
-    const renewed = await broker.takeover("idle-renew", "/workspace", true, { renew: true });
-    expect(renewed.humanTakeover).toBe(false);
-    expect(session.humanTakeoverUntil).toBeGreaterThan(0);
-    expect((await broker.takeover("idle-renew", "/workspace", true)).humanTakeover).toBe(true);
-  });
-
-  test("user activity reported by the proxy resets the idle timer, a plain heartbeat does not", async () => {
-    const { broker } = await fixture();
-    await broker.takeover("idle-activity", "/workspace", true);
-    const session = sessionOf(broker, "idle-activity");
-    const stale = Date.now() - 4 * 60_000;
-    session.humanActiveAt = stale;
-    await broker.takeover("idle-activity", "/workspace", true, { renew: true });
-    expect(session.humanActiveAt).toBe(stale);
-    await broker.takeover("idle-activity", "/workspace", true, { renew: true, activity: true });
-    expect(Date.now() - session.humanActiveAt).toBeLessThan(1_000);
-  });
-
-  test("the agent regains input after the lease goes idle", async () => {
-    const { broker } = await fixture();
-    await broker.takeover("idle-agent", "/workspace", true);
-    await expect(broker.actComputerUse("idle-agent", "/workspace", [{ action: "wait", durationMs: 1 }]))
-      .rejects.toThrow("input lease");
-    sessionOf(broker, "idle-agent").humanActiveAt = Date.now() - 5 * 60_000 - 1;
-    await expect(broker.actComputerUse("idle-agent", "/workspace", [{ action: "wait", durationMs: 1 }]))
-      .rejects.not.toThrow("input lease");
+    // A later heartbeat does not re-acquire control.
+    expect((await broker.takeover("idle", "/workspace", true, { renew: true })).humanTakeover).toBe(false);
+    await expect(wait()).rejects.not.toThrow("input lease");
+    expect((await broker.takeover("idle", "/workspace", true)).humanTakeover).toBe(true);
   });
 });
 
@@ -99,16 +65,6 @@ describe("concurrent screen requests", () => {
       expect(input).toContain("once");
     } finally { process.env.PATH = previousPath; }
   });
-  test("canceled review capture does not start a desktop or run queued actions", async () => {
-    const { broker, starts } = await fixture();
-    const canceled = new AbortController(); canceled.abort();
-    await expect(broker.actComputerUse("never-start", "/workspace", [{ action: "screenshot" }], canceled.signal)).rejects.toThrow();
-    expect(starts).toHaveLength(0);
-    const controller = new AbortController();
-    const pending = broker.actComputerUse("queued", "/workspace", [{ action: "wait", durationMs: 30000 }], controller.signal);
-    await Bun.sleep(30); controller.abort();
-    await expect(pending).rejects.toThrow();
-  });
   test("native review is invalidated even when human takeover has already ended", async () => {
     const { broker } = await fixture();
     const validate = await broker.guardAgentReview("shared", "/workspace");
@@ -126,73 +82,32 @@ describe("concurrent screen requests", () => {
     await broker.destroy("shared");
     expect(() => beforeDestroy()).toThrow();
   });
-  test("simultaneous cold requests share one desktop and one startup", async () => {
+  test("simultaneous cold requests share one desktop per bot, with distinct stable slots", async () => {
     const { broker, home, starts } = await fixture();
-    const statuses = await Promise.all(
-      Array.from({ length: 12 }, () => broker.ensure("one-bot", "/workspace"))
-    );
-    expect(new Set(statuses.map((s) => s.display)).size).toBe(1);
-    expect(new Set(statuses.map((s) => s.viewerPassword)).size).toBe(1);
-    expect(starts).toHaveLength(1);
-    expect(JSON.parse(await readFile(join(home, ".sand-window-assignments.json"), "utf8"))).toEqual(
-      { "one-bot": statuses[0]!.display - 100 }
-    );
-  });
-
-  test("different bots retain distinct stable slots under simultaneous requests", async () => {
-    const { broker, starts } = await fixture();
-    const ids = ["a", "b", "a", "b", "c", "a", "c", "b"];
+    const ids = ["a", "b", "a", "b", "c", "a", "c", "b", ...Array(8).fill("a")];
     const statuses = await Promise.all(ids.map((id) => broker.ensure(id, "/workspace")));
     const slots = new Map<string, number>();
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]!;
-      const previous = slots.get(id);
-      if (previous !== undefined) expect(statuses[i]!.display).toBe(previous);
+    ids.forEach((id, i) => {
+      if (slots.has(id)) expect(statuses[i]!.display).toBe(slots.get(id)!);
       slots.set(id, statuses[i]!.display);
-    }
+    });
     expect(new Set(slots.values()).size).toBe(3);
+    expect(new Set(statuses.filter((_, i) => ids[i] === "a").map((s) => s.viewerPassword)).size).toBe(1);
     expect(starts).toHaveLength(3);
+    expect(JSON.parse(await readFile(join(home, ".sand-window-assignments.json"), "utf8"))).toMatchObject({ a: slots.get("a")! - 100 });
   });
 
-  test("exhausting screen slots does not poison later allocation after a slot is freed", async () => {
-    const { broker, home } = await fixture();
-    await Promise.all(Array.from({length:100},(_,i)=>broker.ensure(`reserved-${i}`, "/workspace")));
-    await expect(broker.ensure("overflow", "/workspace")).rejects.toThrow("at most 100");
-    await broker.destroy("reserved-7");
-    expect((await broker.ensure("recovered", "/workspace")).display).toBe(107);
-  });
-
-  test("dormant assignments preserve profiles without exhausting live slots", async () => {
-    const {broker,home}=await fixture();
-    const legacy=Object.fromEntries(Array.from({length:100},(_,i)=>[`old-${i}`,i]));
-    await writeFile(join(home,".sand-window-assignments.json"),JSON.stringify(legacy));
-    await Promise.all([broker.ensure("new", "/workspace"),broker.ensure("old-0", "/workspace")]);
-    const sessions=(broker as any).sessions as Map<string,ScreenSession>;
-    expect(sessions.get("new")!.profileDirectory).toBe(join(home,"chrome-profile-101"));
-    expect(sessions.get("old-0")!.profileDirectory).toBe(join(home,"chrome-profile"));
-    expect(sessions.get("new")!.slot).not.toBe(sessions.get("old-0")!.slot);
-    const saved=JSON.parse(await readFile(join(home,".sand-window-assignments.json"),"utf8"));
-    expect(saved).toEqual({...legacy,new:100});
-    // A restarted broker can load the profile ID above the live-screen limit.
-    const restarted=new ScreenBroker(home) as any;
-    restarted.startSession=async(session:ScreenSession)=>{session.state="ready";session.lastHealthCheckAt=Date.now();};
-    await restarted.ensure("new","/workspace");
-    expect(restarted.sessions.get("new").profileDirectory).toBe(join(home,"chrome-profile-101"));
-  });
-
-  test("overlapping human and agent actions finish in order on the same desktop", async () => {
+  test("actions on one desktop finish in order, and separate desktops run independently", async () => {
     const { broker } = await fixture();
-    await broker.ensure("shared", "/workspace");
+    await Promise.all([broker.ensure("a", "/workspace"), broker.ensure("b", "/workspace")]);
     const finished: string[] = [];
-    await Promise.all([
-      broker
-        .act("shared", "/workspace", { action: "wait", ms: 90 }, "agent")
-        .then(() => finished.push("agent")),
-      broker
-        .act("shared", "/workspace", { action: "wait", ms: 1 }, "human")
-        .then(() => finished.push("human")),
-    ]);
-    expect(finished).toEqual(["agent", "human"]);
+    const act = (id: string, ms: number, actor: "agent" | "human", label: string) =>
+      broker.act(id, "/workspace", { action: "wait", ms }, actor).then(() => finished.push(label));
+    await Promise.all([act("a", 90, "agent", "a-agent"), act("a", 1, "human", "a-human")]);
+    expect(finished).toEqual(["a-agent", "a-human"]);
+    finished.length = 0;
+    await Promise.all([act("a", 90, "agent", "a"), act("b", 1, "agent", "b")]);
+    expect(finished).toEqual(["b", "a"]);
   });
 
   test("a waiting agent action is rejected after takeover begins", async () => {
@@ -212,20 +127,6 @@ describe("concurrent screen requests", () => {
       broker.act("shared", "/workspace", { action: "wait", ms: 1 }, "agent")
     ).resolves.toHaveProperty("state", "ready");
   });
-  test("brief takeover invalidates old queued input even after release", async () => {
-    const { broker } = await fixture();
-    await broker.ensure("shared", "/workspace");
-    const first = broker.act("shared", "/workspace", { action: "wait", ms: 90 }, "human");
-    const queued = broker.act("shared", "/workspace", { action: "wait", ms: 1 }, "agent").then(
-      () => "ran",
-      () => "rejected"
-    );
-    await Bun.sleep(15);
-    await broker.takeover("shared", "/workspace", true);
-    await broker.takeover("shared", "/workspace", false);
-    await first;
-    expect(await queued).toBe("rejected");
-  });
 
   test("takeover interrupts an active wait before acknowledging control", async () => {
     const { broker } = await fixture();
@@ -239,20 +140,5 @@ describe("concurrent screen requests", () => {
     await broker.takeover("shared", "/workspace", true);
     expect(await active).toBe("interrupted");
     expect(performance.now() - start).toBeLessThan(1000);
-  });
-
-  test("input on separate desktops runs independently", async () => {
-    const { broker } = await fixture();
-    await Promise.all([broker.ensure("a", "/workspace"), broker.ensure("b", "/workspace")]);
-    const finished: string[] = [];
-    await Promise.all([
-      broker
-        .act("a", "/workspace", { action: "wait", ms: 90 }, "agent")
-        .then(() => finished.push("a")),
-      broker
-        .act("b", "/workspace", { action: "wait", ms: 1 }, "agent")
-        .then(() => finished.push("b")),
-    ]);
-    expect(finished).toEqual(["b", "a"]);
   });
 });

@@ -84,7 +84,7 @@ export const messageAssets = (message: ChannelMessageView): AssetRef[] => {
   });
 };
 
-export const messageStagedAttachments = (
+const messageStagedAttachments = (
   message: ChannelMessageView
 ): DurableStagedAttachment[] => {
   const candidates = messageMetadata(message).clientStagedAttachments;
@@ -106,7 +106,7 @@ export const messageStagedAttachments = (
   });
 };
 
-export interface MessageReactionPill {
+interface MessageReactionPill {
   emoji: string;
   count: number;
 }
@@ -135,7 +135,7 @@ export const ownReactionEmojiSet = (message: ChannelMessageView): ReadonlySet<st
   );
 };
 
-export interface ClientDeliveryProjection {
+interface ClientDeliveryProjection {
   acceptedAtMs: number | null;
   composedAtMs: number | null;
   inFlight: boolean;
@@ -146,7 +146,7 @@ export interface ClientDeliveryProjection {
   transportDown: boolean;
 }
 
-export const clientDeliveryFor = (message: ChannelMessageView): ClientDeliveryProjection | null => {
+const clientDeliveryFor = (message: ChannelMessageView): ClientDeliveryProjection | null => {
   const candidate = messageMetadata(message).clientDelivery;
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
   const {
@@ -209,7 +209,7 @@ export const messageSenderLabel = (
   return message.senderBotId ? (botById.get(message.senderBotId)?.name ?? "Bot") : "Bot";
 };
 
-export interface MessageDisplayProjection {
+interface MessageDisplayProjection {
   attachments: AssetRef[];
   stagedAttachments: DurableStagedAttachment[];
   displayContent: string;
@@ -250,52 +250,12 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
   };
 };
 
-export const toggleOwnReaction = (
-  message: ChannelMessageView,
-  emoji: string
-): ChannelMessageView => {
-  const metadata = messageMetadata(message);
-  const reactions = Array.isArray(metadata.reactions) ? [...metadata.reactions] : [];
-  const isOwnReaction = (reaction: unknown): boolean =>
-    Boolean(reaction) &&
-    typeof reaction === "object" &&
-    !Array.isArray(reaction) &&
-    (reaction as { by?: unknown }).by === "me";
-  const alreadyReacted = reactions.some((reaction) =>
-    isOwnReaction(reaction) && (reaction as { emoji?: unknown }).emoji === emoji);
-  const others = reactions.filter((reaction) => !isOwnReaction(reaction));
-  return {
-    ...message,
-    metadata: {
-      ...metadata,
-      reactions: alreadyReacted
-        ? others
-        : [...others, { by: "me", emoji }],
-    },
-  };
-};
-
-const numericSequence = (value: string | null | undefined): bigint | null =>
-  value && /^\d+$/.test(value) ? BigInt(value) : null;
-
-/** Whether a partially loaded newest-first history may still hide replies to this root. */
-export const mayHaveEarlierThreadReplies = (
-  rootSequence: string,
-  beforeSequence: string | null | undefined,
-  channelHistoryHasMore: boolean
-): boolean => {
-  if (!channelHistoryHasMore) return false;
-  const root = numericSequence(rootSequence);
-  const before = numericSequence(beforeSequence);
-  return root === null || before === null || before > root;
-};
-
 export const threadReplyCountLabel = (count: number, partial: boolean): string => {
   const boundedCount = Math.max(0, Math.trunc(count));
   return `${boundedCount}${partial ? " loaded" : ""} ${boundedCount === 1 ? "reply" : "replies"}`;
 };
 
-export interface A2AProjection {
+interface A2AProjection {
   direction: "incoming" | "outgoing";
   peerId: string | null;
   peerName: string | null;
@@ -317,7 +277,7 @@ export const a2aProjectionFor = (message: ChannelMessageView): A2AProjection | n
   };
 };
 
-export const selectA2AExchangeMessages = (
+const selectA2AExchangeMessages = (
   messages: readonly ChannelMessageView[],
   peerId: string
 ): ChannelMessageView[] =>
@@ -359,7 +319,7 @@ export const deriveA2AExchange = (input: {
   };
 };
 
-export interface A2AActivityEntry<T> {
+interface A2AActivityEntry<T> {
   type: "a2a";
   id: string;
   createdAt: string;
@@ -428,7 +388,7 @@ export const replyTargetId = (message: ChannelMessageView): string | null => {
   return typeof reply === "string" ? reply : null;
 };
 
-export interface ThreadView {
+interface ThreadView {
   root: ChannelMessageView;
   replies: ChannelMessageView[];
 }
@@ -499,18 +459,4 @@ export const deriveThreads = (messages: readonly ChannelMessageView[]): Map<stri
         : [];
     })
   );
-};
-
-/** Assign deterministic, collision-free render keys while preserving duplicate values. */
-export const withStableOccurrenceKeys = <Value>(
-  values: readonly Value[],
-  fingerprintFor: (value: Value) => string
-): Array<{ value: Value; key: string }> => {
-  const occurrences = new Map<string, number>();
-  return values.map((value) => {
-    const fingerprint = fingerprintFor(value);
-    const occurrence = (occurrences.get(fingerprint) ?? 0) + 1;
-    occurrences.set(fingerprint, occurrence);
-    return { value, key: `${fingerprint}:${occurrence}` };
-  });
 };

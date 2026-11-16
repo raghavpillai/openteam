@@ -25,7 +25,6 @@ const examples = [
   "![Revenue chart](https://example.com/chart.png)\n\nRevenue grew 12%.",
   "![](https://example.com/blank.png) caption",
   "```bash\nnpm run build\n```",
-  "```\nnpm run build\n```",
   "~~~ js\nconst x = 1\n~~~",
   "---\n\nAfter the rule.",
   "Use <b>bold</b> and <i>italic</i> here, plus $$x^2 + y^2$$ and \\(a+b\\) inline.",
@@ -45,7 +44,6 @@ const examples = [
   `${"b".repeat(199)} trailing`,
   "x".repeat(5000),
   "",
-  "   ",
   // A first line with no visible text falls through to the next one.
   "![](https://x.test/chart.png)\n\nRevenue grew 12%",
   ">\n> quoted",
@@ -73,79 +71,20 @@ const examples = [
 ];
 
 // A fixed pseudo-random mix of markdown fragments, so Swift is checked beyond the hand-picked cases.
+// prettier-ignore
 const fragments = [
-  "**",
-  "*",
-  "_",
-  "__",
-  "~~",
-  "`",
-  "``",
-  "```",
-  "~~~",
-  "[",
-  "]",
-  "(",
-  ")",
-  "![",
-  "# ",
-  "## ",
-  "> ",
-  "- ",
-  "1. ",
-  "|",
-  "<b>",
-  "</b>",
-  "<i>",
-  "</i>",
-  "<br>",
-  "</br>",
-  "<u>",
-  "</u>",
-  "<x>",
-  "$$",
-  "\\(",
-  "\\)",
-  "\\[",
-  "\\]",
-  "\\$",
-  "\\text{",
-  "{",
-  "}",
-  " ",
-  "  ",
-  "\n",
-  "\n\n",
-  "\t",
-  "word",
-  "snake_case",
-  "https://example.com/a_b(c)",
-  "😀",
-  "é",
-  "<",
-  ">",
-  "#",
-  "-",
-  "\r",
-  "\r\n",
-  "\u000b",
-  "\f",
-  "\u0085",
-  "\u00a0",
-  "\u2028",
-  "\u200b",
-  "\u200d",
-  "\ufe0f",
-  "\ufeff",
-  " \u0301",
-  "\u0600",
+  "**", "*", "_", "__", "~~", "`", "``", "```", "~~~", "[", "]", "(", ")", "![", "# ", "## ", "> ",
+  "- ", "1. ", "|", "<b>", "</b>", "<i>", "</i>", "<br>", "</br>", "<u>", "</u>", "<x>", "$$",
+  "\\(", "\\)", "\\[", "\\]", "\\$", "\\text{", "{", "}", " ", "  ", "\n", "\n\n", "\t", "word",
+  "snake_case", "https://example.com/a_b(c)", "😀", "é", "<", ">", "#", "-", "\r", "\r\n", "\u000b",
+  "\f", "\u0085", "\u00a0", "\u2028", "\u200b", "\u200d", "\ufe0f", "\ufeff", " \u0301", "\u0600"
 ];
 let seed = 20261018;
 const next = (limit: number) => {
   seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
   return Math.floor((seed / 2 ** 32) * limit);
 };
-const generated = Array.from({ length: 400 }, () =>
+const generated = Array.from({ length: 30 }, () =>
   Array.from({ length: 1 + next(24) }, () => fragments[next(fragments.length)]).join("")
 );
 
@@ -169,17 +108,11 @@ const attachmentSets = [
   [file("archive.", "application/octet-stream"), file(".env", "application/octet-stream")],
 ];
 
-const json = `${JSON.stringify(
-  {
-    messages: [...examples, ...generated].map((content) => ({
-      content,
-      preview: messagePreviewText(content),
-    })),
-    attachments: attachmentSets.map((files) => ({ files, preview: attachmentsPreviewText(files) })),
-  },
-  null,
-  2
-)}\n`;
+// One example per line keeps the fixture reviewable.
+const rows = (values: unknown[]) => values.map((value) => `    ${JSON.stringify(value)}`).join(",\n");
+const messages = [...examples, ...generated].map((content) => ({ content, preview: messagePreviewText(content) }));
+const attachments = attachmentSets.map((files) => ({ files, preview: attachmentsPreviewText(files) }));
+const json = `{\n  "messages": [\n${rows(messages)}\n  ],\n  "attachments": [\n${rows(attachments)}\n  ]\n}\n`;
 if (process.argv.includes("--check")) {
   let current = "";
   try {

@@ -21,31 +21,14 @@ export const DURABLE_SEND_ACCEPTED_EVENT = "openteam:durable-send-accepted";
 const controllers = new Map<string, DurableSendController>();
 const controllerCleanups = new Map<DurableSendController, () => void>();
 let transportDownUntilMs = 0;
-let transportDownSnapshot = navigator.onLine === false;
-const transportListeners = new Set<() => void>();
 const ephemeralStages = new Map<string, Blob>();
 const ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
 const SEND_RETRY_TIMEOUT_MS = 10_000;
 
 class InactiveDeliveryScopeError extends Error {}
 
-export const desktopSendTransportDown = (): boolean =>
+const desktopSendTransportDown = (): boolean =>
   navigator.onLine === false || Date.now() < transportDownUntilMs;
-
-const refreshTransportSnapshot = () => {
-  const next = desktopSendTransportDown();
-  if (next === transportDownSnapshot) return;
-  transportDownSnapshot = next;
-  for (const listener of transportListeners) listener();
-};
-
-export const desktopSendTransportSnapshot = (): boolean => transportDownSnapshot;
-
-export const subscribeDesktopSendTransport = (listener: () => void): (() => void) => {
-  transportListeners.add(listener);
-  refreshTransportSnapshot();
-  return () => transportListeners.delete(listener);
-};
 
 const accountScope = (): string => {
   const auth = getAuthSnapshot();
@@ -187,17 +170,13 @@ const withAttachmentCommitDeadline = <T>(operation: Promise<T>): Promise<T> =>
 const classifyError = (cause: unknown): "offline" | "ambiguous" | "fatal" => {
   if (cause instanceof InactiveDeliveryScopeError) return "offline";
   const disposition = classifyDurableSendError(cause);
-  if (disposition === "offline") {
-    transportDownUntilMs = Date.now() + 5_000;
-    refreshTransportSnapshot();
-  }
+  if (disposition === "offline") transportDownUntilMs = Date.now() + 5_000;
   return disposition;
 };
 
 const resolveAcceptance = async (record: DurableSendRecord): Promise<MessageDeliveryAcceptance> => {
   const status = await api.messageDeliveryStatus(record.target.channelId, record.nonce);
   transportDownUntilMs = 0;
-  refreshTransportSnapshot();
   return messageDeliveryAcceptance(status);
 };
 
@@ -224,7 +203,6 @@ const dispatch = async (record: DurableSendRecord) => {
         options
       );
   transportDownUntilMs = 0;
-  refreshTransportSnapshot();
   window.dispatchEvent(new Event(DURABLE_SEND_ACCEPTED_EVENT));
   return { message: accepted.message };
 };
@@ -233,12 +211,7 @@ const startLifecycle = (controller: DurableSendController) => {
   if (controllerCleanups.has(controller)) return;
   void controller.restore();
   const flush = () => void controller.flush();
-  const noteTransportChange = () => {
-    refreshTransportSnapshot();
-    if (navigator.onLine !== false) flush();
-  };
-  window.addEventListener("online", noteTransportChange);
-  window.addEventListener("offline", noteTransportChange);
+  window.addEventListener("online", flush);
   window.addEventListener("focus", flush);
   const onVisibilityChange = () => {
     if (document.visibilityState === "visible") flush();
@@ -271,7 +244,6 @@ const startLifecycle = (controller: DurableSendController) => {
       controller.getSnapshot().some(record => record.phase !== "failed"));
     if (needed && interval === undefined) {
       interval = window.setInterval(() => {
-        refreshTransportSnapshot();
         expireAndFlush();
         syncPolling();
       }, 5_000);
@@ -288,8 +260,7 @@ const startLifecycle = (controller: DurableSendController) => {
   syncPolling();
   controllerCleanups.set(controller, () => {
     active = false;
-    window.removeEventListener("online", noteTransportChange);
-    window.removeEventListener("offline", noteTransportChange);
+    window.removeEventListener("online", flush);
     window.removeEventListener("focus", flush);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.clearInterval(interval);

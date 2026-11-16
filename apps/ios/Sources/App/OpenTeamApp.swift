@@ -25,8 +25,6 @@ struct OpenTeamApp: App {
             Color.clear
           } else if ProcessInfo.processInfo.arguments.contains("--composer-latency-control") {
             ComposerLatencyControl()
-          } else if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
-            RobotMotionLab()
           } else {
             LaunchContentView()
           }
@@ -85,11 +83,6 @@ struct OpenTeamApp: App {
     }
   }
   private var selectedAppearance: ColorScheme? {
-    #if DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
-        return ProcessInfo.processInfo.arguments.contains("--lab-dark") ? .dark : .light
-      }
-    #endif
     return appearance == "dark" ? .dark : appearance == "light" ? .light : nil
   }
 }

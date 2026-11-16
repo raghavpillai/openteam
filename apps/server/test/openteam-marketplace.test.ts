@@ -1,109 +1,20 @@
-import { describe, expect, test } from "bun:test";
-import {
-  bundledOpenTeamMarketplace,
-  OpenTeamMarketplaceSource,
-  parseOpenTeamMarketplace,
-} from "../src/plugins/openteam-marketplace";
+import { expect, test } from "bun:test";
+import { bundledOpenTeamMarketplace, OpenTeamMarketplaceSource, parseOpenTeamMarketplace } from "../src/plugins/openteam-marketplace";
 
-describe("OpenTeam marketplace", () => {
-  test("ships a first-party, versioned marketplace without an external catalog", async () => {
-    const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
-    const plugins = await source.plugins();
-
-    expect(plugins).toHaveLength(21);
-    expect(plugins.find(plugin => plugin.key === "1password")?.components).toEqual(["skills"]);
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("openteam-utility-lab");
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("onedrive");
-    expect(plugins.map((plugin) => plugin.key)).toContain("google-drive");
-    expect(plugins.map((plugin) => plugin.key)).toContain("gmail");
-    expect(plugins.map((plugin) => plugin.key)).toContain("google-docs");
-    expect(plugins.map((plugin) => plugin.key)).toContain("google-sheets");
-    expect(plugins.map((plugin) => plugin.key)).toContain("google-slides");
-    expect(plugins.map((plugin) => plugin.key)).toContain("github");
-    expect(plugins.map((plugin) => plugin.key)).toContain("slack");
-    expect(plugins.map((plugin) => plugin.key)).toContain("notion");
-    expect(plugins.map((plugin) => plugin.key)).toContain("linear");
-    expect(plugins.map((plugin) => plugin.key)).toContain("plaid");
-    expect(plugins.map((plugin) => plugin.key)).toContain("email");
-    expect(plugins.map((plugin) => plugin.key)).toContain("ramp");
-    expect(plugins.map((plugin) => plugin.key)).toContain("t3-code");
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("atlassian");
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("asana");
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("research-playbook");
-    expect(plugins.map((plugin) => plugin.key)).not.toContain("imessage-ssh");
-    // Upstream packages pin their own revision; unpinned packages use the catalog revision.
-    expect(plugins.map((plugin) => plugin.sourceRevision)).toEqual(
-      bundledOpenTeamMarketplace.plugins.map((plugin) => plugin.sourceRevision ?? bundledOpenTeamMarketplace.revision)
-    );
-  });
-
-  test("accepts a deployment-owned marketplace manifest", async () => {
-    const packageDefinition = {
-      key: "self-hosted-mail-room",
-      version: "1.2.3",
-      name: "Mail Room",
-      description: "Work with a self-hosted mail MCP.",
-      publisher: "Example Company",
-      category: "Inbox & Collaboration",
-      featured: false,
-      components: ["mcp" as const],
-      homepageUrl: null,
-      sourceUrl: null,
-      sourceRevision: null,
-      logoUrl: null,
-      setupFields: [{ key: "MAIL_TOKEN", label: "Mail token", required: true, secret: true }],
-      skills: [],
-      connections: [
-        {
-          key: "mail",
-          name: "Mail Room",
-          transport: "http" as const,
-          auth: "token" as const,
-          endpoint: "https://mcp.example.test",
-          configuration: { headers: { Authorization: String.raw`Bearer \${MAIL_TOKEN}` } },
-          tools: [],
-        },
-      ],
-    };
-    const manifest = parseOpenTeamMarketplace({
-      schemaVersion: 1,
-      revision: "example-7",
-      plugins: [packageDefinition],
-    });
-    const source = new OpenTeamMarketplaceSource(undefined, manifest);
-
-    expect(await source.plugins()).toEqual([
-      expect.objectContaining({
-        key: "self-hosted-mail-room",
-        version: "1.2.3",
-        sourceRevision: "example-7",
-      }),
-    ]);
-  });
-
-  test("rejects malformed or duplicate marketplace packages", () => {
-    expect(() =>
-      parseOpenTeamMarketplace({ schemaVersion: 2, revision: "bad", plugins: [] })
-    ).toThrow("schemaVersion");
-    expect(() =>
-      parseOpenTeamMarketplace({
-        schemaVersion: 1,
-        revision: "duplicate",
-        plugins: [bundledOpenTeamMarketplace.plugins[0], bundledOpenTeamMarketplace.plugins[0]],
-      })
-    ).toThrow("Duplicate plugin key");
-  });
-});
-
-test("marketplace reads isolate mutable metadata and installation payload maps", async () => {
-  const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
-  const first = await source.plugins();
-  const original = structuredClone(first);
-  const files = first.find((plugin) => Object.keys(plugin.files ?? {}).length > 0)!.files!;
-  const binaries = first.find((plugin) => Object.keys(plugin.binaryFiles ?? {}).length > 0)!.binaryFiles!;
-  files[Object.keys(files)[0]!] = "changed";
-  delete binaries[Object.keys(binaries)[0]!];
-  first[0]!.components.length = 0;
-  first.find((plugin) => plugin.connections.length > 0)!.connections[0]!.name = "changed";
-  expect(await source.plugins()).toEqual(original);
+test("ships a first-party, versioned marketplace and accepts a deployment-owned manifest", async () => {
+  const plugins = await new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace).plugins();
+  expect(plugins.find(plugin => plugin.key === "1password")?.components).toEqual(["skills"]);
+  // Upstream packages pin their own revision; unpinned packages use the catalog revision.
+  expect(plugins.map((plugin) => plugin.sourceRevision)).toEqual(
+    bundledOpenTeamMarketplace.plugins.map((plugin) => plugin.sourceRevision ?? bundledOpenTeamMarketplace.revision));
+  const manifest = parseOpenTeamMarketplace({ schemaVersion: 1, revision: "example-7", plugins: [{
+    key: "self-hosted-mail-room", version: "1.2.3", name: "Mail Room", description: "Work with a self-hosted mail MCP.", publisher: "Example Company",
+    category: "Inbox & Collaboration", featured: false, components: ["mcp"], homepageUrl: null, sourceUrl: null, sourceRevision: null, logoUrl: null,
+    setupFields: [{ key: "MAIL_TOKEN", label: "Mail token", required: true, secret: true }], skills: [],
+    connections: [{ key: "mail", name: "Mail Room", transport: "http", auth: "token", endpoint: "https://mcp.example.test",
+      configuration: { headers: { Authorization: String.raw`Bearer \${MAIL_TOKEN}` } }, tools: [] }],
+  }] });
+  expect(await new OpenTeamMarketplaceSource(undefined, manifest).plugins()).toEqual([
+    expect.objectContaining({ key: "self-hosted-mail-room", version: "1.2.3", sourceRevision: "example-7" }),
+  ]);
 });

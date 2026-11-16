@@ -1,4 +1,4 @@
-export interface SerialPoller {
+interface SerialPoller {
   start: () => void;
   stop: () => void;
   wake: () => void;
@@ -6,7 +6,7 @@ export interface SerialPoller {
 
 export const MAX_PARALLEL_UPLOADS = 2;
 
-export interface SerialPollerOptions {
+interface SerialPollerOptions {
   intervalMs: number;
   task: () => Promise<void>;
   /** False preserves callers whose first refresh is handled separately. */
@@ -95,12 +95,12 @@ export const mapWithConcurrency = async <Input, Output>(
   return results;
 };
 
-export interface KeyedRequestLease {
+interface KeyedRequestLease {
   key: string;
   revision: number;
 }
 
-export interface KeyedRequestCoordinator {
+interface KeyedRequestCoordinator {
   clear: () => void;
   invalidate: (key: string) => void;
   isCurrent: (lease: KeyedRequestLease) => boolean;
@@ -149,17 +149,6 @@ export const createKeyedRequestCoordinator = (): KeyedRequestCoordinator => {
   return coordinator;
 };
 
-export interface OperationLease<Client> {
-  client: Client;
-  epoch: number;
-}
-
-export const operationLeaseIsCurrent = <Client>(
-  activeClient: Client | null,
-  activeEpoch: number,
-  lease: OperationLease<Client>
-): boolean => activeClient === lease.client && activeEpoch === lease.epoch;
-
 export interface SerializedBooleanController {
   release: () => void;
   resume: () => void;
@@ -167,7 +156,7 @@ export interface SerializedBooleanController {
   whenIdle: () => Promise<void>;
 }
 
-export interface SerializedBooleanOptions<Result> {
+interface SerializedBooleanOptions<Result> {
   request: (active: boolean) => Promise<Result>;
   onBusyChange?: (busy: boolean) => void;
   onError?: (cause: unknown) => void;
@@ -178,7 +167,7 @@ export interface SerializedBooleanOptions<Result> {
  * Serializes boolean writes and converges on the newest desired value. Release
  * always writes false, including when an earlier enable resolves after blur.
  */
-export const createSerializedBooleanController = <Result>({
+const createSerializedBooleanController = <Result>({
   request,
   onBusyChange,
   onError,

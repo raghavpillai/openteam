@@ -15,7 +15,7 @@ export type DocsSearchIndex = {
 
 export type SearchResult = SearchEntry & { snippet: string; matches: string[] };
 
-export function normalizeSearch(value: string) {
+function normalizeSearch(value: string) {
   return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 

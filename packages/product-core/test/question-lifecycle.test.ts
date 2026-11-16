@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import type { ChannelMessageView } from "@openteam/contracts";
-import { sortedUniqueMessages } from "../src/history";
-import { currentQuestion, projectQuestionLifecycle } from "../src/questions";
+import type { ChannelHistoryPage, ChannelMessageView } from "@openteam/contracts";
+import { channelMessageSummary } from "../src/channel-events";
+import { createChannelHistoryStore } from "../src/channel-history";
+import { emptyLoadedChannelHistory, mergeLoadedChannelHistoryPage, mergeLoadedChannelMessageContext, sortedUniqueMessages } from "../src/history";
+import { createQuestionReceiptStore, currentQuestion, projectQuestionLifecycle } from "../src/questions";
 
 const message = (
   id: string,
@@ -94,4 +96,66 @@ test("a new question retires its predecessor before the older update arrives", (
   expect(projected[2]).toBe(fresh);
   expect(currentQuestion(projected)?.id).toBe(fresh.id);
   expect(older.metadata).not.toHaveProperty("widgetDismissed");
+});
+
+test("a question's chat-list summary is its plain prompt, not its fallback content", () => {
+  const asked = question("1");
+  asked.metadata = { type: "widget", widget: { type: "choice", prompt: "Which **color**?", helpText: "Choose a sample", options: [{ label: "Red" }] } };
+  expect(channelMessageSummary({ ...asked, content: "Fallback content with extra details" })).toBe("Which color?");
+});
+
+const page = (messages: ChannelMessageView[], threadContext: ChannelMessageView[] = []): ChannelHistoryPage => ({
+  channelId: "chat", messages, threadContext, threadContextTruncated: false,
+  beforeSequence: messages[0]?.sequence ?? null, hasMore: true, revision: "1",
+});
+const settlements = [
+  { respondedValue: "Blue", widgetResponseClientId: "answer" },
+  { widgetDismissed: true, widgetDismissalReason: "dismissed", widgetDismissClientId: "skip" },
+];
+
+test("a known receipt survives stale pages and context from every history lane", () => {
+  const lanes = ["messages", "threadContext", "searchContext", "searchThreadContext"] as const;
+  for (const settlement of settlements) for (const lane of lanes) {
+    const base = { ...emptyLoadedChannelHistory(), loadedAt: 1, [lane]: [question("1", settlement)] };
+    for (const mode of ["replace", "refresh", "older"] as const) {
+      const next = mergeLoadedChannelHistoryPage(base, page([question("1")]), mode, 2);
+      expect(next.messages[0]!.metadata).toMatchObject(settlement);
+      expect(currentQuestion(next.messages)).toBeNull();
+    }
+    const searched = mergeLoadedChannelMessageContext(base, { messages: [question("1")], threadContext: [], threadContextTruncated: false });
+    for (const copy of lanes.flatMap(name => searched[name]).filter(row => row.id === "1")) expect(copy.metadata).toMatchObject(settlement);
+  }
+  // The real store keeps a receipt even after a page that dropped the row, and from thread context too.
+  const store = createChannelHistoryStore();
+  store.acceptPage(page([question("1", settlements[0])]), "replace");
+  store.acceptPage(page([]), "replace");
+  store.acceptPage(page([question("1")]), "older");
+  expect(store.visible("chat")![0]!.metadata).toMatchObject(settlements[0]!);
+  store.acceptPage(page([], [question("2", settlements[1])]), "refresh");
+  store.acceptContext({ ...page([question("2")]), beforeSequence: "1", targetMessageId: "2", afterSequence: "1", hasMoreBefore: false, hasMoreAfter: false });
+  const kept = (store.retained("chat") ?? []).filter(row => row.id === "2");
+  expect(kept.length).toBeGreaterThan(0);
+  for (const row of kept) expect(row.metadata).toMatchObject(settlements[1]!);
+});
+
+test("accepted server sequence wins over reversed timestamps", () => {
+  // A transaction can start earlier but acquire the channel lock and sequence later.
+  const q = { ...question("1"), createdAt: "2026-11-14T01:00:00Z" };
+  expect(currentQuestion([{ ...message("2", "user"), createdAt: "2026-11-14T00:00:00Z" }, q])).toBeNull();
+});
+
+test("receipt retention is bounded and resets with channel/account ownership", () => {
+  const receipts = createQuestionReceiptStore(3, 1800);
+  for (let i = 0; i < 20; i++) receipts.remember([question(String(i), { respondedValue: "x".repeat(100) })]);
+  expect(receipts.size).toBeLessThanOrEqual(3);
+  expect(receipts.bytes).toBeLessThanOrEqual(1800);
+  expect(receipts.restore(question("19")).metadata).toHaveProperty("respondedValue");
+  expect(receipts.restore({ ...question("19"), channelId: "other" }).metadata).not.toHaveProperty("respondedValue");
+  for (const reset of ["delete", "clear"] as const) {
+    const store = createChannelHistoryStore();
+    store.acceptPage(page([question("1", settlements[0])]), "replace");
+    if (reset === "delete") store.delete("chat"); else store.clear();
+    store.acceptPage(page([question("1")]), "replace");
+    expect(currentQuestion(store.visible("chat")!)).not.toBeNull();
+  }
 });

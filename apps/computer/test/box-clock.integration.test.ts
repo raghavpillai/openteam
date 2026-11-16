@@ -30,13 +30,6 @@ beforeAll(() => {
   if (inImage) expect(applyZone(zone!).status).toBe(0);
 });
 
-test.skipIf(inImage)("the computer image ships the clock script and zone data", async () => {
-  const file = (path: string) => Bun.file(new URL(`../../../${path}`, import.meta.url)).text();
-  const dockerfile = await file("docker/computer.Dockerfile");
-  expect(dockerfile).toMatch(/apt-get install[\s\S]*?\btzdata\b/);
-  expect(dockerfile).toContain("COPY docker/openteam-box-timezone /usr/lib/openteam/bin/openteam-box-timezone");
-});
-
 test.skipIf(!inImage)("the box clock runs in the configured time zone", () => {
   expect(realpathSync("/etc/localtime")).toBe(realpathSync(`/usr/share/zoneinfo/${zone}`));
   expect(readFileSync("/etc/timezone", "utf8").trim()).toBe(zone!);

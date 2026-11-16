@@ -3,15 +3,12 @@ import platformPrompt from "./prompts/platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
 import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 
-/** Standalone, reviewed runtime asset; never load the local findings directory. */
-export const PLATFORM_SYSTEM_PROMPT_VERSION = platformPrompt.version;
-
 const DELEGATING_ID = "delegating-and-multitasking";
 /** The reference's multitask section; it follows the agent profile and the user line. */
 export const DELEGATING_SECTION = platformPrompt.sections.find(({ id }) => id === DELEGATING_ID)!.text;
 
 /** OpenTeam's provider selection; it extends the reference's web line in Where you work. */
-export const WEB_PROVIDERS_INSTRUCTIONS = "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.";
+const WEB_PROVIDERS_INSTRUCTIONS = "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.";
 
 /** The base through Untrusted content, in the reference's order. Authentication extends Security. */
 const baseSections = (omitted: ReadonlySet<string>, edit: (id: string, text: string) => string = (_id, text) => text) =>
@@ -63,7 +60,7 @@ const automationRunBase = (runSection: string) =>
     .flatMap((text, index) => (index === 0 ? [text, runSection] : [text]))
     .join("\n\n");
 
-export interface PlatformPromptFeatures {
+interface PlatformPromptFeatures {
   /** An automation run's own section; the run drops the chat-turn sections it can't use. */
   automationRun?: string;
   managedSkills?: boolean;

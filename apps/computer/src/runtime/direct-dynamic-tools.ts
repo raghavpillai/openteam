@@ -1,6 +1,6 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
-export interface DirectToolNames {
+interface DirectToolNames {
   /** Tools the model can call by name this turn. */
   registered(): readonly string[];
   /** First-party tools served through CallDynamicTool in the cursor namespace. */

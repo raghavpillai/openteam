@@ -1,5 +1,7 @@
-// Spring physics for setup's motion, as CSS `linear()` easings (see the "Springs" block at
-// the top of the motion section in setup.css, which the tests keep in sync with this file).
+// Spring physics for setup's motion, as CSS `linear()` easings. The block between the
+// `springs:start` and `springs:end` markers in setup.css is `springCss()`'s output; after
+// changing a preset, regenerate it, e.g. `bun -e 'import { springCss } from "./springs.ts";
+// console.log(springCss())'` from this folder, and paste it in.
 
 /** A damped spring, described like SwiftUI's: `response` in seconds, `damping` as a fraction. */
 export type Spring = { response: number; damping: number };

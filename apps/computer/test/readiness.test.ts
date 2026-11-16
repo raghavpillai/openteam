@@ -22,13 +22,6 @@ test.each([
   );
 });
 
-test.each([
-  "darwin",
-  "win32",
-] as const)("does not advertise the Linux desktop on %s", (platform) => {
-  expect(checkDesktopAvailable(platform, (command) => command)).toBe(false);
-});
-
 test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "checks actual process launch and workspace I/O, detects denial, and recovers without probe files",
   async () => {

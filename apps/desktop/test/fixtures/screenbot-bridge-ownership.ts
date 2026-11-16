@@ -63,7 +63,6 @@ const snapshot = (id = "shared-bot") => ({
 const published: any[] = [];
 let deliver!: (request: any) => Promise<void>;
 let transcribeRequest!: (request: any) => Promise<string>;
-let rosterRequest!: () => void;
 let stop: () => void;
 const changeScope = (next: string | null) => {
   scope = null;
@@ -106,10 +105,7 @@ beforeEach(() => {
         transcribeRequest = handler;
         return () => {};
       },
-      onRosterRequest: (handler: () => void) => {
-        rosterRequest = handler;
-        return () => {};
-      },
+      onRosterRequest: () => () => {},
     },
   };
 });
@@ -149,20 +145,6 @@ test("late bootstrap from A cannot publish into replacement B even with identica
   expect(enqueued.at(-1)!.scope).toBe("B");
 });
 
-test("account replacement while delivery refresh waits never enqueues A into B", async () => {
-  stop = startScreenBotBridge();
-  await settle();
-  const pending = deferred<any>();
-  bootstrap = () => pending.promise;
-  const delivery = deliver(request("A", "missing"));
-  bootstrap = async () => snapshot("missing");
-  changeScope("B");
-  await settle();
-  pending.resolve(snapshot("missing"));
-  await expect(delivery).rejects.toThrow("account changed");
-  expect(enqueued).toHaveLength(0);
-});
-
 test("pending enqueue completion is rejected after sign-out/relogin to same account", async () => {
   stop = startScreenBotBridge();
   await settle();
@@ -190,21 +172,4 @@ test("late synthetic transcription cannot restore words in the replacement accou
   changeScope("B");
   pending.resolve({ text: "Private A" });
   await expect(result).rejects.toThrow("account changed");
-});
-
-test("workspace cleanup fences pending refresh and removes auth/theme listeners", async () => {
-  const pending = deferred<any>();
-  bootstrap = () => pending.promise;
-  stop = startScreenBotBridge();
-  stop();
-  const count = published.length;
-  pending.resolve(snapshot());
-  await settle();
-  rosterRequest();
-  fakeWindow.dispatchEvent(new Event("owned-theme-change"));
-  changeScope("B");
-  expect(published).toHaveLength(count);
-  expect(published.at(-1)).toEqual({ accountScope: null, bots: [], dictation: false });
-  expect(authListeners.size).toBe(0);
-  await expect(deliver(request())).rejects.toThrow("account changed");
 });

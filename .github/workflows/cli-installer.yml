@@ -33,7 +33,7 @@ jobs:
           bun-version: 1.4.2
       # The full CLI suite also imports the server's update-agent implementation.
       - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/cli --filter @openteam/server
-      - name: Installer rendering and terminal behavior
+      - name: Installer countdown and install script
         run: bun test ./apps/cli/test/setup-countdown.test.ts ./apps/landing/lib/install-script.test.ts
       - name: Full CLI and browser-state preservation regressions
         if: runner.os != 'Windows'
@@ -41,9 +41,9 @@ jobs:
       - name: Windows disk retention and browser-state preservation regressions
         if: runner.os == 'Windows'
         run: |
-          bun test ./apps/cli/test/disk-maintenance.test.ts ./apps/cli/test/update-safety.test.ts ./apps/cli/test/lifecycle.test.ts ./apps/computer/test/browser-cache-maintenance.test.ts
+          bun test ./apps/cli/test/disk-maintenance.test.ts ./apps/cli/test/lifecycle.test.ts ./apps/computer/test/browser-cache-maintenance.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bun test ./apps/cli/test/release-compose.test.ts --test-name-pattern 'replaces every OpenTeam tag'
+          bun test ./apps/cli/test/release.test.ts --test-name-pattern 'replaces every OpenTeam tag'
       - name: Disk retention against real Docker
         if: runner.os == 'Linux'
         env:

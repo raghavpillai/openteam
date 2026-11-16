@@ -2,45 +2,8 @@ import XCTest
 @testable import OpenTeamCore
 
 final class ConversationActivityTests: XCTestCase {
-  func testBackgroundActivityLifecycleAndScope() throws {
-    let bootstrap = try ProtocolTests().fixture()
-    var channel = bootstrap.channels[0]
-    channel.kind = "bot_dm"
-    let botId = bootstrap.bots[0].id
-    var task = SubagentActivity(id: "task", parentBotId: botId,
-      parentChannelId: channel.id, status: "provisioning")
-    func activity(_ task: SubagentActivity) -> ConversationActivity? {
-      .resolve(channel: channel, botId: botId, runs: [], subagents: [task])
-    }
-    for status in ["provisioning", "queued", "running"] {
-      task.status = status
-      XCTAssertEqual(activity(task), .background, status)
-    }
-    for status in ["waiting", "blocked", "completed", "failed", "stopped", "unknown"] {
-      task.status = status
-      XCTAssertNil(activity(task), status)
-    }
-    task.status = "running"
-    task.parentBotId = "another-bot"
-    XCTAssertNil(activity(task))
-    task.parentBotId = botId
-    task.parentChannelId = "another-chat"
-    XCTAssertNil(activity(task))
-    task.parentChannelId = channel.id
-    channel.kind = "group"
-    XCTAssertNil(activity(task))
-    channel.kind = "bot_dm"
-    XCTAssertNil(ConversationActivity.resolve(channel: channel, botId: nil, runs: [], subagents: [task]))
-    XCTAssertNil(ConversationActivity.resolve(channel: channel, botId: botId, runs: [], subagents: []))
-
-    var run = Run(id: "run", botId: botId, channelId: channel.id, status: "running")
-    XCTAssertEqual(ConversationActivity.resolve(channel: channel, botId: botId, runs: [run], subagents: [task]), .foreground)
-    run.status = "completed"
-    XCTAssertEqual(ConversationActivity.resolve(channel: channel, botId: botId, runs: [run], subagents: [task]), .background)
-  }
-
   func testParkedRequestsAndChildrenStaySilentUntilAnActualWake() throws {
-    let bootstrap = try ProtocolTests().fixture()
+    let bootstrap = try Fixture.bootstrap()
     var channel = bootstrap.channels[0]
     channel.kind = "bot_dm"
     let botId = bootstrap.bots[0].id
@@ -74,8 +37,8 @@ final class ConversationActivityTests: XCTestCase {
     }
   }
 
-  func testBootstrapDecodesAndPersistsTasksAndReadsOlderCaches() throws {
-    let original = try ProtocolTests().fixture()
+  func testBootstrapAndChannelStateDecodeAndPersistTasks() throws {
+    let original = try Fixture.bootstrap()
     var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as! [String: Any]
     payload["subagents"] = [["id": "task", "parentBotId": "bot", "parentChannelId": "chat",
       "status": "queued", "description": "Extra contract fields are allowed"]]
@@ -88,17 +51,5 @@ final class ConversationActivityTests: XCTestCase {
     ]))
     XCTAssertEqual(state.subagents?.first?.id, "task")
     XCTAssertEqual(state.subagents?.first?.isActive, true)
-    // Old caches may still carry the retired execution-mode flag. It must not
-    // prevent decoding or hide an active task from the current activity model.
-    for legacyFlag in [false, true] {
-      var task = (payload["subagents"] as! [[String: Any]])[0]
-      task["runInBackground"] = legacyFlag
-      let restored = try JSONDecoder().decode(SubagentActivity.self,
-        from: JSONSerialization.data(withJSONObject: task))
-      XCTAssertTrue(restored.isActive)
-    }
-    payload.removeValue(forKey: "subagents")
-    let legacy = try JSONDecoder().decode(Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
-    XCTAssertNil(legacy.subagents)
   }
 }

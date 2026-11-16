@@ -9,7 +9,7 @@ export interface SearchConfiguration {
 
 export type SearchFetch = (url: string, init: RequestInit) => Promise<Response>;
 
-export interface SearchResult {
+interface SearchResult {
   title: string;
   url: string;
   description: string;

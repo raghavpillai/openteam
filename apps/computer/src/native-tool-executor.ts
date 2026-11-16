@@ -1,6 +1,5 @@
 import { MachineDirectory } from "./machine-directory";
 import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
-import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
@@ -14,12 +13,7 @@ import { constants, createReadStream, createWriteStream } from "node:fs";
 import { access, mkdir, open, realpath, stat } from "node:fs/promises";
 import { dirname, basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {
-  AwaitShellInput,
-  ReadToolInput,
-  ShellToolInput,
-  TaskInput,
-} from "@openteam/contracts";
+import type { AwaitShellInput, ReadToolInput, ShellToolInput } from "@openteam/contracts";
 import { ShellJobRegistry, SecretRedactor, redactSecrets, validateShellWait, renderShellAwaitResult, type ShellCompletion } from "@openteam/shell-jobs";
 import { createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
 import {
@@ -100,7 +94,7 @@ const textResult = (
   details,
 });
 
-export interface CopyFileInput { computer_path?: string; box_path?: string; machineId: string }
+interface CopyFileInput { computer_path?: string; box_path?: string; machineId: string }
 
 export class NativeToolExecutor {
   async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {

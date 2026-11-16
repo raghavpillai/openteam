@@ -1,4 +1,4 @@
-export const detectTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const detectTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 /** Every IANA zone this runtime knows, for the Settings picker. */
 export const supportedTimeZones = (): string[] => {

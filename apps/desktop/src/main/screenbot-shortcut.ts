@@ -3,8 +3,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 
-export const CHORD_MODIFIERS = ["command", "option", "shift", "control"] as const;
-export type ChordModifier = (typeof CHORD_MODIFIERS)[number];
+const CHORD_MODIFIERS = ["command", "option", "shift", "control"] as const;
+type ChordModifier = (typeof CHORD_MODIFIERS)[number];
 
 /** Either both keys of one modifier (left and right) or an ordinary global shortcut. */
 export type ScreenBotShortcut =
@@ -107,7 +107,7 @@ const sameShortcut = (left: ScreenBotShortcut, right: ScreenBotShortcut) =>
   left.kind === right.kind
   && (left.kind === "chord" ? left.modifier === (right as typeof left).modifier : left.accelerator === (right as typeof left).accelerator);
 
-export interface ScreenBotShortcutOptions {
+interface ScreenBotShortcutOptions {
   platform: NodeJS.Platform;
   settingsPath: string;
   /** The modifier-chord helper; null where there is none (non-macOS). */

@@ -73,12 +73,12 @@ const withoutLatestSteer = (content: string): string => {
 export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
 
-export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
+const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
 
 const agentIdLine = (id: string) =>
   `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`;
 
-export const subagentBackgroundResult = (id: string): string =>
+const subagentBackgroundResult = (id: string): string =>
   `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\n${agentIdLine(id)}`;
 
 const failedTaskMessage = (status: string, error: Prisma.JsonValue | null): string => {

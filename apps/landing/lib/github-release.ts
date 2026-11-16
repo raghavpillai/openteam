@@ -44,7 +44,7 @@ export interface DesktopRelease {
   downloads: Record<DesktopTargetId, { url: string; size: number } | null>;
 }
 
-export function mapDesktopRelease(release: GitHubRelease): DesktopRelease {
+function mapDesktopRelease(release: GitHubRelease): DesktopRelease {
   const downloads = Object.fromEntries(
     desktopTargets.map((target) => {
       const asset = release.assets.find((candidate) => target.assetPattern.test(candidate.name));

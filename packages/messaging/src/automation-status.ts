@@ -1,7 +1,7 @@
 import { describeTrigger } from "@openteam/contracts/reference-main-parsers";
 
 /** A routine as the prompt sees it: its saved definition plus the run ledger. */
-export interface RoutineStatusSource {
+interface RoutineStatusSource {
   id?: string;
   name: string;
   slug: string;

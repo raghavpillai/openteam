@@ -1,6 +1,6 @@
 import { referenceTool } from "./tool-contracts";
 
-export const AGENT_ACTIVITY_LIMITS = {
+const AGENT_ACTIVITY_LIMITS = {
   sinceHours: { fallback: 72, max: 168 },
   maxAgents: { fallback: 10, max: 20 },
   excerptChars: { fallback: 1500, max: 4000 },

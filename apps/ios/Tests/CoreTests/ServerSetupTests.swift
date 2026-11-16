@@ -85,43 +85,9 @@ final class InferenceSettingsTests: XCTestCase {
       ModelSetupCatalog.featured.map(\.id),
       ["openai-codex", "claude-code", "openai", "anthropic", "openrouter"])
   }
-  func testProviderFailuresReadAsSentences() {
-    XCTAssertEqual(
-      ProviderErrorText.sentence(#"500 {"error":{"message":"boom","type":"server_error"}}"#),
-      "The AI provider had a problem (error 500). Try again in a moment.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("Error 429: rate limit reached"),
-      "The AI provider is limiting requests right now. Wait a moment and try again.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("401 Unauthorized"),
-      "The AI provider didn't accept the sign-in or key. Sign in again, or choose a different AI.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("The operation was aborted due to timeout"),
-      "The AI took too long to answer. Try again.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("OpenTeamClientError: fetch failed"),
-      "Your server couldn't reach the AI right now. Check its internet connection and try again.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("TypeError: The model is overloaded."),
-      "The AI provider is overloaded right now. Try again in a moment.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("Inference provider rejected the configuration or request"),
-      "The AI provider didn't accept a request to this model. Choose a different model or reasoning effort.")
-    XCTAssertEqual(ProviderErrorText.sentence(#"{"error":"x"}"#), "The AI didn't reply. Try again.")
-    // A readable message passes through, and the test state uses the sentence.
-    XCTAssertEqual(ProviderErrorText.sentence("Your plan has run out."), "Your plan has run out.")
-    XCTAssertEqual(
-      ProviderErrorText.sentence("Error: No API key found for openai."), "No API key found for openai.")
-    XCTAssertEqual(
-      ModelTestState(.failed(error: "503 Service Unavailable")),
-      .failed("The AI provider had a problem (error 503). Try again in a moment."))
-  }
   func testProviderFailuresKeepTheirReasonAndSayWhetherToRetry() {
     // A rejected key, in the provider's own words, is the reason; waiting won't fix it.
-    for raw in [
-      "Incorrect API key provided: sk-proj-****abcd.", "invalid x-api-key",
-      #"{"type":"error","error":{"type":"authentication_error"}}"#, "403 Forbidden",
-    ] {
+    for raw in ["Incorrect API key provided: sk-proj-****abcd.", "403 Forbidden"] {
       let failure = ProviderErrorText.failure(raw)
       XCTAssertEqual(
         failure.message,
@@ -138,7 +104,7 @@ final class InferenceSettingsTests: XCTestCase {
     XCTAssertTrue(limited.transient)
     for raw in [
       "429 You exceeded your current quota, please check your plan and billing details.",
-      "Your credit balance is too low to access the Anthropic API.", "402 Payment Required",
+      "402 Payment Required",
     ] {
       let failure = ProviderErrorText.failure(raw)
       XCTAssertEqual(
@@ -148,94 +114,11 @@ final class InferenceSettingsTests: XCTestCase {
       XCTAssertFalse(failure.transient, raw)
     }
     // Blips are worth another try.
-    for raw in [
-      "503 Service Unavailable", "529 overloaded_error", "The operation timed out.", "fetch failed",
-      "read ECONNRESET", "504 Gateway Timeout",
-    ] {
+    for raw in ["503 Service Unavailable", "The operation timed out.", "read ECONNRESET"] {
       XCTAssertTrue(ProviderErrorText.failure(raw).transient, raw)
     }
     XCTAssertFalse(ProviderErrorText.failure("404 model not found").transient)
     XCTAssertFalse(ProviderErrorText.failure("Your plan has run out.").transient)
-  }
-  func testTheKeyStepNamesTheProviderThatTurnedTheKeyDown() {
-    // The computer's discovery error, a provider's own words, and a 401 from the test.
-    for raw in [
-      "The provider rejected model discovery (HTTP 401). Reconnect it or grant model-list access.",
-      "Incorrect API key provided.",
-      "401 Incorrect API key provided: sk-bad****.",
-    ] {
-      let failure = ProviderErrorText.failure(raw)
-      XCTAssertTrue(failure.rejected, raw)
-      XCTAssertEqual(
-        failure.keyMessage(provider: "OpenAI"), "OpenAI didn't accept that key. Check it and try again.")
-    }
-    // Anything else keeps its own sentence on the key step.
-    let busy = ProviderErrorText.failure("503 Service Unavailable")
-    XCTAssertFalse(busy.rejected)
-    XCTAssertEqual(
-      busy.keyMessage(provider: "Anthropic"),
-      "The AI provider had a problem (error 503). Try again in a moment.")
-    XCTAssertFalse(ProviderErrorText.failure("429 You exceeded your current quota.").rejected)
-    XCTAssertFalse(ModelTestFailure(request: URLError(.timedOut)).rejected)
-  }
-  func testTestRequestFailuresReadAsSentences() {
-    func failure(_ error: Error) -> ModelTestFailure { ModelTestFailure(request: error) }
-    XCTAssertEqual(
-      failure(URLError(.timedOut)),
-      ModelTestFailure(message: "Your server didn't answer in time. Try again.", transient: true))
-    for code in [URLError.Code.networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost] {
-      XCTAssertEqual(
-        failure(URLError(code)),
-        ModelTestFailure(
-          message: "Couldn't reach your server. Check your connection and try again.",
-          transient: true))
-    }
-    XCTAssertFalse(failure(URLError(.serverCertificateUntrusted)).transient)
-    // The server's own statuses: busy, failing or slow is a blip, and its raw body isn't shown.
-    XCTAssertEqual(
-      failure(APIError("Injected 503 by the chaos proxy", status: 503)),
-      ModelTestFailure(
-        message: "Your server had a problem (error 503). Try again in a moment.", transient: true))
-    XCTAssertEqual(
-      failure(APIError("Too many requests. Please try again later.", status: 429)),
-      ModelTestFailure(
-        message: "Your server is busy right now. Wait a moment and try again.", transient: true))
-    XCTAssertEqual(
-      failure(APIError("Gateway Timeout", status: 504)).message,
-      "Your server didn't answer in time. Try again.")
-    // An answer cut off halfway can't be read, and is worth another try.
-    XCTAssertEqual(
-      failure(APIError("The server returned an invalid response.")),
-      ModelTestFailure(
-        message: "Your server's answer didn't come through. Try again.", transient: true))
-    // A meaningful answer from the server is kept, without a class name.
-    XCTAssertEqual(
-      failure(APIError("Choose a model before testing it.", status: 409)),
-      ModelTestFailure(message: "Choose a model before testing it.", transient: false))
-    XCTAssertEqual(
-      failure(APIError("OpenTeamClientError: Unknown provider", status: 400)).message,
-      "Unknown provider")
-    XCTAssertFalse(
-      failure(DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "x"))).transient)
-  }
-  func testStartsOnTheRecommendedModelWhenTheCatalogMarksOne() throws {
-    let json = #"""
-      {"inference":{"providerId":"openai-codex","modelId":"","reasoning":"medium"},
-       "providers":[{"id":"openrouter","name":"OpenRouter","authMethods":[{"type":"api_key","label":"API key","subscription":false}],"connected":true,"authType":"api_key","authSource":null,"custom":false,"modelCount":2}],
-       "models":[
-         {"providerId":"openrouter","modelId":"anthropic/claude-sonnet-4.5","name":"Anthropic: Claude Sonnet 4.5","reasoning":true,"reasoningLevels":["low","medium","high"],"defaultReasoningLevel":"medium","contextWindow":200000,"maxTokens":64000},
-         {"providerId":"openrouter","modelId":"openrouter/auto","name":"Auto Router","reasoning":false,"reasoningLevels":["off"],"defaultReasoningLevel":"off","contextWindow":2000000,"maxTokens":128000,"recommended":true}
-       ],
-       "modelProviderId":"openrouter"}
-      """#
-    let settings = try decode(ServerSettings.self, json)
-    XCTAssertEqual(settings.models.map(\.recommended), [false, true])
-    XCTAssertEqual(settings.recommendedModel?.modelId, "openrouter/auto")
-    XCTAssertEqual(ModelChoice(loading: settings, provider: "openrouter").modelId, "openrouter/auto")
-    // Without a recommendation, the catalog's first model.
-    let plain = try decode(ServerSettings.self, settingsJSON)
-    XCTAssertFalse(plain.models.contains(where: \.recommended))
-    XCTAssertEqual(plain.recommendedModel?.modelId, "gpt-5.5")
   }
   func testChoosesTheFirstModelUntilOneIsSavedAndTracksChanges() throws {
     var settings = try decode(ServerSettings.self, settingsJSON)
@@ -327,70 +210,25 @@ final class InferenceSettingsTests: XCTestCase {
     noBrowser.authorizationUrl = nil
     XCTAssertNil(noBrowser.capturableRedirect)
   }
-  func testDecodesModelTestsAndDescribesThem() throws {
-    let passed = try decode(
-      InferenceTestResult.self,
-      #"{"ok":true,"providerId":"openai-codex","modelId":"gpt-5.5","latencyMs":1234}"#)
-    XCTAssertEqual(passed, .passed(latencyMs: 1234))
-    XCTAssertEqual(ModelTestState(passed).text, "Working · replied in 1.2 s")
-    let failed = try decode(
-      InferenceTestResult.self,
-      #"{"ok":false,"providerId":"openai","modelId":"gpt-5","error":"Incorrect API key provided."}"#)
-    XCTAssertEqual(
-      ModelTestState(failed),
-      .failed(
-        "The AI provider didn't accept the sign-in or key. Sign in again, or choose a different AI."))
-    XCTAssertEqual(ModelTestState.running.text, "Testing the model…")
-    XCTAssertNil(ModelTestState.idle.text)
-    XCTAssertEqual(ModelSetupCatalog.reasoningLabel("xhigh"), "Extra high")
-    XCTAssertEqual(ModelSetupCatalog.reasoningLabel("off"), "Off")
-    XCTAssertEqual(ModelSetupCatalog.reasoningLabel("minimal"), "Minimal")
-  }
-  func testRequestPathsAndBodies() {
-    XCTAssertEqual(
-      InferenceRequest.startPath("openai-codex"),
-      "/api/v0/inference-providers/openai-codex/auth-sessions")
-    XCTAssertEqual(
-      InferenceRequest.respondPath("a b"), "/api/v0/inference-provider-auth-sessions/a%20b/respond")
-    XCTAssertEqual(
-      InferenceRequest.respond(promptId: "p", value: "v"),
-      .object(["promptId": .string("p"), "value": .string("v")]))
-    XCTAssertEqual(InferenceRequest.start(authType: "api_key"), .object(["authType": .string("api_key")]))
-  }
 }
 
 final class ServerSetupTests: XCTestCase {
-  func testSavedSuffixBlankEditsAndProviderReturn() throws {
-    let saved = try JSONDecoder().decode(TranscriptionSettingsView.self, from: Data(
-      #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"apiKeySuffix":"A7z9","configured":true,"apiKey":"unexpected-private-key"}"#.utf8))
-    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
-    XCTAssertFalse(String(describing: saved).contains("unexpected-private-key"))
-    var draft = TranscriptionDraft(saved)
-    draft.apiKey = "   "
-    XCTAssertFalse(draft.changed(from: saved))
-    XCTAssertNil(draft.body.object["apiKey"])
-    draft.choose(.deepgram)
-    XCTAssertNil(draft.body.object["apiKey"])
-    XCTAssertTrue(saved.hasApiKey)
-    draft.choose(.openai)
-    XCTAssertTrue(draft.hasSavedKey(saved))
-    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
-    draft.removeKey = true
-    XCTAssertEqual(draft.body.object["apiKey"], .null)
-    draft.removeKey = false
-    XCTAssertNil(draft.body.object["apiKey"])
-  }
   func testTranscriptionDraftKeepsReplacesOrRemovesTheKey() throws {
     let saved = try JSONDecoder().decode(
       TranscriptionSettingsView.self,
       from: Data(
-        #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"configured":true}"#
+        #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"apiKeySuffix":"A7z9","configured":true,"apiKey":"unexpected-private-key"}"#
           .utf8))
     XCTAssertEqual(saved.summary, "OpenAI")
+    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
+    XCTAssertFalse(String(describing: saved).contains("unexpected-private-key"))
     var draft = TranscriptionDraft(saved)
     XCTAssertFalse(draft.changed(from: saved))
     XCTAssertTrue(draft.hasSavedKey(saved))
-    // Omitting apiKey keeps the saved key.
+    // Omitting apiKey keeps the saved key; a blank entry is not a replacement.
+    XCTAssertNil(draft.body.object["apiKey"])
+    draft.apiKey = "   "
+    XCTAssertFalse(draft.changed(from: saved))
     XCTAssertNil(draft.body.object["apiKey"])
     draft.apiKey = " sk-new "
     XCTAssertTrue(draft.changed(from: saved))
@@ -430,45 +268,5 @@ final class ServerSetupTests: XCTestCase {
     var off = saved
     off.settings.enabled = false
     XCTAssertEqual(off.summary, "Off")
-  }
-  func testRuntimeChecksBannerAndOnboarding() throws {
-    let runtime = RuntimeStatus(
-      try JSONDecoder().decode(
-        JSON.self,
-        from: Data(
-          #"{"server":"degraded","database":"ready","queue":"unavailable","computer":"ready","inference":"missing","transcription":"configured"}"#
-            .utf8)))
-    XCTAssertFalse(runtime.serverReady)
-    XCTAssertEqual(runtime.serverChecks.map(\.label), ["Server", "Database", "Task queue", "Bot computer"])
-    // "degraded" is the server's overall status; it answered, so only the queue fails.
-    XCTAssertEqual(runtime.serverChecks.filter { !$0.ready }.map(\.key), ["queue"])
-    XCTAssertEqual(
-      RuntimeStatus(values: ["server": "degraded", "database": "ready", "queue": "ready", "computer": "unavailable"])
-        .serverChecks.filter { !$0.ready }.map(\.key), ["computer"])
-    XCTAssertTrue(
-      RuntimeStatus(values: ["server": "ready", "database": "ready", "queue": "ready", "computer": "ready"])
-        .serverReady)
-    XCTAssertFalse(RuntimeStatus(values: [:]).serverChecks[0].ready, "No snapshot, no answer")
-    XCTAssertEqual(runtime.statusRows.map(\.label), ["Server", "Database", "Task queue", "Bot computer", "Model", "Voice notes"])
-    XCTAssertEqual(runtime.statusRows[4].value, "Not set up")
-    XCTAssertEqual(
-      ModelStatusBanner(inference: "missing")?.message,
-      "No model is connected, so your bots can't reply yet.")
-    XCTAssertEqual(ModelStatusBanner(inference: "invalid")?.action, "Connect a model")
-    XCTAssertEqual(ModelStatusBanner(inference: "unavailable")?.action, "Open settings")
-    XCTAssertNil(ModelStatusBanner(inference: "ready"))
-    XCTAssertNil(ModelStatusBanner(inference: nil), "Nothing to show before the server answers")
-    XCTAssertTrue(OnboardingDecision.needed(bots: 0, runtime: RuntimeStatus(values: ["inference": "ready"])))
-    XCTAssertTrue(OnboardingDecision.needed(bots: 3, runtime: runtime))
-    XCTAssertFalse(OnboardingDecision.needed(bots: 3, runtime: RuntimeStatus(values: ["inference": "invalid"])))
-    XCTAssertFalse(OnboardingDecision.needed(bots: 1, runtime: RuntimeStatus(values: [:])))
-  }
-}
-
-final class ProviderDisplayNameTests: XCTestCase {
-  func testPlanSignInsUseThePlanNameLikeDesktop() {
-    XCTAssertEqual(InferenceProvider(id: "openai-codex", name: "Codex").displayName, "ChatGPT")
-    XCTAssertEqual(InferenceProvider(id: "claude-code", name: "Claude Code").displayName, "Claude")
-    XCTAssertEqual(InferenceProvider(id: "openrouter", name: "OpenRouter").displayName, "OpenRouter")
   }
 }

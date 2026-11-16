@@ -1,30 +1,12 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPluginTemplate, pluginIconUrl } from "@openteam/plugin-sdk";
+import { createPluginTemplate } from "@openteam/plugin-sdk";
+import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { discoverPackages } from "../scripts/generate";
 import { pluginCatalog } from "../src";
-
-test("every bundled package includes portable provider artwork", async () => {
-  const catalog = pluginCatalog;
-  expect(catalog.length).toBeGreaterThanOrEqual(8);
-  const onePassword = catalog.find(plugin => plugin.key === "1password");
-  expect(onePassword?.components).toEqual(["skills"]);
-  expect(onePassword?.connections).toEqual([]);
-  for (const plugin of catalog) {
-    expect(plugin.icon).toBe("assets/icon.png");
-    expect(pluginIconUrl(plugin)).toStartWith("data:image/png;base64,");
-    const png = Buffer.from(plugin.binaryFiles![plugin.icon!]!, "base64");
-    expect(png).toEqual(
-      await readFile(new URL(`../${plugin.key}/assets/icon.png`, import.meta.url))
-    );
-    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-    expect(png.readUInt32BE(16)).toBe(192);
-    expect(png.readUInt32BE(20)).toBe(192);
-    expect(plugin.files?.["assets/SOURCES.md"]).toBeTruthy();
-  }
-});
 
 test("contributions discover without imports and folder names do not change package identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "plugin-catalog-"));
@@ -50,3 +32,33 @@ test("contributions discover without imports and folder names do not change pack
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("every registry package declares its origin and shipped provider files survive export byte for byte", async () => {
+  for (const plugin of pluginCatalog) {
+    const audit = await Bun.file(new URL(`../${plugin.key}/upstream.json`, import.meta.url)).json();
+    if (audit.origin === "openteam") {
+      expect(plugin.upstream).toBeUndefined();
+      continue;
+    }
+    expect(plugin.upstream).toEqual(audit);
+    expect(plugin.sourceRevision).toBe(audit.revision);
+    const roundtrip = importPackageArchive(exportPackageArchive(plugin)).definition;
+    if (audit.delivery === "install") {
+      expect(plugin.skills.every((skill) => skill.body === "")).toBe(true);
+      expect(Object.keys(roundtrip.files ?? {}).some((path) => path.startsWith("upstream/"))).toBe(
+        false
+      );
+      continue;
+    }
+    for (const [path, expected] of Object.entries(audit.files)) {
+      const local = await readFile(new URL(`../${plugin.key}/upstream/${path}`, import.meta.url));
+      expect(createHash("sha256").update(local).digest("hex")).toBe(expected as string);
+      const key = `upstream/${path}`;
+      const exported = roundtrip.binaryFiles?.[key]
+        ? Buffer.from(roundtrip.binaryFiles[key]!, "base64")
+        : Buffer.from(roundtrip.files?.[key] ?? "");
+      expect(exported).toEqual(local);
+    }
+    expect(plugin.files?.["OPENTEAM.md"]).toBeUndefined();
+  }
+}, 30_000);

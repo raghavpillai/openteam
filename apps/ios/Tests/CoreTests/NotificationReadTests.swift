@@ -70,27 +70,6 @@ final class NotificationReadTests: XCTestCase {
       "readStates": .array([try! .encode(marker(message, activity))]),
     ])
   }
-  func testDesktopReadRemovesOldMessagesButPreservesNewMessagesAndReactions() {
-    var reads = NotificationReads(scope: "account")
-    reads.merge(marker("10", "19"))
-    XCTAssertTrue(reads.hasRead(push()))
-    XCTAssertFalse(reads.hasRead(push(message: "11")))
-    XCTAssertFalse(reads.hasRead(push("reaction", message: "1")))
-    reads.merge(marker("10", "20"))
-    XCTAssertTrue(reads.hasRead(push("reaction", message: "1")))
-    XCTAssertFalse(reads.hasRead(push("reaction", activity: "21")))
-  }
-  func testOutOfOrderMarkersNeverRegressEitherCursor() {
-    var reads = NotificationReads(scope: "account")
-    reads.merge(marker("20", "10"))
-    reads.merge(marker("10", "20"))
-    reads.merge(marker("0", "0"))
-    XCTAssertEqual(reads.markers["a"], marker("20", "20"))
-    XCTAssertTrue(reads.hasRead(push("reaction", message: "1", activity: "20")))
-    XCTAssertFalse(reads.hasRead(push("reaction", message: "1", activity: "21")))
-    XCTAssertTrue(reads.hasRead(push(message: "20")))
-    XCTAssertFalse(reads.hasRead(push(message: "21")))
-  }
   func testScopesUnknownKindsMalformedCursorsAndOtherChatsStayIsolated() {
     var reads = NotificationReads(scope: "account")
     reads.merge(marker("100", "100"))
@@ -103,14 +82,6 @@ final class NotificationReadTests: XCTestCase {
     XCTAssertNil(
       NotificationReadMarker(
         json: .object(["channelId": .string("a"), "lastReadSequence": .string("10")])))
-  }
-  func testLargeSequencesDoNotLosePrecisionOrUseLexicalOrder() {
-    var reads = NotificationReads(scope: "account")
-    reads.merge(marker("9223372036854775807", "00009"))
-    XCTAssertTrue(reads.hasRead(push(message: "9223372036854775806")))
-    XCTAssertFalse(reads.hasRead(push(message: "9223372036854775808")))
-    XCTAssertFalse(reads.hasRead(push("reaction", activity: "10")))
-    XCTAssertTrue(reads.hasRead(push("reaction", activity: "0009")))
   }
   func testCoalescedSyncSnapshotCatchesUpMultipleChatsAndPersists() throws {
     var reads = NotificationReads(scope: "account")

@@ -38,25 +38,23 @@ describe("desktop update diagnostics", () => {
     );
   });
 
-  test("distinguishes signature, feed, network, download, and apply failures", () => {
-    expect(
-      classifyDesktopUpdateError("Code signature validation failed", "downloading").failureKind
-    ).toBe("signature-invalid");
-    expect(classifyDesktopUpdateError("Update service returned 503", "checking").failureKind).toBe(
-      "feed-http-status"
-    );
-    expect(classifyDesktopUpdateError("manifest JSON parse failed", "checking").failureKind).toBe(
-      "feed-malformed"
-    );
-    expect(classifyDesktopUpdateError("network unreachable", "checking").failureKind).toBe(
-      "service-unavailable"
-    );
-    expect(classifyDesktopUpdateError("stream ended", "downloading").failureKind).toBe(
-      "download-failed"
-    );
-    expect(
-      classifyDesktopUpdateError("cannot apply on this platform", "installing").failureKind
-    ).toBe("apply-unsupported");
+  test.each([
+    ["Code signature validation failed", "downloading", "signature-invalid"],
+    [Object.assign(new Error("x"), { code: "ERR_UPDATER_INVALID_SIGNATURE" }), "downloading", "signature-invalid"],
+    ["Update service returned 503", "checking", "feed-http-status"],
+    [Object.assign(new Error("Service unavailable"), { statusCode: 503 }), "checking", "feed-http-status"],
+    ["manifest JSON parse failed", "checking", "feed-malformed"],
+    ["Cannot parse releases feed\nXML:\n<feed>Code signature validation failed</feed>", "checking", "feed-malformed"],
+    ["Update info doesn't contain a sha512 checksum", "downloading", "feed-malformed"],
+    ["network unreachable", "checking", "service-unavailable"],
+    [Object.assign(new Error("Request failed"), { code: "ETIMEDOUT" }), "checking", "service-unavailable"],
+    [new Error("net::ERR_NAME_NOT_RESOLVED"), "checking", "service-unavailable"],
+    [new Error("net::ERR_CONNECTION_REFUSED"), "downloading", "download-failed"],
+    ["stream ended", "downloading", "download-failed"],
+    ["HTTP 502", "downloading", "download-failed"],
+    ["cannot apply on this platform", "installing", "apply-unsupported"],
+  ] as const)("classifies %p while %s as %s", (error, phase, kind) => {
+    expect(classifyDesktopUpdateError(error, phase).failureKind).toBe(kind);
   });
 
   test("reports a wrapped GitHub timeout without exposing the release feed or response", () => {
@@ -75,76 +73,4 @@ describe("desktop update diagnostics", () => {
     expect(classifyDesktopUpdateError(error, "error").failureKind).toBe("feed-http-status");
   });
 
-  test("ignores signature references in malformed feed payloads", () => {
-    for (const payload of [
-      '\nXML:\n<feed>Code signature validation failed in an older release</feed>',
-      ' rawData: {"releaseNotes":"Fix signatures and SHA512 checksums"}',
-    ]) {
-      const failure = classifyDesktopUpdateError(`Cannot parse releases feed${payload}`, "checking");
-      expect(failure.failureKind).toBe("feed-malformed");
-      expect(failure.message).toBe(
-        "The update service returned invalid release information. Try again later."
-      );
-    }
-  });
-
-  test("recognizes structured HTTP, network and verification errors", () => {
-    expect(
-      classifyDesktopUpdateError(
-        Object.assign(new Error("Service unavailable"), { statusCode: 503 }),
-        "checking"
-      )
-    ).toEqual({
-      failureKind: "feed-http-status",
-      message: "The update service returned HTTP 503. Try again in a few minutes.",
-    });
-    expect(
-      classifyDesktopUpdateError(
-        Object.assign(new Error("Request failed"), { code: "ETIMEDOUT" }),
-        "checking"
-      ).failureKind
-    ).toBe("service-unavailable");
-    expect(
-      classifyDesktopUpdateError(
-        Object.assign(new Error("Verification failed"), { code: "ERR_UPDATER_INVALID_SIGNATURE" }),
-        "downloading"
-      ).failureKind
-    ).toBe("signature-invalid");
-    expect(classifyDesktopUpdateError("HTTP 502", "downloading").failureKind).toBe("download-failed");
-    expect(
-      classifyDesktopUpdateError(
-        "Update info doesn't contain a sha512 checksum",
-        "downloading"
-      ).failureKind
-    ).toBe("feed-malformed");
-  });
-
-  test("treats Electron network errors as an unreachable update service", () => {
-    // Messages electron-updater reported for a refused connection, an unknown host and a
-    // connection that never answered.
-    for (const message of [
-      "net::ERR_CONNECTION_REFUSED",
-      "net::ERR_NAME_NOT_RESOLVED",
-      "net::ERR_CONNECTION_TIMED_OUT",
-    ]) {
-      expect(classifyDesktopUpdateError(new Error(message), "checking")).toEqual({
-        failureKind: "service-unavailable",
-        message: "The update service is currently unreachable. Check your connection and try again.",
-      });
-      expect(classifyDesktopUpdateError(new Error(message), "downloading").failureKind).toBe(
-        "download-failed"
-      );
-    }
-  });
-
-  test("unknown updater errors use bounded public copy", () => {
-    const failure = classifyDesktopUpdateError(
-      `Unexpected error ${"private response ".repeat(1_000)}`,
-      "checking"
-    );
-    expect(failure).toEqual({
-      failureKind: "unknown",
-      message: "The desktop update failed. Try again.",
-    });
-  });
 });

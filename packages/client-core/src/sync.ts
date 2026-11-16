@@ -6,12 +6,11 @@ import type {
 } from "@openteam/contracts";
 import type { ProductEventHandlers } from "./events";
 
-export const LIVE_SYNC_DEBOUNCE_MS = 50;
-export const LIVE_SYNC_RECONNECT_MIN_MS = 1_000;
-export const LIVE_SYNC_RECONNECT_MAX_MS = 30_000;
-export const LIVE_SYNC_FALLBACK_MS = 60_000;
-export const LIVE_SYNC_DEGRADED_FALLBACK_MS = 15_000;
-export const RUNTIME_REFRESH_MS = 30_000;
+const LIVE_SYNC_DEBOUNCE_MS = 50;
+const LIVE_SYNC_RECONNECT_MIN_MS = 1_000;
+const LIVE_SYNC_RECONNECT_MAX_MS = 30_000;
+const LIVE_SYNC_FALLBACK_MS = 60_000;
+const LIVE_SYNC_DEGRADED_FALLBACK_MS = 15_000;
 
 export const shouldRefreshForEvent = (event: ProductEvent): boolean => {
   if (event.topic === "message.delta" || event.topic === "conversation.attached") return false;
@@ -25,7 +24,7 @@ export const shouldRefreshForEvent = (event: ProductEvent): boolean => {
 const numericCursor = (value: string): bigint | null =>
   /^\d+$/.test(value) ? BigInt(value) : null;
 
-export const clientReadCoversCursor = (revision: string, cursor: string): boolean => {
+const clientReadCoversCursor = (revision: string, cursor: string): boolean => {
   const read = numericCursor(revision);
   const required = numericCursor(cursor);
   return read !== null && required !== null && read >= required;
@@ -174,7 +173,7 @@ export class TrailingAsyncCoalescer {
   }
 }
 
-export const reconnectDelay = (attempt: number, jitter = Math.random()): number => {
+const reconnectDelay = (attempt: number, jitter = Math.random()): number => {
   const exponential = Math.min(
     LIVE_SYNC_RECONNECT_MAX_MS,
     LIVE_SYNC_RECONNECT_MIN_MS * 2 ** Math.max(0, Math.trunc(attempt))
@@ -182,7 +181,7 @@ export const reconnectDelay = (attempt: number, jitter = Math.random()): number 
   return Math.round(exponential * (0.8 + Math.min(1, Math.max(0, jitter)) * 0.4));
 };
 
-export interface ReconnectingProductEventStream {
+interface ReconnectingProductEventStream {
   pause: () => void;
   resume: () => void;
   stop: () => void;
@@ -201,7 +200,7 @@ export interface ReconnectingProductEventStreamOptions {
   cancel?: (timer: ReturnType<typeof setTimeout>) => void;
 }
 
-export interface LiveSyncController {
+interface LiveSyncController {
   /** Enable or suspend live work. Pass synchronize=true after returning to the foreground. */
   setActive: (active: boolean, synchronize?: boolean) => void;
   requestSync: () => void;

@@ -7,7 +7,7 @@ import { DESKTOP_MESSAGES_TOOLS, MESSAGES_MACHINE_ID_DESCRIPTION } from "./deskt
 import { MESSAGES_SEND_MAX_FILES } from "./messages-send";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
-export interface ToolContract {
+interface ToolContract {
   name: string;
   description: string;
   inputSchema: Record<string, any>;

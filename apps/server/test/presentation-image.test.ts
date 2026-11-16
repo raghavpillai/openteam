@@ -7,7 +7,8 @@ import { createPublicHttpFetch } from "@openteam/plugin-sdk/public-http";
 import { createPresentationImages, presentationImageResponse, rasterDimensions, IMAGE_BYTE_LIMIT } from "../src/presentation-image";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=", "base64");
-const jpeg = readFileSync(new URL("../../ios/scripts/fixtures/media-photo.jpg", import.meta.url));
+// The smallest baseline JPEG the raster check accepts: SOI, a 3x2 SOF0 frame, EOI.
+const jpeg = Buffer.from("ffd8ffc00011080002000303011100021101031101ffd9", "hex");
 const webp = readFileSync(new URL("../../desktop/src/renderer/assets/model-providers/chatgpt.webp", import.meta.url));
 const ca = readFileSync(new URL("../../../packages/plugin-sdk/test/fixtures/public-image/cert.pem", import.meta.url));
 const key = readFileSync(new URL("../../../packages/plugin-sdk/test/fixtures/public-image/key.pem", import.meta.url));
@@ -66,7 +67,7 @@ async function fixture(run: (tools: { load: ReturnType<typeof createPresentation
   finally { server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
 }
 
-test("real pinned HTTPS preserves public photos, original host/SNI, and strips every caller credential", () => fixture(async ({ load, source, seen }) => {
+test("real pinned HTTPS preserves public PNG, JPEG and WebP photos, original host/SNI, and strips every caller credential", () => fixture(async ({ load, source, seen }) => {
   const response = await load(request(source("/photo")), "account-a");
   expect(response.status).toBe(200);
   expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
@@ -80,6 +81,11 @@ test("real pinned HTTPS preserves public photos, original host/SNI, and strips e
   expect(seen).toHaveLength(1);
   expect((await load(request(source("/photo")), "account-b")).status).toBe(200);
   expect(seen).toHaveLength(2);
+  for (const [path, bytes, mime] of [["/jpeg", jpeg, "image/jpeg"], ["/webp", webp, "image/webp"]] as const) {
+    const response = await load(request(source(path)), "photos");
+    expect(response.headers.get("content-type")).toBe(mime);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+  }
 }));
 
 for (const address of ["127.0.0.1", "::1", "192.168.1.1", "169.254.169.254", "::ffff:127.0.0.1", "fc00::1", "64:ff9b::7f00:1", "2002:7f00:1::"]) {
@@ -107,7 +113,7 @@ test("redirect hop re-resolves and refuses rebinding before the second socket", 
   }, (async () => [{ address: ++calls === 1 ? "8.8.8.8" : "127.0.0.1", family: 4 }]) as unknown as typeof lookup);
 });
 
-test("caller abort and deadline stop incomplete reads; no partial cache", () => fixture(async ({ load, source, seen, reached }) => {
+test("caller abort (also after a redirect) and deadline stop incomplete reads; no partial cache", () => fixture(async ({ load, source, seen, reached }) => {
   const controller = new AbortController();
   const pending = load(request(source("/slow"), controller.signal), "a");
   await reached("/slow"); controller.abort();
@@ -115,6 +121,12 @@ test("caller abort and deadline stop incomplete reads; no partial cache", () => 
   expect((await load(request(source("/photo")), "a")).status).toBe(200);
   expect((await load(request(source("/slow")), "a")).status).toBe(422);
   expect(seen).toHaveLength(3);
+  const redirected = new AbortController();
+  const afterRedirect = load(request(source("/redirect-slow"), redirected.signal), "b");
+  while (seen.length < 5) await new Promise(done => setTimeout(done, 5));
+  redirected.abort();
+  expect((await afterRedirect).status).toBe(422);
+  expect(seen.slice(3).map(r => r.url)).toEqual(["/redirect-slow", "/slow"]);
 }));
 
 test("global concurrency and queue are bounded; queued cancellation releases waiters", async () => {
@@ -183,35 +195,3 @@ test("compressed cache is cost bounded, session scoped and expires", async () =>
   now = 60_001;
   await load(request("https://photo.example.com/0"), "a"); expect(calls).toBe(20);
 });
-
-test("more than four legitimate photos queue and finish without being dropped", async () => {
-  let active = 0, peak = 0;
-  const load = createPresentationImages({ fetch: async () => {
-    active++; peak = Math.max(active, peak);
-    await new Promise(done => setTimeout(done, 5)); active--;
-    return new Response(png, { headers: { "content-type": "image/png" } });
-  } });
-  const responses = await Promise.all(Array.from({ length: 12 }, (_, i) => load(request(`https://photo.example.com/${i}`), "a")));
-  expect(responses.every(r => r.status === 200)).toBe(true);
-  expect(peak).toBe(4);
-});
-
-test("caller cancellation remains active after a public redirect", () => fixture(async ({ load, source, seen, reached }) => {
-  const controller = new AbortController();
-  const pending = load(request(source("/redirect-slow"), controller.signal), "a");
-  await reached("/slow"); controller.abort();
-  expect((await pending).status).toBe(422);
-  expect(seen.map(r => r.url)).toEqual(["/redirect-slow", "/slow"]);
-}));
-
-
-test("real raster JPEG photos and WebP remain supported through pinned HTTPS", () => fixture(async ({ load, source }) => {
-  for (const [path, bytes, mime] of [["/jpeg", jpeg, "image/jpeg"], ["/webp", webp, "image/webp"]] as const) {
-    const response = await load(request(source(path)), "photos");
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe(mime);
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
-    const [width, height] = rasterDimensions(bytes, mime);
-    expect(width > 0 && height > 0).toBe(true);
-  }
-}));

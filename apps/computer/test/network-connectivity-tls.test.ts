@@ -1,41 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { runInNode, selfSignedCertificate } from "./node-runner";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 test("real Node TLS probes verify certificates, use only the chosen exit, and cancel sockets", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openteam-family-tls-"));
-  let runner: ReturnType<typeof Bun.spawn> | undefined;
-  try {
-    for (const name of ["trusted", "untrusted"]) {
-      const process = Bun.spawn(
-        [
-          "openssl",
-          "req",
-          "-x509",
-          "-newkey",
-          "rsa:2048",
-          "-nodes",
-          "-keyout",
-          join(directory, name + ".key"),
-          "-out",
-          join(directory, name + ".pem"),
-          "-days",
-          "1",
-          "-subj",
-          "/CN=cloudflare-dns.com",
-          "-addext",
-          "subjectAltName=DNS:cloudflare-dns.com,DNS:dns.google",
-        ],
-        { stdout: "ignore", stderr: "ignore" }
-      );
-      expect(await process.exited).toBe(0);
-    }
-    const entry = join(directory, "runner.ts"),
-      output = join(directory, "runner.mjs");
-    await writeFile(
-      entry,
-      `
+  const directory = await tempDir("openteam-family-tls-");
+  for (const name of ["trusted", "untrusted"]) await selfSignedCertificate(directory, ["cloudflare-dns.com", "dns.google"], name);
+  const stdout = await runInNode(directory, { source: `
 import assert from 'node:assert/strict';
 import { createServer } from 'node:tls';
 import { createConnection } from 'node:net';
@@ -74,32 +46,6 @@ try {
  await new Promise(r=>setTimeout(r,50));assert.equal(sockets.size,0);
  assert.equal(opened,12);console.log('verified TLS, both families, certificate rejection and abort cleanup');
 } finally {for(const socket of sockets)socket.destroy();await new Promise(r=>server.close(r));}
-`
-    );
-    const build = await Bun.build({
-      entrypoints: [entry],
-      target: "node",
-      outdir: directory,
-      naming: "runner.mjs",
-    });
-    expect(build.success).toBe(true);
-    const child = Bun.spawn(["node", output], {
-      env: { ...process.env, NODE_EXTRA_CA_CERTS: join(directory, "trusted.pem") },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    runner = child;
-    const timer = setTimeout(() => child.kill(), 10_000);
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    clearTimeout(timer);
-    if (code !== 0) throw Error(stderr || stdout);
-    expect(stdout).toContain("verified TLS");
-  } finally {
-    runner?.kill();
-    await rm(directory, { recursive: true, force: true });
-  }
+` }, { env: { NODE_EXTRA_CA_CERTS: join(directory, "trusted.pem") }, timeoutMs: 10_000 });
+  expect(stdout).toContain("verified TLS");
 }, 15_000);

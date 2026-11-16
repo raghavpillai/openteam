@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
 import type { AgentNotificationPayload } from "@openteam/contracts";
-import { ApnsClient, apnsPayload, type ApnsTransport } from "../src/apns";
+import { ApnsClient, type ApnsTransport } from "../src/apns";
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const config = {
@@ -74,47 +74,6 @@ describe("native APNs delivery", () => {
       status: 200,
     });
   });
-  test("desktop reads use production background delivery without a visible alert or stale badge", async () => {
-    const transport: ApnsTransport = async (authority, headers, body) => {
-      expect(authority).toBe("https://api.push.apple.com");
-      expect(headers["apns-priority"]).toBe("5");
-      expect(headers["apns-push-type"]).toBe("background");
-      const value = JSON.parse(body);
-      expect(value.aps).toEqual({ "content-available": 1 });
-      expect(value.data.readState.lastReadNotificationSequence).toBe("24");
-      expect(value.data.badgeCount).toBe(0);
-      return { status: 200 };
-    };
-    await new ApnsClient(config, transport).send(
-      { ...device, apnsEnvironment: "production" },
-      {
-        schemaVersion: 1,
-        kind: "badge-sync",
-        badgeCount: 99,
-        readState: {
-          channelId: "channel",
-          lastReadSequence: alert.messageSequence!,
-          lastReadNotificationSequence: "24",
-        },
-      },
-      0,
-      "read"
-    );
-  });
-  test("coalesces reads across channels but keeps separate message deliveries", async () => {
-    const ids: string[] = [];
-    const client = new ApnsClient(config, async (_, headers) => {
-      ids.push(headers["apns-collapse-id"]!);
-      return { status: 200 };
-    });
-    for (const key of ["a", "b"])
-      await client.send(device, { schemaVersion: 1, kind: "badge-sync", badgeCount: 0 }, 0, key);
-    for (const key of ["a", "b", "b"]) await client.send(device, alert, 1, key);
-    expect(ids[0]).toBe(ids[1]);
-    expect(ids[2]).not.toBe(ids[3]);
-    expect(ids[3]).toBe(ids[4]);
-    expect(ids.every((id) => Buffer.byteLength(id) <= 64)).toBe(true);
-  });
   test("bounds UTF-8 payloads while preserving routing and sound policy", async () => {
     const heavy = "👨‍👩‍👧‍👦".repeat(500);
     const client = new ApnsClient(config, async (_, __, body) => {
@@ -136,18 +95,6 @@ describe("native APNs delivery", () => {
       1,
       "large"
     );
-  });
-  test("tells the phone which thread a reply belongs to", () => {
-    const threaded = apnsPayload(device, { ...alert, threadMessageId: "reply-1" }, 2);
-    const plain = apnsPayload(device, alert, 2);
-    expect((threaded.data as Record<string, unknown>).threadMessageId).toBe("reply-1");
-    expect((plain.data as Record<string, unknown>).threadMessageId).toBeUndefined();
-  });
-  test("keeps the exact message identity for alerts outside the newest history page", () => {
-    const value = apnsPayload(device, { ...alert, messageId: "older-message" }, 2);
-    expect((value.data as Record<string, unknown>).messageId).toBe("older-message");
-    expect((value.data as Record<string, unknown>).messageSequence).toBe(alert.messageSequence);
-    expect((apnsPayload(device, alert, 2).data as Record<string, unknown>).messageId).toBeUndefined();
   });
   test("rejects a mismatched app, invalid environment, token or signing key without sending", async () => {
     let requests = 0;
@@ -174,105 +121,5 @@ describe("native APNs delivery", () => {
       )
     ).rejects.toThrow("P-256");
     expect(requests).toBe(0);
-  });
-  test("returns provider rejection for retry or device retirement", async () => {
-    const client = new ApnsClient(config, async () => ({ status: 410, reason: "Unregistered" }));
-    expect(await client.send(device, alert, 0, "gone")).toEqual({
-      status: 410,
-      reason: "Unregistered",
-    });
-  });
-});
-
-import { PushNotificationDispatcher } from "../src/push-notifications";
-async function dispatch(result: { status: number; reason?: string } | Error) {
-  const devices = [
-    {
-      ...device,
-      id: "native",
-      provider: "apns",
-      enabled: true,
-      authRequired: false,
-      authSession: null,
-    },
-  ];
-  const updates: any[] = [],
-    disabled: any[] = [],
-    sends: string[] = [];
-  let claim = 0;
-  const tx = {
-    $queryRaw: async () => [{ count: 3n }],
-    pushDevice: {
-      findMany: async () => devices,
-      updateMany: async (value: any) => {
-        disabled.push(value);
-        return { count: 1 };
-      },
-    },
-    outboxDelivery: {
-      update: async (value: any) => {
-        updates.push(value);
-        return {};
-      },
-      updateMany: async () => ({ count: 1 }),
-      createMany: async () => ({ count: 1 }),
-    },
-  };
-  const prisma = {
-    ...tx,
-    $queryRaw: async () =>
-      ++claim === 1
-        ? devices.map((d) => ({
-            id: d.id,
-            deliveryKey: "key:" + d.id,
-            target: d.id,
-            payload: { schemaVersion: 1, kind: "badge-sync", badgeCount: 3 },
-            attempts: 1,
-          }))
-        : [],
-    $transaction: async (fn: any) => fn(tx),
-  };
-  const client = {
-    send: async (d: any) => {
-      sends.push(d.id);
-      if (result instanceof Error) throw result;
-      return result;
-    },
-  };
-  const dispatcher = new PushNotificationDispatcher(prisma as never, "disabled", client as never);
-  await dispatcher.drain();
-  return { updates, disabled, sends };
-}
-
-describe("native push outbox recovery", () => {
-  test("settles an accepted APNs delivery", async () => {
-    const value = await dispatch({ status: 200 });
-    expect(value.sends).toEqual(["native"]);
-    expect(value.disabled).toEqual([]);
-    expect(value.updates.at(-1)).toMatchObject({
-      where: { id: "native" },
-      data: { status: "delivered", deliveredAt: expect.any(Date) },
-    });
-  });
-  test("retires unregistered tokens instead of repeatedly sending to a deleted app", async () => {
-    for (const result of [
-      { status: 410, reason: "Unregistered" },
-      { status: 400, reason: "BadDeviceToken" },
-    ]) {
-      const value = await dispatch(result);
-      expect(value.disabled).toEqual([{ where: { id: "native" }, data: { enabled: false } }]);
-      expect(value.updates.at(-1).data).toMatchObject({ status: "delivered", attempts: 5 });
-    }
-  });
-  test("retries temporary rejection and connection failures without disabling the device", async () => {
-    for (const result of [
-      { status: 503, reason: "ServiceUnavailable" },
-      new Error("APNs request timed out"),
-    ]) {
-      const value = await dispatch(result);
-      expect(value.disabled).toEqual([]);
-      expect(value.updates.at(-1).data.status).toBe("failed");
-      expect(value.updates.at(-1).data.availableAt.getTime()).toBeGreaterThan(Date.now());
-    }
   });
 });

@@ -13,13 +13,13 @@ import {
 import type { HostJobPayload, HostReadInput, HostShellInput } from "./job-protocol";
 
 export const MAX_INLINE_BYTES = HOST_INLINE_OUTPUT_MAX_BYTES;
-export const MAX_PDF_TEXT_BYTES = 10 * 1024 * 1024;
-export const MAX_SHELL_LOG_BYTES = 64 * 1024 * 1024;
+const MAX_PDF_TEXT_BYTES = 10 * 1024 * 1024;
+const MAX_SHELL_LOG_BYTES = 64 * 1024 * 1024;
 const SHELL_LOG_FOOTER_RESERVE_BYTES = 1_024;
-export const MAX_ACTIVE_SHELL_JOBS = 2;
-export const MAX_QUEUED_SHELL_JOBS = 8;
-export const MAX_SHELL_RUNTIME_MS = 2 * 60 * 60 * 1_000;
-export const SHELL_TERMINATION_GRACE_MS = 1_500;
+const MAX_ACTIVE_SHELL_JOBS = 2;
+const MAX_QUEUED_SHELL_JOBS = 8;
+const MAX_SHELL_RUNTIME_MS = 2 * 60 * 60 * 1_000;
+const SHELL_TERMINATION_GRACE_MS = 1_500;
 /** How often a running command's terminal header refreshes `running_for_ms`, as on the box. */
 const TERMINAL_HEADER_UPDATE_MS = 5_000;
 
@@ -322,7 +322,7 @@ const pdfText = (path: string, signal?: AbortSignal): Promise<string> => {
   return result;
 };
 
-export const executeRead = async (input: HostReadInput, signal?: AbortSignal) => {
+const executeRead = async (input: HostReadInput, signal?: AbortSignal) => {
   if (typeof input.path !== "string" || !isAbsolute(input.path)) {
     throw new Error("ExternalRead requires an absolute path");
   }
@@ -381,7 +381,7 @@ const resultOutput = (chunks: Buffer[], diagnostic?: string) => {
   ]).toString("utf8");
 };
 
-export interface HostShellExecutionOptions {
+interface HostShellExecutionOptions {
   maxRuntimeMs?: number;
   terminationGraceMs?: number;
 }

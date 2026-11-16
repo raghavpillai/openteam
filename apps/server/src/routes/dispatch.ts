@@ -2,7 +2,7 @@ import type { Effect, Schema } from "effect";
 import { json, parseBody } from "../http";
 import { type RouteContext, run } from "./context";
 
-export type RouteHandler = (context: RouteContext) => Promise<Response | undefined>;
+type RouteHandler = (context: RouteContext) => Promise<Response | undefined>;
 type PathPattern = string | RegExp;
 
 const route =

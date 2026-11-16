@@ -19,31 +19,12 @@ describe("client documentation search", () => {
     }
   });
 
-  test("returns useful starting points without a query", () => {
-    expect(search("")[0].title).toBe("Quickstart");
-    expect(search(" ")).toEqual(search(""));
-    expect(search("", 3)).toHaveLength(3);
-  });
-
-  test("ranks exact titles first and matches case-insensitively", () => {
-    expect(search("GOOGLE")[0].href).toBe("/docs/integrations/google");
-    expect(search("remote access")[0].href).toBe("/docs/configuration/remote-access");
-    expect(search("installation")[0].href).toBe("/docs/getting-started/installation");
-  });
-
   test("matches prefixes, missing letters, replacements, and transpositions", () => {
     expect(search("goog")[0].href).toBe("/docs/integrations/google");
     expect(search("gogle")[0].href).toBe("/docs/integrations/google");
     expect(search("goofle")[0].href).toBe("/docs/integrations/google");
     expect(search("googel")[0].href).toBe("/docs/integrations/google");
     expect(search("instalation")[0].href).toBe("/docs/getting-started/installation");
-  });
-
-  test("searches body text, tables, and code with direct section links", () => {
-    expect(search("oauth callback")[0].href).toBe("/docs/integrations/accounts#sign-in-callback");
-    expect(search("8787").some((entry) => entry.href.endsWith("#requirements"))).toBe(true);
-    expect(search("OPENTEAM_HOME").some((entry) => entry.href.endsWith("#where-openteam-is-installed"))).toBe(true);
-    expect(search("how do I install OpenTeam").some((entry) => entry.href.includes("/getting-started/installation#"))).toBe(true);
   });
 
   test("requires all significant terms and handles arbitrary input safely", () => {

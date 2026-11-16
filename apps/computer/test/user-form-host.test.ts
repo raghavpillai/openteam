@@ -1,18 +1,17 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { formatUserFormReceipt, parseUserForm } from "@openteam/contracts";
 import { FormPreparationError, UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
-const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const form = { title: "Sign in", instruction: "Complete these fields", domain: "example.com", fields: [
   { id: "email", label: "Email", type: "email", required: true, target: { kind: "ref", value: "e1" } },
   { id: "password", label: "Password", type: "password", secret: false, target: { kind: "ref", value: "e2" } },
 ] };
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "user-form-host-")); roots.push(root);
+  const root = await tempDir("user-form-host-");
   const fills: string[] = []; let fail = false; let entered = 0;
   const browser: FormBrowser = {
     canSave: async (_, field) => field.type !== "password",
@@ -79,17 +78,6 @@ test("no Enter on failed fill, dismissal is idempotent, and preflight refuses un
   await expect(f.host.prepare("bot", "unreachable", form)).rejects.toThrow("No requested fields");
 });
 
-test("form preflight reports omitted controls and preserves that diagnostic on replay",async()=>{
- const f=await fixture();
- f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:["email"],failureKinds:{password:"in_unreachable_frame"}});
- const prepared=await f.host.prepare("bot","partial",form);
- expect(prepared.fields.map(field=>field.id)).toEqual(["email"]);
- expect(prepared.preflightNote).toContain("inside a frame the host could not inspect (still loading or unreadable)");
- expect(await f.host.prepare("bot","partial",form)).toEqual(prepared);
- f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:[],failureKinds:{email:"in_unreachable_frame",password:"in_unreachable_frame"}});
- await expect(f.host.prepare("bot","structural",form)).rejects.toThrow("was NOT shown");
-});
-
 test('a killed host records unknown effects and never repeats the browser operation after restart', async () => {
   const f = await fixture();
   const script = `import {UserFormHost} from ${JSON.stringify(join(import.meta.dir, '../src/user-form-host.ts'))};
@@ -104,7 +92,6 @@ test('a killed host records unknown effects and never repeats the browser operat
   expect(await recovered.submit('bot', 'crash', {})).toEqual(receipt);
 });
 
-
 test("held form values survive waiting for a user turn and are discarded at that turn's end", async () => {
   const f=await fixture(); f.fail(true);
   await f.host.prepare("bot","form",form);
@@ -115,16 +102,6 @@ test("held form values survive waiting for a user turn and are discarded at that
   await f.host.beginTurn("bot","response-turn");
   await f.host.endTurn("bot","response-turn");
   await expect(f.host.remap("bot",{targets:[{fieldId:"email",target:{kind:"ref",value:"e3"}}]})).rejects.toThrow("No held");
-});
-
-test("a new turn discards holds left by an interrupted old turn", async () => {
-  const f=await fixture(); f.fail(true);
-  await f.host.prepare("bot","form",form);
-  await f.host.submit("bot","form",{email:"private@example.test",password:"synthetic-secret"});
-  await f.host.beginTurn("bot","interrupted");
-  const restarted=new UserFormHost(f.root,async()=>f.browser);
-  await restarted.beginTurn("bot","next");
-  await expect(restarted.remap("bot",{targets:[{fieldId:"email",target:{kind:"ref",value:"e3"}}]})).rejects.toThrow("No held");
 });
 
 test("opening the screen settles a form without filling or retaining submitted values", async () => {

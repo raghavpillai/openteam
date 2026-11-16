@@ -620,8 +620,6 @@ export class ChannelService {
 }
 
 export {
-  formatChannelRenamePrompt,
   formatDirectMentionContext,
   formatUserPrompt,
-  formatUserReactionPrompt,
 } from "./channel/formatting";

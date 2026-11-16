@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentDataStore } from "../src/agent-data";
@@ -37,17 +37,28 @@ test("initialization repairs group traversal without exposing private state or r
   }
 });
 
-test("invalid active-agent selections leave the previous selection unchanged", async () => {
-  const root = await mkdtemp(join(tmpdir(), "agent-selection-"));
-  const tx = { $executeRaw: async () => 0 };
-  const db = { $transaction: async (run: (value: typeof tx) => unknown) => run(tx) };
-  const store = new AgentDataStore(db as never, { root, workspaceRoot: root });
+test("bot creation, repair and edits keep shared file modes and refuse a symlinked profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "access-profile-"));
+  const bot = { id: "fixture", name: "Before", status: "active", avatarPath: null };
+  const tx = { $executeRaw: async () => 0, bot: { findUnique: async () => bot } };
+  const store = new AgentDataStore({ $transaction: async (fn: any) => fn(tx) } as never, { root, workspaceRoot: root });
+  const mode = async (name: string) => (await stat(join(root, name))).mode & 0o777;
   try {
-    await store.writeActiveAgentId("existing-bot");
-    for (const id of ["", ".", "..", "../invalid", "a/b", "a\\b", "bad\0id"]) {
-      await expect(store.writeActiveAgentId(id)).rejects.toMatchObject({ status: 400, code: "invalid_active_agent" });
-      expect(await store.loadActiveAgentId()).toBe("existing-bot");
-    }
+    await store.ensureRuntimeDirectories();
+    await store.initializeBot(bot.id);
+    expect(await mode("agents/fixture/profile.json")).toBe(0o664);
+    expect(await mode("agents/fixture/settings.json")).toBe(0o664);
+    await chmod(join(root, "agents/fixture/profile.json"), 0o644);
+    await store.initializeBot(bot.id);
+    expect(await mode("agents/fixture/profile.json")).toBe(0o664);
+    bot.name = "After";
+    await store.writeBotFiles(bot.id, ["profile", "settings"]);
+    expect(JSON.parse(await readFile(join(root, "agents/fixture/profile.json"), "utf8")).name).toBe("After");
+    expect(await mode("agents/fixture/profile.json")).toBe(0o664);
+    await rm(join(root, "agents/fixture/profile.json"));
+    await symlink(join(root, "settings.json"), join(root, "agents/fixture/profile.json"));
+    await expect(store.initializeBot(bot.id)).rejects.toThrow();
+    expect(await mode("settings.json")).toBe(0o600);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

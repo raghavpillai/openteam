@@ -147,7 +147,7 @@ export async function receiveAutomationWebhook(
   for (const event of events) await dispatch(binding.owner, event);
   return Response.json({ accepted: true, events: events.length });
 }
-export function normalizeWebhook(
+function normalizeWebhook(
   binding: AutomationWebhookBinding,
   payload: Record<string, any>,
   headers: Headers

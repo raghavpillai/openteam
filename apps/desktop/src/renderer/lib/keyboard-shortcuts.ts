@@ -22,7 +22,7 @@ const MODIFIER = /^(?:CommandOrControl|CmdOrCtrl|Command|Cmd|Control|Ctrl|Alt|Op
 const KEY = /^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Tab|Backspace|Delete|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|[`\-=[\];',./\\])$/;
 const MODIFIER_ORDER = ["Command", "Control", "Alt", "Shift", "Super"];
 
-export interface ParsedShortcut {
+interface ParsedShortcut {
   command: boolean;
   control: boolean;
   alt: boolean;

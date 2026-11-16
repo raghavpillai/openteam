@@ -9,15 +9,15 @@ import type {
   BotSummaryRetryDirective,
 } from "./types";
 
-export const BOT_CONTEXT_COMPACTION_RATIO = 0.9;
+const BOT_CONTEXT_COMPACTION_RATIO = 0.9;
 
 export const BOT_IMAGE_TRIGGER = 85;
 
-export const BOT_CONVERSATION_SOFT_BYTES = 256 * 1024 * 1024;
+const BOT_CONVERSATION_SOFT_BYTES = 256 * 1024 * 1024;
 
-export const BOT_CONVERSATION_HARD_BYTES = 1024 * 1024 * 1024;
+const BOT_CONVERSATION_HARD_BYTES = 1024 * 1024 * 1024;
 
-export const positiveByteLimit = (value: string | undefined, fallback: number): number => {
+const positiveByteLimit = (value: string | undefined, fallback: number): number => {
   if (!value || !/^\d+$/.test(value)) return fallback;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -58,7 +58,7 @@ export const compactionEvent = (
   ...(blob.metrics ? { metrics: blob.metrics } : {}),
 });
 
-export const canonical = (value: unknown): unknown => {
+const canonical = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonical);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
@@ -77,7 +77,7 @@ export const sha256 = (value: string | Uint8Array): string =>
 export const botMessageDigest = (messages: readonly BotMessage[]): string =>
   sha256(canonicalJson(messages));
 
-export const cursorOptions = (message: BotMessage): Record<string, unknown> => {
+const cursorOptions = (message: BotMessage): Record<string, unknown> => {
   const provider = message.providerOptions;
   if (!provider || typeof provider !== "object") return {};
   const cursor = provider.cursor;
@@ -147,7 +147,7 @@ export const replaceBotUserInfo = (
   ];
 };
 
-export const hasModelVisibleContent = (message: BotMessage): boolean => {
+const hasModelVisibleContent = (message: BotMessage): boolean => {
   if (typeof message.content === "string") return message.content.trim().length > 0;
   if (!Array.isArray(message.content)) return false;
   return message.content.some((part) => {
@@ -324,7 +324,7 @@ export const isValidBotEarlyThreshold = (
   threshold < maxTokens;
 
 // The reference starts once fewer than 10,000 tokens or 10% of the window remain.
-export const BOT_CONTEXT_UNUSED_TOKENS = 10_000;
+const BOT_CONTEXT_UNUSED_TOKENS = 10_000;
 
 export const botBackgroundThreshold = (maxTokens: number, earlyThreshold?: number): number =>
   Math.min(
@@ -377,7 +377,7 @@ export const estimateBotContextTokens = (
   (tools.length ? estimateBotTextTokens(canonicalJson(tools)) : 0) +
   messages.reduce((total, message) => total + estimateBotMessageTokens(message), 0);
 
-export const estimateBotMessageTokens = (message: BotMessage): number => {
+const estimateBotMessageTokens = (message: BotMessage): number => {
   const content = message.content ?? message.summary ?? message.output ?? "";
   const parts = Array.isArray(content) ? content : [content];
   return (
@@ -515,7 +515,7 @@ export const messagesHavePrefixByValue = (
     return candidate !== undefined && botMessageDigest([message]) === botMessageDigest([candidate]);
   });
 
-export const toolCallIds = (message: BotMessage): string[] => {
+const toolCallIds = (message: BotMessage): string[] => {
   if (!Array.isArray(message.content)) return [];
   return message.content.flatMap((part) => {
     if (!part || typeof part !== "object") return [];
@@ -526,7 +526,7 @@ export const toolCallIds = (message: BotMessage): string[] => {
   });
 };
 
-export const toolResultIds = (message: BotMessage): string[] => {
+const toolResultIds = (message: BotMessage): string[] => {
   if (message.role !== "toolResult" && message.role !== "tool") return [];
   const direct = message.toolCallId ?? message.tool_call_id;
   if (typeof direct === "string" && direct) return [direct];
@@ -566,14 +566,14 @@ export const reduceBotSummaryInputMessages = (messages: readonly BotMessage[]): 
   return structuredClone(messages.slice(start));
 };
 
-export const noSummaryRetry = (): BotSummaryRetryDirective => ({
+const noSummaryRetry = (): BotSummaryRetryDirective => ({
   retry: false,
   delay: false,
   reduceInputs: false,
   shorter: false,
 });
 
-export const summaryRetry = (
+const summaryRetry = (
   options: Partial<Omit<BotSummaryRetryDirective, "retry">> = {}
 ): BotSummaryRetryDirective => ({
   retry: true,

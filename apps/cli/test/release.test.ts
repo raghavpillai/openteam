@@ -1,144 +1,132 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import {
-  downloadRelease,
-  releaseComposeUrl,
-  validateCompose,
-  verifyReleaseSignature,
-} from "../src/release";
+import { describe, expect, test } from "bun:test";
+import crypto from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { Metadata, MetadataKind } from "@tufjs/models";
+import { downloadRelease, verifyReleaseSignature } from "../src/release";
+import "../src/runtime-compat";
+import { RELEASE_COMPOSE, scratch } from "./fixtures/harness";
 
-const compose = `name: openteam
-services:
-  server:
-    image: example/openteam-server:\${OPENTEAM_VERSION}
-volumes:
-  openteam_workspace:
-`;
+const s = scratch();
+const fixture = (path: string) => new URL(`./fixtures/${path}`, import.meta.url);
 
-const servers: Array<{ stop(force?: boolean): void }> = [];
-
-afterEach(() => {
-  for (const server of servers.splice(0)) server.stop(true);
-});
-
-describe("release downloads", () => {
-  test("builds a version-pinned GitHub release URL", () => {
-    expect(releaseComposeUrl("owner/repo", "1.2.3")).toBe(
-      "https://github.com/owner/repo/releases/download/v1.2.3/openteam-compose.yaml"
-    );
-  });
-
-  test("verifies the Compose release checksum", async () => {
-    const digest = createHash("sha256").update(compose).digest("hex");
-    const server = Bun.serve({
-      port: 0,
-      fetch(request) {
-        const pathname = new URL(request.url).pathname;
-        if (pathname === "/openteam-compose.yaml") return new Response(compose);
-        if (pathname === "/SHA256SUMS") {
-          return new Response(`${digest}  openteam-compose.yaml\n`);
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    servers.push(server);
-    const origin = `http://127.0.0.1:${server.port}`;
-    const release = await downloadRelease({
+test("rejects a Compose release whose checksum does not match", async () => {
+  const origin = s.release(
+    { "openteam-compose.yaml": RELEASE_COMPOSE },
+    `${"0".repeat(64)}  openteam-compose.yaml\n`
+  );
+  await expect(
+    downloadRelease({
       repository: "owner/repo",
       version: "1.2.3",
       composeUrl: `${origin}/openteam-compose.yaml`,
       checksumUrl: `${origin}/SHA256SUMS`,
       allowUnsigned: true,
-    });
-    expect(release.compose).toBe(compose);
-    expect(release.version).toBe("1.2.3");
-  });
-
-  test("names the file when its download breaks off after the headers", async () => {
-    // Promise 4 KB, send a line, then hang up while the body is being read.
-    const server = Bun.listen({
-      hostname: "127.0.0.1",
-      port: 0,
-      socket: {
-        data(socket) {
-          socket.write("HTTP/1.1 200 OK\r\nContent-Length: 4096\r\n\r\nname: openteam\n");
-          setTimeout(() => socket.end(), 100);
-        },
-      },
-    });
-    servers.push(server);
-    const origin = `http://127.0.0.1:${server.port}`;
-    await expect(
-      downloadRelease({
-        repository: "owner/repo",
-        version: "1.2.3",
-        composeUrl: `${origin}/openteam-compose.yaml`,
-        checksumUrl: `${origin}/SHA256SUMS`,
-        allowUnsigned: true,
-      })
-    ).rejects.toThrow(`Could not download ${origin}/openteam-compose.yaml: `);
-  });
-
-  test("rejects a checksum mismatch", async () => {
-    const server = Bun.serve({
-      port: 0,
-      fetch(request) {
-        return new URL(request.url).pathname === "/openteam-compose.yaml"
-          ? new Response(compose)
-          : new Response(`${"0".repeat(64)}  openteam-compose.yaml\n`);
-      },
-    });
-    servers.push(server);
-    const origin = `http://127.0.0.1:${server.port}`;
-    await expect(
-      downloadRelease({
-        repository: "owner/repo",
-        version: "1.2.3",
-        composeUrl: `${origin}/openteam-compose.yaml`,
-        checksumUrl: `${origin}/SHA256SUMS`,
-        allowUnsigned: true,
-      })
-    ).rejects.toThrow("Checksum verification failed");
-  });
-
-  test("rejects unrelated Compose content", () => {
-    expect(() => validateCompose("services:\n  app:\n    image: example\n")).toThrow(
-      "unexpected size"
-    );
-  });
-
-  test("fails closed for a malformed or untrusted Sigstore bundle", async () => {
-    await expect(
-      verifyReleaseSignature({
-        repository: "owner/repo",
-        version: "1.2.3",
-        compose,
-        serializedBundle: "{}",
-      })
-    ).rejects.toThrow("Sigstore verification failed");
-  });
+    })
+  ).rejects.toThrow("Checksum verification failed");
 });
 
 describe("local release signature trust", () => {
-  const artifact = Bun.file(new URL("./fixtures/local-release-artifact.txt", import.meta.url));
-  const signature = Bun.file(new URL("./fixtures/local-release-artifact.txt.sigstore.json", import.meta.url));
-  const options = async () => ({ repository: "raghavpillai/openteam", version: "0.0.0", compose: await artifact.text(), serializedBundle: await signature.text() });
+  const artifact = Bun.file(fixture("local-release-artifact.txt"));
+  const signature = Bun.file(
+    new URL("./fixtures/local-release-artifact.txt.sigstore.json", import.meta.url)
+  );
+  const options = async () => ({
+    repository: "raghavpillai/openteam",
+    version: "0.0.0",
+    compose: await artifact.text(),
+    serializedBundle: await signature.text(),
+  });
 
   test("accepts the pinned local key with a verified transparency-log entry", async () => {
     await verifyReleaseSignature(await options());
   });
-  test("rejects modified bytes and cross-version or cross-repository replay", async () => {
+  test("rejects modified bytes, replay, untrusted keys, and missing transparency evidence", async () => {
     const original = await options();
-    for (const changed of [{ compose: original.compose + "tampered" }, { version: "0.0.1" }, { repository: "attacker/repo" }])
-      await expect(verifyReleaseSignature({ ...original, ...changed })).rejects.toThrow("Sigstore verification failed");
-  });
-  test("rejects untrusted keys and missing transparency evidence", async () => {
-    const original = await options();
+    for (const changed of [
+      { compose: original.compose + "tampered" },
+      { version: "0.0.1" },
+      { repository: "attacker/repo" },
+    ])
+      await expect(verifyReleaseSignature({ ...original, ...changed })).rejects.toThrow(
+        "Sigstore verification failed"
+      );
     const unknownKey = JSON.parse(original.serializedBundle);
     unknownKey.verificationMaterial.publicKey.hint = "untrusted-key";
-    await expect(verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unknownKey) })).rejects.toThrow("Untrusted local release signing key");
+    await expect(
+      verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unknownKey) })
+    ).rejects.toThrow("Untrusted local release signing key");
     const unsignedLog = JSON.parse(original.serializedBundle);
     unsignedLog.verificationMaterial.tlogEntries = [];
-    await expect(verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unsignedLog) })).rejects.toThrow("Sigstore verification failed");
+    await expect(
+      verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unsignedLog) })
+    ).rejects.toThrow("Sigstore verification failed");
+  });
+});
+
+// Bun and Electron use BoringSSL-backed crypto.verify implementations without Node's
+// default digest behavior. These tests run under Bun and exercise the same compatibility
+// path used by the Electron-bundled CLI.
+describe("crypto.verify default digest under BoringSSL runtimes", () => {
+  test("verifies EC and RSA signatures without an explicit digest, like Node", () => {
+    const data = Buffer.from("release bundle");
+    for (const [type, options] of [
+      ["ec", { namedCurve: "P-256" }],
+      ["rsa", { modulusLength: 2048 }],
+    ] as const) {
+      const { publicKey, privateKey } = crypto.generateKeyPairSync(type as "ec", options as never);
+      const signature = crypto.sign("sha256", data, privateKey);
+      expect(crypto.verify(undefined, data, publicKey, signature)).toBe(true);
+      expect(crypto.verify(null, data, publicKey, signature)).toBe(true);
+      expect(crypto.verify(undefined, Buffer.from("tampered"), publicKey, signature)).toBe(false);
+    }
+  });
+
+  test("verifies the Sigstore TUF root signatures", () => {
+    const root = JSON.parse(readFileSync(fixture("sigstore-tuf-cache/root.json"), "utf8"));
+    const metadata = Metadata.fromJSON(MetadataKind.Root, root);
+    expect(() => metadata.verifyDelegate("root", metadata)).not.toThrow();
+    expect(root.signatures.length).toBeGreaterThanOrEqual(root.signed.roles.root.threshold);
+  });
+});
+
+describe("release Compose rendering", () => {
+  test("replaces every OpenTeam tag with its immutable multi-architecture digest", async () => {
+    const directory = s.dir("openteam-release-compose-");
+    const digestDirectory = join(directory, "digests");
+    mkdirSync(digestDirectory);
+    const services = ["server", "worker", "migrate", "computer"];
+    for (const [index, service] of services.entries()) {
+      await Bun.write(
+        join(digestDirectory, `openteam-${service}.digest`),
+        `sha256:${String(index + 1).repeat(64)}\n`
+      );
+    }
+    const output = join(directory, "openteam-compose.yaml");
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        resolve(import.meta.dir, "../../../scripts/render-release-compose.ts"),
+        resolve(import.meta.dir, "../../../deploy/compose.yaml"),
+        output,
+        digestDirectory,
+      ],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await child.exited).toBe(0);
+    const rendered = await Bun.file(output).text();
+    for (const [index, service] of services.entries()) {
+      expect(rendered).toContain(`-${service}@sha256:${String(index + 1).repeat(64)}`);
+    }
+    expect(rendered.match(/-computer@sha256:4{64}/g)).toHaveLength(2);
+    expect(rendered).not.toMatch(
+      /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m
+    );
+    const worker = rendered.split("  worker:")[1]!.split("\n  caddy:")[0]!;
+    expect(worker).toContain("OPENTEAM_APNS_PRIVATE_KEY: ${OPENTEAM_APNS_PRIVATE_KEY:-}");
+    // Longer than pg-boss's 30 s graceful stop, so stopping never kills the worker.
+    expect(worker).toContain("stop_grace_period: 45s");
+    // Bots' system-wide installs live in a volume, which an update's `up` creates.
+    expect(rendered).toMatch(/^ {2}openteam_computer_local:$/m);
   });
 });

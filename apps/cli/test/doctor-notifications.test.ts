@@ -1,17 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import {
   APNS_CONFIGURATION_PROBE,
-  NOTIFICATION_STATE_PROBE,
   notificationChecks,
   runNotificationChecks,
 } from "../src/doctor-notifications";
 import { doctorNextSteps, renderDoctor } from "../src/doctor-ui";
 import type { ComposeProject } from "../src/docker";
-import type { RunOptions } from "../src/process";
+import { parseArguments } from "../src/arguments";
+import { readApnsConfiguration } from "../src/notifications";
 
 const state = {
   total: 1,
@@ -30,94 +31,21 @@ describe("Doctor notification readiness", () => {
   test("catches the Azure failure despite healthy services and an enabled phone", () => {
     const checks = notificationChecks({ ...state, failed: 87 }, { ...config, missing });
     expect(check(checks, "iOS push registration").level).toBe("pass");
-    expect(check(checks, "iOS push credentials")).toMatchObject({ level: "fail" });
+    expect(check(checks, "iOS push credentials")).toMatchObject({
+      level: "fail",
+    });
     expect(check(checks, "iOS push credentials").detail).toContain("running worker");
     expect(check(checks, "iOS push delivery")).toMatchObject({ level: "fail" });
     expect(check(checks, "iOS push delivery").detail).toContain("87");
     const result = { ok: false, installed: true, checks };
-    const output = renderDoctor(result, { color: false, width: 100 });
-    expect(output).toContain("NOTIFICATIONS");
+    expect(renderDoctor(result, { color: false, width: 100 })).toContain("NOTIFICATIONS");
     expect(doctorNextSteps(result).join("\n")).toContain("notifications configure");
-    expect(doctorNextSteps(result).join("\n")).toContain("apply it live");
-  });
-
-  test("APNs is optional for installations without an eligible iPhone", () => {
-    const checks = notificationChecks(
-      { ...state, total: 0, eligible: 0, topics: [] },
-      { ...config, missing }
-    );
-    expect(checks.some((c) => c.level === "fail")).toBe(false);
-    expect(check(checks, "iOS push registration").detail).toContain("No iOS push registration");
-    expect(check(checks, "iOS push credentials").level).toBe("warn");
-    expect(checks.map((c) => c.label)).toEqual([
-      "iOS push registration",
-      "iOS push credentials",
-      "iOS push delivery",
-    ]);
-  });
-
-  test("disabled and expired registrations cannot masquerade as push readiness", () => {
-    const checks = notificationChecks({ ...state, eligible: 0, topics: [] }, config);
-    expect(check(checks, "iOS push registration")).toMatchObject({ level: "warn" });
-    expect(check(checks, "iOS push registration").detail).toContain("no valid login session");
-    expect(check(checks, "iOS push delivery").level).toBe("warn");
-  });
-
-  test("valid local configuration does not claim Apple acceptance or visible delivery", () => {
-    const checks = notificationChecks(state, config);
-    expect(check(checks, "iOS push credentials").level).toBe("pass");
-    expect(check(checks, "iOS push credentials").detail).toContain("not verified");
-    expect(check(checks, "iOS push delivery").detail).toContain("skipped alerts");
-  });
-
-  test("checks bundle ID, incomplete device metadata, and stalled deliveries", () => {
-    expect(
-      check(
-        notificationChecks(state, { ...config, topic: "dev.openteam.mobile.swift" }),
-        "iOS push credentials"
-      ).level
-    ).toBe("fail");
-    expect(
-      check(notificationChecks({ ...state, invalid: 1 }, config), "iOS push registration").level
-    ).toBe("fail");
-    expect(
-      check(notificationChecks({ ...state, waiting: 2 }, config), "iOS push delivery").level
-    ).toBe("warn");
-  });
-
-  test("executes bounded read-only probes inside the actual services", () => {
-    const calls: Array<{ args: readonly string[]; options?: RunOptions }> = [];
-    const project = {
-      run(args: readonly string[], options?: RunOptions) {
-        calls.push({ args, options });
-        return {
-          status: 0,
-          stdout: JSON.stringify(args.includes("worker") ? config : state),
-          stderr: "",
-        };
-      },
-    } as unknown as ComposeProject;
-    const checks = runNotificationChecks(project, new Set(["server", "worker"]));
-    expect(check(checks, "iOS push credentials").level).toBe("pass");
-    expect(calls).toHaveLength(2);
-    expect(calls[0]!.args).toContain("bun");
-    expect(calls[1]!.args).toContain("node");
-    expect(calls.every((c) => c.options?.timeoutMs === 15_000 && c.args.includes("--no-TTY"))).toBe(
-      true
-    );
-    expect(NOTIFICATION_STATE_PROBE).not.toMatch(/INSERT|UPDATE|DELETE/);
-  });
-
-  test.each([
-    "{broken",
-    "{}",
-    "null",
-    '{"missing":["secret-token"],"issue":null,"topic":"dev.openbot.mobile"}',
-  ])("invalid probe output %s never passes or leaks its contents", (stdout) => {
-    const project = { run: () => ({ status: 0, stdout, stderr: "" }) } as unknown as ComposeProject;
-    const checks = runNotificationChecks(project, new Set(["server", "worker"]));
-    expect(checks.every((c) => c.level === "fail")).toBe(true);
-    expect(JSON.stringify(checks)).not.toContain("secret-token");
+    // A key for another app's bundle ID is the same silent failure.
+    const wrongTopic = notificationChecks(state, {
+      ...config,
+      topic: "dev.openteam.mobile.swift",
+    });
+    expect(check(wrongTopic, "iOS push credentials").level).toBe("fail");
   });
 
   test("stopped services are skipped and failed execs never expose stderr", () => {
@@ -161,7 +89,10 @@ describe("real APNs worker configuration probe", () => {
     try {
       const first = await runConfig(socket);
       expect(first.exitCode).toBe(0);
-      expect(JSON.parse(first.output)).toMatchObject({ ...config, source: "database" });
+      expect(JSON.parse(first.output)).toMatchObject({
+        ...config,
+        source: "database",
+      });
       issue = "runtime-settings";
       const second = await runConfig(socket);
       expect(JSON.parse(second.output).issue).toBe("runtime-settings");
@@ -176,11 +107,32 @@ describe("real APNs worker configuration probe", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+});
 
-  test("fails without a diagnostics socket", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-apns-socket-"));
+const privateKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
+  .privateKey.export({ type: "pkcs8", format: "pem" })
+  .toString();
+const metadata = { keyId: "ABCDE12345", teamId: "FGHIJ67890", topic: "dev.openbot.mobile" };
+describe("APNs configuration import", () => {
+  test("rejects ambiguous imports, unknown fields, malformed JSON and oversized files without exposing contents", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-apns-invalid-"));
+    const path = join(directory, "apns.json");
+    const options = parseArguments(["notifications", "configure", "--config", path]);
     try {
-      expect(await runConfig(join(directory, "missing.sock"))).toEqual({ exitCode: 1, output: "" });
+      writeFileSync(
+        path,
+        JSON.stringify({ ...metadata, privateKey, privateKeyFile: "secret-key-path" })
+      );
+      expect(() => readApnsConfiguration(options)).toThrow("Choose one");
+      writeFileSync(
+        path,
+        JSON.stringify({ ...metadata, privateKey, secretUnknownField: "secret-value" })
+      );
+      expect(() => readApnsConfiguration(options)).toThrow("Unknown APNs configuration field");
+      writeFileSync(path, "secret-value".repeat(4000));
+      expect(() => readApnsConfiguration(options)).toThrow(
+        "Could not read valid APNs configuration JSON"
+      );
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

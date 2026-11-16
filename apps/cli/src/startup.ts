@@ -67,7 +67,7 @@ export const expectedServices = (environment: ReadonlyMap<string, string>): stri
   return expected;
 };
 
-export const summarizeStartupState = (
+const summarizeStartupState = (
   services: readonly ServiceState[],
   environment: ReadonlyMap<string, string>
 ): { stopped: boolean; notReady: string[] } => {

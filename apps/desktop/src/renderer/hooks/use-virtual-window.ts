@@ -26,7 +26,7 @@ export type InitialVirtualScroll =
   | { index: number; viewportOffset: number }
   | { index: number; align: "center" };
 
-export interface VirtualItem {
+interface VirtualItem {
   index: number;
   key: string;
   size: number;

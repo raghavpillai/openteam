@@ -2,7 +2,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { ActiveTurn } from "./types";
 import { textFromContent } from "./content";
 
-export const DRAFT_FOLLOWUP_DELIVERY_REMINDER =
+const DRAFT_FOLLOWUP_DELIVERY_REMINDER =
   "<system_reminder>\nThe platform already delivered the draft status, so the user does not need another acknowledgement. Your plain assistant text is internal and was not delivered. If you still owe the user a requested follow-up question, warning, error, or useful new information, actually invoke SendToUser with that information now. Do not leave a requested question as plain assistant text. If there is no new information or outstanding request, finish silently without repeating the draft status.\n</system_reminder>";
 
 /** One conditional delivery check; a status-only event may still finish silently. */

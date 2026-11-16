@@ -59,7 +59,7 @@ export const desktopNotificationSnapshot = (
   };
 };
 
-export interface DesktopNotificationSyncTarget {
+interface DesktopNotificationSyncTarget {
   sync: (snapshot: ReturnType<typeof desktopNotificationSnapshot>) => void;
   clear?: () => void;
 }

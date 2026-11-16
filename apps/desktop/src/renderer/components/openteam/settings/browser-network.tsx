@@ -30,7 +30,7 @@ import { browserNetworkLabel } from "../../../lib/browser-network-status";
 import { useWindowVisible } from "../../../hooks/use-window-active";
 import { NetworkProtocols } from "./network-protocols";
 
-export function BrowserNetworkSettings() {
+function BrowserNetworkSettings() {
   const visible = useWindowVisible();
   const [view, setView] = useState<BrowserNetworkView | null>(null);
   const [egress, setEgress] = useState<NetworkEgress | null>(null);

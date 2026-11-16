@@ -19,14 +19,11 @@ final class MobileReleaseTests: XCTestCase {
     }
   }
 
-  func testSameVersionTestFlightBuildIsAnUpdate() {
+  func testBuildNumberBreaksTiesButMarketingVersionWins() {
     XCTAssertTrue(release().isNewer(thanVersion: "0.0.4", buildNumber: "50"))
     XCTAssertFalse(release().isNewer(thanVersion: "0.0.4", buildNumber: "51"))
     XCTAssertFalse(release().isNewer(thanVersion: "0.0.4", buildNumber: "52"))
     XCTAssertTrue(release("0.0.4", "100").isNewer(thanVersion: "0.0.4", buildNumber: "99"))
-  }
-
-  func testMarketingVersionTakesPrecedenceOverBuildNumber() {
     XCTAssertTrue(release("0.0.5", "1").isNewer(thanVersion: "0.0.4", buildNumber: "99"))
     XCTAssertFalse(release().isNewer(thanVersion: "0.0.5", buildNumber: "1"))
     XCTAssertTrue(release("0.0.10", "1").isNewer(thanVersion: "0.0.9", buildNumber: "99"))
@@ -56,5 +53,4 @@ final class MobileReleaseTests: XCTestCase {
       XCTAssertThrowsError(try MobileReleaseFeed.decode(Data(invalid.utf8)))
     }
   }
-
 }

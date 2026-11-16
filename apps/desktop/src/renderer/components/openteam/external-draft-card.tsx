@@ -27,7 +27,7 @@ const addresses = (text: string) =>
     .filter(Boolean);
 
 /** Signature HTML from the mail provider, shown as text so nothing in it runs. */
-export function signatureText(html: string): string {
+function signatureText(html: string): string {
   const document = new DOMParser().parseFromString(
     html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(div|p|li|tr|h[1-6])>/gi, "\n"),
     "text/html"
@@ -53,7 +53,7 @@ const MODE_LABEL: Record<ExternalDraftApprovalMode, string> = {
 };
 
 /** What changed, for the line under the card after the user picks a mode. */
-export function approvalNotice(previous: ExternalDraftApprovalMode, next: ExternalDraftApprovalMode) {
+function approvalNotice(previous: ExternalDraftApprovalMode, next: ExternalDraftApprovalMode) {
   if (next === "always-allow") return "Added to your Allow rules";
   if (next === "disable-drafts") return "Drafts are off for this Bot";
   return previous === "disable-drafts" ? "Drafts need your approval again" : "Removed from your Allow rules";
@@ -77,7 +77,7 @@ function Status({ state }: { state: string }) {
   );
 }
 
-export function Field({
+function Field({
   label,
   children,
   href,

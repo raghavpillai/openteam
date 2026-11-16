@@ -2,7 +2,7 @@ import { importPackage } from "./package";
 import { parsePluginDefinition } from "./manifest";
 import type { PluginDefinition } from "./types";
 
-export const UPSTREAM_DIRECTORY = "upstream";
+const UPSTREAM_DIRECTORY = "upstream";
 
 /** Keep the original package intact; project its workflows without rewriting source files. */
 export function assembleUpstreamPlugin(

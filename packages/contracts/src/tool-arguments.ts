@@ -2,7 +2,7 @@ import { ParseResult } from "effect";
 import { ZodError, type ZodErrorMap, type ZodType } from "zod";
 
 /** The reference's argument report: one `path: message` line per issue, "argument" for the root. */
-export const formatArgumentIssues = (
+const formatArgumentIssues = (
   issues: ReadonlyArray<{ readonly path: ReadonlyArray<PropertyKey>; readonly message: string }>
 ): string =>
   `Invalid arguments:\n${issues

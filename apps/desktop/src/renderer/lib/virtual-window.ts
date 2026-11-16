@@ -1,4 +1,4 @@
-export interface VirtualRangeInput {
+interface VirtualRangeInput {
   count: number;
   scrollOffset: number;
   viewportSize: number;
@@ -7,7 +7,7 @@ export interface VirtualRangeInput {
   sizeAt: (index: number) => number;
 }
 
-export interface VirtualRange {
+interface VirtualRange {
   offsets: number[];
   startIndex: number;
   endIndex: number;
@@ -20,7 +20,7 @@ export interface VirtualLayout {
   totalSize: number;
 }
 
-export interface VirtualScopeVisibilityInput {
+interface VirtualScopeVisibilityInput {
   /** Scroll position expressed in coordinates local to the virtual scope. */
   scrollOffset: number;
   viewportSize: number;
@@ -28,7 +28,7 @@ export interface VirtualScopeVisibilityInput {
   overscan: number;
 }
 
-export interface AnchoredItemScrollInput {
+interface AnchoredItemScrollInput {
   /** The item's start in coordinates local to the virtual list. */
   itemStart: number;
   /** The virtual list's start in coordinates local to the scrollport. */
@@ -80,12 +80,6 @@ export function isVirtualScopeVisible({
     scrollOffset - boundedOverscan <= boundedTotal
   );
 }
-
-export const preservePrependScrollOffset = (
-  previousScrollTop: number,
-  previousScrollHeight: number,
-  nextScrollHeight: number
-) => Math.max(0, previousScrollTop + Math.max(0, nextScrollHeight - previousScrollHeight));
 
 export const computeVirtualLayout = (
   count: number,

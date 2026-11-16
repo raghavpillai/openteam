@@ -1,7 +1,7 @@
 /** Device availability is a lease, separate from the five-minute Mac idle limit. */
-export const NOTIFICATION_PRESENCE_TTL_MS = 60_000;
+const NOTIFICATION_PRESENCE_TTL_MS = 60_000;
 export const NOTIFICATION_HEARTBEAT_MS = 30_000;
-export const MAC_NOTIFICATION_IDLE_SECONDS = 300;
+const MAC_NOTIFICATION_IDLE_SECONDS = 300;
 
 export interface NotificationPresenceInput {
   /** A new ID for each client lifecycle; sequence orders overlapping requests. */

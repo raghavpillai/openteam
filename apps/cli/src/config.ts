@@ -100,7 +100,7 @@ export const normalizeRepository = (value = DEFAULT_REPOSITORY): string => {
   return repository;
 };
 
-export const detectWorkerConcurrency = (parallelism = availableParallelism()): string =>
+const detectWorkerConcurrency = (parallelism = availableParallelism()): string =>
   String(Math.max(1, Math.min(8, Math.floor(parallelism))));
 
 export const createEnvironment = (options: {

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/copy-text";
 
 const COMMAND_PARTS = ["curl -fsSL", "https://openteam.so/install", "| sh"];
-export const INSTALL_COMMAND = COMMAND_PARTS.join(" ");
+const INSTALL_COMMAND = COMMAND_PARTS.join(" ");
 
 export function InstallCommand() {
   const [copied, setCopied] = useState(false);

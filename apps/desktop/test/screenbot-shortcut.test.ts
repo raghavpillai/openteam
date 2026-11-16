@@ -11,37 +11,19 @@ import {
   reservedShortcutReason,
   type ScreenBotShortcutStatus,
 } from "../src/main/screenbot-shortcut";
-import { insertDictation } from "../src/renderer/screenbot/dictation";
 
 describe("screenbot shortcuts", () => {
-  test("defaults to both Command keys on macOS", () => {
-    expect(defaultScreenBotShortcut("darwin")).toEqual({ kind: "chord", modifier: "command" });
-    expect(defaultScreenBotShortcut("win32")).toEqual({ kind: "accelerator", accelerator: "CommandOrControl+Shift+2" });
-  });
-
-  test("accepts real shortcuts and both-key chords, and rejects the rest", () => {
-    expect(isValidAccelerator("Command+Shift+2")).toBe(true);
+  test("accepts real shortcuts and Mac both-key chords, refusing typing keys and ones every app relies on", () => {
     expect(isValidAccelerator("Control+Alt+Space")).toBe(true);
-    expect(isValidAccelerator("Shift+A")).toBe(false); // would fire while typing capitals
-    expect(isValidAccelerator("A")).toBe(false);
-    expect(isValidAccelerator("Command+Command+A")).toBe(false);
-    expect(isValidAccelerator("Command+Bogus")).toBe(false);
+    for (const invalid of ["Shift+A", "A", "Command+Command+A", "Command+Bogus"]) expect(isValidAccelerator(invalid)).toBe(false);
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "darwin")).toEqual({ kind: "chord", modifier: "option" });
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "option" }, "win32")).toBeNull();
     expect(parseScreenBotShortcut({ kind: "chord", modifier: "fn" }, "darwin")).toBeNull();
-    expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: "Shift+2" }, "darwin")).toBeNull();
-  });
-
-  test("refuses shortcuts every app relies on, however they're spelled", () => {
-    for (const taken of ["Command+C", "CmdOrCtrl+w", "Command+Q", "CommandOrControl+,", "Shift+Command+4", "Command+Tab", "Command+Space"]) {
-      expect(reservedShortcutReason(taken, "darwin")).not.toBeNull();
+    for (const taken of ["Command+C", "CmdOrCtrl+w", "CommandOrControl+,", "Shift+Command+4", "Command+Space"])
       expect(parseScreenBotShortcut({ kind: "accelerator", accelerator: taken }, "darwin")).toBeNull();
-    }
     expect(reservedShortcutReason("Command+Shift+2", "darwin")).toBeNull();
-    expect(reservedShortcutReason("Control+C", "win32")).not.toBeNull();
     expect(reservedShortcutReason("Control+Alt+E", "win32")).not.toBeNull(); // AltGr+E types €
     expect(reservedShortcutReason("Control+Alt+E", "darwin")).toBeNull();
-    expect(reservedShortcutReason("Control+Shift+2", "win32")).toBeNull();
   });
 
   test("saves a new shortcut, resets to the default, and pauses while recording", async () => {
@@ -107,16 +89,5 @@ describe("screenbot shortcuts", () => {
     const child = Bun.spawn([helper, "--self-test"], { stdout: "pipe" });
     expect((await new Response(child.stdout).text()).trim()).toBe("ok");
     expect(await child.exited).toBe(0);
-  });
-});
-
-describe("dictation", () => {
-  test("inserts words at the caret with natural spacing", () => {
-    expect(insertDictation("", 0, 0, " hello there ")).toEqual({ value: "hello there", caret: 11 });
-    expect(insertDictation("Look at", 7, 7, "this chart")).toEqual({ value: "Look at this chart", caret: 18 });
-    expect(insertDictation("Look at.", 7, 7, "this")).toEqual({ value: "Look at this.", caret: 12 });
-    expect(insertDictation("one three", 4, 4, "two")).toEqual({ value: "one two three", caret: 7 });
-    expect(insertDictation("replace ME please", 8, 10, "you")).toEqual({ value: "replace you please", caret: 11 });
-    expect(insertDictation("keep", 4, 4, "   ")).toEqual({ value: "keep", caret: 4 });
   });
 });

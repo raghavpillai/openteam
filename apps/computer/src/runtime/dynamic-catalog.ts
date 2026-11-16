@@ -50,7 +50,7 @@ import { objectToolSchema } from "../tool-schema";
 import { connectorArguments } from "../mcp-argument-normalization";
 import type { ActiveTurn, RuntimeDynamicTool, RuntimeDynamicToolCaller } from "./types";
 
-export const PLUGIN_MANAGEMENT_TOOLS = [
+const PLUGIN_MANAGEMENT_TOOLS = [
   {
     name: "InstallPlugin",
     description: "Request user-confirmed installation of a marketplace plugin by pluginKey.",

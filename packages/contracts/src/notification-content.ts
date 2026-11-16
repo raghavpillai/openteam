@@ -4,7 +4,7 @@ export const PUSH_DELIVERY_ADVISORY_LOCK = {
   key: 0x54505553,
 } as const;
 
-export const normalizeNotificationText = (value: string): string =>
+const normalizeNotificationText = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
 type GraphemeSegmenter = { segment: (input: string) => Iterable<{ segment: string }> };
@@ -21,14 +21,6 @@ const notificationSegmenter = (): GraphemeSegmenter | undefined => {
     cachedSegmenter = Segmenter ? new Segmenter(undefined, { granularity: "grapheme" }) : undefined;
   }
   return cachedSegmenter;
-};
-
-export const notificationGraphemes = (value: string): string[] => {
-  const normalized = normalizeNotificationText(value);
-  const segmenter = notificationSegmenter();
-  return segmenter
-    ? [...segmenter.segment(normalized)].map((part) => part.segment)
-    : Array.from(normalized);
 };
 
 // Large ASCII previews only need a bounded normalized prefix. Fall back for
@@ -138,7 +130,7 @@ export const notificationIsRead = (
   );
 };
 
-export interface AgentNotificationPresentation {
+interface AgentNotificationPresentation {
   title: string;
   body: string;
   sound: "default";

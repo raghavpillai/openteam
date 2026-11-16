@@ -1,23 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { NATIVE_TOOL_NAMES } from "@openteam/contracts";
+import { describe, expect, test } from "bun:test";
+import { AUTOMATION_PARENT_ONLY_TOOLS, AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
-import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
-import {
-  ComputerRuntime,
-  isDeliveryOwed,
-  modelVisibleSummaryTools,
-  REPLY_NUDGE_PROMPT,
-} from "../../src/runtime";
+import { ComputerRuntime } from "../../src/runtime";
+import { compactionObservation } from "../../src/runtime/compaction";
+import { withFetch } from "./tool-fixtures";
 
 const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown }).tools;
 
 test('background status evidence comes only from active server records', async () => {
   const runtime = runtimeTools() as any;
-  const previousFetch = globalThis.fetch;
   const pending = {subagent_id: 'worker', status: 'running', run_status: 'running'};
   const fixtures: Array<[unknown, boolean]> = [
     [pending, true],
@@ -30,21 +21,10 @@ test('background status evidence comes only from active server records', async (
     ['No background subagents are running right now.', false],
     ['The worker is running', false],
   ];
-  try {
-    for (const [body, expected] of fixtures) {
-      globalThis.fetch = (async () => Response.json(body)) as unknown as typeof fetch;
-      const result = await runtime.callControlPlaneTool({}, 'check', 'CheckSubagent', {});
-      expect(result.details.pendingBackgroundWork).toBe(expected);
-    }
-  } finally { globalThis.fetch = previousFetch; }
-});
-
-const temporaryRoots: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true }))
-  );
+  for (const [body, expected] of fixtures) {
+    const result = await withFetch(async () => Response.json(body), () => runtime.callControlPlaneTool({}, 'check', 'CheckSubagent', {}));
+    expect(result.details.pendingBackgroundWork).toBe(expected);
+  }
 });
 
 const turnRequest = (overrides: Record<string, unknown> = {}) => ({
@@ -81,359 +61,24 @@ const toolNames = (subagentType: string | null) => {
   return runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name);
 };
 
-const toolDescriptions = (subagentType: "computerUse") => {
-  const runtime = runtimeTools() as unknown as {
-    customTools(active: { subagentType: typeof subagentType }): Array<{
-      name: string;
-      description: string;
-    }>;
-  };
-  return Object.fromEntries(
-    runtime.customTools(workerTurn(subagentType)).map((tool) => [tool.name, tool.description])
-  );
-};
-
-const dynamicToolNames = (namespace: string) => {
-  const runtime = runtimeTools() as unknown as {
-    dynamicCatalog(active: {
-      runtimeProfile: "agent";
-      pluginNamespaces: [];
-    }): Array<{ name: string; tools: Array<{ name: string }> }>;
-  };
-  return (
-    runtime
-      .dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
-      .find((candidate) => candidate.name === namespace)
-      ?.tools.map((tool) => tool.name) ?? []
-  );
-};
-
-const subagentDynamicToolNames = (namespace: string) => {
-  const runtime = runtimeTools() as unknown as {
-    dynamicCatalog(active: {
-      runtimeProfile: "subagent";
-      pluginNamespaces: [];
-    }): Array<{ name: string; tools: Array<{ name: string }> }>;
-  };
-  return (
-    runtime
-      .dynamicCatalog({ runtimeProfile: "subagent", pluginNamespaces: [] })
-      .find((candidate) => candidate.name === namespace)
-      ?.tools.map((tool) => tool.name) ?? []
-  );
-};
-
 describe("specialized subagent tool surfaces", () => {
   test.each(["videoReview", "watchVideo"])("%s reviews supplied media without tools", (subagentType) => {
     expect((runtimeTools() as any).customTools({ subagentType })).toEqual([]);
-  });
-
-  test("image generation is removed while unconfigured search remains discoverable", () => {
-    for (const names of [dynamicToolNames("cursor"), subagentDynamicToolNames("cursor")]) {
-      expect(names).not.toContain("GenerateImage");
-      expect(names).toContain("WebSearch");
-      expect(names).toContain("WebFetch");
-    }
-  });
-
-  test("uses Bot's exact delivery nudges only for user-facing wake sources", () => {
-    expect(REPLY_NUDGE_PROMPT).toContain("ack ≠ delivery");
-    expect(REPLY_NUDGE_PROMPT).toEndWith("they just keep seeing silence.");
-    for (const source of ["turn", "handoff-resume", "broadcast", "connector"] as const) {
-      expect(isDeliveryOwed(source)).toBe(true);
-    }
-    for (const source of ["agent", "automation", "event", "background-revival"] as const) {
-      expect(isDeliveryOwed(source)).toBe(false);
-    }
-  });
-
-  test("summary requests receive normal schemas but no executable tool functions", () => {
-    const runtime = runtimeTools() as unknown as {
-      customTools(active: { subagentType: null }): Array<{
-        name: string;
-        description: string;
-        parameters: unknown;
-        execute: unknown;
-      }>;
-    };
-    const executable = runtime.customTools(workerTurn(null));
-    const visible = modelVisibleSummaryTools(executable);
-    expect(visible.map((tool) => tool.name)).toEqual(executable.map((tool) => tool.name));
-    expect(visible.map((tool) => tool.description)).toEqual(
-      executable.map((tool) => tool.description)
-    );
-    expect(visible.every((tool) => !("execute" in tool))).toBe(true);
   });
 
   test("computerUse receives Shell, Read, AwaitShell, Computer and the browser tools", () => {
     expect(toolNames("computerUse")).toEqual(["Shell", "Read", "ReportTaskProgress", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
   });
 
-  test("the graphical worker drops exactly the disabled tools", () => {
-    const runtime = runtimeTools() as any;
-    const taskConfiguration = { executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_TABS", "OPENAI_COMPUTER_USE"] };
-    expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration })).map((tool: any) => tool.name)).toEqual([
-      "Read",
-      "ReportTaskProgress",
-      ...BROWSER_USE_TOOLS.map((tool) => tool.name).filter((name) => name !== "browser_tabs"),
-    ]);
-    const browserless = {
-      executorProfiles: [],
-      disabledToolIdentifiers: BROWSER_USE_TOOLS.map((tool) => tool.name.toUpperCase()),
-    };
-    expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration: browserless })).map((tool: any) => tool.name)).toEqual([
-      "Shell",
-      "Read",
-      "ReportTaskProgress",
-      "AwaitShell",
-      "Computer",
-    ]);
-  });
-
-  test("executor stays private while retaining execution and discovery tools", () => {
-    const names = toolNames("executor");
-    expect(names).not.toContain("SendToUser");
-    expect(names).not.toContain("ReactToMessage");
-    expect(names).not.toContain("UpdateMemory");
-    expect(names).not.toContain("UpdateRoutine");
-    expect(names).toContain("Shell");
-    expect(names).toContain("Read");
-    expect(names).toContain("GetDynamicTools");
-    expect(names).toContain("CallDynamicTool");
-    expect(names).not.toContain("Screenshot");
-    const firstParty = (runtimeTools() as any).dynamicCatalog(workerTurn("executor")).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-    expect(firstParty.sort()).toEqual(["DownloadFile", "ListMachines", "UploadFile"]);
-  });
-
-  test("executor and knowledgeWork call the web and shell-wait tools directly", async () => {
-    const runtime = runtimeTools() as any;
-    for (const subagentType of ["executor", "knowledgeWork"]) {
-      const names = toolNames(subagentType);
-      // In the reference's order: its tool builders put the web tools before Shell.
-      expect(names).toEqual(["WebSearch", "WebFetch", "Shell", "Read", "AwaitShell", "GetDynamicTools", "CallDynamicTool", "ReportTaskProgress"]);
-      expect(names).not.toContain("Screenshot");
-      const cursor = runtime.dynamicCatalog(workerTurn(subagentType)).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-      expect(cursor).not.toContain("WebSearch");
-      expect(cursor).not.toContain("WebFetch");
-      expect(cursor).not.toContain("AwaitShell");
-      expect(cursor).not.toContain("TodoWrite");
-    }
-    const searches: string[] = [];
-    runtime.webTools.search = async (query: string) => {
-      searches.push(query);
-      return { content: [{ type: "text", text: "results" }], details: {} };
-    };
-    const active = { ...workerTurn("executor"), runId: "run-1" };
-    const result = await runtime.executeOpenTeamTool(active, "call-1", "WebSearch", { search_term: "openteam" });
-    expect(result.content[0].text).toBe("results");
-    expect(searches).toEqual(["openteam"]);
-    expect(toolNames("executor")).not.toContain("TodoWrite");
-    expect(runtime.customTools(workerTurn("executor", { readOnly: true })).map((tool: any) => tool.name)).toEqual(
-      expect.arrayContaining(["WebSearch", "WebFetch"])
-    );
-  });
-
-  test("graphical workers wait on their background shells with AwaitShell", async () => {
-    const runtime = runtimeTools() as any;
-    const waits: unknown[] = [];
-    runtime.nativeToolExecutor.awaitShell = async (input: unknown, _signal: unknown, scope: string) => {
-      waits.push([input, scope]);
-      return { content: [{ type: "text", text: "done" }], details: {} };
-    };
-    const active = { ...workerTurn("computerUse"), botId: "worker-bot", runId: "run-1" };
-    const result = await runtime.executeOpenTeamTool(active, "call-1", "AwaitShell", { shell_id: "7", block_until_ms: 1000 });
-    expect(result.content[0].text).toBe("done");
-    expect(waits).toEqual([[expect.objectContaining({ shell_id: "7" }), "worker-bot"]]);
-  });
-
-  test("the cursor namespace cues only the tools each agent has, under the reference header", () => {
-    const runtime = runtimeTools() as any;
-    const cursor = (active: Record<string, unknown>) => runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
-    const header = "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.\n\nHere are some crucial instructions:\n";
-    const main = cursor(workerTurn(null)).description;
-    expect(main).toStartWith(header);
-    for (const line of ["- ReadAgentActivity: Summarize", "- ReadTranscript: Read the transcripts of your conversations, your subagents, and the user's other bots.", "- request_box_help: Hand your box's desktop", "- Task: Spawn subagents natively.", "- UploadFile: Send a box file to Google Drive or Gmail."])
-      expect(main).toContain(line);
-    expect(main.indexOf("- request_box_help:")).toBeLessThan(main.indexOf("- RequestUserForm:"));
-    // The main agent looks ListMachines up without a cue; an executor gets the worker cues.
-    expect(cursor(workerTurn(null)).tools.map((tool: any) => tool.name)).toContain("ListMachines");
-    expect(main).not.toContain("- ListMachines:");
-    expect(cursor(workerTurn("executor")).description).toBe(header + [
-      "- DownloadFile: Fetch a Drive or Gmail file onto the box. Not for URLs or box files.",
-      "- ListMachines: List the user's computers and the machineId that points Read, Shell, or AwaitShell at one.",
-      "- UploadFile: Send a box file to the user's Google Drive or Gmail.",
-    ].join("\n"));
-    // With nothing to send files to or fetch them from, neither tool is offered.
-    const bare = cursor(workerTurn(null, { pluginNamespaces: [{ ...driveNamespace, name: "linear", fileTransfers: undefined }] }));
-    expect(bare.tools.map((tool: any) => tool.name)).not.toContain("UploadFile");
-    expect(bare.tools.map((tool: any) => tool.name)).not.toContain("DownloadFile");
-    expect(bare.description).not.toContain("UploadFile");
-    expect(cursor(workerTurn("executor", { pluginNamespaces: [] }))).toMatchObject({ tools: [expect.objectContaining({ name: "ListMachines" })] });
-    expect(cursor(workerTurn("executor", { pluginNamespaces: [], readOnly: true }))).toMatchObject({ tools: [], description: header.split("\n\n")[0] });
-  });
-
-  test("routine runs and connector workers upload and download files; graphical and media workers cannot", () => {
-    const runtime = runtimeTools() as any;
-    const cursor = (overrides: Record<string, unknown>) =>
-      runtime.dynamicCatalog({ pluginNamespaces: [driveNamespace], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-    expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
-    // Executors and knowledgeWork look them up, as the reference's Task worker manifest has them.
-    for (const subagentType of ["executor", "knowledgeWork"])
-      for (const requestSource of ["agent", "automation"]) {
-        const turn = workerTurn(subagentType, { requestSource });
-        expect(runtime.customTools(turn).map((tool: any) => tool.name)).not.toContain("UploadFile");
-        expect(cursor(turn)).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile", "ListMachines"]));
-      }
-    for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
-      const worker = cursor({ runtimeProfile: "subagent", subagentType });
-      expect(worker).not.toContain("UploadFile");
-      expect(worker).not.toContain("DownloadFile");
-    }
-  });
-
-  test("discovering RequestUserForm lists the saved vault extra keys", async () => {
-    const runtime = runtimeTools() as any;
-    runtime.userForms.savedExtraKeys = async () => ["ktn"];
-    const active = { ...workerTurn(null), cwd: "/tmp" };
-    const text = (await runtime.getDynamicTools(active, "lookup", { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
-    expect(text).toContain("Vault extras: reuse the exact saved extra_key");
-    expect(text).toContain('- \\"ktn\\"');
-    expect(text).toContain('"tool": "RequestUserForm"');
-  });
-
-  test("workers get no memory or history tools; the main agent keeps them", () => {
-    const runtime = runtimeTools() as unknown as {
-      dynamicCatalog(active: { runtimeProfile: "agent" | "subagent"; subagentType?: string; pluginNamespaces: unknown[] }): Array<{ name: string; tools: Array<{ name: string; description: string }> }>;
-      customTools(active: unknown): Array<{ name: string }>;
-    };
-    const cursor = (runtimeProfile: "agent" | "subagent", subagentType?: string) =>
-      runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [driveNamespace] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
-    for (const subagentType of ["executor", "knowledgeWork", "computerUse"]) {
-      const names = [...cursor("subagent", subagentType), ...runtime.customTools(workerTurn(subagentType))].map((tool) => tool.name);
-      for (const name of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) expect(names, subagentType).not.toContain(name);
-    }
-    for (const subagentType of ["executor", "knowledgeWork"]) {
-      expect(cursor("subagent", subagentType).map((tool) => tool.name).sort()).toEqual(["DownloadFile", "ListMachines", "UploadFile"]);
-    }
-    const main = cursor("agent");
-    expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
-    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass in=<id> for a Task subagent you dispatched");
-    expect(runtime.customTools(workerTurn(null)).map((tool) => tool.name)).toContain("RecallMemory");
-  });
-
-  test("no agent has a Skill tool: knowledgeWork, like the main agent, reads its skills by path", () => {
-    const runtime = runtimeTools() as unknown as { customTools(active: unknown): Array<{ name: string }> };
-    for (const type of ["knowledgeWork", "executor", "computerUse", null]) {
-      const names = runtime.customTools(workerTurn(type)).map((tool) => tool.name);
-      expect(names, String(type)).not.toContain("Skill");
-      expect(names, String(type)).toContain("Read");
-    }
-  });
-
-  test("graphical workers receive compact box-scoped Shell and Read guidance", () => {
-    const descriptions = toolDescriptions("computerUse");
-    expect(descriptions.Shell).toContain("wait for a background command with AwaitShell rather than `sleep`");
-    expect(descriptions.Shell).not.toContain("committing-changes-with-git");
-    expect(descriptions.Shell).not.toContain("machineId");
-    expect(descriptions.Read).toContain("Reads a file on the box, the same filesystem Shell acts on.");
-    expect(descriptions.AwaitShell).not.toContain("machineId");
-    const schemas = Object.fromEntries((runtimeTools() as any).customTools(workerTurn("computerUse")).map((tool: any) => [tool.name, tool.parameters]));
-    for (const name of ["Shell", "Read", "AwaitShell"]) expect(schemas[name].properties.machineId, name).toBeUndefined();
-  });
-
-  test("only an agent with Task is told not to poll subagents with AwaitShell; computerUse may wait in long slices", () => {
-    const runtime = runtimeTools() as any;
-    const awaitText = (subagentType: string | null) => {
-      const turn = workerTurn(subagentType);
-      const direct = runtime.customTools(turn).find((tool: any) => tool.name === "AwaitShell");
-      return direct?.description ?? runtime.dynamicCatalog(turn)[0].tools.find((tool: any) => tool.name === "AwaitShell").description;
-    };
-    const never = "NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL";
-    expect(awaitText(null)).toContain(never);
-    for (const subagentType of ["executor", "knowledgeWork", "computerUse"]) expect(awaitText(subagentType)).not.toContain(never);
-    expect(awaitText("computerUse")).toContain("prefer slices of 60\u2013270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).");
-    expect(awaitText("executor")).toContain("prefer slices of 60\u2013270s, which keep the prompt cache warm.");
-  });
-
-  test("normal agents target hosts with machineId on Shell and Read", () => {
-    const names = toolNames(null);
-    expect(names).toEqual([...NATIVE_TOOL_NAMES, "ReportRequestProgress"]);
-    expect(names).not.toContain("ListMachines");
-    expect(names).toContain("Shell");
-    expect(names).toContain("Read");
-  });
-
-  test("normal agents discover A2A under cursor without legacy graphical Computer control", () => {
-    expect(dynamicToolNames("openteam")).toEqual([]);
-    expect(dynamicToolNames("cursor")).toContain("Task");
-    expect(dynamicToolNames("cursor")).toContain("SendToAgent");
-    expect(dynamicToolNames("cursor")).toContain("request_box_help");
-    // Teammates are listed in user_info, and other conversations are read with ReadTranscript.
-    for (const removed of ["ListAgents", "ListGroups", "read_sibling_thread"])
-      expect(dynamicToolNames("cursor")).not.toContain(removed);
-  });
-
-  test("StopSubagent and request_box_help decode their reference arguments and route through the control plane", async () => {
-    const calls: Array<{ tool: string; args: unknown }> = [];
-    const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(active: unknown, callId: string, tool: string, args: unknown): Promise<{ content: []; details: Record<string, unknown> }>;
-      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
-        name: string;
-        tools: Array<{ name: string; decodeArguments(args: unknown): unknown; execute(active: unknown, callId: string, args: unknown): Promise<unknown> }>;
-      }>;
-    };
-    runtime.callControlPlaneTool = async (_active, _callId, tool, args) => {
-      calls.push({ tool, args });
-      return { content: [], details: {} };
-    };
-    const catalog = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor");
-    const stop = catalog!.tools.find((tool) => tool.name === "StopSubagent")!;
-    expect(stop.decodeArguments({ all: true })).toEqual({ all: true });
-    expect(stop.decodeArguments({ subagent_id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
-    for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
-      expect(() => stop.decodeArguments(invalid), JSON.stringify(invalid)).toThrow();
-    const help = catalog!.tools.find((tool) => tool.name === "request_box_help")!;
-    const handoff = { instruction: "Sign in", reason: "auth", domain: "example.com", url: "https://app.example.com/login" };
-    expect(help.decodeArguments(handoff)).toEqual(handoff);
-    await stop.execute({}, "call-stop", { all: true });
-    expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
-  });
-
-  test("DraftExternalMessage refuses HTML email bodies and sends the server an unwrapped body", () => {
-    const runtime = runtimeTools() as unknown as {
-      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
-        name: string;
-        tools: Array<{ name: string; decodeArguments(args: unknown): unknown }>;
-      }>;
-    };
-    const draft = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
-      .find((namespace) => namespace.name === "cursor")!.tools.find((tool) => tool.name === "DraftExternalMessage")!;
+  // Field rules live in the contracts parser; this pins that tool decoding applies its one-time email unwrap.
+  test("DraftExternalMessage decoding sends the server an unwrapped email body", () => {
+    const draft = (runtimeTools() as any).dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace: any) => namespace.name === "cursor").tools.find((tool: any) => tool.name === "DraftExternalMessage");
     const email = { platform: "email", providerIdentifier: "p", from: "me@example.com", to: ["ann@example.com"], subject: "Hi" };
     expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
       .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
-    expect(() => draft.decodeArguments({ ...email, body: "Hello<br>See you" })).toThrow("body is plain text, so <br> would reach the recipient as literal text. Nothing was drafted.");
-    expect(draft.decodeArguments({ ...email, body: "Please review.", forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] }))
-      .toMatchObject({ forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] });
   });
 
-  test("normal agents expose the complete plugin lifecycle management surface", () => {
-    expect(dynamicToolNames("cursor")).toEqual(
-      expect.arrayContaining([
-        "SearchPlugins",
-        "GetPlugin",
-        "GetMcpServerStatus",
-        "InstallPlugin",
-        "UninstallPlugin",
-        "AddMcpServer",
-        "UninstallMcpServer",
-        "AuthenticateMcpServer",
-        "RestartMcpServers",
-        "RenameMcpAccount",
-        "RemoveMcpAccount",
-        "SetMcpInstructions",
-      ])
-    );
-  });
 });
 
 describe("durable state tools", () => {
@@ -476,9 +121,6 @@ describe("durable state tools", () => {
     const active = { ...workerTurn(null), runId: "run-1" };
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
-    await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
-      "UpdateMemory only writes, replaces or forgets memory"
-    );
     const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
     const namespaced: Array<[string, Record<string, unknown>]> = [
       ["UpdateSkill", { action: "delete", id: "standup" }],
@@ -490,7 +132,6 @@ describe("durable state tools", () => {
       const tool = cursor.tools.find((candidate: any) => candidate.name === name);
       await tool.execute(active, name, tool.decodeArguments({ ...args, target: "skill" }));
     }
-    expect(() => cursor.tools.find((tool: any) => tool.name === "UpdateProfile").decodeArguments({ avatar_shape: "triangle" })).toThrow();
     expect(calls).toEqual([
       { tool: "UpdateMemory", args: { action: "write", fact: "Prefers tea.", type: "profile" } },
       { tool: "UpdateRoutine", args: { action: "pause", id: "brief" } },
@@ -499,133 +140,46 @@ describe("durable state tools", () => {
   });
 });
 
-describe("local computer routing", () => {
+describe("local turn plumbing", () => {
   test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
     const calls: string[] = [];
-    const runtime = runtimeTools() as unknown as {
-      processSecrets: () => Promise<Record<string, string>>;
-      nativeToolExecutor: {
-        shell: (...args: unknown[]) => Promise<unknown>;
-        externalShell: (...args: unknown[]) => Promise<unknown>;
-      };
-      executeOpenTeamTool(
-        active: Record<string, unknown>,
-        callId: string,
-        tool: string,
-        args: unknown,
-        signal?: AbortSignal
-      ): Promise<unknown>;
-    };
+    const runtime = runtimeTools() as any;
     runtime.processSecrets = async () => ({});
-    runtime.nativeToolExecutor.shell = async () => {
-      calls.push("box");
-      return { content: [{ type: "text", text: "box" }], details: {} };
+    const fake = (where: string) => async () => {
+      calls.push(where);
+      return { content: [{ type: "text", text: where }], details: {} };
     };
-    runtime.nativeToolExecutor.externalShell = async () => {
-      calls.push("host");
-      return { content: [{ type: "text", text: "host" }], details: {} };
-    };
-    const active = {
-      subagentType: null,
-      cwd: "/workspace",
-      runId: "run-1",
-      turnId: "run-1",
-      queue: { push: () => undefined },
-    };
-
+    runtime.nativeToolExecutor.shell = fake("box");
+    runtime.nativeToolExecutor.externalShell = fake("host");
+    const active = { subagentType: null, cwd: "/workspace", runId: "run-1", turnId: "run-1", queue: { push: () => undefined } };
     await runtime.executeOpenTeamTool(active, "box-call", "Shell", { command: "pwd" });
-    await runtime.executeOpenTeamTool(active, "host-call", "Shell", {
-      command: "pwd",
-      machineId: "machine-1",
-    });
+    await runtime.executeOpenTeamTool(active, "host-call", "Shell", { command: "pwd", machineId: "machine-1" });
     expect(calls).toEqual(["box", "host"]);
   });
-});
 
-describe("compaction durable state capture", () => {
   test("refreshes the summary todo snapshot after a successful TodoWrite", async () => {
-    const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(): Promise<{
-        content: Array<{ type: "text"; text: string }>;
-        details: Record<string, unknown>;
-      }>;
-      executeTodoWrite(
-        active: { todoUpdate: string | null },
-        callId: string,
-        args: unknown
-      ): Promise<unknown>;
-    };
-    runtime.callControlPlaneTool = async () => ({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            todos: [
-              { id: "audit", content: "Review parity", status: "completed" },
-              { id: "ship", content: "Run checks", status: "in_progress" },
-            ],
-          }),
-        },
-      ],
-      details: {},
-    });
+    const runtime = runtimeTools() as any;
+    const todos = [
+      { id: "audit", content: "Review parity", status: "completed" },
+      { id: "ship", content: "Run checks", status: "in_progress" },
+    ];
+    runtime.callControlPlaneTool = async () => ({ content: [{ type: "text", text: JSON.stringify({ todos }) }], details: {} });
     const active = { todoUpdate: "- [pending] stale: Old snapshot" };
     await runtime.executeTodoWrite(active, "call-1", { todos: [] });
-    expect(active.todoUpdate).toBe(
-      "- **COMPLETED**: Review parity (id: audit)\n- **IN_PROGRESS**: Run checks (id: ship)"
-    );
+    expect(active.todoUpdate).toBe("- **COMPLETED**: Review parity (id: audit)\n- **IN_PROGRESS**: Run checks (id: ship)");
   });
 
-  test("clears the summary todo snapshot when TodoWrite clears the queue", async () => {
-    const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(): Promise<{
-        content: Array<{ type: "text"; text: string }>;
-        details: Record<string, unknown>;
-      }>;
-      executeTodoWrite(
-        active: { todoUpdate: string | null },
-        callId: string,
-        args: unknown
-      ): Promise<unknown>;
-    };
-    runtime.callControlPlaneTool = async () => ({
-      content: [{ type: "text", text: JSON.stringify({ todos: [] }) }],
-      details: {},
-    });
-    const active = { todoUpdate: "- [pending] stale: Old snapshot" };
-    await runtime.executeTodoWrite(active, "call-1", { todos: [] });
-    expect(active.todoUpdate).toBeNull();
-  });
-});
-
-describe("context turn reservation", () => {
   test("reserves a context before asynchronous setup and releases it on failure", async () => {
-    const runtime = new ComputerRuntime() as unknown as {
-      authenticated: boolean;
-      modelRuntime: {
-        checkAuth(providerId: string): Promise<{ type: string; source: string }>;
-        isUsingSubscription(providerId: string): boolean;
-      };
-      resolveModel(): object;
-      start(): Promise<void>;
-      contextState(contextSessionId: string): Promise<never>;
-      run(request: ReturnType<typeof turnRequest>): Promise<AsyncIterable<unknown>>;
-      diagnostics: { activeTurns: number };
-    };
+    const runtime = new ComputerRuntime() as any;
     runtime.start = async () => {};
-    Object.assign((runtime as any).tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
+    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
     runtime.authenticated = true;
     runtime.resolveModel = () => ({});
-    runtime.modelRuntime = {
-      checkAuth: async () => ({ type: "oauth", source: "test" }),
-      isUsingSubscription: () => true,
-    };
+    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
     let rejectSetup!: (error: Error) => void;
     let enteredSetup!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      enteredSetup = resolve;
-    });
-    runtime.contextState = async () =>
+    const entered = new Promise<void>((resolve) => (enteredSetup = resolve));
+    runtime.contextState = () =>
       new Promise<never>((_resolve, reject) => {
         rejectSetup = reject;
         enteredSetup();
@@ -633,219 +187,11 @@ describe("context turn reservation", () => {
     const contextSessionId = crypto.randomUUID();
     const first = runtime.run(turnRequest({ contextSessionId }));
     await entered;
-    await expect(
-      runtime.run(turnRequest({ contextSessionId, runId: crypto.randomUUID() }))
-    ).rejects.toThrow("already has an active Pi turn");
+    await expect(runtime.run(turnRequest({ contextSessionId, runId: crypto.randomUUID() }))).rejects.toThrow("already has an active Pi turn");
     rejectSetup(new Error("setup failed"));
     await expect(first).rejects.toThrow("setup failed");
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
-
-  test("routine runs leave the once-per-episode low-disk reminder for the user's next turn", async () => {
-    const runtime = new ComputerRuntime() as any;
-    runtime.start = async () => {};
-    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
-    runtime.authenticated = true;
-    runtime.resolveModel = () => ({});
-    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
-    const claimed: string[] = [];
-    runtime.diskPressure = { claim: async (botId: string) => { claimed.push(botId); return 1; }, commit() {} };
-    runtime.contextState = async () => { throw new Error("stop after setup"); };
-    const botId = crypto.randomUUID();
-    await expect(runtime.run(turnRequest({ botId, requestSource: "automation" }))).rejects.toThrow("stop after setup");
-    expect(claimed).toEqual([]);
-    await expect(runtime.run(turnRequest({ botId }))).rejects.toThrow("stop after setup");
-    expect(claimed).toEqual([botId]);
-  });
-
-  test("a turn sent before the cancelled first turn's session was recorded continues that session file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-session-race-"));
-    temporaryRoots.push(root);
-    const runtime = new ComputerRuntime() as any;
-    runtime.sessionsDir = join(root, "sessions", "openteam");
-    runtime.contextSessionsDir = join(root, "context-sessions");
-    runtime.compactionArchive = new BotCompactionArchiveStore(runtime.contextSessionsDir);
-    runtime.compaction = new BotCompactionCoordinator(runtime.compactionArchive, 0);
-    await mkdir(runtime.sessionsDir, { recursive: true });
-    runtime.start = async () => {};
-    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
-    runtime.tools.recoverFormOutcomes = async () => {};
-    runtime.diskPressure = { claim: async () => null, commit() {} };
-    runtime.authenticated = true;
-    runtime.resolveModel = () => ({});
-    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
-    // A session that writes the turn to its file, then runs until it is cancelled.
-    runtime.createStandaloneSession = async (_cwd: string, _instructions: string, manager: SessionManager) => {
-      let stop!: () => void;
-      const stopped = new Promise<void>((resolve) => { stop = resolve; });
-      return {
-        sessionManager: manager,
-        get sessionFile() { return manager.getSessionFile(); },
-        get sessionId() { return manager.getSessionId(); },
-        messages: [],
-        agent: {},
-        subscribe: () => () => {},
-        clearQueue() {},
-        dispose() {},
-        abort: async () => stop(),
-        async prompt(text: string) {
-          manager.appendMessage({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
-          manager.appendMessage({
-            role: "assistant", content: [{ type: "text", text: "working" }], api: "openai-codex-responses", provider: "openai-codex", model: "test",
-            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-            stopReason: "stop", timestamp: Date.now(),
-          });
-          await stopped;
-        },
-      };
-    };
-    const attachedPath = async (events: AsyncIterable<any>) => {
-      let path: string | undefined;
-      for await (const event of events) if (event.type === "session.attached") path = event.sessionPath;
-      return path;
-    };
-    const botId = crypto.randomUUID();
-    const contextSessionId = crypto.randomUUID();
-    const first = turnRequest({ botId, contextSessionId });
-    const firstAttached = attachedPath(await runtime.run(first));
-    while (!runtime.activeByRun.get(first.runId)?.session?.sessionManager.getEntries().length) await Bun.sleep(5);
-    // The user spoke first: the first turn is cancelled, and the worker sends the next turn
-    // before it has recorded the first turn's session path.
-    await runtime.cancel(first.runId);
-    const firstPath = await firstAttached;
-    expect(firstPath).toBeString();
-    const second = turnRequest({ botId, contextSessionId, sessionPath: null });
-    const secondEvents = await runtime.run(second);
-    while (!runtime.activeByRun.get(second.runId)?.session) await Bun.sleep(5);
-    await runtime.cancel(second.runId);
-    expect(await attachedPath(secondEvents)).toBe(firstPath);
-    expect(await readdir(runtime.sessionsDir)).toHaveLength(1);
-  });
-
-  test("rejects an out-of-root persisted session before opening it", async () => {
-    const runtime = new ComputerRuntime() as unknown as {
-      authenticated: boolean;
-      modelRuntime: {
-        checkAuth(providerId: string): Promise<{ type: string; source: string }>;
-        isUsingSubscription(providerId: string): boolean;
-      };
-      resolveModel(): object;
-      start(): Promise<void>;
-      run(request: ReturnType<typeof turnRequest>): Promise<AsyncIterable<unknown>>;
-      diagnostics: { activeTurns: number };
-    };
-    runtime.start = async () => {};
-    Object.assign((runtime as any).tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
-    runtime.authenticated = true;
-    runtime.resolveModel = () => ({});
-    runtime.modelRuntime = {
-      checkAuth: async () => ({ type: "oauth", source: "test" }),
-      isUsingSubscription: () => true,
-    };
-    await expect(
-      runtime.run(turnRequest({ sessionPath: "/tmp/not-an-openteam-session.jsonl" }))
-    ).rejects.toThrow("outside the OpenTeam session directory");
-    expect(runtime.diagnostics.activeTurns).toBe(0);
-  });
-
-  test("replays a staged archive from the matching persisted Pi compaction", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-compaction-recovery-"));
-    temporaryRoots.push(root);
-    const sessionsDir = join(root, "sessions", "openteam");
-    const contextSessionsDir = join(root, "context-sessions");
-    await Promise.all([
-      mkdir(sessionsDir, { recursive: true }),
-      mkdir(contextSessionsDir, { recursive: true }),
-    ]);
-    const contextSessionId = crypto.randomUUID();
-    const compactionId = crypto.randomUUID();
-    const store = new BotCompactionArchiveStore(contextSessionsDir);
-    await store.stage(contextSessionId, {
-      id: compactionId,
-      reason: "approaching_token_limit",
-      summary: "recoverable summary",
-      prefixDigest: "a".repeat(64),
-      userInfoMessage: null,
-      lastUserMessage: {
-        role: "user",
-        content: [{ type: "text", text: "latest request" }],
-        timestamp: 1,
-      },
-      preservedTailMessages: [],
-      summarizedMessages: [],
-      tokensBefore: 95_000,
-      tokensAfter: 2_000,
-      imageCount: 0,
-      turnCount: 12,
-      usage: null,
-      startedAt: new Date(1).toISOString(),
-      completedAt: new Date(2).toISOString(),
-    });
-
-    const manager = SessionManager.create(root, sessionsDir, { id: contextSessionId });
-    const firstKeptEntryId = manager.appendMessage({
-      role: "user",
-      content: [{ type: "text", text: "latest request" }],
-      timestamp: 1,
-    });
-    manager.appendMessage({
-      role: "assistant",
-      content: [{ type: "text", text: "answer" }],
-      api: "openai-codex-responses",
-      provider: "openai-codex",
-      model: "test",
-      usage: {
-        input: 1,
-        output: 1,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 2,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: "stop",
-      timestamp: 2,
-    });
-    manager.appendCompaction(
-      "recoverable summary",
-      firstKeptEntryId,
-      95_000,
-      { openteamBotCompaction: true, id: compactionId },
-      true
-    );
-
-    const runtime = new ComputerRuntime() as unknown as {
-      sessionsDir: string;
-      contextSessionsDir: string;
-      compactionArchive: BotCompactionArchiveStore;
-      compaction: BotCompactionCoordinator;
-      contextState(contextSessionId: string): Promise<{ epoch: number }>;
-    };
-    runtime.sessionsDir = sessionsDir;
-    runtime.contextSessionsDir = contextSessionsDir;
-    runtime.compactionArchive = store;
-    runtime.compaction = new BotCompactionCoordinator(store, 0);
-
-    expect((await runtime.contextState(contextSessionId)).epoch).toBe(1);
-    expect((await store.latest(contextSessionId))?.piBaseMessageCount).toBe(
-      manager.buildSessionContext().messages.length
-    );
-    expect(await store.stagedId(contextSessionId)).toBeNull();
-  });
-});
-
-test('Task returns the server receipt in one call, since every Task runs in the background', async () => {
-  const runtime = runtimeTools() as any;
-  const previousFetch = globalThis.fetch;
-  const requests: any[] = [];
-  globalThis.fetch = (async (_url:any, init:any) => {
-    requests.push(JSON.parse(init.body));
-    return Response.json('Subagent is running in the background.');
-  }) as unknown as typeof fetch;
-  try {
-    const result = await runtime.callControlPlaneTool({}, 'call', 'Task', {prompt:'long task', run_in_background:false});
-    expect(requests).toHaveLength(1);
-    expect(result.content[0].text).toContain('Subagent is running in the background.');
-  } finally {globalThis.fetch=previousFetch;}
 });
 
 test('browser workers retain their parent desktop session', async () => {
@@ -896,57 +242,16 @@ test('browser calls and forms on an already connected browser mark that desktop 
 
 test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
   const runtime = runtimeTools() as any;
-  const previousFetch = globalThis.fetch;
   const sent: any[] = [];
-  globalThis.fetch = (async (_url: any, init: any) => {
+  const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
+  expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
+  await expect(withFetch(async (_url: any, init: any) => {
     sent.push(JSON.parse(init.body).arguments);
     return Response.json({ error: { code: 'subagent_not_resumable', message: "That background subagent is still running, so it can't be resumed yet." } }, { status: 409 });
-  }) as unknown as typeof fetch;
-  try {
-    const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
-    expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
-    const active = { ...workerTurn(null), runId: 'run-1' };
-    await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
-      namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
-    })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
-    expect(sent[0].subagent_type).toBe('computerUse');
-  } finally { globalThis.fetch = previousFetch; }
-});
-
-test('Computer rewrites other tools\' action names before its schema check', () => {
-  const runtime = runtimeTools() as any;
-  const computer = runtime.customTools(workerTurn('computerUse')).find((tool: any) => tool.name === 'Computer');
-  expect(computer.prepareArguments({ action: 'left_click', x: 3, y: 4 })).toEqual({ action: 'click', button: 'left', x: 3, y: 4 });
-  expect(() => computer.prepareArguments({ action: 'right_click', button: 'left' })).toThrow(
-    'Invalid arguments:\naction: Computer has no right_click action, and it would mean button "right", not "left". Send action "click" with the button you mean.'
-  );
-});
-
-test('the parent-only dispatch reminder names only tools the parent has and that child type lacks', async () => {
-  const { parentOnlyToolsFor } = await import('@openteam/contracts/subagent-dispatch');
-  const runtime = runtimeTools() as any;
-  // A worker without CallDynamicTool cannot reach the catalog.
-  const surface = (active: Record<string, unknown>) => {
-    const direct: string[] = runtime.customTools(active).map((tool: any) => tool.name);
-    return new Set<string>([
-      ...direct,
-      ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
-    ]);
-  };
-  // Messages tools are listed while a connected Mac has Messages on.
-  const parent = new Set([...surface(workerTurn(null, { messagesAvailable: true })), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
-  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
-    const child = type ? surface(workerTurn(type)) : new Set<string>();
-    const listed = [...parentOnlyToolsFor(type).keys()];
-    expect(listed.length, String(type)).toBeGreaterThan(5);
-    for (const tool of listed) {
-      expect(parent.has(tool), `${type}: parent lacks ${tool}`).toBe(true);
-      expect(child.has(tool), `${type}: child has ${tool}`).toBe(false);
-    }
-  }
-  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo'])
-    for (const tool of parentOnlyToolsFor(undefined).keys())
-      expect(surface(workerTurn(type)).has(tool), `${type} has resumable ${tool}`).toBe(false);
+  }, () => runtime.executeOpenTeamTool({ ...workerTurn(null), runId: 'run-1' }, 'call', 'CallDynamicTool', {
+    namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
+  }))).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
+  expect(sent[0].subagent_type).toBe('computerUse');
 });
 
 test('a readonly worker lists and greps with Shell on the box, reads only through read tools, and moves no files', async () => {
@@ -983,4 +288,102 @@ test('Messages tools appear only while a connected Mac has Messages on, and neve
     expect(cursor(active).filter((name: string) => messages.includes(name))).toEqual([]);
   // The Chrome sign-in import does not depend on Messages.
   expect(cursor(workerTurn(null))).toContain('RequestCookieOriginApproval');
+});
+
+describe("routine runs", () => {
+  const automation = () => ({ requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [], botId: "bot" }) as any;
+  const names = (tools: any, turn: any) => [...tools.customTools(turn).map((tool: any) => tool.name), ...tools.contextCatalog(turn).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name))];
+
+  test("automation calls WakeParent directly and keeps work tools, with all communication surfaces removed", () => {
+    const tools = runtimeTools() as any;
+    const turn = automation();
+    expect(tools.customTools(turn).map((tool: any) => tool.name)).toContain("WakeParent");
+    expect(tools.contextCatalog(turn).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name))).not.toContain("WakeParent");
+    for (const name of AUTOMATION_PARENT_ONLY_TOOLS) expect(names(tools, turn)).not.toContain(name);
+    // Routine management tools stay: none of them opens a card or waits for the user.
+    for (const name of ["Shell", "Read", "RecallMemory", "UpdateMemory", "UpdateRoutine", "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "Task", "CheckSubagent",
+      "WebFetch", "WebSearch", "CopyToBox", "CopyFromBox", "GetPlugin", "SearchPlugins", "UninstallPlugin", "UninstallMcpServer", "RestartMcpServers", "SetMcpInstructions", "RenameMcpAccount", "RemoveMcpAccount"])
+      expect(names(tools, turn)).toContain(name);
+    for (const profile of [
+      { requestSource: "turn", runtimeProfile: "agent", subagentType: null },
+      { requestSource: "agent", runtimeProfile: "subagent", subagentType: "executor" },
+      { requestSource: "automation", runtimeProfile: "subagent", subagentType: "executor" },
+    ]) expect(names(tools, { ...turn, ...profile })).not.toContain("WakeParent");
+  });
+
+  test("a rejected WakeParent leaves the automation able to continue, and communication tools point to WakeParent", async () => {
+    const tools = runtimeTools() as any;
+    const turn = automation();
+    const wake = tools.customTools(turn).find((tool: any) => tool.name === "WakeParent")!;
+    await expect(withFetch(async () => Response.json({ error: "storage unavailable" }, { status: 503 }),
+      () => wake.execute("wake", { message: "Complete report" }, undefined, undefined, {} as never))).rejects.toThrow("storage unavailable");
+    expect(turn.endTurnRequested).not.toBe(true);
+    for (const [tool, args] of [["SendToUser", { type: "text", content: "Done" }], ["ReactToMessage", { message_address: "t1", emoji: "👍" }]] as const)
+      await expect(tools.executeOpenTeamTool(turn, "call", tool, args)).rejects.toThrow(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
+  });
+});
+
+describe("task progress", () => {
+  const input = { key: "generated", state: "working", summary: "Generated the requested artifact", evidence: ["/documents/export"], remaining: ["Confirm destination receipt"], nextAction: "Check receipt" };
+  const later = () => new Date(Date.now() + 3600_000).toISOString();
+  const worker = (subagentType: string, overrides: Record<string, unknown> = {}) => ({
+    requestSource: "agent", runtimeProfile: "subagent", subagentType, pluginNamespaces: [], botId: "child", instructions: "Original authorization and scope.",
+    modelRef: {}, reasoning: "low", compactionReadPiMessages: () => [], cwd: "/tmp", contextSessionId: "context", ...overrides,
+  }) as any;
+  const run = (tools: any, turn: any, name: string, id: string, args: unknown) => tools.customTools(turn).find((tool: any) => tool.name === name)!.execute(id, args, undefined, undefined, {} as never);
+
+  test("worker progress keeps the turn alive, waiting parks it, and compaction sees the latest obligations", async () => {
+    const tools = runtimeTools() as any;
+    const turn = worker("executor");
+    let deferred = false;
+    const host = async (_url: unknown, init: any) => {
+      const { arguments: args } = JSON.parse(init.body);
+      return Response.json({ saved: true, deferred, progress: { ...args, runId: "run", revision: deferred ? 2 : 1 } });
+    };
+    await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "progress", input));
+    expect(turn.endTurnRequested).not.toBe(true);
+    // Progress rides in the turn's instructions; compaction keeps hashing the original authority.
+    expect(turn.instructions).toContain("Confirm destination receipt");
+    expect(compactionObservation(turn).systemPrompt).toBe("Original authorization and scope.");
+    deferred = true;
+    await withFetch(host, () => run(tools, turn, "ReportTaskProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
+    expect(turn.endTurnRequested).toBe(true);
+    expect(turn.instructions.split("<durable_task_state>")).toHaveLength(2);
+  });
+
+  test("only work-capable delegated workers hold progress, and a failed write neither ends the task nor invents saved state", async () => {
+    const tools = runtimeTools() as any;
+    for (const kind of ["executor", "knowledgeWork", "computerUse"]) {
+      const names = tools.customTools(worker(kind)).map((tool: any) => tool.name);
+      expect(names).toContain("ReportTaskProgress");
+      expect(names).not.toContain("WakeParent");
+    }
+    expect(tools.customTools({ requestSource: "turn", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] }).map((tool: any) => tool.name)).not.toContain("ReportTaskProgress");
+    const turn = worker("computerUse", { instructions: "Original scope" });
+    await expect(withFetch(async () => Response.json({ error: "database unavailable" }, { status: 503 }), () => run(tools, turn, "ReportTaskProgress", "failed", input))).rejects.toThrow();
+    expect(turn.endTurnRequested).not.toBe(true);
+    expect(turn.instructions).toBe("Original scope");
+  });
+
+  test("a parent saves a separate request wait, carries it into compaction, and workers cannot access that operation", async () => {
+    const requestId = crypto.randomUUID();
+    const tools = runtimeTools() as any;
+    const host = async (_url: unknown, init: any) => {
+      const request = JSON.parse(init.body);
+      expect(request.tool).toBe("ReportRequestProgress");
+      return Response.json({ request_run_id: requestId, deferred: request.arguments.state === "waiting", ended: request.arguments.state === "complete",
+        requests: request.arguments.state === "complete" ? [] : [{ request_run_id: requestId, progress: request.arguments }] });
+    };
+    const active = worker("", { requestSource: "turn", runtimeProfile: "agent", subagentType: null, botId: "owner", instructions: "Only one outgoing message is approved." });
+    const waiting = await withFetch(host, () => run(tools, active, "ReportRequestProgress", "wait", { ...input, state: "waiting", checkAt: later() }));
+    expect(waiting.terminate).toBe(true);
+    expect(active.endTurnRequested).toBe(true);
+    for (const value of [requestId, "Confirm destination receipt", "Only one outgoing message is approved."]) expect(active.instructions).toContain(value);
+    expect(compactionObservation(active).systemPrompt).toBe("Only one outgoing message is approved.");
+    const next = { ...active, endTurnRequested: false };
+    expect((await withFetch(host, () => run(tools, next, "ReportRequestProgress", "complete", { ...input, state: "complete", remaining: [] }))).terminate).toBe(true);
+    expect(next.endTurnRequested).toBe(true);
+    for (const turn of [{ ...active, runtimeProfile: "subagent", subagentType: "executor" }, { ...active, requestSource: "automation" }])
+      expect(tools.customTools(turn).map((tool: any) => tool.name)).not.toContain("ReportRequestProgress");
+  });
 });

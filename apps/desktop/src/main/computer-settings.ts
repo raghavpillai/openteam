@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 
 /** messagesEnabled: bots may read and send texts on this Mac. Only this Mac's app can turn it on. */
 export interface ComputerSettings { version: 1; machineLabel: string | null; messagesEnabled: boolean; }
-export const DEFAULT_COMPUTER_SETTINGS: ComputerSettings = { version: 1, machineLabel: null, messagesEnabled: false };
-export const normalizeComputerSettings = (value: unknown): ComputerSettings => {
+const DEFAULT_COMPUTER_SETTINGS: ComputerSettings = { version: 1, machineLabel: null, messagesEnabled: false };
+const normalizeComputerSettings = (value: unknown): ComputerSettings => {
   const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   return {
     version: 1,

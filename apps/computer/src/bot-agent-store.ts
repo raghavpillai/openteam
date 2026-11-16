@@ -33,25 +33,9 @@ import type {
   StoredTranscriptEntry,
 } from "./agent-store/types";
 
-export type {
-  AgentDirectoryRecord,
-  AgentDirectorySnapshot,
-} from "@openteam/contracts/service-protocol";
-export {
-  AGENT_DIRECTORY_FULL_SCAN_INTERVAL_MS,
-  type AgentDirectoryDiscoveryMetrics,
-} from "./agent-store/directory-inventory";
+const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
 
-export {
-  type AgentStoreHandleMetrics,
-  type BotAgentStoreOptions,
-  type ConversationPublicationMetrics,
-  type StoredTranscriptEntry,
-} from "./agent-store/types";
-
-export const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
-
-export const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
+const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
 
 // The computer supervisor and server/worker have different UIDs, but share
 // the box group. The server and worker create some of these directories with

@@ -16,7 +16,7 @@ const SOCIAL_IMAGE = {
   alt: "OpenTeam — Run your own AI team. Digital workers on your compute. Open source and self-hosted, with the teal 2D OpenTeam bot.",
 };
 
-export type ArticleMetadata = {
+type ArticleMetadata = {
   publishedTime: string;
   modifiedTime?: string;
   authors: string[];

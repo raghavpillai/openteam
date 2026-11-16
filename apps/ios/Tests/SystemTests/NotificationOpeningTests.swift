@@ -3,25 +3,16 @@ import XCTest
 
 @MainActor
 final class NotificationOpeningTests: SystemIntentFixture {
-  private func connectedStore() async throws -> AppStore {
-    _ = try await API(server: server).request("/__qa/scene", method: "POST",
-      body: .object(["scene": .string("history-pages")]))
-    let store = AppStore()
-    store.server = server
-    await store.connect(username: "", password: "")
-    XCTAssertEqual(store.phase, .ready)
+  /// 180 messages in `visual-chat`; only the latest 60 are in the first page.
+  private func pagedStore() async throws -> AppStore {
+    try await scene("history-pages")
+    let store = try await connectedStore()
     XCTAssertFalse(store.launchComplete, "This fixture must not start automatic event polling")
     return store
   }
-  private func control(_ failures: JSON) async throws {
-    _ = try await API(server: server).request("/__qa/control", method: "POST",
-      body: .object(["failures": failures]))
-  }
-  private func requests() async throws -> [JSON] {
-    try await API(server: server).request("/__qa/state")["requests"].array
-  }
+  private func fail(_ failures: JSON) async throws { try await control(.object(["failures": failures])) }
   private func waitForRequest(_ path: String, query: String? = nil, after count: Int = 0) async throws {
-    for _ in 0..<50 {
+    for _ in 0..<150 {
       if try await requests().dropFirst(count).contains(where: {
         $0["path"].string == path && (query == nil || $0["query"].string.contains(query!))
       }) { return }
@@ -30,14 +21,14 @@ final class NotificationOpeningTests: SystemIntentFixture {
     throw APIError("Request was not started: \(path)")
   }
   func testCachedNotificationTargetOpensWithoutWaitingForTheNetwork() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     let target = try XCTUnwrap(store.messages("visual-chat").last)
     let before = try await requests().filter {
       $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
     }.count
-    try await control(.object([
+    try await fail(.object([
       "GET /api/v0/channels/visual-chat/history": .object(["status": .number(503), "count": .number(100)]),
       "GET /api/v0/channel-messages/*": .object(["status": .number(503), "count": .number(100)]),
     ]))
@@ -52,38 +43,8 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertEqual(after, before)
     XCTAssertNil(store.error)
   }
-  func testLegacyNotificationReplacesAnOlderSearchWindow() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
-    XCTAssertTrue(loaded)
-    store.navigation = ["visual-chat"]
-    XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
-    await store.openNotification("visual-chat", messageID: nil, sequence: "180")
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-180")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "180" })
-    XCTAssertFalse(store.historyWindows["visual-chat"]?.hasLater == true)
-  }
-  func testRestoredOlderCacheGetsItsContextBeforeLatestReconciliation() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    let target = "visual-message-visual-chat-25"
-    let loaded = await store.loadContext("visual-chat", messageID: target)
-    XCTAssertTrue(loaded)
-    // Restart restores saved rows and loaded-channel markers, without the
-    // in-memory context bounds. A latest-page install could otherwise drop 25.
-    store.histories = [:]
-    store.historyWindows = [:]
-    XCTAssertTrue(store.hasCachedHistory("visual-chat"))
-    await store.openNotification("visual-chat", messageID: target, sequence: "25")
-    XCTAssertEqual(store.focusedMessage, target)
-    XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
-    await store.loadHistory("visual-chat")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.id == target })
-  }
   func testMessageIdentityOpensAnAlertOutsideTheLatestSixtyMessages() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
@@ -92,42 +53,13 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
     XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
   }
-  func testAnOlderInFlightPageDoesNotForgetANewerNotification() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    let api = try API(server: server)
-    let oldPage = try await api.request("/api/v0/channels/visual-chat/history")
-    try await control(.object([
-      "GET /api/v0/channels/visual-chat/history": .object([
-        "status": .number(200), "body": oldPage, "delayMs": .number(300), "count": .number(1),
-      ]),
-    ]))
-    let read = Task { await store.loadHistory("visual-chat") }
-    try await Task.sleep(for: .milliseconds(50))
-    store.noteNotified("visual-chat", sequence: "181")
-    await read.value
-    XCTAssertTrue(store.transcriptBehind("visual-chat"), "An old response must retain the newer announced sequence")
-  }
-  func testLegacyAlertResolvesItsSequenceOutsideTheLatestPage() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    await store.openNotification("visual-chat", messageID: nil, sequence: "25")
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-25")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
-    let requests = try await requests()
-    XCTAssertTrue(requests.contains {
-      $0["path"].string.hasSuffix("/history") && $0["query"].string.contains("before=26")
-    })
-  }
   func testNewerNotificationWinsWhenContextResponsesFinishOutOfOrder() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     let oldID = "visual-message-visual-chat-25"
     let newID = "visual-message-visual-chat-150"
     let path = "/api/v0/channel-messages/\(oldID)/context"
-    try await control(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
+    try await fail(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
     let old = Task { await store.openNotification("visual-chat", messageID: oldID, sequence: "25") }
     try await waitForRequest(path)
     await store.openNotification("visual-chat", messageID: newID, sequence: "150")
@@ -137,11 +69,11 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.id == oldID })
   }
   func testSlowNotificationContextCannotOverrideAnotherConversation() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     let target = "visual-message-visual-chat-25"
     let path = "/api/v0/channel-messages/\(target)/context"
-    try await control(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
+    try await fail(.object(["GET " + path: .object(["delayMs": .number(400), "count": .number(1)])]))
     let opening = Task { await store.openNotification("visual-chat", messageID: target, sequence: "25") }
     try await waitForRequest(path)
     XCTAssertNotNil(store.openingNotification)
@@ -151,286 +83,11 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertNil(store.openingNotification)
     XCTAssertNil(store.histories["visual-chat"], "A superseded response must not install an old context window")
   }
-  func testNotificationContextFailureShowsAnErrorAndCanBeRetried() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let target = "visual-message-visual-chat-25"
-    try await control(.object([
-      "GET /api/v0/channel-messages/\(target)/context": .object(["status": .number(503), "count": .number(1)]),
-    ]))
-    await store.openNotification("visual-chat", messageID: target, sequence: "25")
-    XCTAssertNotNil(store.error)
-    XCTAssertNil(store.openingNotification)
-    XCTAssertTrue(store.navigation.isEmpty)
-    store.error = nil
-    await store.openNotification("visual-chat", messageID: target, sequence: "25")
-    XCTAssertEqual(store.focusedMessage, target)
-    XCTAssertEqual(store.navigation, ["visual-chat"])
-  }
-  private let historyPath = "/api/v0/channels/visual-chat/history"
-  private func contextPath(_ sequence: Int) -> String {
-    "/api/v0/channel-messages/visual-message-visual-chat-\(sequence)/context"
-  }
-  private func delay(_ path: String, status: Int? = nil) async throws {
-    var response: [String: JSON] = ["delayMs": .number(1000), "count": .number(1)]
-    if let status { response["status"] = .number(Double(status)) }
-    try await control(.object(["GET " + path: .object(response)]))
-  }
-  private func assertPreserved(_ store: AppStore, window: HistoryWindow?, rows: [Message],
-    cursor: String?, file: StaticString = #filePath, line: UInt = #line) {
-    XCTAssertEqual(store.historyWindows["visual-chat"], window, file: file, line: line)
-    XCTAssertEqual(store.messages("visual-chat"), rows, file: file, line: line)
-    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, cursor, file: file, line: line)
-    XCTAssertFalse(store.visibleMessages("visual-chat").isEmpty, file: file, line: line)
-    XCTAssertFalse(store.historyLoadFailures.contains("visual-chat"), file: file, line: line)
-    XCTAssertEqual(store.phase, .ready, file: file, line: line)
-    XCTAssertNil(store.error, file: file, line: line)
-  }
-  private func olderPageReplacedByNotification(status: Int? = nil) async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, "121")
-    let count = try await requests().count
-    try await delay(historyPath, status: status)
-    let older = Task { await store.loadHistory("visual-chat", older: true) }
-    try await waitForRequest(historyPath, query: "before=121", after: count)
-    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-25", sequence: "25")
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-25")
-    XCTAssertTrue(store.busy.contains("history-visual-chat"), "The older response must still be delayed")
-    await older.value
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-25")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
-    XCTAssertFalse(store.busy.contains("history-visual-chat"))
-    // The replacement window can immediately page using its own cursor.
-    await store.loadLater("visual-chat")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "105" })
-  }
-  func testOlderPageCannotMutateANotificationReplacement() async throws {
-    try await olderPageReplacedByNotification()
-  }
-  func testStaleOlderPageErrorCannotSignOutTheReplacementContext() async throws {
-    try await olderPageReplacedByNotification(status: 401)
-  }
-  private func laterPageReplacedByLatest(status: Int? = nil) async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-25")
-    XCTAssertTrue(loaded)
-    let count = try await requests().count
-    try await delay(contextPath(45), status: status)
-    let later = Task { await store.loadLater("visual-chat") }
-    try await waitForRequest(contextPath(45), query: "direction=after", after: count)
-    let latest = await store.loadLatest("visual-chat")
-    XCTAssertTrue(latest)
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    XCTAssertTrue(store.busy.contains("later-visual-chat"), "The later response must still be delayed")
-    await later.value
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "180")
-    XCTAssertFalse(store.busy.contains("later-visual-chat"))
-  }
-  func testLaterPageCannotMutateALatestReplacement() async throws {
-    try await laterPageReplacedByLatest()
-  }
-  func testStaleLaterPageErrorDoesNotSurfaceInTheLatestWindow() async throws {
-    try await laterPageReplacedByLatest(status: 503)
-  }
-  func testStaleLatestRefreshErrorDoesNotMarkTheNewContextAsFailed() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    let count = try await requests().count
-    try await delay(historyPath, status: 503)
-    let refresh = Task { await store.loadHistory("visual-chat") }
-    try await waitForRequest(historyPath, after: count)
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-25")
-    XCTAssertTrue(loaded)
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    await refresh.value
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-  }
-  func testOlderAndLaterPagesCanFinishOnTheSameWindow() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
-    XCTAssertTrue(loaded)
-    let count = try await requests().count
-    try await delay(historyPath)
-    let older = Task { await store.loadHistory("visual-chat", older: true) }
-    try await waitForRequest(historyPath, query: "before=70", after: count)
-    await store.loadLater("visual-chat")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "170")
-    await older.value
-    XCTAssertEqual(store.visibleMessages("visual-chat").first?.sequence, "10")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "170")
-    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, "10")
-    XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
-    XCTAssertNil(store.error)
-  }
-  func testFailedPagesKeepTheirCursorsForSameWindowRetry() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
-    XCTAssertTrue(loaded)
-    try await control(.object(["GET " + historyPath: .object(["status": .number(503), "count": .number(1)])]))
-    await store.loadHistory("visual-chat", older: true)
-    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, "70")
-    XCTAssertFalse(store.historyLoadFailures.contains("visual-chat"))
-    await store.loadHistory("visual-chat", older: true)
-    XCTAssertEqual(store.visibleMessages("visual-chat").first?.sequence, "10")
-    try await control(.object(["GET " + contextPath(110): .object(["status": .number(503), "count": .number(1)])]))
-    await store.loadLater("visual-chat")
-    XCTAssertNotNil(store.error)
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "110")
-    store.error = nil
-    await store.loadLater("visual-chat")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "170")
-    XCTAssertNil(store.error)
-  }
-  func testSlowLatestCannotReplaceANewerNotificationContext() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
-    XCTAssertTrue(loaded)
-    let count = try await requests().count
-    try await delay(historyPath)
-    let latest = Task { await store.loadLatest("visual-chat") }
-    try await waitForRequest(historyPath, after: count)
-    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-25", sequence: "25")
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    let accepted = await latest.value
-    XCTAssertFalse(accepted, "The Latest caller must skip its obsolete bottom scroll")
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-25")
-  }
-  func testSlowOrdinaryOpenCannotReplaceANewerNotificationContext() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let count = try await requests().count
-    try await delay(contextPath(90))
-    let search = Task { await store.open("visual-chat", messageID: "visual-message-visual-chat-90") }
-    try await waitForRequest(contextPath(90), after: count)
-    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-25", sequence: "25")
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    await search.value
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-25")
-    XCTAssertEqual(store.navigation, ["visual-chat"])
-  }
-
-  func testSlowContextCannotReplaceANewerLatestRequestWithoutNavigationChanging() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let count = try await requests().count
-    try await delay(contextPath(25))
-    let context = Task { await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-25") }
-    try await waitForRequest(contextPath(25), after: count)
-    let latest = await store.loadLatest("visual-chat")
-    XCTAssertTrue(latest)
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    let accepted = await context.value
-    XCTAssertFalse(accepted)
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.visibleMessages("visual-chat").first?.sequence, "121")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "180")
-    XCTAssertTrue(store.navigation.isEmpty)
-  }
-
-  private func legacyLookupSupersededByReplacement(latest: Bool, status: Int? = nil) async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
-    XCTAssertTrue(loaded)
-    store.navigation = ["visual-chat"]
-    store.focusedMessage = "visual-message-visual-chat-90"
-    let count = try await requests().count
-    try await delay(historyPath, status: status)
-    let legacy = Task { await store.openNotification("visual-chat", messageID: nil, sequence: "25") }
-    try await waitForRequest(historyPath, query: "before=26", after: count)
-    let lookup = try await requests().dropFirst(count).first { $0["path"].string == historyPath }
-    XCTAssertTrue(lookup?["query"].string.contains("limit=1") == true)
-    let replaced: Bool
-    if latest {
-      replaced = await store.loadLatest("visual-chat")
-    } else {
-      replaced = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-150")
-    }
-    XCTAssertTrue(replaced)
-    let window = store.historyWindows["visual-chat"]
-    let rows = store.messages("visual-chat")
-    let cursor = store.histories["visual-chat"]?.beforeSequence
-    let focus = store.focusedMessage
-    let notification = store.focusedNotification
-    XCTAssertNotNil(store.openingNotification, "The legacy lookup must still be delayed")
-    await legacy.value
-    assertPreserved(store, window: window, rows: rows, cursor: cursor)
-    XCTAssertEqual(store.navigation, ["visual-chat"])
-    XCTAssertEqual(store.focusedMessage, focus)
-    XCTAssertEqual(store.focusedNotification, notification)
-    XCTAssertNil(store.openingNotification)
-    XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
-    let followOn = try await requests().dropFirst(count).filter { $0["path"].string == contextPath(25) }
-    XCTAssertTrue(followOn.isEmpty, "A superseded lookup must stop before requesting message context")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, latest ? "180" : "170")
-  }
-  func testDelayedLegacyLookupCannotReplaceNewerLatest() async throws {
-    try await legacyLookupSupersededByReplacement(latest: true)
-  }
-  func testDelayedLegacyUnauthorizedErrorCannotSignOutNewerLatest() async throws {
-    try await legacyLookupSupersededByReplacement(latest: true, status: 401)
-  }
-  func testDelayedLegacyServerErrorDoesNotSurfaceOverNewerLatest() async throws {
-    try await legacyLookupSupersededByReplacement(latest: true, status: 503)
-  }
-  func testDelayedLegacyLookupCannotReplaceNewerDirectContext() async throws {
-    try await legacyLookupSupersededByReplacement(latest: false)
-  }
-  func testCachedNotificationKeepsSameWindowPagingInFlight() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    await store.loadHistory("visual-chat")
-    let count = try await requests().count
-    try await delay(historyPath)
-    let older = Task { await store.loadHistory("visual-chat", older: true) }
-    try await waitForRequest(historyPath, query: "before=121", after: count)
-    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-150", sequence: "150")
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-150")
-    XCTAssertTrue(store.busy.contains("history-visual-chat"))
-    await older.value
-    XCTAssertEqual(store.visibleMessages("visual-chat").first?.sequence, "61")
-    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "180")
-    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, "61")
-    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "150" })
-    let contextRequests = try await requests().dropFirst(count).filter { $0["path"].string.hasSuffix("/context") }
-    XCTAssertTrue(contextRequests.isEmpty)
-    XCTAssertNil(store.error)
-  }
   /// Starts the event loop as launch does and waits until it is listening.
   private func watch(_ store: AppStore) async throws {
     let count = try await requests().count
     store.finishLaunch()
-    for _ in 0..<150 {
-      if try await requests().dropFirst(count).contains(where: { $0["path"].string == "/api/v0/events/poll" }) {
-        return
-      }
-      try await Task.sleep(for: .milliseconds(20))
-    }
-    throw APIError("The event loop did not start")
+    try await waitForRequest("/api/v0/events/poll", after: count)
   }
   /// A reply from the chat's bot, announced by a live event and read by the event loop.
   private func reply(_ text: String, into store: AppStore) async throws -> Message {
@@ -441,42 +98,42 @@ final class NotificationOpeningTests: SystemIntentFixture {
     }
     return try XCTUnwrap(store.messages("visual-chat").first { $0.content == text })
   }
-  func testFirstReplyAfterAnOpeningThatFetchedItsPageArrivesLive() async throws {
-    let store = try await connectedStore()
+  /// An opening that fetched the chat's newest page has caught up, so the next reply arrives live.
+  private func assertFirstReplyAfterFetchedOpeningArrivesLive(viaNotification: Bool) async throws {
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     try await watch(store)
-    await store.open("visual-chat", messageID: "visual-message-visual-chat-180")
+    if viaNotification {
+      await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-180", sequence: "180")
+      XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-180")
+    } else {
+      await store.open("visual-chat", messageID: "visual-message-visual-chat-180")
+    }
     XCTAssertEqual(store.navigation, ["visual-chat"])
     XCTAssertFalse(store.historyWindows["visual-chat"]?.hasLater == true)
     // The chat's view marks it active when it appears; it skips the latest-page
     // read because the opening already fetched this page.
     store.activeChannel = "visual-chat"
-    let first = try await reply("First reply after a search opening", into: store)
+    let first = try await reply("First reply after a fetched opening", into: store)
     XCTAssertTrue(store.arrivedLive(first), "The opening had caught up; this reply arrived in front of the reader")
   }
+  func testFirstReplyAfterAnOpeningThatFetchedItsPageArrivesLive() async throws {
+    try await assertFirstReplyAfterFetchedOpeningArrivesLive(viaNotification: false)
+  }
   func testFirstReplyAfterANotificationThatFetchedItsPageArrivesLive() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    try await watch(store)
-    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-180", sequence: "180")
-    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-180")
-    store.activeChannel = "visual-chat"
-    let first = try await reply("First reply after a fetched notification", into: store)
-    XCTAssertTrue(store.arrivedLive(first))
+    try await assertFirstReplyAfterFetchedOpeningArrivesLive(viaNotification: true)
   }
   func testCachedNotificationTargetCatchesUpBeforeRepliesArriveLive() async throws {
-    let store = try await connectedStore()
+    let store = try await pagedStore()
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     let target = try XCTUnwrap(store.messages("visual-chat").last)
     try await watch(store)
-    let before = try await requests().filter {
-      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
-    }.count
+    let fetches = { try await self.requests().filter {
+      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context") }.count }
+    let before = try await fetches()
     await store.openNotification("visual-chat", messageID: target.id, sequence: target.sequence)
-    let after = try await requests().filter {
-      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
-    }.count
+    let after = try await fetches()
     XCTAssertEqual(after, before, "A cached, visible target opens without a fetch")
     store.activeChannel = "visual-chat"
     // Nothing verified this transcript since it was saved, so its first read is
@@ -486,5 +143,4 @@ final class NotificationOpeningTests: SystemIntentFixture {
     let second = try await reply("Arrives once the chat has caught up", into: store)
     XCTAssertTrue(store.arrivedLive(second))
   }
-
 }

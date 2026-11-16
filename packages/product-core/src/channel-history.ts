@@ -311,7 +311,7 @@ const tailFromMessages = ({
   };
 };
 
-export const latestTailFromPage = (page: ChannelHistoryPage): MessageLatestTail =>
+const latestTailFromPage = (page: ChannelHistoryPage): MessageLatestTail =>
   tailFromMessages({
     messages: page.messages,
     threadContext: page.threadContext,
@@ -320,7 +320,7 @@ export const latestTailFromPage = (page: ChannelHistoryPage): MessageLatestTail 
     revision: page.revision,
   });
 
-export const latestTailFromHistory = (history: LoadedChannelHistory): MessageLatestTail =>
+const latestTailFromHistory = (history: LoadedChannelHistory): MessageLatestTail =>
   tailFromMessages({
     messages: history.messages,
     threadContext: history.threadContext,
@@ -1302,7 +1302,7 @@ export const patchRetainedMessageWindow = (
   };
 };
 
-export interface ChannelHistoryWindowStatus {
+interface ChannelHistoryWindowStatus {
   beforeSequence: string | null;
   hasMore: boolean;
   hasNewer: boolean;

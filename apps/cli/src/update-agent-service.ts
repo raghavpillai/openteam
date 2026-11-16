@@ -34,7 +34,7 @@ export const systemServiceHost = (): ServiceHost => ({
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
 });
 
-export interface UpdateAgentService {
+interface UpdateAgentService {
   kind: "systemd" | "launchd";
   name: string;
   file: string;
@@ -159,7 +159,7 @@ const systemctl = (host: ServiceHost, args: readonly string[]) => {
   }
 };
 
-export interface ServiceSetup {
+interface ServiceSetup {
   managed: boolean;
   /** Why the service could not be registered. */
   warning?: string;

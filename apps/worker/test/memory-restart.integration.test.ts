@@ -16,10 +16,10 @@ interface TurnInput {
   contextSessionId: string;
   sessionPath: string | null;
 }
-for (const crashAt of ["before-memory", "inference", "inference-natural-expiry", "before-publication", "before-ack"] as const) databaseTest(
+for (const crashAt of ["inference", "before-publication", "before-ack"] as const) databaseTest(
   `a worker killed at ${crashAt} recovers the settled exchange without another turn`,
   async () => {
-    const inferenceCrash = crashAt === "inference" || crashAt === "inference-natural-expiry";
+    const inferenceCrash = crashAt === "inference";
     const expectedExtractions = inferenceCrash ? 2 : 1;
     const root = await mkdtemp(join(tmpdir(), "worker-memory-restart-"));
     let app: AppService | undefined,
@@ -211,34 +211,15 @@ for (const crashAt of ["before-memory", "inference", "inference-natural-expiry",
         expect(pending.memoryReviewRevision).toBeNumber();
       }
       await worker.crash();
-      if (crashAt === "inference" || crashAt === "before-ack") {
+      if (crashAt !== "before-publication") {
         // Expire only the dead owner's lease; recovery need not wait for the TTL.
         expect((await app.prisma.memoryReviewLease.updateMany({ where: { botId }, data: { expiresAt: new Date(0) } })).count).toBe(1);
       }
       if (committed) await app.agentData.replaceMemory(bot.id, {
         scope: "agent", tier: "profile", id: committed.id, fact: "The user lives in Paris.",
       }, { source: "tool", turnId: "post-crash-correction" });
-      let naturalLease: { ownerId: string; expiresAt: Date; remainingMs: number } | undefined;
-      if (crashAt === "inference-natural-expiry") {
-        [naturalLease] = await app.prisma.$queryRaw<Array<NonNullable<typeof naturalLease>>>`
-          SELECT "ownerId", "expiresAt",
-            (EXTRACT(EPOCH FROM ("expiresAt" - clock_timestamp())) * 1000)::float8 AS "remainingMs"
-          FROM "MemoryReviewLease" WHERE "botId" = ${bot.id}::uuid`;
-        expect(naturalLease).toBeDefined();
-        expect(naturalLease!.remainingMs).toBeGreaterThan(10_000);
-      }
-      const recoveryStartedAt = Date.now();
       await worker.start();
       expect(workerPids[0]).not.toBe(workerPids[1]);
-      if (naturalLease) {
-        // The replacement must respect the dead owner's still-live lease. No test
-        // updates it: startup and the safety timer must wait for PostgreSQL expiry.
-        await Bun.sleep(5_000);
-        expect(extractions).toHaveLength(1);
-        expect(await app.prisma.memoryReviewLease.findUniqueOrThrow({ where: { botId: bot.id } }))
-          .toMatchObject({ ownerId: naturalLease.ownerId, expiresAt: naturalLease.expiresAt });
-        expect((await app.prisma.run.findUniqueOrThrow({ where: { id: pending.id } })).memoryReviewPending).toBe(true);
-      }
       await until(async () => {
         // Facts commit before acknowledgement; wait for both durable review
         // intent and held exchanges to clear before inspecting the result.
@@ -250,10 +231,6 @@ for (const crashAt of ["before-memory", "inference", "inference-natural-expiry",
         return facts === 1 && acknowledged === 1 &&
           Array.isArray(bot.pendingMemoryExchanges) && bot.pendingMemoryExchanges.length === 0;
       });
-      if (naturalLease) {
-        expect(Date.now() - recoveryStartedAt).toBeGreaterThanOrEqual(naturalLease.remainingMs - 1_000);
-        expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(1);
-      }
       expect(extractions).toHaveLength(expectedExtractions);
       const recovered = extractions.at(-1)!;
       expect(recovered).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);

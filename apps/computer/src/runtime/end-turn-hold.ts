@@ -3,7 +3,7 @@ import { END_TURN_HOLD_REMINDER } from "./prompt-context";
 import type { ActiveTurn } from "./types";
 
 /** Times one turn may stay open after a closing reply whose sibling call failed, as in the reference. */
-export const END_TURN_HOLD_LIMIT = 2;
+const END_TURN_HOLD_LIMIT = 2;
 
 /**
  * The reference's end-turn hold. Once every call of the closing response has settled, a failed

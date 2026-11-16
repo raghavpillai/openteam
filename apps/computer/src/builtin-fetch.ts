@@ -171,7 +171,7 @@ export function kindOf({ bytes, contentType }: RawResponse): "pdf" | "html" | "t
 }
 
 /** Decode with the declared charset (header, BOM, <meta>, XML declaration), else UTF-8. */
-export function decodeWebText(bytes: Buffer, contentType: string): string {
+function decodeWebText(bytes: Buffer, contentType: string): string {
   let charset = /charset\s*=\s*["']?([\w.:-]+)/i.exec(contentType)?.[1];
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) charset = "utf-8";
   else if (bytes[0] === 0xff && bytes[1] === 0xfe) charset = "utf-16le";
@@ -509,7 +509,7 @@ function pdfText(bytes: Buffer, signal?: AbortSignal): Promise<string> {
 const CHALLENGE =
   /just a moment\.\.\.|checking your browser|enable javascript and cookies|verify you are (a )?human|are you a robot|unusual traffic from your computer|press (&|and) hold|pardon our interruption|access denied|request blocked|captcha/i;
 
-export interface BuiltinPage {
+interface BuiltinPage {
   url: string;
   text: string;
   /** Guidance the agent should see before the content. */

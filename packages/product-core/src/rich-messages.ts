@@ -66,7 +66,7 @@ export const parseRichMessageSecretRequest = (value: unknown): RichMessageSecret
     : null;
 };
 
-export const parseRichMessageCloudAgent = (value: unknown): RichMessageCloudAgent | null => {
+const parseRichMessageCloudAgent = (value: unknown): RichMessageCloudAgent | null => {
   const candidate = richMessageMetadata(value);
   const nested = richMessageMetadata(
     candidate.bot ?? candidate.agent ?? candidate.cloudAgent ?? candidate.template ?? candidate
@@ -125,7 +125,7 @@ export const widgetResponseValue = (
     ...(widget.allowCustom && custom.trim() ? [custom.trim()] : []),
   ].join("\n");
 
-export interface ResolvedWidgetAnswer {
+interface ResolvedWidgetAnswer {
   value: string;
   label: string;
   optionIndex: number | null;
@@ -150,7 +150,7 @@ export const resolvedWidgetAnswers = (
 export const secretRequestPlaceholder = (label: string): string =>
   `Paste ${/^(?:a|an|the|your|my)\s/i.test(label) ? label : `your ${label}`}`;
 
-export type RichMessageProjection =
+type RichMessageProjection =
   | {
       kind: "widget";
       metadata: RichMessageMetadata;

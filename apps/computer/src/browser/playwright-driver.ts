@@ -1,6 +1,6 @@
 import childProcess from "node:child_process";
 import { nodeBinary } from "../node-runtime";
-export { nodeBinary } from "../node-runtime";
+
 import type { BrowserType } from "playwright-core";
 
 export interface OutOfProcessPlaywright {
@@ -8,7 +8,7 @@ export interface OutOfProcessPlaywright {
   stop: () => Promise<void>;
 }
 
-export let playwrightDriver: Promise<OutOfProcessPlaywright> | null = null;
+let playwrightDriver: Promise<OutOfProcessPlaywright> | null = null;
 
 export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> => {
   if (!playwrightDriver) {

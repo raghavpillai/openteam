@@ -67,7 +67,7 @@ export type SessionOutcome =
   | { type: "cancel" }
   | { type: "interrupt" };
 
-export interface SessionProblem {
+interface SessionProblem {
   section: number;
   rowId: string;
   message: string;
@@ -114,7 +114,7 @@ export interface SetupSession {
 }
 
 /** Sections the user can move between with left/right. Checks run after apply. */
-export const SESSION_SECTION_COUNT = 3;
+const SESSION_SECTION_COUNT = 3;
 const ACCESS_SECTION = 0;
 const OWNER_SECTION = 1;
 const LAUNCH_SECTION = 2;

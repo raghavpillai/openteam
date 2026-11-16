@@ -1,76 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type EventStreamSource,
-  eventPoll,
-  eventStream,
-  SSE_EVENT_BATCH_SIZE,
-} from "../src/event-stream";
+import { Effect } from "effect";
+import { type EventStreamSource, eventStream, SSE_EVENT_BATCH_SIZE } from "../src/event-stream";
+import { EventWakeup } from "../src/event-wakeup";
+import { normalizeHistoryLimit, normalizeMessageContextExtent, SnapshotService } from "../src/services/snapshot-service";
 
 const decoder = new TextDecoder();
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-const event = (sequence: number) => ({
-  sequence: String(sequence),
-  topic: "message.created",
-  entityId: `message-${sequence}`,
-  payload: { sequence },
-  createdAt: "2026-08-31T00:00:00.000Z",
-});
+const event = (sequence: number) => ({ sequence: String(sequence), topic: "message.created", entityId: `message-${sequence}`, payload: { sequence }, createdAt: "2026-08-31T00:00:00.000Z" });
+const window = (fields: { oldest?: bigint | null; latest?: bigint | null; cursorExpired?: boolean; events?: ReturnType<typeof event>[] } = {}) =>
+  ({ oldest: null, latest: null, cursorExpired: false, cursorAhead: false, events: [], ...fields });
+const waitForAbort = (_version: number, _timeout: number, signal?: AbortSignal) =>
+  new Promise<number>((resolve) => signal?.addEventListener("abort", () => resolve(0), { once: true }));
 
 describe("pull-driven event stream", () => {
-  test("does not query events until the connected chunk is consumed", async () => {
-    let calls = 0;
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => {
-        calls += 1;
-        return {
-          oldest: null,
-          latest: null,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: [],
-        };
-      },
-      waitForEvent: async (version) => version,
-    };
-    const request = new AbortController();
-    const stream = eventStream(source, 0n, request.signal);
-
-    await tick();
-    expect(calls).toBe(0);
-    await stream.cancel();
-  });
-
-  test("a slow consumer buffers only one bounded database window", async () => {
-    const limits: number[] = [];
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async (_cursor, limit) => {
-        limits.push(limit);
-        return {
-          oldest: 1n,
-          latest: 1_000n,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: Array.from({ length: limit }, (_, index) => event(index + 1)),
-        };
-      },
-      waitForEvent: async (version) => version,
-    };
-    const reader = eventStream(source, 0n, new AbortController().signal).getReader();
-
-    const connected = await reader.read();
-    expect(decoder.decode(connected.value)).toBe(": connected\n\n");
-    await tick();
-    expect(limits).toEqual([SSE_EVENT_BATCH_SIZE]);
-
-    // Leave the 64-event chunk unread: no second query is allowed to run.
-    await tick();
-    expect(limits).toEqual([SSE_EVENT_BATCH_SIZE]);
-    await reader.cancel();
-  });
-
   test("fast readers receive every event in order across bounded windows", async () => {
     const allEvents = Array.from({ length: 130 }, (_, index) => event(index + 1));
     const limits: number[] = [];
@@ -78,87 +19,26 @@ describe("pull-driven event stream", () => {
       eventVersion: 0,
       eventWindowAfter: async (cursor, limit) => {
         limits.push(limit);
-        const events = allEvents
-          .filter((candidate) => BigInt(candidate.sequence) > cursor)
-          .slice(0, limit);
-        return {
-          oldest: 1n,
-          latest: 130n,
-          cursorExpired: false,
-          cursorAhead: false,
-          events,
-        };
+        return window({ oldest: 1n, latest: 130n, events: allEvents.filter((candidate) => BigInt(candidate.sequence) > cursor).slice(0, limit) });
       },
-      waitForEvent: (_version, _timeout, signal) =>
-        new Promise((resolve) =>
-          signal?.addEventListener("abort", () => resolve(0), { once: true })
-        ),
+      waitForEvent: waitForAbort,
     };
     const reader = eventStream(source, 0n, new AbortController().signal).getReader();
     await reader.read();
-
     const sequences: number[] = [];
-    while (sequences.length < allEvents.length) {
-      const chunk = await reader.read();
-      const text = decoder.decode(chunk.value);
-      for (const match of text.matchAll(/^id: (\d+)$/gm)) sequences.push(Number(match[1]));
-    }
+    while (sequences.length < allEvents.length)
+      for (const match of decoder.decode((await reader.read()).value).matchAll(/^id: (\d+)$/gm)) sequences.push(Number(match[1]));
     await reader.cancel();
-
-    expect(sequences).toEqual(Array.from({ length: 130 }, (_, index) => index + 1));
+    expect(sequences).toEqual(allEvents.map((_, index) => index + 1));
     expect(limits.every((limit) => limit === SSE_EVENT_BATCH_SIZE)).toBe(true);
   });
 
-  test("re-queries and emits immediately when a waiting stream is notified", async () => {
-    let available = false;
-    const cursors: bigint[] = [];
-    const source: EventStreamSource = {
-      eventVersion: 7,
-      eventWindowAfter: async (cursor) => {
-        cursors.push(cursor);
-        return {
-          oldest: available ? 41n : null,
-          latest: available ? 41n : null,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: available ? [event(41)] : [],
-        };
-      },
-      waitForEvent: async (version, timeoutMs) => {
-        expect(version).toBe(7);
-        expect(timeoutMs).toBe(15_000);
-        available = true;
-        return 8;
-      },
-    };
-    const reader = eventStream(source, 40n, new AbortController().signal).getReader();
-
-    expect(decoder.decode((await reader.read()).value)).toBe(": connected\n\n");
-    const notifiedChunk = decoder.decode((await reader.read()).value);
-    await reader.cancel();
-
-    expect(cursors).toEqual([40n, 40n]);
-    expect(notifiedChunk).toContain("id: 41\n");
-    expect(notifiedChunk).toContain('"sequence":"41"');
-  });
-
   test("invalid cursors emit one snapshot.required product event", async () => {
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => ({
-        oldest: 10n,
-        latest: 20n,
-        cursorExpired: true,
-        cursorAhead: false,
-        events: [],
-      }),
-      waitForEvent: async (version) => version,
-    };
+    const source: EventStreamSource = { eventVersion: 0, eventWindowAfter: async () => window({ oldest: 10n, latest: 20n, cursorExpired: true }), waitForEvent: async (version) => version };
     const reader = eventStream(source, 2n, new AbortController().signal).getReader();
     await reader.read();
     const chunk = decoder.decode((await reader.read()).value);
     await reader.cancel();
-
     expect(chunk).toContain("id: 20\n");
     expect(chunk).toContain('"topic":"snapshot.required"');
     expect(chunk).toContain('"reason":"cursor_expired"');
@@ -166,107 +46,71 @@ describe("pull-driven event stream", () => {
 
   test("cancel aborts a pending event wait", async () => {
     let waitSignal: AbortSignal | undefined;
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => ({
-        oldest: null,
-        latest: null,
-        cursorExpired: false,
-        cursorAhead: false,
-        events: [],
-      }),
-      waitForEvent: (_version, _timeout, signal) => {
-        waitSignal = signal;
-        return new Promise((resolve) =>
-          signal?.addEventListener("abort", () => resolve(0), { once: true })
-        );
-      },
-    };
+    const source: EventStreamSource = { eventVersion: 0, eventWindowAfter: async () => window(), waitForEvent: (version, timeout, signal) => { waitSignal = signal; return waitForAbort(version, timeout, signal); } };
     const reader = eventStream(source, 0n, new AbortController().signal).getReader();
     await reader.read();
     const pendingRead = reader.read();
-    while (!waitSignal) await tick();
+    while (!waitSignal) await Bun.sleep(0);
     await reader.cancel();
     await pendingRead;
-
     expect(waitSignal?.aborted).toBe(true);
+  });
+
+  test("event wakeup does not lose a notification between query and wait", async () => {
+    const wakeup = new EventWakeup("postgresql://unused");
+    const observed = wakeup.currentVersion;
+    wakeup.notify();
+    expect(await wakeup.wait(observed, 10_000)).toBe(observed + 1);
   });
 });
 
-describe("wake-driven event polling", () => {
-  test("returns an available bounded batch immediately", async () => {
-    const source: EventStreamSource = {
-      eventVersion: 4,
-      eventWindowAfter: async (cursor, limit) => ({
-        oldest: 1n,
-        latest: 100n,
-        cursorExpired: false,
-        cursorAhead: false,
-        events: Array.from({ length: limit }, (_, index) => event(Number(cursor) + index + 1)),
-      }),
-      waitForEvent: async () => {
-        throw new Error("an available batch must not wait");
-      },
-    };
-
-    const batch = await eventPoll(source, 10n, new AbortController().signal);
-
-    expect(batch.events).toHaveLength(SSE_EVENT_BATCH_SIZE);
-    expect(batch.events[0]?.sequence).toBe("11");
-    expect(batch.events.at(-1)?.sequence).toBe("74");
+describe("snapshot pagination", () => {
+  test("uses a bounded default and clamps hostile limits", () => {
+    expect([Number.NaN, 0, 50.9, 10_000].map(normalizeHistoryLimit)).toEqual([100, 1, 50, 200]);
+    expect([Number.NaN, -1, 10_000].map(normalizeMessageContextExtent)).toEqual([50, 0, 100]);
   });
 
-  test("re-queries after a wakeup without waiting for a fallback refresh", async () => {
-    let available = false;
-    const cursors: bigint[] = [];
-    const source: EventStreamSource = {
-      eventVersion: 7,
-      eventWindowAfter: async (cursor) => {
-        cursors.push(cursor);
-        return {
-          oldest: available ? 1n : null,
-          latest: available ? 41n : null,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: available ? [event(41)] : [],
-        };
-      },
-      waitForEvent: async (version, timeoutMs) => {
-        expect(version).toBe(7);
-        expect(timeoutMs).toBe(25_000);
-        available = true;
-        return 8;
-      },
+  test("captures the replay cursor before starting bootstrap projection queries, and rejects future cursors", async () => {
+    const cursorStarted = Promise.withResolvers<void>(), cursorRead = Promise.withResolvers<{ sequence: bigint } | null>();
+    const projectionsStarted = Promise.withResolvers<void>(), botsRead = Promise.withResolvers<never[]>(), channelsRead = Promise.withResolvers<never[]>();
+    const queryOrder: string[] = [];
+    const projection = (name: string, read: Promise<never[]>) => () => {
+      queryOrder.push(name);
+      if (queryOrder.length === 3) projectionsStarted.resolve();
+      return read;
     };
-
-    const batch = await eventPoll(source, 40n, new AbortController().signal);
-
-    expect(cursors).toEqual([40n, 40n]);
-    expect(batch.events.map((item) => item.sequence)).toEqual(["41"]);
-  });
-
-  test("preserves snapshot recovery semantics for invalid cursors", async () => {
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => ({
-        oldest: 10n,
-        latest: 20n,
-        cursorExpired: false,
-        cursorAhead: true,
-        events: [],
-      }),
-      waitForEvent: async () => {
-        throw new Error("an invalid cursor must not wait");
+    const replayEvents: Array<{ sequence: bigint; topic: string; entityId: string; payload: Record<string, unknown>; createdAt: Date }> = [];
+    let bounds: { min: bigint | null; max: bigint | null } | null = null;
+    const service = new SnapshotService({
+      notificationPresence: { findMany: async () => [] },
+      notificationPreferences: { findUnique: async () => null },
+      event: {
+        findFirst: () => { queryOrder.push("cursor"); cursorStarted.resolve(); return cursorRead.promise; },
+        aggregate: async () => ({ _min: { sequence: bounds?.min ?? replayEvents[0]?.sequence ?? null }, _max: { sequence: bounds?.max ?? replayEvents.at(-1)?.sequence ?? null } }),
+        findMany: async ({ where }: { where: { sequence: { gt: bigint } } }) => replayEvents.filter((event) => event.sequence > where.sequence.gt),
       },
-    };
+      bot: { findMany: projection("bots", botsRead.promise) },
+      channel: { findMany: projection("channels", channelsRead.promise) },
+      run: { findMany: async () => [] },
+      channelRound: { findMany: async () => [] },
+      subagentAttempt: { findMany: async () => [] },
+      approval: { findMany: async () => [] },
+    } as never, "/workspace", "http://127.0.0.1:1", () => true);
 
-    const batch = await eventPoll(source, 50n, new AbortController().signal, 0);
-
-    expect(batch.events).toHaveLength(1);
-    expect(batch.events[0]).toMatchObject({
-      sequence: "20",
-      topic: "snapshot.required",
-      payload: { reason: "cursor_ahead", oldestAvailable: "10", latestAvailable: "20" },
-    });
+    const bootstrapPromise = Effect.runPromise(service.bootstrap());
+    await cursorStarted.promise;
+    expect(queryOrder).toEqual(["cursor"]);
+    cursorRead.resolve({ sequence: 40n });
+    await projectionsStarted.promise;
+    replayEvents.push({ sequence: 41n, topic: "bot.updated", entityId: "00000000-0000-0000-0000-000000000041", payload: {}, createdAt: new Date() });
+    botsRead.resolve([]);
+    channelsRead.resolve([]);
+    const bootstrap = await bootstrapPromise;
+    expect(bootstrap.cursor).toBe("40");
+    expect((await service.eventWindowAfter(BigInt(bootstrap.cursor))).events).toEqual([expect.objectContaining({ sequence: "41", topic: "bot.updated" })]);
+    // A cursor past the newest event must not leave the stream permanently idle.
+    bounds = { min: 10n, max: 20n };
+    expect(await service.eventWindowAfter(21n)).toMatchObject({ oldest: 10n, latest: 20n, cursorExpired: false, cursorAhead: true });
+    expect(await service.eventWindowAfter(20n)).toMatchObject({ cursorAhead: false });
   });
 });

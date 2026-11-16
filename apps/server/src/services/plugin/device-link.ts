@@ -60,7 +60,7 @@ export function publicDeviceLink(credentials: unknown) {
 }
 
 /** Dynamic approvals require a session identifier; legacy static providers may omit it. */
-export function deviceLinkStatusMatches(
+function deviceLinkStatusMatches(
   link: Record<string, unknown>,
   status: Record<string, unknown>
 ) {
@@ -69,7 +69,7 @@ export function deviceLinkStatusMatches(
   return link.sessionExpiresAt === undefined && link.challengeGeneration === undefined;
 }
 
-export type DeviceLinkTransition =
+type DeviceLinkTransition =
   | { kind: "expired" | "stale" | "ready" }
   | {
       kind: "pending";

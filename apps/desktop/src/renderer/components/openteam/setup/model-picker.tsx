@@ -53,7 +53,7 @@ export function modelOption(model: InferenceModelView, providerName: string): Op
 }
 
 /** Every word of the query appears in the model's name, maker or id. */
-export const matchesQuery = (option: Option, query: string) => {
+const matchesQuery = (option: Option, query: string) => {
   const haystack = `${option.name} ${option.maker} ${option.modelId}`.toLowerCase();
   return query
     .toLowerCase()
@@ -66,11 +66,11 @@ export const matchesQuery = (option: Option, query: string) => {
  * The model the catalog recommends: the one it marks, or else its first. The server lists
  * each provider's models in the provider's own order with its recommendation first.
  */
-export const recommendedModelId = (options: readonly Option[]): string | undefined =>
+const recommendedModelId = (options: readonly Option[]): string | undefined =>
   (options.find((option) => option.recommended) ?? options[0])?.modelId;
 
 // Longer lists open with a filter field at the top.
-export const FILTER_AT = 10;
+const FILTER_AT = 10;
 // Enough to scroll through; more than this asks for a narrower filter.
 const SHOWN = 60;
 

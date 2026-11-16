@@ -2,14 +2,12 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Prisma } from "@openteam/db";
 import { parseDocument, stringify as stringifyYaml } from "yaml";
-import { atomicWrite, listDirectories, readText, uniqueSlug } from "./file-state";
+import { atomicWrite, listDirectories, uniqueSlug } from "./file-state";
 
-export const MAX_SKILL_NAME = 80;
-export const MAX_SKILL_DESCRIPTION = 1_536;
-export const MAX_SKILL_BODY = 100_000;
-export const MAX_INJECTED_SKILL_BODY = 8_000;
-
-export interface ParsedSkillFile {
+const MAX_SKILL_NAME = 80;
+const MAX_SKILL_DESCRIPTION = 1_536;
+const MAX_SKILL_BODY = 100_000;
+interface ParsedSkillFile {
   name: string;
   description: string;
   body: string;
@@ -89,21 +87,4 @@ export const deleteSkillFolder = async (skillsRoot: string, slug: string): Promi
     recursive: true,
     force: true,
   });
-};
-
-export const readSkillCatalog = async (
-  skillsRoot: string
-): Promise<Array<ParsedSkillFile & { slug: string; path: string }>> => {
-  const result: Array<ParsedSkillFile & { slug: string; path: string }> = [];
-  for (const slug of await listDirectories(skillsRoot)) {
-    const path = join(skillsRoot, slug, "SKILL.md");
-    const text = await readText(path, MAX_SKILL_BODY + 16_384);
-    if (text === null) continue;
-    result.push({
-      slug,
-      path,
-      ...parseSkillFile(text, `workflows/${slug}/SKILL.md`),
-    });
-  }
-  return result;
 };

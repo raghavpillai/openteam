@@ -14,10 +14,9 @@ import {
   type SnapshotIndex,
   selectActiveRun,
 } from "@openteam/product-core/snapshot";
-import { ACTIVE_RUN_STATUSES } from "@openteam/product-core/statuses";
 import { useMemo, useRef } from "react";
 
-export { ACTIVE_RUN_STATUSES, createSnapshotIndex, type SnapshotIndex };
+export { createSnapshotIndex };
 
 const append = <T>(map: Map<string, T[]>, key: string, value: T) => {
   const existing = map.get(key);

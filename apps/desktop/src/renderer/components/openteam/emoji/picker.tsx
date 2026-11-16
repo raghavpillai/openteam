@@ -14,7 +14,7 @@ const importEmojiPanel = () => import("./panel");
 const loadEmojiPanel = () => (emojiPanelModule ??= importEmojiPanel());
 const LazyEmojiPanel = lazy(loadEmojiPanel);
 
-export const preloadEmojiPanel = () => void loadEmojiPanel();
+const preloadEmojiPanel = () => void loadEmojiPanel();
 
 export function EmojiPanel(props: EmojiPanelProps) {
   return (

@@ -2,7 +2,7 @@ import { mkdir, stat } from "node:fs/promises";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright-core";
 import type { Protocol } from "playwright-core/types/protocol";
 
-export interface BrowserDownload {
+interface BrowserDownload {
   filename: string;
   state: "inProgress" | "completed" | "canceled";
   directory: string;

@@ -2,7 +2,7 @@ import type { InstallationPaths } from "./config";
 import { installationCommand } from "./command-ui";
 import { TerminalReport, type TerminalOptions } from "./terminal";
 
-export const renderSetupCountdown = (seconds: number, options: TerminalOptions = {}): string => {
+const renderSetupCountdown = (seconds: number, options: TerminalOptions = {}): string => {
   const view = new TerminalReport(options);
   const remaining = Math.max(1, Math.min(5, Math.ceil(seconds)));
   return view.paint(
@@ -18,7 +18,7 @@ export const printSetupCancelled = (paths: InstallationPaths): void => {
   console.log(view.toString());
 };
 
-export type CountdownKey = "start" | "cancel" | null;
+type CountdownKey = "start" | "cancel" | null;
 
 /**
  * Enter starts now; Esc, q, Ctrl-C, or Ctrl-D cancel. Raw input arrives in chunks, so a

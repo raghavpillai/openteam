@@ -28,12 +28,12 @@ const toView = (device: {
   lastSeenAt: device.lastSeenAt.toISOString(),
 });
 
-export type PushRegistrationAuthentication =
+type PushRegistrationAuthentication =
   | { mode: "disabled" }
   | { mode: "required"; sessionId: string };
 export type PushAuthenticationMode = PushRegistrationAuthentication["mode"];
 
-export const deliverablePushDeviceWhere = (
+const deliverablePushDeviceWhere = (
   authMode: PushAuthenticationMode,
   now = new Date()
 ): Prisma.PushDeviceWhereInput =>

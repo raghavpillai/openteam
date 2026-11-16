@@ -1589,4 +1589,4 @@ export class BrowserUseSession {
     return this.pageState(page, "Took a screenshot", args.fullPage === true, undefined, "screenshot", signal, target);
   }
 }
-export { BROWSER_USE_TOOLS, type BrowserUseToolDefinition } from "./tool-definitions";
+export { BROWSER_USE_TOOLS } from "./tool-definitions";

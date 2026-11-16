@@ -41,7 +41,7 @@ Collection is not an archival guarantee. A process failure before a received eve
 
 Each MCP response must fit 75,000 encoded characters to remain intact through OpenTeam's result limits. Reduce message page size for long messages. Contacts and groups return bounded pages with `nextOffset`; continue until it is null. Directory changes can affect later pages. Individually oversized directory entries and attachments return a controlled size error; binary streaming and attachment uploads are not implemented.
 
-The manifest declares Linux ARM64, Linux x64 and macOS ARM64 runtimes. See [VALIDATION.md](VALIDATION.md) for platforms and scenarios actually tested. Other platforms fail with an unsupported-runtime error. The shared Bot computer normally runs Linux. Its runtime cache must permit execution; a `noexec` Java temporary directory can prevent native Signal libraries from loading. Native inbox triggers and Signal draft review are not provided by this version.
+The manifest declares Linux ARM64, Linux x64 and macOS ARM64 runtimes. Other platforms fail with an unsupported-runtime error. The shared Bot computer normally runs Linux. Its runtime cache must permit execution; a `noexec` Java temporary directory can prevent native Signal libraries from loading. Native inbox triggers and Signal draft review are not provided by this version.
 
 Signal-cli is an unofficial client and requires frequent updates for Signal server changes. The package pins 0.14.10 with compatibility overlay 0.14.10-ot.1; runtime updates require reviewing/rebuilding the overlay and updating archive sizes and SHA-256 digests. See [runtime-patch/README.md](runtime-patch/README.md) for source and reproducible verification. Inspect [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for sources and licenses.
 
@@ -52,13 +52,11 @@ Run from the repository root with Bun 1.4.2:
 ```sh
 bun run prepare:plugins
 bun test packages/plugins/signal/connector/test
-bun test packages/plugin-sdk/src/runtime-assets.test.ts packages/plugin-sdk/src/runtime-asset-definition.test.ts
-bun test packages/plugins/signal/connector/test/chaos*.test.ts packages/plugin-sdk/src/runtime-chaos.test.ts
+bun test packages/plugin-sdk/src/runtime-assets.test.ts
 bun test apps/server/test/plugin/device-link.test.ts apps/computer/test/runtime/managed-account-state.test.ts
 bun packages/plugins/signal/connector/test/build.ts
-bun packages/plugins/signal/connector/test/managed-smoke.ts
 ```
 
 The ordinary suite uses synthetic accounts and child processes. Optional real-runtime tests set `SIGNAL_TEST_EXECUTABLE` and `SIGNAL_TEST_JAVA_HOME`; they create empty temporary account directories and never use an existing account. Operator-run `connector/test/live.ts` uses an explicitly selected private account directory; `link` requires a phone scan and `verify` sends one labeled Note to Self message. Live state and evidence belong under ignored `output/`, never in the plugin package.
 
-`managed-smoke.ts` installs or reuses the pinned runtimes and checks two real MCP lifecycles against an empty temporary account, without administrator paths or an existing Signal account. It leaves only the public runtime cache. Set `SIGNAL_RUNTIME_CACHE` to choose that cache; add `--provision` to also obtain and cancel a linking code over the network. The code is never printed or scanned.
+`connector/test/patch-ci.ts` installs or reuses the pinned runtimes (set `SIGNAL_RUNTIME_CACHE` to choose that cache) and runs the real-runtime tests against an empty temporary account; it needs a JDK 25 `JAVA_HOME`. Real provisioning, which contacts Signal for a linking code, runs only when you call that test by name.

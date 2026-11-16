@@ -95,9 +95,6 @@ export const preloadMessageRenderers = () =>
   Promise.all([loadMarkdownRenderer(), loadAdvancedRenderer(), preloadAdvancedMessagePlugins()]);
 const messageContainsDesktopMarkup = (content: string) =>
   messageContainsMarkdownSyntax(content) || /<\/?[a-z][^>]*>/i.test(content);
-export const messageNeedsMarkdown = (content: string) =>
-  messageContainsDesktopMarkup(content) || messageNeedsAdvancedRenderer(content);
-
 export class MessageRendererBoundary extends Component<
   { content: string; children: ReactNode },
   { failed: boolean }

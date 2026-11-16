@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BoxStoreSync } from "../../src/box-store-sync";
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
 
 describe("browser authority recovery set", () => {
   let root: string | undefined;
 
   afterEach(async () => {
-    if (root) await rm(root, { recursive: true, force: true });
     root = undefined;
   });
 
   test("backs up encrypted live state, native profile state, and client certificates", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-browser-recovery-"));
+    root = await tempDir("openteam-browser-recovery-");
     const home = join(root, "home");
     const workspace = join(root, "workspace");
     const storeRoot = join(root, "box-store");

@@ -28,7 +28,7 @@ export const parseNotificationTarget = (value: unknown): DesktopNotificationTarg
   };
 };
 
-export type DesktopNotificationKind = AgentNotificationKind;
+type DesktopNotificationKind = AgentNotificationKind;
 
 export const parseNotificationReadState = (value: unknown): NotificationReadState | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -118,7 +118,7 @@ export interface DesktopNotificationEvent extends DesktopNotificationTarget {
   body: string;
 }
 
-export interface DesktopNotificationAdapter {
+interface DesktopNotificationAdapter {
   isFocused: () => boolean;
   isSupported: () => boolean;
   /** Banners are silent. */
@@ -128,14 +128,12 @@ export interface DesktopNotificationAdapter {
   setBadge: (label: string) => void;
 }
 
-export { truncateNotificationText };
-
 /**
  * Each conversation gets one banner in this window (a DM is its Bot, a group is
  * the whole room). Messages that land inside it are consumed, not replayed, so a
  * burst of replies produces a single banner.
  */
-export const NOTIFICATION_THROTTLE_MS = 5_000;
+const NOTIFICATION_THROTTLE_MS = 5_000;
 /** Let an arriving read receipt or window-focus transition settle before showing a banner. */
 export const NOTIFICATION_DELIVERY_DELAY_MS = 300;
 

@@ -5,7 +5,7 @@ import {
   type PiReasoningLevel,
 } from "@openteam/contracts";
 
-export type ReasoningModel = Model<Api> & { defaultReasoningLevel?: PiReasoningLevel };
+type ReasoningModel = Model<Api> & { defaultReasoningLevel?: PiReasoningLevel };
 
 export const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
   const normalized = value === "none" ? "off" : value;

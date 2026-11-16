@@ -44,7 +44,7 @@ export function mobileVoiceLevel(raw: number) {
 
 /** A tall mobile-style ceiling, concentrated in the middle of the desktop pill.
  * Keep the small resting ring independent of the much larger voiced crest. */
-export type VoiceShape = {
+type VoiceShape = {
   centre: number;
   width: number;
   split: number;
@@ -103,7 +103,7 @@ export function downwardReach(reach: number, available = 24) {
   return limit * Math.tanh(Math.max(0, reach) / Math.max(1, limit));
 }
 
-export type SidePeak = { x: number; width: number; height: number };
+type SidePeak = { x: number; width: number; height: number };
 
 /** Irregular, low side pulses. Each new position fades in from zero and back
  * out, so apparent randomness never becomes frame-to-frame flicker. */
@@ -138,7 +138,7 @@ export function sidePeakReach(x: number, peaks: readonly SidePeak[]) {
 }
 
 /** VoiceGlowBand.bell, with the mobile preset's curve, spread and skew. */
-export function centreBias(x: number) {
+function centreBias(x: number) {
   const t = 2 * Math.max(0, Math.min(1, x)) - 1;
   const sigma = 0.9 * (t < 0 ? 1 - 0.12 : 1 + 0.12);
   const tail = Math.exp(-((1 / sigma) ** 1.55));

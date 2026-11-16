@@ -6,7 +6,7 @@ import type { HealthResult } from "./health";
 import type { CommandRunner } from "./process";
 import type { SetupConfiguration } from "./setup-values";
 
-export interface PortOccupant {
+interface PortOccupant {
   port: number;
   host: string;
   container?: string;
@@ -14,7 +14,7 @@ export interface PortOccupant {
   tailscale?: boolean;
 }
 
-export interface PortRequirements {
+interface PortRequirements {
   apiHost: string;
   apiPort: number;
   viewerHost: string;
@@ -36,7 +36,7 @@ export const runningServices = (project: ComposeProject): Set<string> => {
 };
 
 /** Ask Docker which container, if any, publishes a host port. */
-export const describePortOccupant = (
+const describePortOccupant = (
   runner: CommandRunner,
   host: string,
   port: number

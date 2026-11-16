@@ -1,40 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { runInNode, selfSignedCertificate } from "./node-runner";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 test("Node quality checks measure the routed TLS path with bounded samples, caching and fencing", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openteam-quality-test-"));
-  try {
-    const cert = join(directory, "cert.pem"),
-      key = join(directory, "key.pem");
-    const ssl = Bun.spawn(
-      [
-        "openssl",
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-keyout",
-        key,
-        "-out",
-        cert,
-        "-days",
-        "1",
-        "-subj",
-        "/CN=speed.cloudflare.com",
-        "-addext",
-        "subjectAltName=DNS:speed.cloudflare.com",
-      ],
-      { stdout: "ignore", stderr: "ignore" }
-    );
-    expect(await ssl.exited).toBe(0);
-    const entry = join(directory, "runner.ts"),
-      output = join(directory, "runner.mjs");
-    await writeFile(
-      entry,
-      `
+  const directory = await tempDir("openteam-quality-test-");
+  const { cert, key } = await selfSignedCertificate(directory, ["speed.cloudflare.com"]);
+  const stdout = await runInNode(directory, { source: `
 import assert from "node:assert/strict";
 import { createServer } from "node:https";
 import { createConnection } from "node:net";
@@ -86,26 +59,6 @@ try{
  late({destroy(){destroyed=true;}});await new Promise(r=>setTimeout(r,20));assert.equal(destroyed,true);checks++;
  console.log(JSON.stringify({checks}));
 }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
-`
-    );
-    const build = Bun.spawn(
-      [process.execPath, "build", entry, "--target", "node", "--outfile", output],
-      { stdout: "ignore", stderr: "inherit" }
-    );
-    expect(await build.exited).toBe(0);
-    const runner = Bun.spawn(["node", output], {
-      env: { ...process.env, NODE_EXTRA_CA_CERTS: cert },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(runner.stdout).text(),
-      new Response(runner.stderr).text(),
-      runner.exited,
-    ]);
-    if (code !== 0) throw Error(stderr || stdout);
-    expect(JSON.parse(stdout).checks).toBeGreaterThanOrEqual(30);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+` }, { env: { NODE_EXTRA_CA_CERTS: cert } });
+  expect(JSON.parse(stdout).checks).toBeGreaterThanOrEqual(30);
 }, 30_000);

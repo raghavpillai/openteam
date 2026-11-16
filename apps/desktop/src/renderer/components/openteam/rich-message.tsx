@@ -62,7 +62,7 @@ type RichWidgetShortcutHandler = (event: KeyboardEvent) => void;
  * query preserves the existing "latest visible pending card wins" behavior,
  * while the registry avoids one document listener and one full query per card.
  */
-export const createRichWidgetShortcutDelegate = (ownerDocument: Document) => {
+const createRichWidgetShortcutDelegate = (ownerDocument: Document) => {
   const handlers = new Map<HTMLElement, { handle: RichWidgetShortcutHandler }>();
 
   const onKeyDown = (event: KeyboardEvent) => {

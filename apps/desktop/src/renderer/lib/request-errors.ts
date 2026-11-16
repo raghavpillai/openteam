@@ -2,7 +2,7 @@ import { OpenTeamClientError } from "@openteam/client-core";
 import { clientErrorMessage, redactSensitiveText } from "@openteam/product-core/redaction";
 
 /** How long setup waits for an ordinary request before saying so and offering a retry. */
-export const REQUEST_DEADLINE_MS = 20_000;
+const REQUEST_DEADLINE_MS = 20_000;
 /**
  * How long setup waits for the real model test. The server gives the model 60 s and
  * itself 15 s more (settings-service.ts), so this is a little longer than that.

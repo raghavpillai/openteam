@@ -60,7 +60,7 @@ import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
-import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./runtime/stream-deadlines";
+import { retryFirstOutputStalls, streamDeadlines } from "./runtime/stream-deadlines";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
@@ -86,7 +86,7 @@ export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
 /** Reply nudges a turn that delivered nothing gets before it settles anyway. */
 export const MAX_REPLY_NUDGES = 3;
 
-export const isDeliveryOwed = (
+const isDeliveryOwed = (
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>
 ): boolean => ["turn", "handoff-resume", "broadcast", "connector"].includes(requestSource);
 
@@ -126,8 +126,6 @@ export class ComputerRuntime {
   private authenticated = false;
   private authentication: { type: "api_key" | "oauth"; source?: string } | undefined;
   private started = false;
-  /** Model stream deadline clock; tests replace it. */
-  private readonly streamTimers?: StreamTimers;
 
   constructor(
     private readonly screens = new ScreenBroker(),
@@ -806,7 +804,7 @@ export class ComputerRuntime {
     // Pi's request timeout covers headers. Its CLI also installs a body-idle
     // dispatcher, but embedded sessions need their own response-body guard.
     const stream = session.agent.streamFunction;
-    const deadlines = streamDeadlines(this.streamTimers);
+    const deadlines = streamDeadlines();
     session.agent.streamFunction = deadlines.wrap((model, context, options) => stream(model, context,
       model.api === "openai-completions" ? {
         ...options,
@@ -1003,5 +1001,3 @@ export class ComputerRuntime {
 }
 
 export { decodeInlineImages } from "./runtime/attachments";
-
-export { modelVisibleSummaryTools } from "./runtime/compaction";

@@ -1,9 +1,9 @@
 /** Inline Shell output is cut to its first and last 10,000 characters, as in the reference. */
-export const SHELL_CHAR_HARD_LIMIT = 20_000;
+const SHELL_CHAR_HARD_LIMIT = 20_000;
 /** Foreground output above this many bytes goes to a file instead of the result. */
 export const SHELL_FILE_OUTPUT_THRESHOLD_BYTES = 40_000;
 
-export interface ShellOutputExcerpt { output: string; truncated: boolean }
+interface ShellOutputExcerpt { output: string; truncated: boolean }
 
 export const truncateShellOutput = (output: string): ShellOutputExcerpt => {
   if (output.length <= SHELL_CHAR_HARD_LIMIT) return { output, truncated: false };
@@ -53,7 +53,7 @@ export class ShellOutputCollector {
   }
 }
 
-export const formatOutputLocationSummary = (location: { filePath: string; sizeBytes: number; lineCount?: number }) =>
+const formatOutputLocationSummary = (location: { filePath: string; sizeBytes: number; lineCount?: number }) =>
   `${location.filePath}${location.lineCount === undefined ? "" : ` (${location.sizeBytes >= 1024 ? `${(location.sizeBytes / 1024).toFixed(1)} KB` : `${location.sizeBytes} bytes`}, ${location.lineCount} lines)`}`;
 
 const fenced = (excerpt: ShellOutputExcerpt) => `\`\`\`\n${excerpt.output}\n\`\`\``;

@@ -593,7 +593,7 @@ const presentedSchedule = (value: unknown): RoutineScheduleDraft | null => {
   return item as RoutineScheduleDraft;
 };
 
-export const routinePresentationDrafts = (presentation: unknown): RoutineScheduleDraft[] | null => {
+const routinePresentationDrafts = (presentation: unknown): RoutineScheduleDraft[] | null => {
   if (!presentation || typeof presentation !== "object" || Array.isArray(presentation)) return null;
   const value = presentation as { version?: unknown; kind?: unknown; schedules?: unknown };
   if (

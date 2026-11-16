@@ -1,4 +1,4 @@
-import { highlightAsync, getHighlightEngineStats, clearHighlightEngine } from "./code-worker-client";
+import { highlightAsync, clearHighlightEngine } from "./code-worker-client";
 import {
   type ThemeRegistrationAny,
   type TokensResult,
@@ -10,7 +10,6 @@ import { botShikiTheme } from "./code-theme";
 
 const TOKEN_CACHE_ENTRY_LIMIT = 192;
 const TOKEN_CACHE_COST_LIMIT = 8 * 1024 * 1024;
-const HIGHLIGHTER_CACHE_ENTRY_LIMIT = 24;
 const PENDING_HIGHLIGHT_LIMIT = 128;
 const PENDING_HIGHLIGHT_CHARACTER_LIMIT = 4 * 1024 * 1024;
 const HIGHLIGHT_SOURCE_CHARACTER_LIMIT = 256 * 1024;
@@ -249,25 +248,7 @@ export const code: CodeHighlighterPlugin = {
   },
 };
 
-export const codeHighlighterCacheLimits = {
-  callbacksPerHighlight: CALLBACKS_PER_HIGHLIGHT_LIMIT,
-  highlighterEntries: HIGHLIGHTER_CACHE_ENTRY_LIMIT,
-  highlightSourceCharacters: HIGHLIGHT_SOURCE_CHARACTER_LIMIT,
-  pendingCharacters: PENDING_HIGHLIGHT_CHARACTER_LIMIT,
-  pendingHighlights: PENDING_HIGHLIGHT_LIMIT,
-  tokenCost: TOKEN_CACHE_COST_LIMIT,
-  tokenEntries: TOKEN_CACHE_ENTRY_LIMIT,
-} as const;
-
-export const getCodeHighlighterCacheStats = () => ({
-  ...getHighlightEngineStats(),
-  pendingCharacters: pendingHighlightCharacters,
-  pendingHighlights: pendingHighlights.size,
-  tokenCost: tokenCacheCost,
-  tokenEntries: tokenCache.size,
-});
-
-export const clearCodeHighlighterCaches = () => {
+const clearCodeHighlighterCaches = () => {
   tokenCache.clear();
   tokenCacheCost = 0;
   clearHighlightEngine();

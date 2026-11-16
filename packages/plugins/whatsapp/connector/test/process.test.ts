@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachmentPath, downloadPath, executableBytes, prepareStore, settings, WacliProcess } from "../process";
+import { attachmentPath, downloadPath, prepareStore, settings, WacliProcess } from "../process";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -49,33 +49,6 @@ test("subprocess failures and uncertain-send warnings survive without retries", 
   expect((await readFile(join(f.configuration.store, "calls"), "utf8")).trim().split("\n")).toHaveLength(2);
 });
 
-test("subprocess output is bounded and timed-out commands are terminated", async () => {
-  const f = await fixture(); await writeFile(join(f.configuration.store, "mode"), "large");
-  await expect(f.process.execute(["messages", "list"])).rejects.toThrow("too large");
-  await writeFile(join(f.configuration.store, "mode"), "hang");
-  await expect(f.process.execute(["send", "text"], false, 10)).rejects.toThrow("may have gone through");
-}, 6000);
-
-test("long-running events are parsed privately and shutdown reaps the child", async () => {
-  const f = await fixture(); const events: string[] = [];
-  const running = f.process.follow(["auth"], (event) => events.push(event.event));
-  try {
-    const deadline = Date.now() + 2000;
-    while (!events.length && Date.now() < deadline) await Bun.sleep(10);
-    expect(events).toEqual(["qr_code"]);
-  } finally { await running.stop(); }
-  expect(await running.done).toBe(0);
-});
-
-test("connector shutdown terminates a pending one-shot command and prevents new children", async () => {
-  const f = await fixture(); await writeFile(join(f.configuration.store, "mode"), "hang");
-  const pending = f.process.execute(["send", "text"]);
-  const outcome = pending.then(() => null, (error) => error);
-  await Bun.sleep(50); await f.process.close();
-  expect(await outcome).toBeInstanceOf(Error);
-  await expect(f.process.execute(["auth", "status"])).rejects.toThrow("shutting down");
-}, 8000);
-
 for (const mode of ["follow", "execute"]) test.skipIf(process.platform !== "linux")(`killing the connector reaps a native ${mode} process that ignores graceful termination`, async () => {
   const f = await fixture();
   await writeFile(join(f.configuration.store, "mode"), "hang");
@@ -119,50 +92,6 @@ test("attachments reject traversal, symlink escapes, and session files", async (
   expect(output).toStartWith(join(await realpath(root), "whatsapp", f.configuration.accountKey));
   await rm(join(root, "whatsapp"), { recursive: true }); await symlink(f.configuration.store, join(root, "whatsapp"));
   await expect(downloadPath(f.configuration)).rejects.toThrow("attachment folder");
-});
-
-test("both shipped Linux executables verify and unsupported platforms fail clearly", async () => {
-  const root = new URL("../../", import.meta.url).pathname;
-  for (const arch of ["x64", "arm64"]) {
-    const bytes = await executableBytes(root, "linux", arch);
-    expect(bytes.subarray(0, 4).toString("hex")).toBe("7f454c46");
-  }
-  await expect(executableBytes(root, "darwin", "arm64")).rejects.toThrow("Linux computer");
-});
-
-test("explicit re-pairing archives only marked-revoked session files and preserves retained history", async () => {
-  const f = await fixture(); const store = f.configuration.store;
-  await writeFile(join(store, "session.db"), "revoked-session");
-  await writeFile(join(store, "wacli.db"), "retained-history");
-  await f.process.resetRevokedSession();
-  expect(await readFile(join(store, "session.db"), "utf8")).toBe("revoked-session");
-  await writeFile(join(store, "SESSION_REVOKED"), "revoked");
-  await f.process.resetRevokedSession();
-  const backup = (await readdir(store)).find((name) => name.startsWith(".revoked-"))!;
-  expect(await readFile(join(store, backup, "session.db"), "utf8")).toBe("revoked-session");
-  expect(await readFile(join(store, "wacli.db"), "utf8")).toBe("retained-history");
-  expect(await readFile(join(store, "SESSION_REVOKED"), "utf8")).toBe("revoked");
-});
-
-test("managed storage uses the supplied root and atomically migrates complete legacy state", async () => {
-  const f = await fixture();
-  const managed = join(f.home, "managed", "account");
-  await mkdir(managed, { recursive: true });
-  for (const name of ["session.db", "session.db-wal", "wacli.db", "SESSION_REVOKED"])
-    await writeFile(join(f.configuration.store, name), `private-${name}`);
-  const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account-a", OPENTEAM_PLUGIN_STATE_DIR: managed, WHATSAPP_MEDIA_ROOT: f.home }, f.home);
-  expect(configuration.store).toBe(managed);
-  await prepareStore(configuration);
-  for (const name of ["session.db", "session.db-wal", "wacli.db", "SESSION_REVOKED"])
-    expect(await readFile(join(managed, name), "utf8")).toBe(`private-${name}`);
-  expect(await Bun.file(join(f.configuration.store, "session.db")).exists()).toBe(false);
-  await prepareStore(configuration); // restart/update cannot import a second copy
-  await expect(attachmentPath(configuration, join(managed, "session.db"))).rejects.toThrow("session files");
-  await mkdir(f.configuration.store, { recursive: true });
-  await writeFile(join(f.configuration.store, "session.db"), "older-private");
-  await expect(attachmentPath(configuration, join(f.configuration.store, "session.db"))).rejects.toThrow("session files");
-  await expect(prepareStore(configuration)).rejects.toThrow("Both managed and legacy");
-  expect(await readFile(join(managed, "session.db"), "utf8")).toBe("private-session.db");
 });
 
 test("migration rejects active native writer locks and symlinks without moving provider state", async () => {

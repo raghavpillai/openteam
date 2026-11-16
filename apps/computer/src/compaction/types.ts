@@ -35,7 +35,7 @@ export interface BotSummaryResult {
   };
 }
 
-export interface BotCompactionMetrics {
+interface BotCompactionMetrics {
   generationCompletedAt: string;
   generationDurationMs: number;
   summaryInputTokens: number | null;

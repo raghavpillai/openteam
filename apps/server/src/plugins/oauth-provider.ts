@@ -22,7 +22,7 @@ export interface StoredOAuthState {
   issuer?: string;
 }
 
-export interface OAuthProviderOptions {
+interface OAuthProviderOptions {
   redirectUrl: string;
   scope?: string;
   initial: StoredOAuthState;

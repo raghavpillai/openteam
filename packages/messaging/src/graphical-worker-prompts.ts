@@ -1,5 +1,5 @@
 
-export const NATIVE_DOCUMENT_INSTRUCTIONS = "The desktop includes Mousepad for plain text and LibreOffice Writer, Calc, Impress and Draw. For GUI-only tasks, operate them through Computer and native dialogs. Otherwise, openteam-screen-launch editor|writer|calc|impress|draw starts the app on this worker’s assigned desktop. The launcher stays running with the application; launch it in the background with stdout and stderr redirected to a file, then verify the window with Computer. Save in /home/box/Documents or the requested location. Verify the actual saved artifact against the requested content and format.";
+const NATIVE_DOCUMENT_INSTRUCTIONS = "The desktop includes Mousepad for plain text and LibreOffice Writer, Calc, Impress and Draw. For GUI-only tasks, operate them through Computer and native dialogs. Otherwise, openteam-screen-launch editor|writer|calc|impress|draw starts the app on this worker’s assigned desktop. The launcher stays running with the application; launch it in the background with stdout and stderr redirected to a file, then verify the window with Computer. Save in /home/box/Documents or the requested location. Verify the actual saved artifact against the requested content and format.";
 
 const yourBox = (workingDirectory: string) => [
   "## Your box",

@@ -6,7 +6,7 @@ export const ELECTRON_BUNDLE_ARTIFACTS = [
   "screenbot-preload.cjs",
 ] as const;
 
-export interface DevElectronEnvironment {
+interface DevElectronEnvironment {
   host: string;
   rendererUrl: string;
   waitResource: string;

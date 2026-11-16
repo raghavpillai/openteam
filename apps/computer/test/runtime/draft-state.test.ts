@@ -3,7 +3,7 @@ import { RuntimeTools } from '../../src/runtime/tools';
 import { routeEvent } from '../../src/runtime/events';
 import type { ActiveTurn } from '../../src/runtime/types';
 
-test('draft snapshot refresh waits until the next model response and preserves a retried warning', async () => {
+test('draft snapshot refresh waits until the next model response; ordinary turns send no snapshot', async () => {
  const calls: any[] = [];
  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
   const input = await request.json() as any; calls.push(input);
@@ -32,16 +32,8 @@ test('draft snapshot refresh waits until the next model response and preserves a
   const delivered = await send('fresh-warning', 'Disk check failed.');
   expect(delivered.details?.isError).toBeUndefined(); expect(calls[2].draftStateRevision).toBe('fresh');
   expect(active.sentMessageCount).toBe(1);
- } finally { server.stop(true); }
-});
-
-test('ordinary turns send no private draft snapshot', async () => {
- let captured: any;
- const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) { captured = await request.json(); return Response.json({ sent: true }); } });
- const tools = new RuntimeTools({} as never, server.url.origin, 'fixture', '/tmp', '/tmp') as any;
- const active = { runId: 'run', botId: 'bot', screenBotId: 'screen', sentMessageCount: 0, queue: { push() {} } } as unknown as ActiveTurn;
- try {
-  await tools.executeOpenTeamTool(active, 'ordinary', 'SendToUser', { type: 'text', content: 'An ordinary answer.' });
-  expect(captured.draftStateRevision).toBeUndefined(); expect(active.sentMessageCount).toBe(1);
+  const ordinary = { runId: 'run', botId: 'bot', screenBotId: 'screen', sentMessageCount: 0, queue: { push() {} } } as unknown as ActiveTurn;
+  await tools.executeOpenTeamTool(ordinary, 'ordinary', 'SendToUser', { type: 'text', content: 'An ordinary answer.' });
+  expect(calls[3].draftStateRevision).toBeUndefined(); expect(ordinary.sentMessageCount).toBe(1);
  } finally { server.stop(true); }
 });

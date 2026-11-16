@@ -7,12 +7,10 @@ import {
 
 export {
   normalizeThemePreference,
-  resolveTheme,
   type ThemePreference,
-  type ResolvedTheme,
 } from "@openteam/design-tokens/appearance";
 
-export const THEME_STORAGE_KEY = "openteam:theme";
+const THEME_STORAGE_KEY = "openteam:theme";
 export const THEME_CHANGE_EVENT = "openteam:theme-change";
 
 export const readThemePreference = (): ThemePreference =>

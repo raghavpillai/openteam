@@ -24,7 +24,7 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   "web-fetch-provider": "providers",
 };
 
-export type OpenTeamDeepLink =
+type OpenTeamDeepLink =
   | { kind: "settings"; anchor: SettingsAnchor }
   | { kind: "plugin"; pluginId: string };
 

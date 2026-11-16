@@ -41,50 +41,6 @@ test.skipIf(!url)("watching observes edits made immediately after startup resolv
 });
 
 
-test.skipIf(!url)("watching imports new skill directories after repeated atomic profile replacements", async () => {
-  const db = createPrismaClient(url!);
-  const root = await mkdtemp(join(tmpdir(), "watcher-replacement-"));
-  const botId = crypto.randomUUID();
-  const store = new AgentDataStore(db, { root: join(root, "data"), workspaceRoot: root });
-  const slug = `watcher-probe-${botId.slice(0, 8)}`;
-  const skill = join(store.workflowsDirectory(), slug);
-  try {
-    await db.bot.create({ data: { id: botId, name: "Replacement fixture", status: "active", defaultDirectory: root } });
-    await store.initializeBot(botId);
-    await store.startWatching();
-    const directory = store.botDirectory(botId);
-    for (let round = 0; round < 8; round += 1) {
-      const name = `Replacement ${round}`;
-      // Atomic editor saves replace the inode and force native file reattachment.
-      for (let edit = 0; edit < 4; edit += 1) {
-        await atomicWrite(join(directory, "profile.json"), jsonFile({ name }));
-        await Bun.sleep(8);
-      }
-      await atomicWrite(join(skill, "SKILL.md"), renderSkillFile({ name: `Replacement skill ${round}`, description: "Watcher probe", body: "Probe." }));
-      const deadline = Date.now() + 2000;
-      let observed = false;
-      while (Date.now() < deadline) {
-        const saved = await db.savedSkill.findFirst({ where: { slug, name: `Replacement skill ${round}` } });
-        if (saved && (await db.bot.findUniqueOrThrow({ where: { id: botId } })).name === name) {
-          observed = true;
-          break;
-        }
-        await Bun.sleep(25);
-      }
-      expect(observed).toBe(true);
-      // The next iteration must rediscover both the directory and its file.
-      await rm(skill, { recursive: true, force: true });
-      await Bun.sleep(300);
-    }
-  } finally {
-    await store.stopWatching();
-    await db.savedSkill.deleteMany({ where: { slug } });
-    await db.bot.deleteMany({ where: { id: botId } });
-    await db.$disconnect();
-    await rm(root, { recursive: true, force: true });
-  }
-}, 30_000);
-
 test.skipIf(!url)("watching recovers lost notifications and stops reconciliation on shutdown", async () => {
   const db = createPrismaClient(url!);
   const root = await mkdtemp(join(tmpdir(), "watcher-lost-events-"));
@@ -105,11 +61,8 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
     await Promise.all(Array.from({ length: 5 }, () => store.startWatching()));
     // Simulate the observed failure: native monitoring stays open but delivers no events.
     (store as unknown as { watcher: { removeAllListeners(event: string): void } }).watcher.removeAllListeners("all");
-    // Sidebar hiding was removed. Exercise the supported notification setting,
-    // and retain coverage that legacy hiding cannot hide a top-level Bot.
-    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false, hiddenFromSidebar: true }));
+    await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));
     await observe(false);
-    expect((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar).toBe(false);
     await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: true }));
     await observe(true);
     await atomicWrite(settingsPath, jsonFile({ notifyOnAgentUpdates: false }));

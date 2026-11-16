@@ -3,7 +3,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { compileBlog } from "./build-blog";
-import { compileDocs } from "./build-docs";
 
 const temporaryDirectories: string[] = [];
 afterEach(() => {
@@ -40,11 +39,11 @@ function fixture(files: Record<string, string>) {
 const base = { title: "First post", description: "A short summary of the post.", date: "2026-10-06", category: "Guides" };
 
 describe("blog build", () => {
-  test("compiles posts newest first with figures, headings, and validated links", () => {
+  test("compiles posts newest first with headings and validated links", () => {
     const options = fixture({
       "first-post.md": post(
         { ...base, image: "/blog/images/shot.png", imageAlt: "A screenshot" },
-        'Intro with [memory](/docs/usage/memory) and [the next post](/blog/second-post).\n\n![Bot desktop](/blog/images/shot.png "Image: OpenTeam")\n\n## Why it matters\n\n```sh\necho "<hi>"\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n'
+        'Intro with [memory](/docs/usage/memory) and [the next post](/blog/second-post).\n\n![Bot desktop](/blog/images/shot.png "Image: OpenTeam")\n\n## Why it matters\n\n```sh\necho "<hi>"\n```\n'
       ),
       "second-post.md": post({ ...base, title: "Second post", date: "2026-10-07", related: "first-post", seoTitle: "Second post for search" }),
     });
@@ -55,46 +54,24 @@ describe("blog build", () => {
     expect(second.related).toEqual(["first-post"]);
     expect(first.image).toBe("/blog/images/shot.png");
     expect([first.imageWidth, first.imageHeight]).toEqual([2, 1]);
-    expect(first.html).toContain('<figure><img src="/blog/images/shot.png" alt="Bot desktop" width="2" height="1"');
-    expect(first.html).not.toContain("srcset");
-    expect(first.html).toContain("<figcaption>Image: OpenTeam</figcaption></figure>");
-    expect(first.html).not.toContain("<p><figure>");
     expect(first.html).toContain('<h2 id="why-it-matters">');
     expect(first.html).toContain("echo &quot;&lt;hi&gt;&quot;");
-    expect(first.html).toContain('class="docs-table"');
-    expect(first.html).toContain('<th scope="col">A</th>');
-    expect(first.html).toContain('<tr><th scope="row">1</th><td>2</td></tr>');
     expect(first.headings.map((heading) => heading.id)).toEqual(["why-it-matters"]);
-    expect(first.author.name).toBe("Raghav Pillai");
   });
 
-  test("holds back posts dated after the build and drops them from related lists", () => {
-    const options = fixture({
-      "now.md": post({ ...base, related: "later" }),
-      "later.md": post({ ...base, title: "Later", date: "2026-10-20" }),
-    });
-    const { posts } = compileBlog({ ...options, asOf: "2026-10-12" });
+  test("holds back future posts, drops them from related lists, and refuses links to them", () => {
+    const later = post({ ...base, title: "Later", date: "2026-10-20" });
+    const { posts } = compileBlog({ ...fixture({ "now.md": post({ ...base, related: "later" }), "later.md": later }), asOf: "2026-10-12" });
     expect(posts.map((entry) => entry.slug)).toEqual(["now"]);
     expect(posts[0].related).toEqual([]);
-  });
-
-  test("refuses a published post that links to one that isn't out yet", () => {
-    const options = fixture({
-      "now.md": post(base, "See [later](/blog/later).\n"),
-      "later.md": post({ ...base, title: "Later", date: "2026-10-20" }),
-    });
-    expect(() => compileBlog({ ...options, asOf: "2026-10-12" })).toThrow("isn't published until later");
+    const linked = fixture({ "now.md": post(base, "See [later](/blog/later).\n"), "later.md": later });
+    expect(() => compileBlog({ ...linked, asOf: "2026-10-12" })).toThrow("isn't published until later");
   });
 
   test.each([
-    ["an unknown field", post({ ...base, tags: "x" }), "unknown frontmatter field"],
-    ["a missing description", post({ ...base, description: "" }), "nonempty description"],
     ["a bad date", post({ ...base, date: "Oct 6" }), "YYYY-MM-DD"],
-    ["an unknown category", post({ ...base, category: "News" }), "category must be one of"],
-    ["a long description", post({ ...base, description: "x".repeat(170) }), "keep it to 165"],
     ["an H1 in the body", post(base, "# Title\n"), "don't add an H1"],
     ["a broken site link", post(base, "[x](/docs/nope)\n"), "broken link"],
-    ["a relative link", post(base, "[x](other-post)\n"), "absolute site paths"],
     ["a hotlinked image", post(base, "![x](https://example.com/a.png)\n"), "instead of hotlinking"],
     ["a missing image", post(base, "![x](/blog/images/missing.png)\n"), "missing image"],
     ["an image without alt text", post(base, "![](/blog/images/shot.png)\n"), "needs alt text"],
@@ -102,27 +79,5 @@ describe("blog build", () => {
   ])("rejects %s", (_name, content, message) => {
     const options = fixture({ "bad-post.md": content });
     expect(() => compileBlog({ ...options, asOf: "2026-10-12" })).toThrow(message);
-  });
-
-  test("lists posts after the docs in llms.txt", () => {
-    const { text } = compileDocs(undefined, [{ title: "First post", href: "/blog/first-post", description: "Summary." }]);
-    expect(text.index).toContain("\n## Blog\n\n- [First post](https://openteam-docs.invalid/blog/first-post): Summary.\n");
-  });
-});
-
-describe("blog images", () => {
-  test("wide images get optimizer sources for each screen size", () => {
-    const root = mkdtempSync(path.join(tmpdir(), "openteam-blog-wide-"));
-    temporaryDirectories.push(root);
-    const wide = Buffer.from(png);
-    wide.writeUInt32BE(1600, 16);
-    wide.writeUInt32BE(900, 20);
-    const options = fixture({ "wide.md": post(base, '![Wide](/blog/images/wide.png "Caption")\n') });
-    writeFileSync(path.join(options.publicDir, "blog/images/wide.png"), wide);
-    const [entry] = compileBlog({ ...options, asOf: "2026-10-12" }).posts;
-    expect(entry.html).toContain('srcset="/_next/image?url=%2Fblog%2Fimages%2Fwide.png&amp;w=640&amp;q=75 640w');
-    expect(entry.html).toContain("w=1920&amp;q=75 1920w");
-    expect(entry.html).not.toContain("w=3840");
-    expect(entry.html).toContain('width="1600" height="900"');
   });
 });

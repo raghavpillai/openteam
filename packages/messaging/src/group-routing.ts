@@ -2,19 +2,18 @@ export const GROUP_MAX_MEMBERS = 6;
 export const GROUP_MAX_ROUNDS = 3;
 export const GROUP_MAX_MEMBER_TURNS = 10;
 export const GROUP_MAX_MESSAGES_PER_TURN = 3;
-export const EVERYONE_MENTION_ID = "__everyone__";
 
-export interface GroupMentionMember {
+interface GroupMentionMember {
   id: string;
   name: string;
 }
 
-export interface GroupRoutingMessage {
+interface GroupRoutingMessage {
   sender: "user" | "agent" | "system";
   content: string;
 }
 
-export interface GroupVisibilityWindow {
+interface GroupVisibilityWindow {
   rootSequence: bigint;
   triggerSequence: bigint;
   lastTargetSequence: bigint | null;
@@ -49,7 +48,7 @@ export const groupVisibilityClauses = ({
 
 const normalizeHandle = (value: string) => value.toLocaleLowerCase("en-US");
 
-export const groupMemberMentionHandles = (name: string): string[] => {
+const groupMemberMentionHandles = (name: string): string[] => {
   const normalized = normalizeHandle(name.trim());
   if (!normalized) return [];
   const compact = normalized.replace(/\s+/g, "");

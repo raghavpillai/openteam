@@ -11,7 +11,7 @@ import {
   type TailscaleHttps,
 } from "./tailscale-https";
 
-export interface ManagedTailscaleRoute {
+interface ManagedTailscaleRoute {
   host: string;
   port: string;
   backendPort: string;
@@ -83,7 +83,7 @@ export function ensureManagedTailscaleRoute(
   }
   return created ? entry : null;
 }
-export function removeManagedTailscaleRoute(
+function removeManagedTailscaleRoute(
   paths: InstallationPaths,
   runner: CommandRunner,
   entry: ManagedTailscaleRoute

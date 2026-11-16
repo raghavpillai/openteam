@@ -8,8 +8,8 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { serviceEffect } from "./service-utils";
 
 const RESULT_LIMIT = 24;
-export const SEARCH_CANDIDATE_LIMIT = 512;
-export const SEARCH_RESULT_URL_MAX_LENGTH = 8_192;
+const SEARCH_CANDIDATE_LIMIT = 512;
+const SEARCH_RESULT_URL_MAX_LENGTH = 8_192;
 const MAX_QUERY_LENGTH = 200;
 const MAX_QUERY_TERMS = 8;
 
@@ -45,7 +45,7 @@ const categoryKind = (category: SearchCategory): SearchResultKind | null => {
 };
 
 /** Keep parsing deterministic and safe for PostgreSQL's to_tsquery syntax. */
-export const normalizeSearchQuery = (value: string) =>
+const normalizeSearchQuery = (value: string) =>
   value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, MAX_QUERY_LENGTH);
 
 export const prefixTsQuery = (value: string) =>

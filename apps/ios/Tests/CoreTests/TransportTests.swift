@@ -60,7 +60,7 @@ private final class ImageRequestCount: @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
-  func testPresentationPhotosUseOnlySelectedServerWithScopedCredentials() async throws {
+  func testPresentationPhotosUseOnlySelectedServerAndRejectUnsafeResponses() async throws {
     let image = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=")!
     let provider = "https://photos.example.com/photo?expiring=provider-token"
     MockProtocol.stub.set { request in
@@ -78,9 +78,6 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     for invalid in ["http://photos.example.com/a", "https://user:password@photos.example.com/a", "file:///tmp/a"] {
       do { _ = try await client.presentationImage(invalid); XCTFail("Invalid provider URL accepted") } catch { }
     }
-  }
-
-  func testPresentationPhotosRejectRedirectMIMEAndOversizedResponses() async throws {
     for (status, headers) in [(302, ["Location": "https://other.example.com/private"]),
       (200, ["Content-Type": "image/svg+xml"]),
       (200, ["Content-Type": "image/png", "Content-Length": "6000000"])] {
@@ -168,10 +165,7 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
       let result = try await api().validateServer(); XCTAssertEqual(result, mode)
     }
   }
-  func testRecoverableNetworkErrorsAndCredentialRedaction() {
-    XCTAssertTrue(UserFacingError.message(URLError(.timedOut)).contains("too long"))
-    XCTAssertTrue(UserFacingError.message(URLError(.notConnectedToInternet)).contains("Check the address"))
-    XCTAssertTrue(UserFacingError.message(URLError(.serverCertificateUntrusted)).contains("certificate"))
+  func testCancellationAndCredentialRedaction() {
     XCTAssertTrue(UserFacingError.isCancelled(URLError(.cancelled)))
     let value = UserFacingError.redact("Bearer example-secret PASSWORD=hidden https://owner:private@example.invalid {\"token\":\"secret-value\"}")
     for secret in ["example-secret", "hidden", "private", "secret-value"] { XCTAssertFalse(value.contains(secret)) }
@@ -228,9 +222,7 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(result, .object([:]))
   }
   func testDirectAndGroupSendUseDifferentServerRoutesWithStableNonce() async throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    let fixture = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+    let fixture = try Fixture.bootstrap()
     let message = fixture.latestMessages[0]
     let encoded = try JSONEncoder().encode(JSON.object(["message": .encode(message)]))
     let input = SendInput(

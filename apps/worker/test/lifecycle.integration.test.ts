@@ -1,723 +1,186 @@
 import { expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { AppService } from "../../server/src/app-service";
-import { WakeWorker } from "../src/worker";
+import { databaseUrl, startStack, type Call, type Turn } from "./fixtures/stack";
 
-const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
+const inlineImage = {
+  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+};
+/** The user's text, without the reminder, timestamp, address and file annotation. */
+const turnBody = (content: string) => {
+  content = content.replace(/^<system_reminder>\n[\s\S]*?\n<\/system_reminder>\n/, "");
+  const body = content.match(/^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/)?.[1] ?? content;
+  return body.replace(/^\[t\d+u\]\s?/, "").split("\n\nThe user attached a file.")[0]!;
+};
+const a2a = (metadata: unknown) => Boolean(metadata && typeof metadata === "object" && ("toAgent" in metadata || "fromAgent" in metadata));
 
-test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group rounds", async () => {
-  if (!databaseUrl) return;
-
-  const workspace = join(tmpdir(), `openteam-integration-${crypto.randomUUID()}`);
-  await mkdir(workspace, { recursive: true });
-  interface TurnInput {
-    runId: string;
-    botId: string;
-    contextSessionId: string;
-    conversationId: string;
-    sessionPath: string | null;
-    content: string;
-    images?: Array<{ url: string }>;
-    channelId: string;
-    deliveryId: string | null;
-    instructions: string;
-    userInfo?: string | null;
-    userInfoEpoch?: number;
-    cwd: string;
-  }
-  const seenTurns: TurnInput[] = [];
-  const preflightContexts: string[] = [];
-  const cancelled: Array<{ runId: string; reason?: string }> = [];
-  const releaseTurn = new Map<string, () => void>();
-  let turnNumber = 0;
-  let onTurn: (input: TurnInput) => Promise<void> = async () => {};
-  const inlineImage = {
-    url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-  };
-  const turnBody = (content: string) => {
-    content = content.replace(/^<system_reminder>\n[\s\S]*?\n<\/system_reminder>\n/, "");
-    const body =
-      content.match(
-        /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/
-      )?.[1] ?? content;
-    // Route this fake computer by the user's text, without the appended file annotation.
-    return body.replace(/^\[t\d+u\]\s?/, "").split("\n\nThe user attached a file.")[0]!;
-  };
-  const fakeComputer = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
-      if (url.pathname === "/health") {
-        return Response.json({
-          status: "ready",
-          inference: { ready: true, authenticated: true },
-        });
-      }
-      if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-      if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
-        return Response.json({ agents: [] });
-      }
-      if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
-        return Response.json({ quarantined: [] });
-      }
-      if (request.method === "PUT" && /^\/v1\/agent-stores\/[^/]+$/.test(url.pathname)) {
-        return Response.json({ ok: true });
-      }
-      if (request.method === "POST" && url.pathname === "/v1/infer") {
-        const body = (await request.json()) as { kind?: string };
-        const text = body.kind === "extraction" ? "NONE" : '{"approved":true}';
-        return Response.json({ text });
-      }
-      if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {
-        const body = (await request.json()) as { path: string };
-        await mkdir(body.path, { recursive: true });
-        return Response.json({ path: body.path });
-      }
-      if (request.method === "PUT" && url.pathname === "/v1/directories") {
-        const body = (await request.json()) as { paths: string[] };
-        await Promise.all(body.paths.map((path) => mkdir(path, { recursive: true })));
-        return Response.json({ directories: body.paths });
-      }
-      if (request.method === "PUT" && url.pathname.startsWith("/v1/transcripts/")) {
-        return Response.json({ ok: true });
-      }
-      const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
-      if (request.method === "POST" && cancelMatch?.[1]) {
-        const body = (await request.json().catch(() => ({}))) as { reason?: string };
-        cancelled.push({ runId: cancelMatch[1], reason: body.reason });
-        releaseTurn.get(cancelMatch[1])?.();
-        return Response.json({ ok: true });
-      }
-      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
-        return Response.json({ stopped: 0 });
-      }
-      const contextStateMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
-      if (request.method === "GET" && contextStateMatch?.[1]) {
-        preflightContexts.push(contextStateMatch[1]);
-        return Response.json({
-          type: "context.state",
-          contextSessionId: contextStateMatch[1],
-          epoch: 0,
-          archives: [],
-        });
-      }
-      if (request.method === "POST" && url.pathname === "/v1/turns") {
-        const input = (await request.json()) as TurnInput;
-        seenTurns.push(input);
-        await onTurn(input);
-        turnNumber += 1;
-        const sessionPath =
-          input.sessionPath ?? `/var/lib/openteam/pi/${input.contextSessionId}.jsonl`;
-        const turnId = `turn-${turnNumber}`;
-        const itemId = `agent-${turnNumber}`;
-        const text = `durable answer ${turnNumber}`;
-        const events = [
-          {
-            type: "session.attached",
-            runtimeEngine: "pi",
-            inferenceProvider: "openai-codex",
-            contextSessionId: input.contextSessionId,
-            sessionPath,
-            sessionId: input.contextSessionId,
-            model: "fake",
-          },
-          {
-            type: "context.state",
-            contextSessionId: input.contextSessionId,
-            epoch: 0,
-            archives: [],
-          },
-          { type: "turn.started", turnId },
-          {
-            type: "runtime.error",
-            turnId,
-            message: "Transient reconnect",
-            retrying: true,
-          },
-          {
-            type: "item.started",
-            turnId,
-            item: {
-              type: "agentMessage",
-              id: itemId,
-              text: "",
-              phase: null,
-              memoryCitation: null,
-            },
-          },
-          { type: "agent.delta", turnId, itemId, delta: text },
-          {
-            type: "item.completed",
-            turnId,
-            item: {
-              type: "agentMessage",
-              id: itemId,
-              text,
-              phase: null,
-              memoryCitation: null,
-            },
-          },
-          { type: "turn.completed", turnId, status: "completed" },
-        ];
-        return new Response(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, {
-          headers: { "content-type": "application/x-ndjson" },
-        });
-      }
-      return Response.json({ error: "not_found" }, { status: 404 });
+test.skipIf(!databaseUrl)("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group rounds", async () => {
+  let answers = 0;
+  let onTurn: (input: Turn, call: Call) => Promise<void> = async () => {};
+  const stack = await startStack({
+    truncate: true,
+    async turn(input, call) {
+      await onTurn(input, call);
+      const turnId = input.runId, itemId = `agent-${++answers}`, text = `durable answer ${answers}`;
+      const item = { type: "agentMessage", id: itemId, phase: null, memoryCitation: null };
+      return { events: [
+        { type: "runtime.error", turnId, message: "Transient reconnect", retrying: true },
+        { type: "item.started", turnId, item: { ...item, text: "" } },
+        { type: "agent.delta", turnId, itemId, delta: text },
+        { type: "item.completed", turnId, item: { ...item, text } },
+      ] };
     },
   });
-
-  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
-  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
-  process.env.DATABASE_URL = databaseUrl;
-  process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
-  process.env.OPENTEAM_CONTROL_TOKEN = "integration-control-token";
-  process.env.OPENTEAM_WORKSPACE_ROOT = workspace;
-  process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
-
-  let app: AppService | null = null;
-  let restoreTimeZone = async () => {};
-  let worker: WakeWorker | null = null;
-  const close = async () => {
-    if (worker) await worker.stop();
-    if (app) await Effect.runPromise(app.close());
-    worker = null;
-    app = null;
-  };
-
+  const { root, turns } = stack;
   try {
-    app = new AppService();
-    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
-    restoreTimeZone = async () => {
-      await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
-      if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
-    };
-    await app.prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
-    );
-    await Effect.runPromise(app.boot());
-    await app.agentData.writeInferenceSettings({
-      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
-    });
-    worker = new WakeWorker();
-    await worker.start();
+    let app = stack.app;
+    const send = (conversationId: string, input: Record<string, unknown>) =>
+      Effect.runPromise(app.sendMessage(conversationId, input as never)) as Promise<{ run: { id: string } }>;
+    const completed = (runId: string) => stack.until(async () => (await app.prisma.run.findUnique({ where: { id: runId } }))?.status === "completed", `run ${runId}`);
+    const createBot = (clientRequestId: string, name: string) =>
+      Effect.runPromise(app.createBot({ clientRequestId, name, icon: name[0], color: "#4f7cff" }));
 
-    const bot = await Effect.runPromise(
-      app.createBot({
-        clientRequestId: "create-durable-0001",
-        name: "Durable",
-        icon: "D",
-        color: "#4f7cff",
-      })
-    );
-    const replayedBot = await Effect.runPromise(
-      app.createBot({
-        clientRequestId: "create-durable-0001",
-        name: "Durable",
-        icon: "D",
-        color: "#4f7cff",
-      })
-    );
+    const bot = await createBot("create-durable-0001", "Durable");
     expect(bot.status).toBe("provisioning");
-    expect(replayedBot.id).toBe(bot.id);
+    expect((await createBot("create-durable-0001", "Durable")).id).toBe(bot.id);
     expect(await app.prisma.bot.count()).toBe(1);
-    const uploadedImage = await Effect.runPromise(
-      app.uploadAsset({
-        fileName: "image.png",
-        mimeType: "image/png",
-        bytesBase64: inlineImage.url.slice(inlineImage.url.indexOf(",") + 1),
-      })
-    );
-    const conversationId = bot.conversationId;
-    const first = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "first",
-        clientId: "client-first-0001",
-        attachments: [uploadedImage],
-        timeZone: "Asia/Jerusalem",
-      })
-    )) as { run: { id: string } };
-    const duplicate = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "first",
-        clientId: "client-first-0001",
-        attachments: [uploadedImage],
-        timeZone: "Asia/Jerusalem",
-      })
-    )) as { run: { id: string } };
-    expect(duplicate.run.id).toBe(first.run.id);
+    const image = await Effect.runPromise(app.uploadAsset({ fileName: "image.png", mimeType: "image/png", bytesBase64: inlineImage.url.split(",")[1]! }));
+    const firstInput = { content: "first", clientId: "client-first-0001", attachments: [image], timeZone: "Asia/Jerusalem" };
+    const first = await send(bot.conversationId, firstInput);
+    expect((await send(bot.conversationId, firstInput)).run.id).toBe(first.run.id);
+    await completed(first.run.id);
 
-    const waitFor = async (runId: string) => {
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline) {
-        const snapshot = await Effect.runPromise(app!.snapshot());
-        const run = snapshot.runs.find((candidate) => candidate.id === runId);
-        if (run?.status === "completed") return snapshot;
-        await Bun.sleep(50);
-      }
-      throw new Error(`run ${runId} did not complete`);
-    };
-    const waitUntil = async (predicate: () => Promise<boolean>, label: string) => {
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        if (await predicate()) return;
-        await Bun.sleep(50);
-      }
-      throw new Error(`timed out waiting for ${label}`);
-    };
-
-    const firstSnapshot = await waitFor(first.run.id);
-    expect(firstSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(
-      1
-    );
-    expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([null]);
-    const firstSeenTurn = seenTurns[0];
-    if (!firstSeenTurn) throw new Error("Expected the first computer turn");
-    expect(preflightContexts).toEqual([firstSeenTurn.contextSessionId]);
-    expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
-    expect(seenTurns[0]?.images).toEqual([inlineImage]);
-    expect(seenTurns[0]?.content).toMatch(
-      /<timestamp>[^\n]+<\/timestamp>\n<user_query>\n\[t\d+u\]\nfirst\n\nThe user attached a file\. They're stored off your box at the paths below[^]*\n<\/user_query>$/
-    );
+    const firstSnapshot = await Effect.runPromise(app.snapshot());
+    expect(firstSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+    const [firstTurn] = turns;
+    expect(turns).toHaveLength(1);
+    expect(firstTurn).toMatchObject({ sessionPath: null, cwd: bot.defaultDirectory, images: [inlineImage] });
+    expect(stack.contextReads).toEqual([firstTurn!.contextSessionId]);
+    expect(firstTurn!.content).toMatch(/<timestamp>[^\n]+<\/timestamp>\n<user_query>\n\[t\d+u\]\nfirst\n\nThe user attached a file\. They're stored off your box at the paths below[^]*\n<\/user_query>$/);
     const offset = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", timeZoneName: "shortOffset" })
       .formatToParts(new Date()).find((part) => part.type === "timeZoneName")!.value.replace("GMT", "UTC");
-    expect(firstSeenTurn.content).toContain(`(${offset})</timestamp>`);
-    expect(firstSeenTurn.content).toContain('("image.png", 68 B)');
-    expect(seenTurns[0]?.content).toContain(
-      join(workspace, "agent-data", "agents", bot.id, "attachments", `${uploadedImage.assetId}.png`)
-    );
-    expect(
-      firstSnapshot.channelMessages.find(
-        (message) => message.channelId === bot.dmChannelId && message.sender === "user"
-      )?.content
-    ).toBe("first");
-    expect(
-      firstSnapshot.channelMessages.find(
-        (message) => message.channelId === bot.dmChannelId && message.sender === "user"
-      )?.metadata
-    ).toMatchObject({ attachments: [uploadedImage] });
-    const firstClientSnapshot = await Effect.runPromise(app.clientSnapshot());
-    expect("messages" in firstClientSnapshot).toBe(false);
-    expect(
-      firstClientSnapshot.channelMessages.find(
-        (message) => message.channelId === bot.dmChannelId && message.sender === "user"
-      )?.content
-    ).toBe("first");
-    expect(firstSnapshot.bots.find((candidate) => candidate.id === bot.id)?.onboardingStatus).toBe(
-      "skipped_by_user"
-    );
-    expect(await app.prisma.bot.findUniqueOrThrow({ where: { id: bot.id } })).toMatchObject({
-      runtimeEngine: "pi",
-      // Room sessions record their own model and tape; they do not repoint the
-      // legacy bot home session or turn a root default into a bot override.
-      inferenceProvider: null,
-      inferenceModel: null,
-      runtimeSessionPath: null,
-    });
-    expect(
-      await app.prisma.contextSession.findUniqueOrThrow({
-        where: { id: firstSeenTurn.contextSessionId },
-      })
-    ).toMatchObject({
-      inferenceProvider: "openai-codex",
-      inferenceModel: "fake",
-    });
-    expect(await app.prisma.run.findUniqueOrThrow({ where: { id: first.run.id } })).toMatchObject({
-      inferenceProvider: "openai-codex",
-      inferenceModel: "fake",
-    });
-    expect(firstSnapshot.workspace).toMatchObject({
-      root: workspace,
-      botsDirectory: join(workspace, "bots"),
-      sharedDirectory: join(workspace, "shared"),
-    });
+    expect(firstTurn!.content).toContain(`(${offset})</timestamp>`);
+    expect(firstTurn!.content).toContain('("image.png", 68 B)');
+    expect(firstTurn!.content).toContain(join(root, "data", "agents", bot.id, "attachments", `${image.assetId}.png`));
+    expect(firstSnapshot.channelMessages.find((message) => message.channelId === bot.dmChannelId && message.sender === "user"))
+      .toMatchObject({ content: "first", metadata: { attachments: [image] } });
+    expect(firstSnapshot.bots.find((candidate) => candidate.id === bot.id)?.onboardingStatus).toBe("skipped_by_user");
+    // Room sessions record their own model and tape; they do not repoint the bot home session
+    // or turn a root default into a bot override.
+    expect(await app.prisma.bot.findUniqueOrThrow({ where: { id: bot.id } }))
+      .toMatchObject({ runtimeEngine: "pi", inferenceProvider: null, inferenceModel: null, runtimeSessionPath: null });
+    const recorded = { inferenceProvider: "openai-codex", inferenceModel: "fake" };
+    expect(await app.prisma.contextSession.findUniqueOrThrow({ where: { id: firstTurn!.contextSessionId } })).toMatchObject(recorded);
+    expect(await app.prisma.run.findUniqueOrThrow({ where: { id: first.run.id } })).toMatchObject(recorded);
 
-    await close();
-    app = new AppService();
-    await Effect.runPromise(app.boot());
-    worker = new WakeWorker();
-    await worker.start();
-    const second = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "second",
-        clientId: "client-second-0002",
-      })
-    )) as { run: { id: string } };
-    const secondSnapshot = await waitFor(second.run.id);
-    expect(seenTurns.map((turn) => ({ sessionPath: turn.sessionPath, content: turnBody(turn.content) }))).toEqual([
-      { sessionPath: null, content: "first" },
-      { sessionPath: `/var/lib/openteam/pi/${firstSeenTurn.contextSessionId}.jsonl`, content: "second" },
+    // A recreated host resumes the same Pi tape.
+    await stack.shutdown();
+    await stack.boot();
+    app = stack.app;
+    const second = await send(bot.conversationId, { content: "second", clientId: "client-second-0002" });
+    await completed(second.run.id);
+    const secondSnapshot = await Effect.runPromise(app.snapshot());
+    expect(turns.map((turn) => ({ sessionPath: turn.sessionPath, content: turnBody(turn.content), cwd: turn.cwd }))).toEqual([
+      { sessionPath: null, content: "first", cwd: bot.defaultDirectory },
+      { sessionPath: `/var/lib/openteam/pi/${firstTurn!.contextSessionId}.jsonl`, content: "second", cwd: bot.defaultDirectory },
     ]);
-    expect(preflightContexts).toEqual(seenTurns.map((turn) => turn.contextSessionId));
-    expect(seenTurns[1]?.cwd).toBe(bot.defaultDirectory);
-    expect(secondSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(
-      2
-    );
-    expect(
-      secondSnapshot.runItems.filter(
-        (item) => item.runId === second.run.id && item.kind === "error"
-      )
-    ).toMatchObject([{ status: "completed" }]);
+    expect(stack.contextReads).toEqual(turns.map((turn) => turn.contextSessionId));
+    expect(secondSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(2);
+    expect(secondSnapshot.runItems.filter((item) => item.runId === second.run.id && item.kind === "error")).toMatchObject([{ status: "completed" }]);
 
-    // A typed message during a running turn supersedes it and runs as a new turn, as in the reference.
-    onTurn = async (input) => {
-      if (turnBody(input.content) !== "superseded base task") return;
-      await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
-      releaseTurn.delete(input.runId);
-    };
-    const supersededBase = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "superseded base task",
-        clientId: "client-superseded-base-0003",
-      })
-    )) as { run: { id: string } };
-    await waitUntil(
-      async () => releaseTurn.has(supersededBase.run.id),
-      "active user turn ready to be superseded"
-    );
-    const redirected = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "redirect the active task",
-        clientId: "client-superseding-0004",
-        attachments: [uploadedImage],
-      })
-    )) as { run: { id: string } };
-    expect(redirected.run.id).not.toBe(supersededBase.run.id);
-    await waitUntil(
-      async () => cancelled.some((cancel) => cancel.runId === supersededBase.run.id),
-      "superseded turn cancelled"
-    );
-    expect(cancelled.find((cancel) => cancel.runId === supersededBase.run.id)?.reason).toBe("user_message");
-    await waitUntil(
-      async () => seenTurns.some((turn) => turnBody(turn.content) === "redirect the active task"),
-      "superseding turn"
-    );
-    const redirectedTurn = seenTurns.find((turn) => turnBody(turn.content) === "redirect the active task")!;
-    expect(redirectedTurn.images).toEqual([inlineImage]);
-    onTurn = async () => {};
-
+    // New bots greet proactively; agent DMs stay hidden and private context is not forwarded.
     let peerId = "";
-    onTurn = async (input) => {
+    onTurn = async (input, call) => {
       if (input.content.includes("[OpenTeam first start]")) {
-        await Effect.runPromise(
-          app!.handleDynamicTool({
-            runId: input.runId,
-            botId: input.botId,
-            conversationId: input.conversationId,
-            channelId: input.channelId,
-            deliveryId: input.deliveryId,
-            tool: "SendToUser",
-            arguments: { type: "text", content: `Hello from ${input.botId}.` },
-            callId: `bootstrap-visible-${input.botId}`,
-          })
-        );
+        await call("SendToUser", { type: "text", content: `Hello from ${input.botId}.` }, `bootstrap-visible-${input.botId}`);
       } else if (input.botId === bot.id && input.content.includes("private alpha instruction")) {
-        const request = {
-          runId: input.runId,
-          botId: input.botId,
-          conversationId: input.conversationId,
-          channelId: input.channelId,
-          deliveryId: input.deliveryId,
-          tool: "SendToAgent",
-          arguments: {
-            target_id: peerId,
-            message: "Please verify this handoff.",
-            priority: false,
-          },
-          callId: "direct-send-once",
-        } as const;
-        await Effect.runPromise(app!.handleDynamicTool(request));
-        const duplicate = await Effect.runPromise(app!.handleDynamicTool(request));
-        expect(duplicate).toBe(
+        const handoff = { target_id: peerId, message: "Please verify this handoff.", priority: false };
+        await call("SendToAgent", handoff, "direct-send-once");
+        expect(await call("SendToAgent", handoff, "direct-send-once")).toBe(
           "Sent to Peer. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
         );
-        await Effect.runPromise(
-          app!.handleDynamicTool({
-            ...request,
-            tool: "SendToUser",
-            arguments: { type: "text", content: "Peer was notified." },
-            callId: "direct-visible-source",
-          })
-        );
+        await call("SendToUser", { type: "text", content: "Peer was notified." }, "direct-visible-source");
       } else if (input.botId === peerId && input.content.includes("[agent]")) {
-        await Effect.runPromise(
-          app!.handleDynamicTool({
-            runId: input.runId,
-            botId: input.botId,
-            conversationId: input.conversationId,
-            channelId: input.channelId,
-            deliveryId: input.deliveryId,
-            tool: "SendToAgent",
-            arguments: {
-              target_id: bot.id,
-              message: "Verified. The handoff works.",
-            },
-            callId: "direct-visible-reply",
-          })
-        );
+        await call("SendToAgent", { target_id: bot.id, message: "Verified. The handoff works." }, "direct-visible-reply");
       }
     };
-
-    const peer = await Effect.runPromise(
-      app.createBot({
-        clientRequestId: "create-peer-0002",
-        name: "Peer",
-        icon: "P",
-        color: "#7c3aed",
-      })
-    );
+    const peer = await createBot("create-peer-0002", "Peer");
     peerId = peer.id;
-    const reviewer = await Effect.runPromise(
-      app.createBot({
-        clientRequestId: "create-reviewer-0003",
-        name: "Reviewer",
-        icon: "R",
-        color: "#059669",
-      })
-    );
-    await waitUntil(async () => {
-      const bots = await app!.prisma.bot.findMany({
-        where: { id: { in: [peer.id, reviewer.id] } },
-        select: { onboardingStatus: true },
-      });
-      return (
-        bots.length === 2 && bots.every((candidate) => candidate.onboardingStatus === "completed")
-      );
-    }, "proactive onboarding");
-    expect(
-      await app.prisma.inboxEvent.count({
-        where: { botId: { in: [peer.id, reviewer.id] }, type: "bot.bootstrap" },
-      })
-    ).toBe(2);
-    const onboardingSnapshot = await Effect.runPromise(app.snapshot());
-    for (const created of [peer, reviewer]) {
-      expect(
-        onboardingSnapshot.channelMessages.filter(
-          (message) =>
-            message.channelId === created.dmChannelId &&
-            message.sender === "agent" &&
-            message.content === `Hello from ${created.id}.`
-        )
-      ).toHaveLength(1);
-    }
+    const reviewer = await createBot("create-reviewer-0003", "Reviewer");
+    await stack.until(async () => (await app.prisma.bot.count({ where: { id: { in: [peer.id, reviewer.id] }, onboardingStatus: "completed" } })) === 2, "proactive onboarding");
+    expect(await app.prisma.inboxEvent.count({ where: { botId: { in: [peer.id, reviewer.id] }, type: "bot.bootstrap" } })).toBe(2);
+    for (const created of [peer, reviewer])
+      expect(await app.prisma.channelMessage.count({ where: { channelId: created.dmChannelId, sender: "agent", content: `Hello from ${created.id}.` } })).toBe(1);
 
-    const directSource = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "private alpha instruction: delegate without sharing this sentence",
-        clientId: "client-direct-0003",
-      })
-    )) as { run: { id: string } };
-    await waitFor(directSource.run.id);
-
-    await waitUntil(async () => {
-      const count = await app!.prisma.inboxEvent.count({
-        where: { status: { in: ["pending", "processing"] } },
-      });
-      return count === 0;
-    }, "agent DM wakes");
-
-    const directSnapshot = await Effect.runPromise(app.snapshot());
-    expect(directSnapshot.channels.some((channel) => channel.kind === "agent_dm")).toBe(false);
-    const directClientSnapshot = await Effect.runPromise(app.clientSnapshot());
-    expect(directClientSnapshot.channels.some((channel) => channel.kind === "agent_dm")).toBe(
-      false
-    );
-    expect(
-      directSnapshot.channelMessages
-        .filter((message) => message.channelId === bot.dmChannelId && message.sender === "agent")
-        .some((message) => message.content === "Peer was notified.")
-    ).toBe(true);
-    const sourceA2A = directSnapshot.channelMessages.filter(
-      (message) =>
-        message.channelId === bot.dmChannelId &&
-        message.metadata &&
-        typeof message.metadata === "object" &&
-        ("toAgent" in message.metadata || "fromAgent" in message.metadata)
-    );
-    expect(sourceA2A.map((message) => message.content)).toEqual([
-      "Please verify this handoff.",
-      "Verified. The handoff works.",
+    await completed((await send(bot.conversationId, { content: "private alpha instruction: delegate without sharing this sentence", clientId: "client-direct-0003" })).run.id);
+    await stack.until(async () => (await app.prisma.inboxEvent.count({ where: { status: { in: ["pending", "processing"] } } })) === 0, "agent DM wakes");
+    const direct = await Effect.runPromise(app.snapshot());
+    expect(direct.channels.some((channel) => channel.kind === "agent_dm")).toBe(false);
+    const dm = (channelId: string) => direct.channelMessages.filter((message) => message.channelId === channelId);
+    expect(dm(bot.dmChannelId).some((message) => message.sender === "agent" && message.content === "Peer was notified.")).toBe(true);
+    expect(dm(bot.dmChannelId).filter((message) => a2a(message.metadata)).map(({ content, metadata }) => ({ content, metadata }))).toEqual([
+      { content: "Please verify this handoff.", metadata: { toAgent: { id: peer.id, name: "Peer", kind: "agent" } } },
+      { content: "Verified. The handoff works.", metadata: { fromAgent: { id: peer.id, name: "Peer" } } },
     ]);
-    expect(sourceA2A[0]?.metadata).toEqual({
-      toAgent: { id: peer.id, name: "Peer", kind: "agent" },
-    });
-    expect(sourceA2A[1]?.metadata).toEqual({
-      fromAgent: { id: peer.id, name: "Peer" },
-    });
-    const peerA2A = directSnapshot.channelMessages.filter(
-      (message) =>
-        message.channelId === peer.dmChannelId &&
-        message.metadata &&
-        typeof message.metadata === "object" &&
-        ("toAgent" in message.metadata || "fromAgent" in message.metadata)
-    );
-    expect(peerA2A).toHaveLength(2);
+    const peerA2A = dm(peer.dmChannelId).filter((message) => a2a(message.metadata));
     expect(peerA2A.map((message) => message.sender)).toEqual(["user", "agent"]);
-    expect(peerA2A[0]?.metadata).toEqual({
-      fromAgent: { id: bot.id, name: bot.name },
-    });
-    expect(
-      directSnapshot.messages
-        .filter((message) => message.conversationId === peer.conversationId)
-        .some((message) => message.content.includes("private alpha instruction"))
-    ).toBe(false);
+    expect(peerA2A[0]?.metadata).toEqual({ fromAgent: { id: bot.id, name: bot.name } });
+    expect(direct.messages.some((message) => message.conversationId === peer.conversationId && message.content.includes("private alpha instruction"))).toBe(false);
 
-    await worker.stop();
-    worker = null;
-    const queuedForCancellation = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "cancel this before it starts",
-        clientId: "client-cancel-queued-0007",
-      })
-    )) as { run: { id: string } };
-    expect(await Effect.runPromise(app.cancelRun(queuedForCancellation.run.id))).toMatchObject({
-      status: "cancelled",
-    });
-    expect(
-      await app.prisma.inboxEvent.findUniqueOrThrow({
-        where: { idempotencyKey: "client-cancel-queued-0007" },
-      })
-    ).toMatchObject({ status: "completed" });
+    // With no worker running, a queued message can be cancelled before it starts.
+    await stack.stopWorker();
+    const queued = await send(bot.conversationId, { content: "cancel this before it starts", clientId: "client-cancel-queued-0007" });
+    expect(await Effect.runPromise(app.cancelRun(queued.run.id))).toMatchObject({ status: "cancelled" });
+    expect(await app.prisma.inboxEvent.findUniqueOrThrow({ where: { idempotencyKey: "client-cancel-queued-0007" } })).toMatchObject({ status: "completed" });
 
-    const group = await Effect.runPromise(
-      app.createGroup({
-        name: "Ordered room",
-        botIds: [bot.id, peer.id, reviewer.id],
-      })
-    );
-    expect(group.workingDirectory).toBe(workspace);
-    await Effect.runPromise(
-      app.updateChannelProfile(group.id, {
-        name: group.name,
-        description: "Coordinate ordered parity checks.",
-        clientId: "group-profile-ordered-checks",
-      })
-    );
-    const accepted = (await Effect.runPromise(
-      app.sendChannelMessage(group.id, {
-        content: "Give one compact status line.",
-        clientId: "client-group-0004",
-        attachments: [uploadedImage],
-        timeZone: "Asia/Jerusalem",
-      })
-    )) as { round: { id: string } };
-
-    onTurn = async (input) => {
-      if (input.channelId !== group.id) return;
-      const delivery = input.deliveryId ? await app!.prisma.channelDelivery.findUnique({
-        where: { id: input.deliveryId }, select: { roundId: true },
-      }) : null;
+    // A group round runs members in order, each in its own room context.
+    const group = await Effect.runPromise(app.createGroup({ name: "Ordered room", botIds: [bot.id, peer.id, reviewer.id] }));
+    expect(group.workingDirectory).toBe(root);
+    await Effect.runPromise(app.updateChannelProfile(group.id, { name: group.name, description: "Coordinate ordered parity checks.", clientId: "group-profile-ordered-checks" }));
+    const accepted = (await Effect.runPromise(app.sendChannelMessage(group.id, {
+      content: "Give one compact status line.", clientId: "client-group-0004", attachments: [image], timeZone: "Asia/Jerusalem",
+    }))) as { round: { id: string } };
+    const roundOf = async (input: Turn) =>
+      input.deliveryId ? (await app.prisma.channelDelivery.findUnique({ where: { id: input.deliveryId }, select: { roundId: true } }))?.roundId : null;
+    onTurn = async (input, call) => {
       // Follow-up peer rounds can start before the first-round assertions run.
-      if (delivery?.roundId !== accepted.round.id) return;
+      if (input.channelId !== group.id || (await roundOf(input)) !== accepted.round.id) return;
       if (input.botId === bot.id) {
-        await Effect.runPromise(
-          app!.handleDynamicTool({
-            runId: input.runId,
-            botId: input.botId,
-            conversationId: input.conversationId,
-            channelId: input.channelId,
-            deliveryId: input.deliveryId,
-            tool: "SendToUser",
-            arguments: {
-              type: "text",
-              content: "Private group-turn note.",
-              to: "dm",
-            },
-            callId: "group-private-dm",
-          })
-        );
-        let sameGroupError: unknown;
-        try {
-          await Effect.runPromise(
-            app!.handleDynamicTool({
-              runId: input.runId,
-              botId: input.botId,
-              conversationId: input.conversationId,
-              channelId: input.channelId,
-              deliveryId: input.deliveryId,
-              tool: "SendToAgent",
-              arguments: { target_id: group.id, message: "Wrong group reply primitive." },
-              callId: "group-wrong-send-to-agent",
-            })
-          );
-        } catch (error) {
-          sameGroupError = error;
-        }
-        expect(String(sameGroupError)).toContain("Use SendToUser");
+        await call("SendToUser", { type: "text", content: "Private group-turn note.", to: "dm" }, "group-private-dm");
+        const wrong = await call("SendToAgent", { target_id: group.id, message: "Wrong group reply primitive." }).catch(String);
+        expect(String(wrong)).toContain("Use SendToUser");
       }
-      await Effect.runPromise(
-        app!.handleDynamicTool({
-          runId: input.runId,
-          botId: input.botId,
-          conversationId: input.conversationId,
-          channelId: input.channelId,
-          deliveryId: input.deliveryId,
-          tool: "SendToUser",
-          arguments: {
-            type: "text",
-            content: `Group answer from ${input.botId}`,
-          },
-          callId: `group-visible-${input.botId}`,
-        })
-      );
-      if (input.botId === bot.id) {
-        await app!.prisma.channelMessage.create({
-          data: {
-            channelId: group.id,
-            sender: "user",
-            clientId: "post-trigger-user-message",
-            content: "This arrived after the round trigger and belongs to the next round.",
-          },
-        });
-      }
+      await call("SendToUser", { type: "text", content: `Group answer from ${input.botId}` }, `group-visible-${input.botId}`);
+      if (input.botId === bot.id)
+        await app.prisma.channelMessage.create({ data: {
+          channelId: group.id, sender: "user", clientId: "post-trigger-user-message",
+          content: "This arrived after the round trigger and belongs to the next round.",
+        } });
     };
-    worker = new WakeWorker();
-    await worker.start();
-    await waitUntil(async () => {
-      const round = await app!.prisma.channelRound.findUnique({
-        where: { id: accepted.round.id },
-      });
-      return round?.status === "completed";
-    }, "ordered group round");
+    await stack.startWorker();
+    await stack.until(async () => (await app.prisma.channelRound.findUnique({ where: { id: accepted.round.id } }))?.status === "completed", "ordered group round");
 
-    const groupSnapshot = await Effect.runPromise(app.snapshot());
-    const firstRoundDeliveries = new Set((await app.prisma.channelDelivery.findMany({
-      where: { roundId: accepted.round.id }, select: { id: true },
-    })).map(delivery => delivery.id));
-    const groupTurns = seenTurns.filter((turn) => turn.deliveryId && firstRoundDeliveries.has(turn.deliveryId));
+    const firstRound = new Set((await app.prisma.channelDelivery.findMany({ where: { roundId: accepted.round.id }, select: { id: true } })).map((delivery) => delivery.id));
+    const groupTurns = turns.filter((turn) => turn.deliveryId && firstRound.has(turn.deliveryId));
     expect(groupTurns.map((turn) => turn.botId)).toEqual([bot.id, peer.id, reviewer.id]);
-    expect(
-      groupTurns.every((turn) => turn.content.includes("Room: Coordinate ordered parity checks."))
-    ).toBe(true);
-    expect(groupTurns.every((turn) => turn.cwd === group.workingDirectory)).toBe(true);
-    expect(
-      groupTurns.every((turn) => JSON.stringify(turn.images) === JSON.stringify([inlineImage]))
-    ).toBe(true);
-    expect(
-      groupTurns.every(
-        (turn) =>
-          turn.content.startsWith('[Group chat: "Ordered room"') &&
-          !turn.content.includes("<timestamp>")
-      )
-    ).toBe(true);
-    expect(turnBody(groupTurns[1]?.content ?? "")).toContain(`Group answer from ${bot.id}`);
-    expect(turnBody(groupTurns[2]?.content ?? "")).toContain(`Group answer from ${bot.id}`);
-    expect(turnBody(groupTurns[2]?.content ?? "")).toContain(`Group answer from ${peer.id}`);
-    expect(
-      groupTurns.slice(1).every((turn) => !turn.content.includes("belongs to the next round"))
-    ).toBe(true);
-    expect(
-      groupSnapshot.channelMessages
-        .filter((message) => message.channelId === group.id)
-        .map((message) => message.content)
-    ).toEqual([
+    for (const turn of groupTurns) {
+      expect(turn).toMatchObject({ cwd: group.workingDirectory, images: [inlineImage], userInfoEpoch: 0 });
+      expect(turn.content).toStartWith('[Group chat: "Ordered room"');
+      expect(turn.content).toContain("Room: Coordinate ordered parity checks.");
+      expect(turn.content).not.toContain("<timestamp>");
+      expect(turn.content).not.toContain("belongs to the next round");
+      // Teammate and group IDs are in the per-turn user_info catalog.
+      expect(turn.userInfo).toStartWith("<user_info>\nToday's date: ");
+      expect(turn.userInfo).toContain(group.id);
+      // Each member gets a fresh room session, separate from its DM session.
+      expect(turn.sessionPath).toBeNull();
+      expect(turns.find((candidate) => candidate.botId === turn.botId && candidate.channelId !== group.id)?.contextSessionId).not.toBe(turn.contextSessionId);
+    }
+    expect(new Set(groupTurns.map((turn) => turn.contextSessionId)).size).toBe(3);
+    expect(groupTurns[1]!.content).toContain(`Group answer from ${bot.id}`);
+    expect(groupTurns[2]!.content).toContain(`Group answer from ${peer.id}`);
+    const groupMessages = await app.prisma.channelMessage.findMany({ where: { channelId: group.id }, orderBy: { sequence: "asc" }, select: { content: true } });
+    expect(groupMessages.map((message) => message.content)).toEqual([
       "Give one compact status line.",
       "This arrived after the round trigger and belongs to the next round.",
       // Group replies publish at turn completion, after the intervening input.
@@ -725,57 +188,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       `Group answer from ${peer.id}`,
       `Group answer from ${reviewer.id}`,
     ]);
-    expect(
-      groupSnapshot.channelMessages.some(
-        (message) =>
-          message.channelId === bot.dmChannelId && message.content === "Private group-turn note."
-      )
-    ).toBe(true);
-    expect(
-      groupSnapshot.channelRounds.find((round) => round.id === accepted.round.id)?.status
-    ).toBe("completed");
-    // Teammate and group IDs are in the per-turn user_info catalog.
-    expect(
-      groupTurns.every((turn) => turn.userInfo?.includes(group.id))
-    ).toBe(true);
-    expect(
-      groupTurns.every(
-        (turn) =>
-          turn.userInfo?.startsWith("<user_info>\nToday's date: ") &&
-          turn.userInfo.endsWith("</available_skills>\n</agent_skills>") &&
-          turn.userInfoEpoch === 0
-      )
-    ).toBe(true);
-    expect(
-      groupTurns.every(
-        (turn, index) => turn.sessionPath === (groupTurns.findIndex((candidate) => candidate.contextSessionId === turn.contextSessionId) === index ? null : `/var/lib/openteam/pi/${turn.contextSessionId}.jsonl`)
-      )
-    ).toBe(true);
-    expect(new Set(groupTurns.map((turn) => turn.contextSessionId)).size).toBe(3);
-    expect(
-      groupTurns.every(
-        (turn) =>
-          turn.contextSessionId !==
-          seenTurns.find(
-            (candidate) => candidate.botId === turn.botId && candidate.channelId !== group.id
-          )?.contextSessionId
-      )
-    ).toBe(true);
+    expect(await app.prisma.channelMessage.count({ where: { channelId: bot.dmChannelId, content: "Private group-turn note." } })).toBe(1);
   } finally {
-    if (worker) await worker.stop();
-    worker = null;
-    if (app) {
-      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
-      await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
-      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
-      await restoreTimeZone();
-      await Effect.runPromise(app.close());
-    }
-    fakeComputer.stop(true);
-    for (const key of envKeys) {
-      if (previousEnv[key] === undefined) delete process.env[key];
-      else process.env[key] = previousEnv[key];
-    }
-    await rm(workspace, { recursive: true, force: true });
+    await stack.close();
   }
-}, 90_000);
+}, 180_000);

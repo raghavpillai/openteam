@@ -1,11 +1,11 @@
-export const PI_RUNTIME_ENGINE = "pi" as const;
+const PI_RUNTIME_ENGINE = "pi" as const;
 export const RUNTIME_ENGINES = [PI_RUNTIME_ENGINE] as const;
 export type RuntimeEngine = (typeof RUNTIME_ENGINES)[number];
 
 export const isRuntimeEngine = (value: unknown): value is RuntimeEngine =>
   typeof value === "string" && (RUNTIME_ENGINES as readonly string[]).includes(value);
 
-export const DEFAULT_PI_INFERENCE_PROVIDER = "openai-codex";
+const DEFAULT_PI_INFERENCE_PROVIDER = "openai-codex";
 export const DEFAULT_PI_REASONING_LEVEL = "medium" as const;
 
 export const PI_REASONING_LEVELS = [

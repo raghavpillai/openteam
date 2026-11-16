@@ -79,9 +79,9 @@ export async function matchesResignedMacExecutable(source: Buffer, packaged: Buf
   finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-export const PACKAGED_APP_TOP_LEVEL = ["dist", "dist-electron", "package.json"] as const;
+const PACKAGED_APP_TOP_LEVEL = ["dist", "dist-electron", "package.json"] as const;
 
-export type ReleaseArtifactKind = "appImage" | "asar" | "dmg" | "nsis" | "zip";
+type ReleaseArtifactKind = "appImage" | "asar" | "dmg" | "nsis" | "zip";
 
 export const releaseArtifactKind = (path: string): ReleaseArtifactKind | null => {
   const name = basename(path);
@@ -121,7 +121,7 @@ export const validatePackagedTopLevel = (actualNames: string[]) => {
   };
 };
 
-export interface PackagedMetadataExpectation {
+interface PackagedMetadataExpectation {
   license?: unknown;
   author?: unknown;
   description?: unknown;

@@ -2,8 +2,6 @@ import { ApiError } from "@openteam/contracts";
 import { attachmentLimitForName } from "@openteam/contracts/media-input";
 import { VIDEO_ASSET_LIMIT } from "@openteam/messaging";
 
-export const MAX_ASSET_BYTES = VIDEO_ASSET_LIMIT;
-
 /** Browsers only permit byte-safe request headers, so clients URI-encode Unicode names. */
 export const decodeFileNameHeader = (value: string | null): string | null => {
   if (value === null) return null;

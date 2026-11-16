@@ -14,8 +14,6 @@ export const PLUGIN_MARKETPLACE_CATEGORIES = [
   "Scheduling",
 ] as const;
 
-export type PluginMarketplaceCategory = (typeof PLUGIN_MARKETPLACE_CATEGORIES)[number];
-
 const normalizedCategory = (value: string) =>
   value
     .toLowerCase()

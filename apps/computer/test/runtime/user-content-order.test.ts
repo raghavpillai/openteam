@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { imagesBeforeText } from "../../src/runtime/user-content-order";
+import { decodeInlineImages } from "../../src/runtime";
 
 test("a user's images go ahead of their words, as in the reference", () => {
   const text = { type: "text", text: "<user_query>hi</user_query>" };
@@ -17,4 +18,13 @@ test("other messages and image-free prompts pass through as they are", () => {
   const ordered = { role: "user", content: [{ type: "image", data: "a" }, { type: "text", text: "hi" }] };
   const messages = [assistant, plain, ordered];
   expect(imagesBeforeText(messages).every((message, index) => message === messages[index])).toBe(true);
+});
+
+const PNG_BYTES = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==";
+
+test("decodes inline uploads as structured Pi image content", () => {
+  expect(decodeInlineImages([{ url: `data:image/png;base64,${PNG_BYTES}` }])).toEqual([
+    { type: "image", data: PNG_BYTES, mimeType: "image/png" },
+  ]);
+  expect(() => decodeInlineImages([{ url: "data:image/png;base64,not-base64" }])).toThrow("invalid base64 data");
 });

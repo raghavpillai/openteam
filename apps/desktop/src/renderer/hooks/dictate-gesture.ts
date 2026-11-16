@@ -7,7 +7,7 @@ export const DICTATE_TAP_MS = 300;
 /** How soon the second press of a double press must come. */
 export const DICTATE_DOUBLE_MS = 350;
 
-export interface DictateTarget {
+interface DictateTarget {
   state(): string;
   /** Recording, or about to (the microphone is being opened). */
   active(): boolean;

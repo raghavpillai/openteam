@@ -37,13 +37,7 @@ final class MobileUpdates {
       release = cached
     }
     #if DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-        release = nil
-        if ProcessInfo.processInfo.arguments.contains("--qa-mobile-update") {
-          release = MobileRelease(
-            version: "0.2.0", buildNumber: "51", bundleIdentifier: "dev.openbot.mobile")
-        }
-      }
+      if ProcessInfo.processInfo.arguments.contains("--ui-testing") { release = nil }
     #endif
   }
 

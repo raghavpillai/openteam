@@ -20,7 +20,7 @@ import type {
   BotMessage,
 } from "./types";
 
-export const EMPTY_MANIFEST: BotArchiveManifest = {
+const EMPTY_MANIFEST: BotArchiveManifest = {
   version: 1,
   epoch: 0,
   selfSummaryCount: 0,
@@ -28,12 +28,12 @@ export const EMPTY_MANIFEST: BotArchiveManifest = {
   archives: [],
 };
 
-export const CONTEXT_ID =
+const CONTEXT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const SHA256 = /^[0-9a-f]{64}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 
-export const COMPACTION_REASONS = new Set<string>([
+const COMPACTION_REASONS = new Set<string>([
   "approaching_token_limit",
   "approaching_image_limit",
   "fallback_on_limit_error",
@@ -43,19 +43,19 @@ export const COMPACTION_REASONS = new Set<string>([
   "significantly_over_token_limit",
 ]);
 
-export const isRecord = (value: unknown): value is Record<string, unknown> =>
+const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-export const isNonNegativeInteger = (value: unknown): value is number =>
+const isNonNegativeInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value) && Number(value) >= 0;
 
-export const isNullableNonNegativeInteger = (value: unknown): value is number | null =>
+const isNullableNonNegativeInteger = (value: unknown): value is number | null =>
   value === null || isNonNegativeInteger(value);
 
-export const isTimestamp = (value: unknown): value is string =>
+const isTimestamp = (value: unknown): value is string =>
   typeof value === "string" && Number.isFinite(Date.parse(value));
 
-export const hasValidArchiveMetrics = (value: {
+const hasValidArchiveMetrics = (value: {
   tokensBefore: unknown;
   tokensAfter: unknown;
   imageCount: unknown;
@@ -71,12 +71,12 @@ export const hasValidArchiveMetrics = (value: {
   isTimestamp(value.completedAt) &&
   Date.parse(value.completedAt) >= Date.parse(value.startedAt);
 
-export const assertContextId = (value: string): string => {
+const assertContextId = (value: string): string => {
   if (!CONTEXT_ID.test(value)) throw new Error("Invalid context session id");
   return value;
 };
 
-export const atomicWrite = async (path: string, data: string): Promise<void> => {
+const atomicWrite = async (path: string, data: string): Promise<void> => {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {

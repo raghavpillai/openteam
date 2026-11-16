@@ -10,7 +10,7 @@ export interface ManifestFile {
   mode: number;
 }
 
-export interface ManifestTombstone {
+interface ManifestTombstone {
   path: string;
   deletedAt: string;
 }
@@ -85,7 +85,7 @@ export const EXCLUDED_DIRECTORY_NAMES = new Set([
 
 /** Chromium rebuilds these on demand, and BrowserBroker already carries origin
  * Cache Storage in the browser authority file. Snapshotting them only churns blobs. */
-export const CHROME_CACHE_DIRECTORY_NAMES = new Set([
+const CHROME_CACHE_DIRECTORY_NAMES = new Set([
   "CacheStorage",
   "component_crx_cache",
   "extensions_crx_cache",

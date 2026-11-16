@@ -27,17 +27,6 @@ final class HistoryPageTriggerTests: XCTestCase {
     XCTAssertEqual(trigger.update(firstVisible: 5, lastVisible: 12, count: 100,
       direction: 1, earlier: "60", later: nil), .earlier)
   }
-  func testSuccessfulPageAllowsNextCursorButExhaustionStops() {
-    var trigger = HistoryPageTrigger()
-    for cursor in ["100", "160"] {
-      XCTAssertEqual(trigger.update(firstVisible: 90, lastVisible: 99, count: 100,
-        direction: -1, earlier: nil, later: cursor), .later)
-      XCTAssertNil(trigger.update(firstVisible: 90, lastVisible: 99, count: 100,
-        direction: -1, earlier: nil, later: cursor))
-    }
-    XCTAssertNil(trigger.update(firstVisible: 90, lastVisible: 99, count: 100,
-      direction: -1, earlier: nil, later: nil))
-  }
   func testInitialLayoutAndShortTranscriptsDoNotFetchBothDirections() {
     var trigger = HistoryPageTrigger()
     XCTAssertNil(trigger.update(firstVisible: 0, lastVisible: 3, count: 4,

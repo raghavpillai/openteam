@@ -42,10 +42,10 @@ const TOO_MANY_MEDIA_MARKERS = [
 // Pi's overflow detector recognizes this phrase, which routes the error into compaction.
 const MEDIA_OVERFLOW_NOTE = "context_length_exceeded: too many images or documents";
 
-export const isTooManyMediaError = (message: unknown): boolean =>
+const isTooManyMediaError = (message: unknown): boolean =>
   typeof message === "string" && TOO_MANY_MEDIA_MARKERS.some((marker) => message.toLowerCase().includes(marker));
 
-export const modelVisibleSummaryTools = (
+const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
     name: string;
     description: string;
@@ -481,7 +481,7 @@ export async function inferCompaction(
 
 /** Close only unanswered snapshot calls before Pi can invent error results.
  * This projection never changes the durable tape or the real continuation tail. */
-export function withPendingSummaryResults(messages: readonly BotMessage[]): BotMessage[] {
+function withPendingSummaryResults(messages: readonly BotMessage[]): BotMessage[] {
   const answered = new Set(
     messages.flatMap((message) =>
       message.role === "toolResult" && typeof message.toolCallId === "string"

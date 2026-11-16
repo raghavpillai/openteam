@@ -1,10 +1,5 @@
-export {
-  formatOfflineDeliveryLabel,
-  formatOfflineDeliveryTimestamp,
-} from "@openteam/product-core/timestamps";
-
 // Desktop transcript separators follow the reference's fifteen-minute/day break.
-export const IDLE_GAP_MS = 15 * 60 * 1_000;
+const IDLE_GAP_MS = 15 * 60 * 1_000;
 
 const formatters = new Map<string, ReturnType<typeof createFormatters>>();
 function createFormatters(timeZone?: string) {

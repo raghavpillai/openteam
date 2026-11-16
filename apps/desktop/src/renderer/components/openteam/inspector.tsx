@@ -74,7 +74,7 @@ const draftOf = (bot: BotView): ProfileDraft => ({
 });
 
 /** Bot actions that live in the sidebar's menu too; Settings reuses the same handlers. */
-export type BotSettingsAction = "delete";
+type BotSettingsAction = "delete";
 
 const settingsAction =
   "flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45";

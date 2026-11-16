@@ -103,7 +103,7 @@ const newerVersion = (next: string, current: string): boolean => {
   return false;
 };
 
-export type ReleasedPluginUpdate = { key: string; from: string; to: string; reconnect: string[] };
+type ReleasedPluginUpdate = { key: string; from: string; to: string; reconnect: string[] };
 
 export class PluginManagement {
   constructor(

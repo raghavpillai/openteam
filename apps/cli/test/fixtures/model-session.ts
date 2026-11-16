@@ -28,42 +28,6 @@ export const providerAccessFixture = (): ModelProvider[] => [
     modelCount: 2,
     authMethods: [{ type: "api_key", label: "OpenAI API key", subscription: false }],
   },
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "api_key", label: "Anthropic API key", subscription: false }],
-  },
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "oauth", label: "Claude Code", subscription: true }],
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-  },
-  {
-    id: "local",
-    name: "Local models",
-    custom: true,
-    connected: true,
-    authType: "api_key",
-    modelCount: 1,
-    authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-  },
 ];
 
 export const modelFixture = () => {
@@ -82,12 +46,7 @@ export const modelFixture = () => {
     apiKeySuffix: "A7z9",
     configured: true,
   };
-  const calls = {
-    inference: [] as RuntimeInferenceSettings[],
-    transcription: [] as TranscriptionDraft[],
-    discovery: [] as TranscriptionDraft[],
-    checks: 0,
-  };
+  const calls = { transcription: [] as TranscriptionDraft[] };
   const api: ModelSettingsAPI = {
     async catalog(provider = inference.providerId): Promise<ModelCatalog> {
       return {
@@ -127,7 +86,6 @@ export const modelFixture = () => {
       return { ...transcription };
     },
     async saveInference(value) {
-      calls.inference.push({ ...value });
       inference = { ...value };
       return { ...inference };
     },
@@ -160,14 +118,12 @@ export const modelFixture = () => {
       return { ...transcription };
     },
     async checkTranscription() {
-      calls.checks++;
       return {
         level: "pass",
         detail: "Provider reachable; model available. Send a voice note to verify transcription.",
       };
     },
-    async transcriptionModels(value) {
-      calls.discovery.push({ ...value });
+    async transcriptionModels() {
       return ["speech-large", "speech-small"];
     },
   };

@@ -1,7 +1,7 @@
 import type { OpenTeamAuthMode, OpenTeamAuthUser } from "../client/auth";
 import { accountInitials, accountName } from "@openteam/client-core/account";
 
-export interface AccountPresentation {
+interface AccountPresentation {
   name: string;
   detail: string;
   initials: string;

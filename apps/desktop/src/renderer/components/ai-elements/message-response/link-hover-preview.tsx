@@ -8,7 +8,7 @@ const OPEN_DELAY_MS = 250;
 const CLOSE_DELAY_MS = 120;
 
 /** The address shown on hover: host, then path and query (no protocol or fragment). */
-export function linkPreviewParts(href: string) {
+function linkPreviewParts(href: string) {
   try {
     const url = new URL(href);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;

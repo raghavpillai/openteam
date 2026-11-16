@@ -6,7 +6,7 @@ import { useServerUpdateStatus } from "../../hooks/use-server-update-status";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
 
-export const VERSION_MISMATCH_TOAST_ID = "openteam-version-mismatch";
+const VERSION_MISMATCH_TOAST_ID = "openteam-version-mismatch";
 
 export function VersionMismatchBanner({ showReview = true }: { showReview?: boolean }) {
   const clientVersion = window.openteam?.versions.app ?? "0.0.0";

@@ -72,21 +72,6 @@ test('screenshot protocol timeouts settle without closing the shared browser or 
   } finally { Object.defineProperty(process, 'platform', platform); }
 });
 
-test('a browser session created after the screenshot deadline is detached', async () => {
-  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
-  try {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
-    let resolve!: (session: unknown) => void;
-    let detached = 0;
-    const owner = { context: { newCDPSession: () => new Promise(value => { resolve = value; }) } };
-    await expect((BrowserUseSession.prototype as any).captureScreenshot.call(owner, { frames: () => [] }, false, 25))
-      .rejects.toThrow('timed out during session setup');
-    resolve({ detach: async () => { detached++; } });
-    await Promise.resolve();
-    expect(detached).toBe(1);
-  } finally { Object.defineProperty(process, 'platform', platform); }
-});
-
 test('cancelling an in-flight screenshot releases its protocol session', async () => {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
   try {

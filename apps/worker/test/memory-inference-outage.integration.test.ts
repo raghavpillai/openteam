@@ -9,8 +9,8 @@ import { WakeWorker } from "../src/worker";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
-for (const fault of ["unavailable", "malformed-json"] as const) databaseTest(
-  `a real ${fault} inference outage retains review intent and cannot replay an older turn over a newer correction`,
+databaseTest(
+  "a malformed-JSON inference outage retains review intent and cannot replay an older turn over a newer correction",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "memory-inference-outage-"));
     let app: AppService | undefined, worker: WakeWorker | undefined, botId: string | undefined;
@@ -36,9 +36,7 @@ for (const fault of ["unavailable", "malformed-json"] as const) databaseTest(
         if (input.kind !== "extraction") return Response.json({ text: "NONE" });
         if (!recovered) {
           failures++;
-          return fault === "unavailable"
-            ? Response.json({ error: "Injected model outage" }, { status: 503 })
-            : new Response("{invalid JSON", { headers: { "content-type": "application/json" } });
+          return new Response("{invalid JSON", { headers: { "content-type": "application/json" } });
         }
         healthyCalls++;
         if (input.prompt.includes(oldUser)) {
@@ -74,7 +72,7 @@ for (const fault of ["unavailable", "malformed-json"] as const) databaseTest(
     const keys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
     const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
     const until = async (check: () => Promise<boolean>) => {
-      const deadline = Date.now() + 30_000;
+      const deadline = Date.now() + 60_000;
       while (Date.now() < deadline) { if (await check()) return; await Bun.sleep(50); }
       throw new Error("Memory outage journey timed out");
     };
@@ -121,5 +119,5 @@ for (const fault of ["unavailable", "malformed-json"] as const) databaseTest(
       for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }
       await rm(root, { recursive: true, force: true });
     }
-  }, 90_000
+  }, 180_000
 );

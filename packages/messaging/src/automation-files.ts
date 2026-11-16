@@ -15,7 +15,7 @@ import { nextRoutineTriggerRun, normalizeRoutineSchedule } from "./routines";
 
 const MAX_AUTOMATION_NAME = 80;
 
-export interface AutomationRun {
+interface AutomationRun {
   id: string;
   trigger: "schedule" | "manual" | "event";
   startedAt: number;
@@ -24,7 +24,7 @@ export interface AutomationRun {
   [key: string]: unknown;
 }
 
-export interface ParsedAutomation {
+interface ParsedAutomation {
   name: string;
   prompt: string;
   trigger: Record<string, unknown>;
@@ -315,7 +315,7 @@ export const renderAutomationFile = (routine: {
   });
 };
 
-export const renderRunsFile = (runs: unknown): string =>
+const renderRunsFile = (runs: unknown): string =>
   jsonFile(parseAutomationRuns(JSON.stringify(Array.isArray(runs) ? runs : [])));
 
 export const writeAutomationFiles = async (

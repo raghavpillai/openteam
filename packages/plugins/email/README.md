@@ -29,7 +29,7 @@ Only mail that arrives after the account is connected fires. The routine wake co
 
 ## Tools
 
-Bots get ListEmailInboxes, SearchEmailThreads, ReadEmailThread and ReadEmailAttachment. They return plain text; `connector/test/tools.test.ts` pins their inputs.
+Bots get ListEmailInboxes, SearchEmailThreads, ReadEmailThread and ReadEmailAttachment. They return plain text; `connector/test/email.test.ts` pins them.
 
 - Thread ids are the server's thread ID (Gmail and RFC 8474 servers) or the first message's `message_id`. Message ids are `INBOX:<uid>`, `SENT:<uid>` or `ALL:<uid>`; attachment ids add the attachment's index.
 - SearchEmailThreads covers the inbox and Sent (All Mail on Gmail). `keyword` matches the exact phrase; `hybrid` and `semantic` rank messages with every word above those with some, because a mailbox has no meaning index.

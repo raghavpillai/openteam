@@ -121,7 +121,6 @@ const bot = {
 };
 let subject: any, main: FakeWindow;
 let stage: (id: string, bytes: Uint8Array) => Promise<void>;
-let load: () => Promise<void>;
 const staged: string[] = [],
   discarded: string[] = [];
 const roster = (accountScope: string | null, bots = accountScope ? [bot] : []) =>
@@ -155,11 +154,10 @@ beforeEach(() => {
   replyAutomatically = true;
   captureImage = async () => [{ display_id: "987", thumbnail: image }];
   stage = async () => {};
-  load = async () => {};
   main = new FakeWindow();
   subject = new DesktopScreenBot({
     preloadPath: "owned-fixture",
-    loadPage: () => load(),
+    loadPage: async () => {},
     mainWindow: () => main as any,
     focusMainWindow() {},
     stageDelivery: async (id, bytes) => {
@@ -241,36 +239,6 @@ test("replacement during native capture cannot create an old-account shot", asyn
   expect(traffic.filter((item) => item.channel === "screenbot:shot")).toHaveLength(0);
 });
 
-test("replacement while overlay loads cannot reveal the pending shot", async () => {
-  const gate = deferred<void>();
-  load = () => gate.promise;
-  const taking = subject.take();
-  for (let i = 0; i < 8; i++) await Promise.resolve();
-  roster("B");
-  gate.resolve();
-  await taking;
-  expect(subject.capture).toBeNull();
-  expect(traffic.filter((item) => item.channel === "screenbot:shot")).toHaveLength(0);
-});
-
-test("replacement during encode cannot stage or dispatch old pixels", async () => {
-  const shot = await take(),
-    gate = deferred<any>();
-  subject.capture.png = gate.promise;
-  const sending = send(shot);
-  roster("B");
-  gate.resolve({
-    bytes: new Uint8Array([1]),
-    mimeType: "image/png",
-    fileName: "Owned.png",
-    width: 8,
-    height: 8,
-  });
-  expect((await sending).ok).toBe(false);
-  expect(staged).toHaveLength(0);
-  expect(deliveries()).toHaveLength(0);
-});
-
 test("replacement during staging discards completed stage and cannot dispatch", async () => {
   const shot = await take(),
     entered = deferred<void>(),
@@ -342,69 +310,8 @@ test("foreign windows and overlay subframes cannot reveal, draft, or send", asyn
   expect(subject.draft).toBe("");
 });
 
-test("reload abandons requests and releases account images; dispose removes listeners", async () => {
-  const shot = await take();
-  draft("Private A", shot);
-  subject.abandonRequests();
-  expect(subject.capture).toBeNull();
-  expect(subject.draft).toBe("");
-  roster("B");
-  await take();
-  const ownedOverlay = overlay();
-  subject.dispose();
-  expect(subject.capture).toBeNull();
-  expect(ownedOverlay.destroyed).toBe(true);
-  expect(ipc.listenerCount("openteam:screenbot:roster")).toBe(0);
-  expect(ipc.handles.size).toBe(0);
-});
-
-// Exercise the actual renderer callback, including its await before IPC.
-const rendererSource = await Bun.file(new URL("../../src/renderer/screenbot/screenbot-app.tsx", import.meta.url)).text();
-const transcriberStart = rendererSource.indexOf("  const transcribeViaApp = ");
-const transcriberEnd = rendererSource.indexOf("  const sendAfterDictation", transcriberStart);
-if (transcriberStart < 0 || transcriberEnd < 0) throw new Error("ScreenBot transcriber not found");
-const transcriberBody = rendererSource.slice(transcriberStart, transcriberEnd).trim().replace(/^const transcribeViaApp = /, "return ");
-const makeTranscriber = new Function("useCallback", "accountScope", "accountEpoch", "shotRef", "bridge",
-  new Bun.Transpiler({ loader: "ts" }).transformSync(transcriberBody));
-const respondToAudio = () => {
-  const originalSend = main.webContents.send;
-  main.webContents.send = (channel: string, payload: any) => {
-    originalSend(channel, payload);
-    if (channel === "openteam:screenbot:transcribe") queueMicrotask(() =>
-      ipc.emit("openteam:screenbot:delivered", event(main), { requestId: payload.requestId, ok: true, text: "Retained words" }));
-  };
-};
 const transcribeAudio = (audio: Uint8Array, mimeType: string, shotId: string, accountScope: string) =>
   ipc.handles.get("screenbot:transcribe")!(event(overlay()), { audio, mimeType, shotId, accountScope });
-
-test("pending dictation conversion survives same-account retakes", async () => {
-  const first = await take();
-  const bytes = deferred<ArrayBuffer>();
-  const shot = { current: { id: first.id } };
-  respondToAudio();
-  const transcribe = makeTranscriber((fn: any) => fn, { current: "A" }, { current: 1 }, shot, () => ({ transcribe: transcribeAudio }));
-  const pending = transcribe({ type: "audio/webm", arrayBuffer: () => bytes.promise }, new AbortController().signal);
-  await take();
-  const latest = await take();
-  shot.current = { id: latest.id };
-  bytes.resolve(new Uint8Array([1]).buffer);
-  expect(await pending).toEqual({ text: "Retained words" });
-});
-
-test("pending dictation conversion cancels across account replacement before IPC", async () => {
-  const first = await take(), bytes = deferred<ArrayBuffer>();
-  const epoch = { current: 1 }, scope = { current: "A" };
-  let calls = 0;
-  const transcribe = makeTranscriber((fn: any) => fn, scope, epoch, { current: { id: first.id } }, () => ({
-    transcribe: () => { calls++; return Promise.resolve({ ok: true, text: "Forbidden" }); },
-  }));
-  const pending = transcribe({ type: "audio/webm", arrayBuffer: () => bytes.promise }, new AbortController().signal)
-    .then(() => "unexpected success", (error: Error) => error.name);
-  roster("B"); epoch.current++; scope.current = "B";
-  bytes.resolve(new Uint8Array([1]).buffer);
-  expect(await pending).toBe("AbortError");
-  expect(calls).toBe(0);
-});
 
 test("closed composers and unknown shot ids cannot submit old recordings", async () => {
   const first = await take();

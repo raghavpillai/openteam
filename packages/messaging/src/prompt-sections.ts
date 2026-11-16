@@ -39,7 +39,7 @@ export interface PromptSectionReceipt {
   next: string;
 }
 
-export const SECTION_LABELS: Record<string, string> = {
+const SECTION_LABELS: Record<string, string> = {
   automations: "Routines",
   agent_directory: "Teammates and groups",
   mcp_instructions: "Connector instructions",
@@ -194,7 +194,7 @@ export function acknowledgePromptSections(
   return snapshots;
 }
 
-export function renderPromptSectionUpdates(
+function renderPromptSectionUpdates(
   receipts: readonly PromptSectionReceipt[]
 ): string | null {
   if (!receipts.length) return null;

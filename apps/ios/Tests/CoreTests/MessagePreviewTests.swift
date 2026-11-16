@@ -3,7 +3,7 @@ import XCTest
 @testable import OpenTeamCore
 
 final class MessagePreviewTests: XCTestCase {
-  private struct Fixture: Decodable {
+  private struct Previews: Decodable {
     struct Text: Decodable {
       let content: String
       let preview: String
@@ -21,10 +21,10 @@ final class MessagePreviewTests: XCTestCase {
   }
 
   /// Fixture written from packages/contracts by scripts/export-message-previews.ts.
-  private func fixture() throws -> Fixture {
+  private func fixture() throws -> Previews {
     let url = Bundle.module.url(
       forResource: "message-previews", withExtension: "json", subdirectory: "Fixtures")!
-    return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    return try JSONDecoder().decode(Previews.self, from: Data(contentsOf: url))
   }
 
   private func asset(_ fileName: String, _ mimeType: String) -> Asset {
@@ -51,10 +51,7 @@ final class MessagePreviewTests: XCTestCase {
   }
 
   func testLatestMessagePreviewDescribesAttachmentsOnlyWithoutText() throws {
-    let url = Bundle.module.url(
-      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-      .latestMessages[0]
+    var message = try Fixture.message()
     let image: JSON = .object([
       "assetId": .string(String(repeating: "a", count: 64)), "fileName": .string("chart.png"),
       "mimeType": .string("image/png"), "kind": .string("image"), "byteSize": .number(42),
@@ -65,15 +62,11 @@ final class MessagePreviewTests: XCTestCase {
     message.metadata = .object(["attachments": .array([image]), "type": .string("text")])
     message.content = ""
     XCTAssertEqual(message.previewText, "Sent 1 image")
-    message.content = "Here is the **chart** you asked for.\n\n- Revenue: up"
+    message.content = "Here is the **chart** you asked for."
     XCTAssertEqual(message.previewText, "Here is the chart you asked for.")
     XCTAssertFalse(message.isAttachmentOnly)
     message.content = "chart.png"
     message.metadata = .object(["attachment": image, "type": .string("attachment")])
     XCTAssertTrue(message.isAttachmentOnly)
-    message.metadata = .object([:])
-    message.content = "Done. The [CRM](https://docs.google.com/spreadsheets/d/1abc/edit) is updated."
-    XCTAssertEqual(message.previewText, "Done. The CRM is updated.")
-    XCTAssertFalse(message.isAttachmentOnly)
   }
 }

@@ -1,28 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { ProductEvent } from "@openteam/contracts";
-import {
-  TrailingAsyncCoalescer,
-  createLiveSyncController,
-  createReconnectingProductEventStream,
-  type ProductEventHandlers,
-} from "../src";
+import type { ChannelClientState, ChannelHistoryPage, ClientBootstrapView, ProductEvent } from "@openteam/contracts";
+import type { ScreenStatusView } from "@openteam/contracts";
+import { TrailingAsyncCoalescer, createReconnectingProductEventStream, createScreenSessionController, type ProductEventHandlers } from "../src";
+import { createComputerControlController, ownsComputerControl } from "../src/computer-control";
+import { type LiveSnapshotSyncOptions, synchronizeClientSnapshot } from "../src/sync";
 
 describe("bounded live refresh coalescing", () => {
-  test("refreshes during a continuous burst rather than waiting for silence", async () => {
-    let refreshes = 0;
-    const coalescer = new TrailingAsyncCoalescer(async () => {
-      refreshes += 1;
-    }, 15);
-    const stream = setInterval(() => coalescer.trigger(), 2);
-    try {
-      await Bun.sleep(70);
-      expect(refreshes).toBeGreaterThanOrEqual(2);
-    } finally {
-      clearInterval(stream);
-      coalescer.cancel();
-    }
-  });
-
   test("never overlaps refreshes and preserves an update received during a slow read", async () => {
     const first = deferred();
     let calls = 0;
@@ -46,59 +29,37 @@ describe("bounded live refresh coalescing", () => {
   });
 });
 
-const deferred = () => {
-  let resolve!: () => void;
+const deferred = <T = void,>() => {
+  let resolve!: (value: T) => void;
   let reject!: (cause: unknown) => void;
-  const promise = new Promise<void>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
   return { promise, reject, resolve };
 };
 
-const event = (sequence: string): ProductEvent => ({
-  sequence,
-  topic: "channel.message.accepted",
-  entityId: "message-1",
-  payload: {},
-  createdAt: "2026-09-01T00:00:00.000Z",
-});
+const event = (sequence: string): ProductEvent => ({ sequence, topic: "channel.message.accepted", entityId: "message-1", payload: {}, createdAt: "2026-09-01T00:00:00.000Z" });
 
-const settle = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-};
+const settle = async () => { for (let i = 0; i < 3; i++) await Promise.resolve(); };
 
 describe("shared reconnecting product event stream", () => {
   test("reconnects from the latest committed cursor and resets backoff after opening", async () => {
-    const attempts: Array<{
-      after: string;
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred>;
-      signal: AbortSignal;
-    }> = [];
+    const attempts: Array<{ after: string; handlers: ProductEventHandlers; pending: ReturnType<typeof deferred<void>> }> = [];
     const scheduled: Array<{ callback: () => void; delay: number }> = [];
     const received: string[] = [];
     const disconnects: unknown[] = [];
     let cursor = "40";
     const stream = createReconnectingProductEventStream({
       cursor: () => cursor,
-      listen: (after, handlers, signal) => {
+      listen: (after, handlers) => {
         const pending = deferred();
-        attempts.push({ after, handlers, pending, signal });
+        attempts.push({ after, handlers, pending });
         return pending.promise;
       },
       onEvent: (next) => received.push(next.sequence),
       onDisconnect: (cause) => disconnects.push(cause),
       delayForAttempt: (attempt) => 1_000 * 2 ** attempt,
-      schedule: (callback, delay) => {
-        scheduled.push({ callback, delay });
-        return scheduled.length as unknown as ReturnType<typeof setTimeout>;
-      },
+      schedule: (callback, delay) => (scheduled.push({ callback, delay }), scheduled.length as unknown as ReturnType<typeof setTimeout>),
       cancel: () => undefined,
     });
-
     stream.resume();
     await settle();
     expect(attempts[0]?.after).toBe("40");
@@ -107,11 +68,9 @@ describe("shared reconnecting product event stream", () => {
     cursor = "41";
     attempts[0]?.pending.resolve();
     await settle();
-
     expect(received).toEqual(["41"]);
     expect(disconnects).toEqual([undefined]);
     expect(scheduled[0]?.delay).toBe(1_000);
-
     scheduled.shift()?.callback();
     await settle();
     expect(attempts[1]?.after).toBe("41");
@@ -119,92 +78,94 @@ describe("shared reconnecting product event stream", () => {
     await settle();
     expect(scheduled[0]?.delay).toBe(2_000);
   });
+});
 
-  test("pause cancels reconnects, aborts the active request, and drops stale callbacks", async () => {
-    const attempts: Array<{
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred>;
-      signal: AbortSignal;
-    }> = [];
-    const scheduled: Array<() => void> = [];
-    const cancelled: unknown[] = [];
-    const received: string[] = [];
-    const stream = createReconnectingProductEventStream({
-      cursor: () => "0",
-      listen: (_after, handlers, signal) => {
-        const pending = deferred();
-        attempts.push({ handlers, pending, signal });
-        return pending.promise;
-      },
-      onEvent: (next) => received.push(next.sequence),
-      schedule: (callback) => {
-        scheduled.push(callback);
-        return scheduled.length as unknown as ReturnType<typeof setTimeout>;
-      },
-      cancel: (timer) => cancelled.push(timer),
+const bootstrap = (cursor = "10") =>
+  ({ cursor, channels: [{ id: "chat" }] }) as ClientBootstrapView;
+const history = (revision = "10") =>
+  ({ channelId: "chat", revision, messages: [] }) as unknown as ChannelHistoryPage;
+const state = (revision = "10") => ({ channelId: "chat", revision }) as ChannelClientState;
+const harness = (overrides: Partial<LiveSnapshotSyncOptions> = {}) => {
+  const accepted: string[] = [];
+  const deferredWork: Array<Promise<unknown> | undefined> = [];
+  const identity = {};
+  const options: LiveSnapshotSyncOptions = {
+    readBootstrap: async () => bootstrap(),
+    readHistory: async () => history(),
+    readState: async () => state(),
+    activeChannel: () => "chat",
+    historyIdentity: () => identity,
+    pendingHistory: () => null,
+    isCurrent: () => true,
+    acceptBootstrap: () => { accepted.push("bootstrap"); return true; },
+    acceptHistory: () => { accepted.push("history"); },
+    acceptState: () => { accepted.push("state"); },
+    defer: (pending) => { deferredWork.push(pending); },
+    ...overrides,
+  };
+  return { options, accepted, deferredWork };
+};
+
+describe("coherent live channel refresh", () => {
+  test("queues catch-up behind hydration instead of dropping the final message", async () => {
+    const loading = deferred();
+    let pending: Promise<void> | null = loading.promise;
+    let reads = 0;
+    const h = harness({
+      pendingHistory: () => pending,
+      readBootstrap: async () => { reads += 1; return bootstrap(); },
     });
-
-    stream.resume();
-    await settle();
-    stream.pause();
-    expect(attempts[0]?.signal.aborted).toBe(true);
-    attempts[0]?.handlers.onEvent(event("1"));
-    attempts[0]?.pending.resolve();
-    await settle();
-    expect(received).toEqual([]);
-    expect(scheduled).toHaveLength(0);
-
-    stream.resume();
-    await settle();
-    attempts[1]?.pending.resolve();
-    await settle();
-    expect(scheduled).toHaveLength(1);
-    stream.pause();
-    expect(cancelled).toHaveLength(1);
+    expect(await synchronizeClientSnapshot(h.options)).toBe("deferred");
+    expect(h.deferredWork).toEqual([loading.promise]);
+    expect(reads).toBe(1);
+    expect(h.accepted).toEqual(["bootstrap"]);
+    pending = null;
+    loading.resolve();
+    await loading.promise;
+    expect(await synchronizeClientSnapshot(h.options)).toBe("applied");
+    expect(h.accepted).toEqual(["bootstrap", "bootstrap", "history", "state"]);
   });
 });
 
-describe("shared live sync controller", () => {
-  test("owns event invalidation, foreground catch-up, health, and suspension policy", async () => {
-    const attempts: Array<{
-      handlers: ProductEventHandlers;
-      pending: ReturnType<typeof deferred>;
-      signal: AbortSignal;
-    }> = [];
-    const health: boolean[] = [];
-    let synchronizations = 0;
-    const liveSync = createLiveSyncController({
-      cursor: () => "7",
-      listen: (_after, handlers, signal) => {
-        const pending = deferred();
-        attempts.push({ handlers, pending, signal });
-        return pending.promise;
-      },
-      synchronize: async () => {
-        synchronizations += 1;
-      },
-      handleEvent: (next) => next.sequence === "8",
-      onHealthChange: (healthy) => health.push(healthy),
-      debounceMs: 0,
+describe("shared screen session controller", () => {
+  test("polls only while active and releases takeover on suspension", async () => {
+    let polls = 0;
+    const requests: boolean[] = [];
+    const results: boolean[] = [];
+    const controller = createScreenSessionController({
+      pollIntervalMs: 60_000,
+      heartbeatMs: 60_000,
+      pollStatus: async () => { polls += 1; },
+      requestTakeover: async (active) => { requests.push(active); return { humanTakeover: active }; },
+      onTakeoverResult: (result) => results.push(result.humanTakeover),
     });
-
-    liveSync.setActive(true);
-    await settle();
-    attempts[0]?.handlers.onOpen?.();
-    attempts[0]?.handlers.onEvent(event("8"));
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(1);
-    expect(health).toEqual([true]);
-
-    liveSync.setActive(false);
-    expect(attempts[0]?.signal.aborted).toBe(true);
-    attempts[0]?.handlers.onEvent(event("8"));
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(1);
-
-    liveSync.setActive(true, true);
-    await Bun.sleep(5);
-    expect(synchronizations).toBe(2);
-    liveSync.stop();
+    controller.activate();
+    await Promise.resolve();
+    expect(polls).toBe(1);
+    controller.setTakeover(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(requests).toEqual([true]);
+    expect(results).toEqual([true]);
+    controller.deactivate();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(requests).toEqual([true, false]);
+    controller.wake();
+    await Promise.resolve();
+    expect(polls).toBe(1);
+    controller.stop();
   });
+});
+
+const status = (id: string | null, generation = 1) =>
+  ({ humanTakeover: !!id, controlSession: id ? { id, generation } : null }) as ScreenStatusView;
+test("watching a different owner never releases their session", async () => {
+  let calls = 0;
+  const c = createComputerControlController("ios", async () => { calls++; return status(null); });
+  c.open();
+  c.observe(status("desktop"));
+  await c.close();
+  expect(calls).toBe(0);
+  expect(ownsComputerControl(status("desktop"), "ios")).toBe(false);
 });

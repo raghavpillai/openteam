@@ -24,6 +24,7 @@ test("capacity wording does not mask authentication, billing, rate limits, or ca
   expect(inferenceFailure(new Error("429 rate limit: at capacity")).status).toBe(429);
   expect(inferenceFailure(new Error("request aborted: at capacity")).status).toBe(499);
   expect(inferenceFailure(new Error("request timed out: at capacity")).status).toBe(504);
+  expect(inferenceFailure(new Error("Memory inference timed out"))).toMatchObject({ status: 504, error: { code: "inference_timeout" } });
   expect(inferenceFailure(new Error("unknown private-request-details"))).toEqual({
     status: 502,
     error: { code: "inference_provider_failed", message: "Inference provider failed to return a usable response" },

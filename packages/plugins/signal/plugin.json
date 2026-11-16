@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "signal",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Signal",
   "description": "Connect your Signal account by scanning a QR code. Read collected messages, contacts and groups, send texts, and retrieve small attachments.",
   "publisher": "OpenTeam",

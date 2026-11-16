@@ -2,7 +2,7 @@ import type { BotView } from "@openteam/contracts";
 import type { BotRecipe } from "@openteam/contracts/bot-recipe";
 import { describeRoutineSchedules, routineScheduleDrafts, type RoutineView } from "./routines";
 
-export const BOT_TEMPLATE_FILENAME = "Bot Template.json";
+const BOT_TEMPLATE_FILENAME = "Bot Template.json";
 
 const scheduleSummary = (routine: RoutineView) =>
   routine.scheduleKind === "event"

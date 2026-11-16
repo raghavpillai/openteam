@@ -52,7 +52,7 @@ import { readRuntimeInferenceSettings } from "./runtime-settings";
 import { foreignServerDetected, foreignServerMessage } from "./stack";
 import { runNotificationChecks } from "./doctor-notifications";
 
-export { firstUnavailablePort, portAvailable, suggestApiPort, viewerPorts } from "./ports";
+export { suggestApiPort } from "./ports";
 
 type CheckLevel = "pass" | "warn" | "fail";
 

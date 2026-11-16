@@ -11,7 +11,7 @@ const DIGEST_REFERENCE = /^[^@\s]+@sha256:[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const BACKUP_NAME =
   /^postgres-[0-9A-Za-z.+-]+-before-[0-9A-Za-z.+-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9-]{36}\.sql$/;
-export const DATABASE_BACKUPS_TO_KEEP = 3;
+const DATABASE_BACKUPS_TO_KEEP = 3;
 
 /** Reject symlinks in every path component, including the installation directory. */
 export const assertMaintenancePath = (path: string): void => {

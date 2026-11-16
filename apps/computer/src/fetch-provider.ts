@@ -14,7 +14,7 @@ export interface FetchConfiguration {
   provider?: FetchProvider | null;
   apiKey?: string;
 }
-export interface FetchProvenance {
+interface FetchProvenance {
   source: "cached" | "crawled" | "unknown";
 }
 

@@ -39,12 +39,12 @@ const AUTOMATION_ACTION_VERB: Record<AutomationChangedAction, string> = {
   deleted: "Deleted",
 };
 
-export const describeAgentTimelineEvent = (event: AgentTimelineEvent): string => {
+const describeAgentTimelineEvent = (event: AgentTimelineEvent): string => {
   if (event.type === "name-changed") return `Renamed to ${event.to}`;
   return `${AUTOMATION_ACTION_VERB[event.action]} routine ${JSON.stringify(event.automationName)}`;
 };
 
-export const buildTimelineEventWakePrompt = (event: AgentTimelineEvent): string =>
+const buildTimelineEventWakePrompt = (event: AgentTimelineEvent): string =>
   [
     "[SAND_HIDDEN_PROMPT]",
     "[event] Something about this conversation just changed.",

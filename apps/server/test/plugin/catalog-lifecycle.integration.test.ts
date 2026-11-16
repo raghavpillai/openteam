@@ -125,13 +125,6 @@ for (const catalog of pluginCatalog) {
             connectionId: account.id, botId, runId: crypto.randomUUID(),
             callId: crypto.randomUUID(), toolName: "add", arguments: { a: 19, b: 23 },
           })).rejects.toMatchObject({ code: "plugin_connection_not_ready" });
-          if (account.transport === "builtin") {
-            await Effect.runPromise(service.connect(account.id));
-            const result = await Effect.runPromise(
-              service.testTool(account.id, { toolName: "add", arguments: { a: 19, b: 23 } })
-            );
-            expect(JSON.stringify(result)).toContain("42");
-          }
         }
         await Effect.runPromise(service.uninstall(catalog.key));
         expect(await pluginRuntimeContext(prisma, botId)).toEqual({

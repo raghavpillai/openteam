@@ -2,15 +2,15 @@ import type { ChannelMessageView } from "@openteam/contracts";
 import { attachmentsPreviewText, messagePreviewText } from "@openteam/contracts/message-preview";
 import { messageDisplayProjection, messageMetadata } from "./messages";
 
-export interface ChannelNameChangedEvent {
+interface ChannelNameChangedEvent {
   type: "name-changed";
   from: string;
   to: string;
 }
 
-export type RoutineChangedAction = "created" | "updated" | "enabled" | "disabled" | "deleted";
+type RoutineChangedAction = "created" | "updated" | "enabled" | "disabled" | "deleted";
 
-export interface RoutineChangedEvent {
+interface RoutineChangedEvent {
   type: "automation-changed";
   action: RoutineChangedAction;
   automationId: string;
@@ -18,7 +18,7 @@ export interface RoutineChangedEvent {
 }
 
 /** A reply cut off by a stack restart; the notice text is the message content. */
-export interface TurnInterruptedEvent {
+interface TurnInterruptedEvent {
   type: "turn-interrupted";
   reason: "restart";
 }

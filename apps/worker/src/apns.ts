@@ -7,7 +7,7 @@ import {
   type PushNotificationPayload,
 } from "@openteam/contracts";
 
-export interface ApnsDevice {
+interface ApnsDevice {
   pushToken: string;
   apnsTopic: string | null;
   apnsEnvironment: string | null;
@@ -17,7 +17,7 @@ export interface ApnsResult {
   status: number;
   reason?: string;
 }
-export interface ApnsConfiguration {
+interface ApnsConfiguration {
   keyId: string;
   teamId: string;
   topic: string;
@@ -29,7 +29,7 @@ export type ApnsTransport = (
   body: string
 ) => Promise<ApnsResult>;
 
-export function apnsPayload(
+function apnsPayload(
   device: ApnsDevice,
   payload: PushNotificationPayload,
   badgeCount: number

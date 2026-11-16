@@ -100,7 +100,7 @@ export interface PluginDeviceLink {
 export interface PluginConnectorDefinition {
   key: string;
   name: string;
-  transport: "http" | "stdio" | "builtin";
+  transport: "http" | "stdio";
   auth: "none" | "oauth" | "token";
   endpoint: string;
   configuration?: Readonly<Record<string, unknown>>;

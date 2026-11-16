@@ -7,7 +7,7 @@ export interface TailscaleHttps {
   addresses: string[];
   port?: string;
 }
-export interface TailscaleInspection {
+interface TailscaleInspection {
   node: TailscaleHttps | null;
   issue: string | null;
 }
@@ -109,7 +109,7 @@ export function tailscaleRoute(
     : "occupied";
 }
 
-export interface TailscaleUser {
+interface TailscaleUser {
   platform: NodeJS.Platform;
   uid: number;
   username: string;

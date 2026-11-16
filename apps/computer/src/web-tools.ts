@@ -1,13 +1,12 @@
 import { SearchProviderClient } from "./search-provider";
-export { publicWebUrl, isPublicAddress } from "./public-web-url";
-export { publicWebGet, webMarkdown } from "./builtin-fetch";
+
 import { builtinFetch } from "./builtin-fetch";
 import { FetchProviderClient } from "./fetch-provider";
 
-export const WEB_INLINE_CHARACTERS = 100_000;
+const WEB_INLINE_CHARACTERS = 100_000;
 
 /** The reference's inline cut: the first characters, then how many lines were left out. */
-export const truncateWebContent = (content: string, maxSize = WEB_INLINE_CHARACTERS): string => {
+const truncateWebContent = (content: string, maxSize = WEB_INLINE_CHARACTERS): string => {
   if (content.length <= maxSize) return content;
   let linesTruncated = 1;
   for (let index = content.indexOf("\n", maxSize); index !== -1; index = content.indexOf("\n", index + 1)) linesTruncated++;
@@ -15,7 +14,7 @@ export const truncateWebContent = (content: string, maxSize = WEB_INLINE_CHARACT
 };
 
 /** A failed fetch reads "Error fetching URL <url>: <reason>", with no "Error: " in front, as in the reference. */
-export class WebFetchFailure extends Error {
+class WebFetchFailure extends Error {
   override name = "WebFetchFailure";
 }
 

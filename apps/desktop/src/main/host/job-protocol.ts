@@ -16,18 +16,18 @@ export type HostJobPayload =
   | { kind: "read"; input: HostReadInput }
   | { kind: "shell"; input: HostShellInput; terminalDir: string };
 
-export interface HostJobRequest {
+interface HostJobRequest {
   type: "run";
   id: string;
   payload: HostJobPayload;
 }
 
-export interface HostJobCancel {
+interface HostJobCancel {
   type: "cancel";
   id: string;
 }
 
-export interface HostUtilityShutdown {
+interface HostUtilityShutdown {
   type: "shutdown";
 }
 

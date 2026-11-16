@@ -1,4 +1,4 @@
-export const EXPANDED_SIDEBAR_VIRTUAL_THRESHOLD = 180;
+const EXPANDED_SIDEBAR_VIRTUAL_THRESHOLD = 180;
 export const EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS = 48;
 export const EXPANDED_SIDEBAR_OVERSCAN = 232;
 export const SIDEBAR_CHANNEL_ROW_SIZE = 58;
@@ -6,7 +6,7 @@ export const SIDEBAR_PINNED_MAX_MOUNTED_GRID_ROWS = 24;
 /** 106px tile plus Bot's 12px pinned-grid row gap. */
 export const SIDEBAR_PINNED_GRID_ROW_SIZE = 118;
 
-export type SidebarSectionLayoutInput = {
+type SidebarSectionLayoutInput = {
   id: string;
   collapsed: boolean;
 };

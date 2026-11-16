@@ -85,7 +85,7 @@ export {
 } from "./setup-values";
 
 /** Where to get the apps after setup; they connect a model and create the first bot. */
-export const APP_DOWNLOADS = [
+const APP_DOWNLOADS = [
   { label: "Desktop", value: "https://openteam.so/download" },
   { label: "iPhone", value: "https://testflight.apple.com/join/KFBFPkjP" },
 ] as const;
@@ -118,7 +118,7 @@ export interface SetupPrompter {
   close(): void;
 }
 
-export interface SetupCommandOptions {
+interface SetupCommandOptions {
   /** Automatic installer handoff; explicit setup starts immediately. */
   countdown?: boolean;
   advanced?: boolean;
@@ -135,7 +135,7 @@ export interface SetupCommandOptions {
   tailscaleIssue?: string | null;
 }
 
-export const supportsInteractiveSelection = (
+const supportsInteractiveSelection = (
   environment: NodeJS.ProcessEnv = process.env
 ): boolean => environment.TERM?.toLowerCase() !== "dumb";
 
@@ -200,7 +200,7 @@ export const createTerminalPrompter = (): SetupPrompter => {
 
 type SelectionAction = "previous" | "next" | "confirm" | "cancel" | number | null;
 
-export const selectionActionForKey = (
+const selectionActionForKey = (
   character: string,
   key: { name?: string; ctrl?: boolean },
   options: readonly { shortcut?: string }[]

@@ -1,13 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScreenBroker } from "../src/screen-broker";
 import type { ScreenSession } from "../src/screen/types";
-const homes: string[] = [];
-afterEach(async () => {
-  await Promise.all(homes.splice(0).map((p) => rm(p, { recursive: true, force: true })));
-});
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 const brokerAt = (home: string) => {
   const broker = new ScreenBroker(home);
   Object.assign(broker, {
@@ -19,8 +16,7 @@ const brokerAt = (home: string) => {
   return broker;
 };
 async function fixture() {
-  const home = await mkdtemp(join(tmpdir(), "computer-control-"));
-  homes.push(home);
+  const home = await tempDir("computer-control-");
   return { home, broker: brokerAt(home) };
 }
 test("explicit control survives days without renewals and a computer process restart", async () => {

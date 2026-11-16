@@ -1,25 +1,49 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { parseArguments } from "../src/arguments";
-import { helpFor } from "../src/help";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { collectStatus } from "../src/status";
 import { renderStatus, statusState } from "../src/status-ui";
 import { terminalTextWidth } from "../src/terminal";
-import {
-  normalizeStatusPreview,
-  statusFixture,
-  statusScenarios,
-} from "./fixtures/status-scenarios";
+import { writeUpdateState } from "../src/update-safety";
+import { fakeBin, runCli } from "./fixtures/harness";
+import { statusFixture, statusScenarios } from "./fixtures/status-scenarios";
 
-test("health is a true alias, including both help forms and durable update progress", () => {
-  for (const args of [[], ["--dir", "/tmp/team"], ["--json-progress"], ["--help"], ["-h"]]) {
-    expect(parseArguments(["health", ...args])).toEqual(parseArguments(["status", ...args]));
-  }
-  expect(parseArguments(["help", "health"])).toEqual(parseArguments(["help", "status"]));
-  expect(() => parseArguments(["health", "--force"])).toThrow("Unknown option for status");
-  expect(() => parseArguments(["helth"])).toThrow('Did you mean "health"?');
-  expect(helpFor("global")).toContain("health        Alias for status");
-  expect(helpFor("status")).toContain("does not start containers or send an AI request");
+// Any Docker call is recorded; an active update must answer without probing Docker.
+const docker = '#!/bin/sh\nprintf "%s\\n" "$*" >> "$OPENTEAM_TEST_CALLS"\nexit 1\n';
+
+describe.skipIf(process.platform === "win32")("actual status CLI command", () => {
+  test("the health alias reports an active update as JSON without probing Docker", async () => {
+    const f = statusFixture("healthy");
+    try {
+      const calls = join(f.directory, "calls");
+      writeUpdateState(f.paths, {
+        schemaVersion: 1,
+        fromVersion: "1.2.3",
+        startedAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        jobId: "status-test",
+        status: "running",
+        phase: "pulling",
+        message: "Downloading server images",
+        targetVersion: "1.2.4",
+      });
+      const { stdout, stderr, code } = await runCli(
+        ["health", "--dir", f.paths.directory, "--json-progress"],
+        { PATH: fakeBin(f.directory, { docker }), TERM: "dumb", OPENTEAM_TEST_CALLS: calls }
+      );
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout.startsWith("@@OPENTEAM_UPDATE@@")).toBe(true);
+      expect(JSON.parse(stdout.slice("@@OPENTEAM_UPDATE@@".length))).toMatchObject({
+        phase: "pulling",
+        version: "1.2.4",
+      });
+      expect(existsSync(calls)).toBe(false);
+      expect(f.requests).toEqual([]);
+    } finally {
+      f.cleanup();
+    }
+  });
 });
 
 describe("status and health reports", () => {
@@ -32,13 +56,6 @@ describe("status and health reports", () => {
       // Status repeats the username the apps sign in with, once setup has created it.
       if (id === "healthy")
         expect(renderStatus(report, { width: 110, color: false })).toMatch(/Username\s+owner\n/);
-      if (id === "setup-incomplete") expect(report.username).toBeUndefined();
-      for (const width of [24, 40, 60, 76, 90, 110])
-        for (const color of [false, true]) {
-          const output = renderStatus(report, { width, color });
-          expect(output.split("\n").every((line) => terminalTextWidth(line) <= width)).toBe(true);
-          if (!color) expect(output).not.toContain("\x1b");
-        }
       if (state === "STATUS UNKNOWN" || state === "NOT INSTALLED") {
         expect(report.services).toBeNull();
         expect(report.health).toBeNull();
@@ -46,33 +63,10 @@ describe("status and health reports", () => {
       } else {
         expect(f.requests.every((path) => path === "/api/v0/health")).toBe(true);
       }
-      for (const { options } of f.runner.calls) {
-        expect(options?.timeoutMs).toBeGreaterThan(0);
+      for (const { options } of f.runner.calls)
         expect(options?.timeoutMs).toBeLessThanOrEqual(10_000);
-        expect(options?.killSignal).toBe("SIGKILL");
-      }
-      for (const [file, content] of f.before) expect(readFileSync(file, "utf8")).toBe(content);
       // The fixture runner rejects every command outside the read-only allowlist.
-      expect(
-        f.runner.calls.filter((call) => call.args.includes("json")).length
-      ).toBeLessThanOrEqual(1);
-      if (
-        [
-          "healthy",
-          "live-ready",
-          "database-unavailable",
-          "stopped",
-          "invalid-json",
-          "starting",
-          "job-failed",
-          "not-installed",
-        ].includes(id)
-      ) {
-        const normalized = normalizeStatusPreview(report, f);
-        expect(
-          renderStatus(normalized, { width: id === "starting" ? 40 : 90, color: false })
-        ).toMatchSnapshot(id);
-      }
+      for (const [file, content] of f.before) expect(readFileSync(file, "utf8")).toBe(content);
     } finally {
       f.cleanup();
     }

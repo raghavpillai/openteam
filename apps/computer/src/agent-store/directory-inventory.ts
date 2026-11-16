@@ -7,11 +7,11 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { safeId } from "./encoding";
 
-export const AGENT_DIRECTORY_FULL_SCAN_INTERVAL_MS = 5 * 60_000;
+const AGENT_DIRECTORY_FULL_SCAN_INTERVAL_MS = 5 * 60_000;
 
-export const AGENT_DIRECTORY_SCAN_CONCURRENCY = 16;
+const AGENT_DIRECTORY_SCAN_CONCURRENCY = 16;
 
-export const AGENT_DIRECTORY_PENDING_BATCH_SIZE = 16;
+const AGENT_DIRECTORY_PENDING_BATCH_SIZE = 16;
 
 export interface AgentDirectoryDiscoveryMetrics {
   cacheHits: number;

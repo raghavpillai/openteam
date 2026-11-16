@@ -94,7 +94,7 @@ export interface PromptDraft {
   attachments: PendingAttachment[];
 }
 
-export interface PromptInputHandle {
+interface PromptInputHandle {
   // undefined means attachment staging is still in flight; keep the picker mounted.
   takeDraft: () => PromptDraft | undefined;
 }

@@ -5,7 +5,7 @@ export interface ConversationScrollState {
   viewportOffset: number;
 }
 
-export type ConversationScrollRestore =
+type ConversationScrollRestore =
   | { kind: "latest" }
   | { index: number; kind: "message"; viewportOffset: number };
 

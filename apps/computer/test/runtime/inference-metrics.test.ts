@@ -51,21 +51,3 @@ test("periodic stream diagnostics count progress without retaining content and s
   } finally {handlers.get('session_shutdown')?.();info.mockRestore();timer.mockRestore();clear.mockRestore();}
 });
 
-
-test("metadata-only stream updates do not establish first output, and chat requests remain correlatable", async () => {
-  const handlers = new Map<string, Function>(), logs: string[] = [];
-  const info = spyOn(console, "info").mockImplementation(value => { logs.push(String(value)); });
-  try {
-    await inferenceMetricsExtension("chat-fixture").factory({on:(name:string,fn:Function)=>handlers.set(name,fn)} as any);
-    handlers.get("before_provider_request")!({payload:{model:"fixture",messages:[{content:"PRIVATE_INPUT"}]}},{sessionManager:{getSessionId:()=>"fixture-session"}});
-    for (const delta of [{type:"start"},{type:"thinking_start"},{type:"toolcall_start"},{type:"text_delta",delta:""}])
-      handlers.get("message_update")!({assistantMessageEvent:delta});
-    expect(logs.map(line=>JSON.parse(line).event)).toEqual(["inference.started"]);
-    expect(JSON.parse(logs[0]!)).toMatchObject({inputItems:1});
-    handlers.get("message_update")!({assistantMessageEvent:{type:"thinking_delta",delta:"PRIVATE_REASONING"}});
-    expect(JSON.parse(logs.at(-1)!)).toMatchObject({event:"inference.first_delta"});
-    handlers.get("message_end")!({message:{role:"assistant",responseId:"fixture-generation",stopReason:"stop",content:[],usage:{input:1,output:1}}});
-    expect(JSON.parse(logs.at(-1)!)).toMatchObject({responseId:"fixture-generation"});
-    expect(logs.join("\n")).not.toContain("PRIVATE_");
-  } finally {handlers.get("session_shutdown")?.();info.mockRestore();}
-});

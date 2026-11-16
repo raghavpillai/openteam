@@ -1,6 +1,6 @@
 import { editExternalDraft, type ExternalDraft } from "@openteam/contracts/external-draft";
 
-export type ExternalDraftReviewAction = "send" | "cancel" | "refresh" | "approval";
+type ExternalDraftReviewAction = "send" | "cancel" | "refresh" | "approval";
 
 export interface ExternalDraftReviewFields {
   body: string;

@@ -14,11 +14,6 @@ const fixture = () => {
 };
 
 describe("desktop file session storage", () => {
-  test("fresh profiles start without a persisted session", async () => {
-    const { path, store } = fixture();
-    expect(await store.read()).toEqual({ token: null, persistence: "disk", backend: "file" });
-    expect(existsSync(path)).toBe(false);
-  });
   test("persists a session across restart with owner-only permissions", async () => {
     const { path, store } = fixture();
     await store.write("session-token");

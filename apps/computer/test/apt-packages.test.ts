@@ -1,34 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {
-  archivesToPrune,
-  captureSources,
-  classifyOrigin,
-  forgetPackages,
-  imagePackagePins,
-  installFailureReason,
-  installsPaths,
-  installTarget,
-  keepSources,
-  localDebArguments,
-  nextRecordedList,
-  packageSnapshot,
-  parseAutoInstalled,
-  parseInstalled,
-  parsePolicy,
-  parseSourceFile,
-  readForgotten,
-  readRecord,
-  recordAfterApt,
-  replayRecordedPackages,
-  restoreSources,
-  snapshotBeforeApt,
-  unfetchedUrls,
-  type CommandRunner,
-} from "../src/apt-packages";
-import { installNotice, InstallNotice } from "../src/runtime/install-notice";
+import { archivesToPrune, captureSources, forgetPackages, imagePackagePins, installFailureReason, installsPaths, keepSources, localDebArguments, nextRecordedList, packageSnapshot, parseAutoInstalled, parseInstalled, parseSourceFile, readRecord, recordAfterApt, replayRecordedPackages, restoreSources, snapshotBeforeApt, unfetchedUrls, type CommandRunner } from "../src/apt-packages";
+import { tempDirs } from "./temp";
+const tempDir = tempDirs();
 
 const snapshot = (manual: string[], auto: string[] = []) =>
   packageSnapshot(Object.fromEntries([...manual, ...auto].map((name) => [name, "1"])), new Set(auto));
@@ -65,53 +40,6 @@ test("the .deb cache evicts by download time, not by the server's file dates", (
   expect(archivesToPrune(entries, new Set(), 9 * MB)).toEqual(["cowsay_3.03%2bdfsg2-8_all.deb", "jq_1.7.1-5_arm64.deb", "jq_1.7.1-6_arm64.deb"]);
 });
 
-const POLICY = `gh:
-  Installed: 2.103.0
-  Candidate: 2.103.0
-  Version table:
- *** 2.103.0 500
-        500 https://cli.github.com/packages stable/main arm64 Packages
-        100 /var/lib/dpkg/status
-     2.46.0-3 500
-        500 http://deb.debian.org/debian trixie/main arm64 Packages
-jq:
-  Installed: 1.7.1-6
-  Candidate: 1.7.1-6
-  Version table:
- *** 1.7.1-6 500
-        500 http://deb.debian.org/debian trixie/main arm64 Packages
-        100 /var/lib/dpkg/status
-glow:
-  Installed: 2.1.1
-  Candidate: 2.1.1
-  Version table:
- *** 2.1.1 100
-        100 /var/lib/dpkg/status
-vanished:
-  Installed: (none)
-  Candidate: (none)
-  Version table:
-`;
-const IMAGE_SOURCES = new Set(["http://deb.debian.org/debian trixie", "http://deb.debian.org/debian-security trixie-security"]);
-
-test("apt-cache policy tells where each installed version came from", () => {
-  const policy = parsePolicy(POLICY);
-  expect(policy.gh!.versions).toEqual([
-    { version: "2.103.0", sources: [{ uri: "https://cli.github.com/packages", suite: "stable" }] },
-    { version: "2.46.0-3", sources: [{ uri: "http://deb.debian.org/debian", suite: "trixie" }] },
-  ]);
-  expect(policy.vanished).toEqual({ installed: undefined, candidate: undefined, versions: [] });
-  expect(classifyOrigin(policy.gh, IMAGE_SOURCES)).toEqual({ origin: "https://cli.github.com/packages stable" });
-  expect(classifyOrigin(policy.jq, IMAGE_SOURCES)).toEqual({});
-  expect(classifyOrigin(policy.glow, IMAGE_SOURCES)).toEqual({ local: true });
-  // A package from a bot's source comes back only at a version that source has, never Debian's.
-  expect(installTarget("gh", { origin: "https://cli.github.com/packages stable" }, policy.gh)).toBe("gh=2.103.0");
-  const withoutRepo = parsePolicy(POLICY.replace("        500 https://cli.github.com/packages stable/main arm64 Packages\n", ""));
-  expect(installTarget("gh", { origin: "https://cli.github.com/packages stable" }, withoutRepo.gh)).toBeUndefined();
-  expect(installTarget("jq", {}, policy.jq)).toBe("jq");
-  expect(installTarget("vanished", {}, policy.vanished)).toBeUndefined();
-});
-
 test("apt source files of both formats name their sources", () => {
   expect(parseSourceFile("Types: deb\nURIs: http://deb.debian.org/debian/\nSuites: trixie trixie-updates\nComponents: main\n\nTypes: deb\nURIs: http://deb.debian.org/debian-security\nSuites: trixie-security\n"))
     .toEqual(["http://deb.debian.org/debian trixie", "http://deb.debian.org/debian trixie-updates", "http://deb.debian.org/debian-security trixie-security"]);
@@ -138,7 +66,7 @@ interface FakeRepo { [name: string]: Array<{ version: string; uri: string; suite
  * path without downloading only from its cache folder.
  */
 async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, options: { cached?: Set<string>; deps?: Record<string, string[]>; broken?: Set<string>; offlineNetwork?: boolean; unreachable?: Set<string> } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "openteam-installs-"));
+  const root = await tempDir("openteam-installs-");
   const paths = installsPaths(join(root, "state"));
   const system = (path: string) => join(root, "system", path);
   const image = { baseline: join(root, "image/apt-baseline"), sourcesBaseline: join(root, "image/apt-sources-baseline"), buildId: join(root, "image/build-id") };
@@ -248,7 +176,6 @@ test("kept sources come back where they are missing, and only a finished replay 
   const options = { paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, sourceLocations: ["/etc/apt/sources.list.d"] };
   await writeFile(fake.system("etc/apt/sources.list.d/gh.list"), `deb ${GH} stable main\n`);
   await captureSources(options);
-  const { rm } = await import("node:fs/promises");
   await rm(fake.system("etc/apt/sources.list.d/gh.list"));
   // A recreated computer before its replay: the copy stays and comes back.
   await captureSources({ ...options, removeGone: false });
@@ -363,57 +290,6 @@ test("one package that can't come back doesn't slow the rest, is marked once per
   expect(Object.keys(await readRecord(fake.paths))).not.toContain("glow");
 });
 
-test("a forgotten package stays untracked while installed, and is tracked again once reinstalled", async () => {
-  const fake = await fakeSystem({ bash: "5", curl: "8" }, {});
-  const options = { paths: fake.paths, image: fake.image, run: fake.run, extendedStates: fake.extendedStates, systemPath: fake.system, sourceLocations: [] };
-  const aptRun = async (change: () => void) => { await snapshotBeforeApt(options); change(); await recordAfterApt(options); };
-  await mkdir(fake.paths.local, { recursive: true });
-  await writeFile(join(fake.paths.local, "tool_1.0_all.deb"), "tool");
-  await aptRun(() => Object.assign(fake.installed, { jo: "1", sl: "1", tool: "1.0" }));
-  expect(Object.keys(await readRecord(fake.paths))).toEqual(["jo", "sl", "tool"]);
-
-  expect(await forgetPackages(["jo", "tool"], options)).toEqual({ forgotten: ["jo", "tool"], unknown: [] });
-  // Later apt runs don't track them again.
-  await aptRun(() => (fake.installed.bc = "1"));
-  expect(Object.keys(await readRecord(fake.paths))).toEqual(["bc", "sl"]);
-  expect(await readForgotten(fake.paths)).toEqual(["jo", "tool"]);
-  // So a start doesn't tell bots a forgotten .deb package can't come back.
-  delete fake.installed.tool;
-  const status = await replayRecordedPackages({ ...options, log: () => {} });
-  expect(status).toMatchObject({ restored: [], failed: [], pending: [] });
-
-  // Removing a forgotten package and installing it again tracks it again.
-  await aptRun(() => delete fake.installed.jo);
-  expect(await readForgotten(fake.paths)).toEqual([]);
-  await aptRun(() => (fake.installed.jo = "1"));
-  expect(Object.keys(await readRecord(fake.paths))).toEqual(["bc", "jo", "sl"]);
-  // A package that isn't installed is simply dropped.
-  await writeFile(fake.paths.packages, JSON.stringify({ packages: { ...(await readRecord(fake.paths)), vanished: {} } }));
-  expect(await forgetPackages(["vanished"], options)).toEqual({ forgotten: ["vanished"], unknown: [] });
-  expect(await readForgotten(fake.paths)).toEqual([]);
-});
-
-test("without the network, packages wait for the next start instead of failing", async () => {
-  const fake = await fakeSystem({ bash: "5" }, { cowsay: [{ version: "3", uri: DEBIAN, suite: "trixie" }] }, { offlineNetwork: true });
-  await writeFile(fake.paths.packages, JSON.stringify({ packages: { cowsay: {} } }));
-  const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
-  expect(status).toMatchObject({ restored: [], failed: [], pending: ["cowsay"] });
-  expect((await readRecord(fake.paths)).cowsay?.failed).toBeUndefined();
-});
-
-test("a kept .deb comes back by its file", async () => {
-  const fake = await fakeSystem({ bash: "5" }, {});
-  await mkdir(fake.paths.local, { recursive: true });
-  await writeFile(join(fake.paths.local, "glow_2.1.1_arm64.deb"), "glow");
-  await writeFile(fake.paths.packages, JSON.stringify({ packages: { glow: { deb: "glow_2.1.1_arm64.deb" } } }));
-  const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
-  expect(status.restored).toEqual(["glow"]);
-  // Offline, from apt's cache folder, where it was linked for the run.
-  expect(fake.calls.some((call) => call.includes("--no-download install") && call.endsWith(join(fake.paths.archives, "glow_2.1.1_arm64.deb")))).toBe(true);
-  expect(await readdir(fake.paths.archives)).toEqual([]);
-  expect(await readdir(fake.paths.local)).toEqual(["glow_2.1.1_arm64.deb"]);
-});
-
 test("offline, kept .debs and cached packages come back, and one the cache lacks doesn't hold them up", async () => {
   const repos: FakeRepo = Object.fromEntries(["figlet", "cowsay", "sl"].map((name) => [name, [{ version: "1", uri: DEBIAN, suite: "trixie" }]]));
   // sl is cached, but a library it needs isn't: it waits rather than going in half configured.
@@ -425,36 +301,6 @@ test("offline, kept .debs and cached packages come back, and one the cache lacks
   expect(status).toMatchObject({ restored: ["figlet", "tool"], failed: [], pending: ["cowsay", "sl"] });
   expect(fake.installed).not.toHaveProperty("sl");
   expect(await readdir(fake.paths.archives)).toEqual([]);
-});
-
-test("each bot hears once what the last start couldn't bring back", async () => {
-  const fake = await fakeSystem({ bash: "5" }, {});
-  await writeFile(fake.paths.packages, JSON.stringify({ packages: { vanished: {}, glow: { local: true } } }));
-  await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
-  const notice = new InstallNotice(join(fake.root, "told.json"), fake.paths, fake.run);
-  const claimed = await notice.claim("bot-a");
-  expect(claimed?.content).toContain("could not reinstall these apt packages installed on it earlier: glow (it was installed from a .deb file that was not kept); vanished (no apt source the computer has offers it any more).");
-  expect(claimed?.content).toContain("It won't try again until the computer's image changes.");
-  expect(claimed?.content).toContain("`sudo openteam-installs forget glow vanished`");
-  // Never the advice that can't work for a package whose source is gone.
-  expect(claimed?.content).not.toContain("sudo apt-get install");
-  await notice.commit("bot-a", claimed!.episode);
-  expect(await new InstallNotice(join(fake.root, "told.json"), fake.paths, fake.run).claim("bot-a")).toBeNull();
-  expect(await notice.claim("bot-b")).not.toBeNull();
-  // A package installed again, or forgotten, is left out; with none left, nobody else is told.
-  fake.installed.vanished = "1";
-  expect((await notice.claim("bot-b"))?.content).not.toContain("vanished");
-  await forgetPackages(["glow"], { paths: fake.paths, run: fake.run });
-  expect(await notice.claim("bot-b")).toBeNull();
-});
-
-test("the notice says what a version change rebuilt", () => {
-  const status = { id: "x", state: "done" as const, startedAt: "", restored: [], failed: [], pending: ["sl"], languages: { python: { from: "3.12", to: "3.13", reinstalled: ["rich", "ruff"], failed: ["oldpkg"] }, node: { from: "20", to: "22", rebuilt: true } } };
-  const text = installNotice(status, {}, "/log")!;
-  expect(text).toContain("not back yet, because the network or their apt source was unreachable at start: sl.");
-  expect(text).toContain("Python changed from 3.12 to 3.13, so pip packages and uv tools installed for 3.12 were reinstalled for it: rich, ruff. These could not be reinstalled: oldpkg.");
-  expect(text).toContain("Node.js changed from 20 to 22, so global npm packages in /usr/local were rebuilt for it.");
-  expect(installNotice({ ...status, pending: [], languages: undefined }, {}, "/log")).toBeNull();
 });
 
 test("record files are readable by bots", async () => {

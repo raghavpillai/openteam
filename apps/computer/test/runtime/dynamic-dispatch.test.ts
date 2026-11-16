@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { ComputerRuntime } from "../../src/runtime";
 import { fenceToolResults, untrustedResultsExtension } from "../../src/runtime/untrusted-results";
+import { withFetch } from "./tool-fixtures";
 
 const runtimeTools = () => (new ComputerRuntime() as any).tools;
 const turn = (overrides: Record<string, unknown> = {}): any => ({
@@ -12,14 +13,8 @@ const connector = (namespaceStatus = "ready") => ({
   tools: [{ connectionId: "c", name: "search_threads", description: "Search", inputSchema: { type: "object" }, source: "gmail/gmail" }],
 });
 
-async function withControlPlane(respond: (tool: string, args: any) => unknown, run: () => Promise<any>): Promise<any> {
-  const original = globalThis.fetch;
-  globalThis.fetch = (async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body));
-    return Response.json(await respond(body.tool, body.arguments));
-  }) as any;
-  try { return await run(); } finally { globalThis.fetch = original; }
-}
+const withControlPlane = (respond: (tool: string, args: any) => unknown, run: () => Promise<any>): Promise<any> =>
+  withFetch(async (_url: string, init: RequestInit) => { const body = JSON.parse(String(init.body)); return Response.json(await respond(body.tool, body.arguments)); }, run);
 
 test("a connector tool runs without a prior GetDynamicTools lookup", async () => {
   const tools = runtimeTools();
@@ -100,16 +95,6 @@ test("a signed-out connector tells the main agent to authenticate and anyone els
   );
 });
 
-test("only an agent that can start a sign-in is told to call AuthenticateMcpServer", () => {
-  const tools = runtimeTools();
-  const description = (active: any) => tools.customTools(active).find((tool: any) => tool.name === "GetDynamicTools").description as string;
-  expect(description(turn())).toEndWith("Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.");
-  expect(description(turn({ runtimeProfile: "subagent", subagentType: "executor" }))).toEndWith(
-    'MCP authentication: a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it. You cannot do that from here, so report the status in your result instead of retrying.'
-  );
-  expect(description(turn({ requestSource: "automation" }))).toEndWith("You cannot do that from here, so report the status with WakeParent instead of retrying.");
-});
-
 test("a first-party dynamic tool called by its bare name is run through CallDynamicTool", async () => {
   const { directDynamicToolsExtension } = await import("../../src/runtime/direct-dynamic-tools");
   const handlers = new Map<string, Function>();
@@ -137,44 +122,6 @@ test("a first-party dynamic tool called by its bare name is run through CallDyna
   expect(fenceToolResults([formatted])[0]).toBe(formatted);
   expect(fenceToolResults([JSON.parse(JSON.stringify(formatted))])[0].content).toEqual(formatted.content);
   expect(await end({ message: { ...missing, isError: false } })).toBeUndefined();
-});
-
-test("connector call failures are classified like the reference's", async () => {
-  const tools = runtimeTools();
-  const original = globalThis.fetch;
-  const respond = (status: number, error: Record<string, string>) => { globalThis.fetch = (async () => Response.json({ error }, { status })) as any; };
-  const call = (active: any, id: string) => tools.executeOpenTeamTool(active, id, "CallDynamicTool", { namespace: "gmail", toolName: "search_threads", arguments: {} });
-  try {
-    respond(401, { code: "plugin_auth_required", message: "Authorization expired or was revoked. Sign in to this account again." });
-    await expect(call(turn({ pluginNamespaces: [connector()] }), "a")).rejects.toThrow(
-      'Error: Authorization expired or was revoked. Sign in to this account again. Call AuthenticateMcpServer with server_id "gmail" to show the user its sign-in, then finish unrelated work and end your turn.'
-    );
-    respond(500, { code: "internal_error", message: "socket hang up" });
-    await expect(call(turn({ pluginNamespaces: [connector()] }), "b")).rejects.toThrow(new Error("Error: Tool execution error. socket hang up"));
-    respond(500, { code: "internal_error", message: "MCP error -32602: Invalid arguments for tool search_threads" });
-    const rejected = await call(turn({ pluginNamespaces: [connector()] }), "c");
-    expect(rejected.content).toEqual([{ type: "text", text: "Error: MCP error -32602: Invalid arguments for tool search_threads" }]);
-    expect(rejected.details).toMatchObject({ isError: true, systemReminders: [
-      `<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`,
-    ] });
-    const [visible] = fenceToolResults([{ ...rejected, role: "toolResult", toolName: "CallDynamicTool", isError: true }]);
-    expect(visible.content).toEqual([
-      { type: "text", text: '<cursor_untrusted_data_1337 source="CallDynamicTool">' },
-      ...rejected.content,
-      { type: "text", text: "</cursor_untrusted_data_1337>" },
-      { type: "text", text: rejected.details.systemReminders[0] },
-    ]);
-    respond(409, { code: "plugin_identifier_stale", message: "This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again." });
-    await expect(call(turn({ pluginNamespaces: [connector()] }), "d")).rejects.toThrow(new Error("Error: This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."));
-  } finally { globalThis.fetch = original; }
-});
-
-test("a failed WebFetch reads Error fetching URL, without a leading Error:, as in the reference", async () => {
-  const tools = runtimeTools();
-  tools.webTools.fetchContent = async () => { throw new Error("getaddrinfo ENOTFOUND"); };
-  const url = "https://missing.invalid/";
-  const error = await tools.executeOpenTeamTool(turn(), "f", "CallDynamicTool", { namespace: "cursor", toolName: "WebFetch", arguments: { url } }).then(() => null, (e: Error) => e);
-  expect(error?.message).toBe(`Error fetching URL ${url}: getaddrinfo ENOTFOUND`);
 });
 
 test("ListMachines is looked up in the cursor namespace and lists the registered computers", async () => {

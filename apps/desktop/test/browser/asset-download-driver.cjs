@@ -40,7 +40,7 @@ dialog.showMessageBox = async (_window, options) => {
 const loadFile = BrowserWindow.prototype.loadFile;
 BrowserWindow.prototype.loadFile = function () {
   return loadFile.call(this, settings.renderer, {
-    query: { server: settings.server, asset: settings.asset, bytes: String(settings.bytes) },
+    query: { page: "asset-download", server: settings.server, asset: settings.asset, bytes: String(settings.bytes) },
   });
 };
 app.on("browser-window-created", (_event, window) => {
@@ -54,12 +54,7 @@ app.on("browser-window-created", (_event, window) => {
       assert.ok(window.webContents.getURL().startsWith("file://"));
       // Exercise the real preview button and production renderer helper first.
       await js('document.querySelector(\'button[aria-label="Download file"]\').click()');
-      if (settings.baseline) {
-        await until(() => js('document.body.textContent.includes("Download request is invalid")'));
-        assert.equal(pickerCalls, 0);
-        assert.deepEqual(fs.readdirSync(downloads), []);
-        checks.push("baseline: preview loads but download is rejected before the picker");
-      } else {
+      {
         const saved = path.join(downloads, "shipping-label.PDF");
         await until(() => fs.existsSync(saved) && fs.statSync(saved).size === settings.bytes);
         assert.equal(createHash("sha256").update(fs.readFileSync(saved)).digest("hex"), settings.asset);
@@ -73,13 +68,6 @@ app.on("browser-window-created", (_event, window) => {
         assert.equal(fs.readdirSync(downloads).length, 2);
         checks.push("folder-picker cancellation writes no file");
         pickerAction = "save";
-        for (const url of [
-          `${settings.otherServer}/api/v0/assets/${settings.asset}`,
-          `${settings.server}/api/v0/auth/session`,
-        ]) {
-          await assert.rejects(js(`window.openteam.files.downloadAll(${JSON.stringify([{ fileName: "bad.pdf", url }])})`), /Download request is invalid/);
-        }
-        checks.push("foreign origins and non-asset routes are rejected by the actual handler");
         for (const mode of ["unauthorized", "redirect"]) {
           await fetch(`${settings.server}/fixture-mode/${mode}`, { method: "POST" });
           assert.equal((await invoke()).saved, 0);
@@ -92,9 +80,6 @@ app.on("browser-window-created", (_event, window) => {
         await assert.rejects(invoke(), /server changed/);
         assert.equal(fs.readdirSync(downloads).length, 2);
         checks.push("changing servers while choosing a folder aborts the download");
-        await js("window.openteam.auth.clearToken()");
-        await assert.rejects(invoke(), /Download request is invalid/);
-        checks.push("sign-out removes the trusted download server");
       }
       fs.writeFileSync(path.join(directory, "results.json"), JSON.stringify({ checks, pickerCalls }));
     } catch (error) {

@@ -70,7 +70,7 @@ import {
 import { assertNoAgentWorking, UpdateBusyError, updateWaitsForIdle } from "./update-gate";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
-export type UpdateProgressPhase =
+type UpdateProgressPhase =
   | "checking"
   | "downloading"
   | "backing-up"

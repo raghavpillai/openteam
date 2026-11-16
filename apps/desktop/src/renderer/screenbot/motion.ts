@@ -30,9 +30,7 @@ export const lerp = (from: number, to: number, amount: number) => from + (to - f
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 /** 0 before `start`, 1 after `end`, linear between: for staging one timeline. */
 export const window01 = (value: number, start: number, end: number) => clamp((value - start) / (end - start), 0, 1);
-export const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 export const easeInCubic = (t: number) => t * t * t;
-export const easeInOutSine = (t: number) => -(Math.cos(Math.PI * t) - 1) / 2;
 
 export interface Rect { x: number; y: number; width: number; height: number }
 

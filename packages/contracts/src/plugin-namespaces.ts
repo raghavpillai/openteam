@@ -2,7 +2,7 @@ import { connectorHostTools, fileTransferCapabilities, type PluginConnectorDefin
 import type { PluginDynamicNamespace } from "./index";
 import { getDefaultMcpCustomInstruction } from "./reference-formatters";
 
-export interface NamespaceConnection {
+interface NamespaceConnection {
   id: string;
   name: string;
   alias: string;
@@ -17,11 +17,11 @@ export interface NamespaceConnection {
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-export const namespaceStatus = (status: string): PluginDynamicNamespace["namespaceStatus"] =>
+const namespaceStatus = (status: string): PluginDynamicNamespace["namespaceStatus"] =>
   status === "ready" ? "ready" : status === "needs_auth" ? "needsAuth" : status === "error" ? "error" : "loading";
 
 /** The service and account a namespace belongs to, e.g. `Gmail (work)`. */
-export const connectionDisplayName = (connection: Pick<NamespaceConnection, "name" | "alias">): string =>
+const connectionDisplayName = (connection: Pick<NamespaceConnection, "name" | "alias">): string =>
   `${connection.name} (${connection.alias})`;
 
 /** One shape for the turn-start catalog and every mid-turn refresh. */

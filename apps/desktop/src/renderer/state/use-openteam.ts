@@ -52,7 +52,7 @@ import { createReactionController } from "./reaction-controller";
 
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
-export interface ChannelHistoryStatus {
+interface ChannelHistoryStatus {
   initialLoading: boolean;
   generation: number;
   mode: "latest" | "history" | "context";

@@ -84,9 +84,6 @@ const COOKIE_IMPORT_FAILURE_BY_STAGE = {
   collect: "the desktop failed while collecting the granted cookies",
   inject: "the box failed while injecting them into its browser"
 };
-function describeCookieOriginRequestEntry(entry) {
-  return entry.profileId === null ? entry.origin : `${entry.origin} (${entry.profileId})`;
-}
 function describeGrants(grants) {
   if (grants.length === 0) return "no origins";
   return grants.map((grant) => `${grant.origin} on ${grant.profileId}`).join(", ");
@@ -314,14 +311,4 @@ function rankPluginsLexically(plugins, query) {
     score: tokens.reduce((sum, token) => sum + scorePluginForToken(plugin, token), 0)
   })).filter((entry) => entry.score > 0 && (!subjectTokens.length || subjectTokens.some((token) => scorePluginForToken(entry.plugin, token) > 0))).sort((a, b2) => b2.score - a.score || byName(a.plugin, b2.plugin)).map((entry) => entry.plugin);
 }
-function formatOutputLocationSize(sizeBytes) {
-  const total = Number(sizeBytes);
-  return total >= 1024 ? `${(total / 1024).toFixed(1)} KB` : `${total} bytes`;
-}
-function describeOutputLocation(loc, opts) {
-  var _a19;
-  const lead = (_a19 = opts === null || opts === void 0 ? void 0 : opts.leadText) !== null && _a19 !== void 0 ? _a19 : "Content";
-  return `${lead} written to file: ${loc.filePath}
-Size: ${formatOutputLocationSize(loc.sizeBytes)}, ${loc.lineCount} lines`;
-}
-export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation };
+export { formatBytes2, describeUploadFileOutcome, describeDownloadFileOutcome, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, getDefaultMcpCustomInstruction, describeInstalled, describeInstalledList, describePluginSummary, describePluginDetail, rankPluginsLexically };

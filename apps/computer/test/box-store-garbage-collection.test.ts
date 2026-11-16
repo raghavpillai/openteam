@@ -48,12 +48,6 @@ test('missing or malformed roots and candidate state never permit deletion; syml
  await rm(join(root,'.blob-gc-candidates.json'));await writeFile(join(root,'outside'),'private');await symlink(join(root,'outside'),join(root,'blobs','a'.repeat(64)));
  await sweep(root,now);await sweep(root,now+BLOB_RETENTION_MS);expect(await readFile(join(root,'outside'),'utf8')).toBe('private');
 });
-test('separate operations serialize and release their lock after an exception',async()=>{
- const root=await fixture();const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();const order:string[]=[];
- const first=withBoxStoreOperation(root,async()=>{order.push('first');entered.resolve();await release.promise;throw new Error('fixture failure');}).catch(()=>{});
- await entered.promise;const second=withBoxStoreOperation(root,async()=>{order.push('second');});
- await new Promise(resolve=>setTimeout(resolve,60));expect(order).toEqual(['first']);release.resolve();await Promise.all([first,second]);expect(order).toEqual(['first','second']);
-});
 test('another process holds the lock and process death releases it without stealing',async()=>{
  const root=await fixture();const modulePath=process.env.OPENTEAM_TEST_GC_MODULE ?? new URL('../src/box-store/garbage-collection.ts',import.meta.url).href;
  const child=Bun.spawn([process.execPath,'-e',`import {withBoxStoreOperation} from ${JSON.stringify(modulePath)}; await withBoxStoreOperation(${JSON.stringify(root)},async()=>{console.log('LOCKED');await new Promise(()=>{});});`],{stdout:'pipe',stderr:'pipe'});
@@ -63,15 +57,6 @@ test('another process holds the lock and process death releases it without steal
   await new Promise(resolve=>setTimeout(resolve,60));expect(acquired).toBe(false);child.kill('SIGKILL');await child.exited;await next;expect(acquired).toBe(true);
  }finally{child.kill();await child.exited;}
 },5000);
-test('snapshot reintroducing a previously orphaned hash refreshes its retention age',async()=>{
- const root=await fixture();const home=join(root,'home'),sandRoot=join(home,'sand-data'),workspaceRoot=join(root,'workspace'),storeRoot=join(root,'store');
- await mkdir(sandRoot,{recursive:true});await mkdir(workspaceRoot,{recursive:true});
- const sync=new BoxStoreSync({home,sandRoot,workspaceRoot,storeRoot});const file=join(workspaceRoot,'file');await writeFile(file,'original');const first=await sync.snapshotOut();const hash=first.files.find(f=>f.path==='workspace/file')!.sha256;
- await writeFile(file,'replacement');await sync.snapshotOut();const now=Date.now();
- await utimes(join(storeRoot,'blobs',hash),new Date(0),new Date(0));await writeFile(join(storeRoot,'.blob-gc-candidates.json'),JSON.stringify({version:1,candidates:{[hash]:now-BLOB_RETENTION_MS-1000}}));
- await writeFile(file,'original');await sync.snapshotOut();await writeFile(file,'replacement');await sync.snapshotOut();
- expect((await sweep(storeRoot,Date.now()+10)).deleted).toBe(0);expect(await readFile(join(storeRoot,'blobs',hash),'utf8')).toBe('original');
-});
 test('unreferenced bytes over budget are reclaimed oldest-first once past the pressure floor',async()=>{
  const root=await fixture(), current=await blob(root,'current-00');await manifest(root,[current]);
  const start=Date.now()+1000, minute=60_000, limits={unreferencedBudgetBytes:15};

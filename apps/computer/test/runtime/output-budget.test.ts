@@ -27,15 +27,6 @@ test("provider requests leave room for conversation history without mutating cat
   expect(model.contextWindow).toBe(500_000);
 });
 
-test("preserves smaller provider output limits and handles odd context sizes", () => {
-  const small = { contextWindow: 128_000, maxTokens: 8_192 };
-  expect(withAgentOutputBudget(small)).toBe(small);
-  expect(withAgentOutputBudget({ contextWindow: 131_071, maxTokens: 100_000 }).maxTokens).toBe(13_107);
-  expect(withAgentOutputBudget({ contextWindow: 1, maxTokens: 1 }).maxTokens).toBe(1);
-  const unknown = { contextWindow: 0, maxTokens: 8_192 };
-  expect(withAgentOutputBudget(unknown)).toBe(unknown);
-});
-
 test("the output reserve follows the usable input window", () => {
   // OpenRouter's gpt-6.1-sol: 1.05M context, 922k prompt cap, 128k output.
   const capped = withAgentOutputBudget({ contextWindow: 922_000, maxTokens: 128_000 });

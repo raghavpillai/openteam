@@ -24,14 +24,11 @@
     "test": "bun run prepare:plugins && turbo run test",
     "check": "bun run typecheck && bun run test && bun run build && bun scripts/performance/check-desktop-budgets.ts",
     "check:architecture": "bun scripts/check/workspace-boundaries.ts && bun scripts/check/contract-enum-parity.ts && bun scripts/check/ios-bundle-boundary.ts && bun scripts/check/client-source-duplication.ts",
-    "test:health:chaos": "bun scripts/test-health-chaos.ts",
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "test:browser-network:linux": "bun scripts/test-browser-network-linux.ts",
     "test:computer-network:linux": "bun scripts/test-computer-network-linux.ts",
-    "test:imessage-bridge:linux": "bun scripts/test-imessage-bridge-linux.ts",
-    "test:imessage-bridge:configs:linux": "bun scripts/test-imessage-bridge-configs-linux.ts",
-    "test:browser-network:chaos": "bun test apps/server/test/browser-network.test.ts --test-name-pattern chaos && bun test packages/plugin-sdk/test/browser-network/client.test.ts packages/plugin-sdk/test/browser-network/mux.test.ts apps/desktop/test/network apps/computer/test/display-settings.test.ts apps/computer/test/browser-network-worker.test.ts apps/computer/test/browser-network-quality.test.ts apps/computer/test/browser-network-egress.test.ts",
+    "test:browser-network:chaos": "bun test apps/server/test/browser-network.test.ts --test-name-pattern chaos && bun test packages/plugin-sdk/test/browser-network/protocol.test.ts apps/desktop/test/browser-network.test.ts apps/computer/test/display-settings.test.ts apps/computer/test/browser-network-worker.test.ts apps/computer/test/browser-network-quality.test.ts apps/computer/test/browser-network-egress.test.ts",
     "db:generate": "bun --filter @openteam/db db:generate",
     "db:push": "bun --filter @openteam/db db:push",
     "db:deploy": "bun --filter @openteam/db db:deploy",
@@ -47,7 +44,7 @@
     "format:check": "biome format .",
     "ios:performance": "bun --filter @openteam/ios performance",
     "prepare:plugins": "bun packages/plugins/scripts/generate.ts",
-    "test:computer-control:chaos": "bun test apps/computer/test/screen-control.chaos.test.ts apps/server/test/screen-vnc.chaos.test.ts"
+    "test:computer-control:chaos": "bun test apps/computer/test/screen-control.chaos.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

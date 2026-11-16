@@ -3,49 +3,7 @@ import XCTest
 @MainActor
 final class AuthFlowUITests: XCTestCase {
   let base = "http://127.0.0.1:19992"
-  func control(_ path: String = "/__qa/control", _ body: [String: Any] = [:]) async throws {
-    var request = URLRequest(url: URL(string: base + path)!)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-    let (_, response) = try await URLSession.shared.data(for: request)
-    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-  }
-  func launch(required: Bool = false) async throws -> XCUIApplication {
-    continueAfterFailure = false
-    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
-      if alert.buttons["Not Now"].exists {
-        alert.buttons["Not Now"].tap()
-        return true
-      }
-      return false
-    }
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": required])
-    let app = XCUIApplication()
-    app.launchArguments = [
-      "--ui-testing", "--show-login", "--server", base, "--appearance", "light",
-    ]
-    app.launch()
-    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
-    return app
-  }
-  func capture(_ name: String, _ app: XCUIApplication) {
-    // Capture settled cards rather than a frame inside the original AuthGate slide.
-    Thread.sleep(forTimeInterval: 0.5)
-    let a = XCTAttachment(screenshot: app.screenshot())
-    a.name = "parity-" + name
-    a.lifetime = .keepAlways
-    add(a)
-  }
-  func waitForArrival(_ element: XCUIElement) {
-    let ready = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "hittable == true"), object: element)
-    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
-    // SwiftUI reports destination frames before its slide finishes. Do not tap coordinates
-    // from the end of the transition while the control is still moving toward them.
-    Thread.sleep(forTimeInterval: 0.5)
-  }
+  var fixture: QAFixture { QAFixture(base: base) }
   func replace(_ element: XCUIElement, _ text: String) {
     waitForArrival(element)
     let app = XCUIApplication()
@@ -57,12 +15,6 @@ final class AuthFlowUITests: XCTestCase {
     element.tap()
     let value = element.value as? String ?? ""
     element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count) + text)
-  }
-  func credentials(_ app: XCUIApplication) {
-    app.buttons["get-started"].tap()
-    waitForArrival(app.textFields["server-field"])
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 20))
   }
   func signIn(_ app: XCUIApplication, password: String = "fixture-only") {
     // Outside --ui-testing the app prefills the last username for this server.
@@ -78,349 +30,11 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed)
     passwordField.typeText(password + "\n")
   }
-  func dismissPasswordPrompt(_ app: XCUIApplication) {
-    let prompt = app.buttons["Not Now"]
-    for _ in 0..<3 {
-      guard prompt.waitForExistence(timeout: 2) else { return }
-      prompt.tap()
-      if prompt.waitForNonExistence(timeout: 3) { return }
-    }
-    XCTFail("iOS password prompt did not dismiss")
-  }
-  func assertAccountValue(_ identifier: String, _ expected: String, _ app: XCUIApplication) {
-    let row = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
-    XCTAssertTrue(row.waitForExistence(timeout: 5))
-    XCTAssertTrue(
-      [row.label, row.value as? String ?? ""].joined(separator: " ").contains(expected),
-      "Expected \(expected) in account row: \(row.debugDescription)")
-  }
-  func assertError(_ text: String, _ app: XCUIApplication) {
-    XCTAssertTrue(
-      app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
-        .waitForExistence(timeout: 20))
-  }
-  func testWelcomeValidationAndNoAuthenticationServer() async throws {
-    let app = try await launch()
-    capture("welcome", app)
-    app.buttons["get-started"].tap()
-    waitForArrival(app.textFields["server-field"])
-    capture("server", app)
-    replace(app.textFields["server-field"], "not a URL")
-    app.buttons["connect-button"].tap()
-    assertError("such as 192.168.1.20:8787", app)
-    capture("server-invalid", app)
-    replace(app.textFields["server-field"], "http://user:password@localhost")
-    app.buttons["connect-button"].tap()
-    assertError("Remove the username", app)
-    replace(app.textFields["server-field"], base + "?token=no")
-    app.buttons["connect-button"].tap()
-    assertError("without anything after", app)
-    replace(app.textFields["server-field"], base)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-    XCTAssertFalse(app.textFields["username-field"].exists)
-    capture("connected-no-auth", app)
-  }
-  func testConnectRecoversAnInterruptedLocalReset() async throws {
-    continueAfterFailure = false
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": true])
-    let app = XCUIApplication()
-    // Model the pending marker left by an interrupted/failed Re-auth. UI-test
-    // startup deliberately leaves it to the Connect action to recover.
-    app.launchArguments = [
-      "--ui-testing", "--show-login", "--server", base,
-      "--qa-interrupted-reset",
-    ]
-    app.launch()
-    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 10))
-    app.buttons["get-started"].tap()
-    waitForArrival(app.textFields["server-field"])
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15),
-      "Connect must finish an interrupted reset and advance; it must not silently return")
-    waitForArrival(app.textFields["username-field"])
-    capture("connect-after-interrupted-reset", app)
-  }
-  func testCredentialsRejectedThenRetrySucceeds() async throws {
-    let app = try await launch(required: true)
-    credentials(app)
-    XCTAssertFalse(app.buttons["sign-in-button"].isEnabled)
-    capture("sign-in", app)
-    signIn(app, password: "incorrect")
-    assertError("Incorrect username or password", app)
-    capture("sign-in-error", app)
-    XCTAssertEqual(app.textFields["username-field"].value as? String, "fixture")
-    replace(app.secureTextFields["password-field"], "fixture-only")
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-  }
-  func testRateLimitServerFailureAndIncompleteSessionCanRetry() async throws {
-    let app = try await launch(required: true)
-    credentials(app)
-    try await control("/__qa/control", ["failures": ["POST /api/auth/login": ["status": 429]]])
-    signIn(app)
-    assertError("Too many sign-in attempts", app)
-    capture("sign-in-rate-limit", app)
-    try await control("/__qa/control", ["failures": ["POST /api/auth/login": ["status": 403]]])
-    app.buttons["sign-in-button"].tap()
-    assertError("cannot sign in", app)
-    try await control("/__qa/control", ["failures": ["POST /api/auth/login": ["status": 503]]])
-    app.buttons["sign-in-button"].tap()
-    assertError("try again shortly", app)
-    capture("sign-in-server-error", app)
-    try await control("/__qa/control", ["missingToken": true])
-    app.buttons["sign-in-button"].tap()
-    assertError("did not complete sign-in", app)
-    try await control("/__qa/control", ["missingToken": false])
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-  }
-  func testUnreachableIncompatibleAndCancelledServerCheck() async throws {
-    let app = try await launch(required: true)
-    app.buttons["get-started"].tap()
-    waitForArrival(app.textFields["server-field"])
-    replace(app.textFields["server-field"], "http://127.0.0.1:1")
-    app.buttons["connect-button"].tap()
-    assertError("Could not reach", app)
-    capture("server-unreachable", app)
-    replace(app.textFields["server-field"], base)
-    try await control("/__qa/control", ["invalidServer": true])
-    app.buttons["connect-button"].tap()
-    assertError("not a compatible", app)
-    capture("server-incompatible", app)
-    try await control(
-      "/__qa/control",
-      ["invalidServer": false, "failures": ["GET /api/auth/config": ["delayMs": 3500]]])
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.buttons["Cancel connection"].waitForExistence(timeout: 3))
-    app.buttons["Cancel connection"].tap()
-    XCTAssertTrue(app.buttons["connect-button"].isEnabled)
-    // AuthGate retains its offscreen panels so glass never fades through an opaque ancestor.
-    // Cancellation must keep credentials offscreen, even when the late response arrives.
-    let lateCredentials = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "hittable == true"), object: app.textFields["username-field"])
-    XCTAssertEqual(XCTWaiter.wait(for: [lateCredentials], timeout: 4), .timedOut)
-    XCTAssertTrue(app.textFields["server-field"].isHittable)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
-  }
-  func testSessionExpiryPreservesDraftAndSignOutFailureRetainsAccount() async throws {
-    let app = try await launch(required: true)
-    credentials(app)
-    signIn(app)
-    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
-    dismissPasswordPrompt(app)
-    app.buttons["channel-channel-research"].tap()
-    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    XCTAssertTrue(composer.waitForExistence(timeout: 8))
-    composer.tap()
-    composer.typeText("A draft survives reauthentication")
-    try await control("/__qa/control", ["authExpired": true])
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 12))
-    assertError("session expired", app)
-    capture("session-expired", app)
-    signIn(app)
-    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
-    dismissPasswordPrompt(app)
-    app.buttons["channel-channel-research"].tap()
-    XCTAssertTrue(composer.waitForExistence(timeout: 8))
-    XCTAssertEqual(composer.value as? String, "A draft survives reauthentication")
-    app.chatBackButton.tap()
-    app.buttons["settings-button"].tap()
-    app.swipeUp()
-    try await control("/__qa/control", ["failures": ["POST /api/auth/sign-out": ["status": 503]]])
-    app.buttons["sign-out"].tap()
-    try XCTUnwrap(
-      app.buttons.matching(identifier: "Sign out").allElementsBoundByIndex.first(where: {
-        $0.isHittable
-      })
-    ).tap()
-    assertError("try again shortly", app)
-    if app.alerts.buttons["OK"].exists { app.alerts.buttons["OK"].tap() }
-    XCTAssertTrue(app.buttons["sign-out"].exists)
-    app.buttons["sign-out"].tap()
-    try XCTUnwrap(
-      app.buttons.matching(identifier: "Sign out").allElementsBoundByIndex.first(where: {
-        $0.isHittable
-      })
-    ).tap()
-    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 12))
-  }
-  func testAccountReauthenticationErasesOfflineDraftAndRequiresFreshSignIn() async throws {
-    let app = try await launch(required: true)
-    credentials(app)
-    signIn(app)
-    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
-    dismissPasswordPrompt(app)
-    app.buttons["channel-channel-research"].tap()
-    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    XCTAssertTrue(composer.waitForExistence(timeout: 8))
-    composer.tap()
-    composer.typeText("Keep my account draft")
-    app.chatBackButton.tap()
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    assertAccountValue("account-name", "Fixture owner", app)
-    XCTAssertFalse(app.staticTexts["Sign-in"].exists)
-    XCTAssertFalse(app.buttons["change-server"].exists)
-    XCTAssertFalse(app.textFields["account-server"].exists)
-    capture("account-light", app)
-    try await control("/__qa/control", ["offline": true])
-    let status = app.descendants(matching: .any)
-      .matching(identifier: "account-connection-status").firstMatch
-    let offline = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "value == %@", "Offline"), object: status)
-    XCTAssertEqual(XCTWaiter.wait(for: [offline], timeout: 15), .completed)
-    assertAccountValue("account-name", "Fixture owner", app)
-    capture("account-offline", app)
-    app.buttons["re-auth"].tap()
-    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.buttons["cancel-re-auth"].exists)
-    XCTAssertFalse(app.buttons["account-settings"].exists)
-    XCTAssertFalse(app.buttons["clear-server"].exists)
-    capture("re-auth-cleared-offline", app)
-    replace(app.textFields["server-field"], base)
-    app.buttons["connect-button"].tap()
-    assertError("try again shortly", app)
-    XCTAssertFalse(app.buttons["channel-channel-research"].exists)
-    try await control("/__qa/control", ["offline": false])
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
-    signIn(app, password: "incorrect")
-    assertError("Incorrect username or password", app)
-    replace(app.secureTextFields["password-field"], "fixture-only")
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
-    dismissPasswordPrompt(app)
-    app.buttons["channel-channel-research"].tap()
-    XCTAssertTrue(composer.waitForExistence(timeout: 8))
-    XCTAssertNotEqual(composer.value as? String, "Keep my account draft")
-    capture("re-auth-draft-removed", app)
-  }
-  func testDarkAccountReauthenticationWithoutCredentials() async throws {
-    try await control("/__qa/reset")
-    let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark"]
-    app.launch()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    assertAccountValue("account-name", "Local owner", app)
-    capture("account-dark", app)
-    app.buttons["re-auth"].tap()
-    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
-    capture("re-auth-dark", app)
-    XCTAssertFalse(app.buttons["clear-server"].exists)
-    replace(app.textFields["server-field"], base)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 12))
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    assertAccountValue("account-name", "Local owner", app)
-    XCTAssertFalse(app.textFields["username-field"].exists)
-  }
-  func testDarkLargeTextWelcomeAndSignInRemainReachable() async throws {
-    continueAfterFailure = false
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": true])
-    let app = XCUIApplication()
-    app.launchArguments = [
-      "--ui-testing", "--show-login", "--server", base, "--appearance", "dark",
-      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-    ]
-    app.launch()
-    for _ in 0..<6 {
-      if app.buttons["get-started"].isHittable { break }
-      app.swipeUp()
-    }
-    XCTAssertTrue(app.buttons["get-started"].isHittable)
-    capture("welcome-dark-large-text", app)
-    // XCTest's inferred activation point misses this enlarged native glass
-    // button. Use its current visible center, then verify the full sign-in flow.
-    app.buttons["get-started"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-    waitForArrival(app.textFields["server-field"])
-    for _ in 0..<6 {
-      if app.buttons["connect-button"].isHittable { break }
-      app.swipeUp()
-    }
-    let connect = app.buttons["connect-button"]
-    // Sign-in is a NavigationStack: Back is the system navigation-bar button.
-    let back = app.buttons["BackButton"].firstMatch
-    XCTAssertGreaterThan(connect.frame.minY, back.frame.maxY)
-    XCTAssertGreaterThan(connect.frame.width, 350)
-    capture("endpoint-dark-large-text", app)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15))
-    waitForArrival(app.textFields["username-field"])
-    capture("signin-dark-large-text", app)
-    app.textFields["username-field"].tap()
-    app.textFields["username-field"].typeText("fixture")
-    let password = app.secureTextFields["password-field"]
-    let form = app.scrollViews.containing(.textField, identifier: "username-field").firstMatch
-    for _ in 0..<4 {
-      if password.isHittable { break }
-      form.swipeUp()
-    }
-    XCTAssertTrue(password.isHittable)
-    password.tap()
-    password.typeText("fixture-only")
-    XCTAssertTrue(app.buttons["sign-in-button"].isHittable)
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-  }
-
-  func testRestoredAnimatedAuthPresentationInBothAppearances() async throws {
-    continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      try await control("/__qa/reset")
-      try await control("/__qa/control", ["authRequired": true])
-      let app = XCUIApplication()
-      app.launchArguments = [
-        "--ui-testing", "--show-login", "--server", base, "--appearance", appearance,
-      ]
-      app.launch()
-      XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
-      XCTAssertEqual(app.buttons["get-started"].label, "Get started")
-      XCTAssertTrue(app.staticTexts["Welcome to OpenTeam"].exists)
-      capture("restored-welcome-" + appearance + "-motion-a", app)
-      try await Task.sleep(for: .milliseconds(850))
-      capture("restored-welcome-" + appearance + "-motion-b", app)
-      app.buttons["get-started"].tap()
-      waitForArrival(app.textFields["server-field"])
-      XCTAssertTrue(app.textFields["server-field"].isHittable)
-      capture("restored-server-" + appearance, app)
-      app.textFields["server-field"].tap()
-      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-      XCTAssertTrue(app.buttons["connect-button"].isHittable)
-      capture("restored-server-keyboard-" + appearance, app)
-      app.buttons["BackButton"].firstMatch.tap()
-      waitForArrival(app.buttons["get-started"])
-      XCTAssertTrue(app.buttons["get-started"].isHittable)
-      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
-      app.buttons["get-started"].tap()
-      waitForArrival(app.textFields["server-field"])
-      app.buttons["connect-button"].tap()
-      XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-      waitForArrival(app.secureTextFields["password-field"])
-      capture("restored-credentials-keyboard-" + appearance, app)
-      app.textFields["username-field"].typeText("fixture")
-      app.secureTextFields["password-field"].tap()
-      app.secureTextFields["password-field"].typeText("unsent-password")
-      app.buttons["BackButton"].firstMatch.tap()
-      waitForArrival(app.textFields["server-field"])
-      app.buttons["connect-button"].tap()
-      XCTAssertTrue(app.secureTextFields["password-field"].waitForExistence(timeout: 10))
-      XCTAssertFalse(app.buttons["sign-in-button"].isEnabled, "Back must clear the password")
-      app.terminate()
-    }
-  }
 
   func testSavedSessionDoesNotReturnAfterReauthenticationAndRelaunch() async throws {
     continueAfterFailure = false
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": true])
+    try await fixture.post("/__qa/reset")
+    try await fixture.post("/__qa/control", ["authRequired": true])
     // Exercise the real Keychain and app sandbox, rather than the --ui-testing cache.
     let app = XCUIApplication()
     app.launch()
@@ -454,7 +68,6 @@ final class AuthFlowUITests: XCTestCase {
     app.buttons["get-started"].tap()
     waitForArrival(app.textFields["server-field"])
     XCTAssertFalse(app.buttons["clear-server"].exists)
-    capture("re-auth-cold-launch-cleared", app)
     // Reconnect after the real sandbox/Keychain reset, then repeat without a
     // relaunch. Neither path may silently leave Connect blocked by the marker.
     for attempt in 0..<2 {
@@ -464,7 +77,6 @@ final class AuthFlowUITests: XCTestCase {
       signIn(app)
       XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
       dismissPasswordPrompt(app)
-      capture("re-auth-reconnected-\(attempt)", app)
       app.buttons["settings-button"].tap()
       app.buttons["account-settings"].tap()
       app.buttons["re-auth"].tap()
@@ -473,149 +85,48 @@ final class AuthFlowUITests: XCTestCase {
     }
   }
 
-  private func savedSessionForColdLaunch(appearance: String = "light", scene: String? = nil) async throws -> XCUIApplication {
-    // Exercise the production Keychain/cache restoration path, without --ui-testing.
-    // This requires an ad-hoc signed simulator build so Keychain access is available.
+  func testPrivateImageRequiresAuthenticationAndOpensNativePreview() async throws {
     continueAfterFailure = false
-    try await control("/__qa/reset")
-    if let scene {
-      try await control("/__qa/scene", ["scene": scene])
-      try await control("/api/v0/settings/sidebar", [
-        "version": 2, "sections": [], "pinnedIds": [], "unreadIds": [],
-        "sectionByChannel": [:], "channelOrderByGroup": ["unassigned": (0...10).map { "visual-\($0)" }],
-      ])
+    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
+      guard alert.buttons["Not Now"].exists else { return false }
+      alert.buttons["Not Now"].tap()
+      return true
     }
-    try await control("/__qa/control", ["authRequired": true])
+    try await fixture.post("/__qa/scene", ["scene": "attachment"])
+    try await fixture.post("/__qa/control", ["authRequired": true])
     let app = XCUIApplication()
-    app.launchArguments = ["-appearance", appearance]
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "light", "--show-login"]
     app.launch()
-    if app.buttons["settings-button"].waitForExistence(timeout: 3) {
-      app.buttons["settings-button"].tap()
-      app.buttons["account-settings"].tap()
-      app.buttons["re-auth"].tap()
-    } else {
-      XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 15))
-      app.buttons["get-started"].tap()
-    }
-    replace(app.textFields["server-field"], base)
+    waitForArrival(app.buttons["get-started"])
+    app.buttons["get-started"].tap()
+    waitForArrival(app.buttons["connect-button"])
     app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
-    signIn(app)
-    guard app.buttons["settings-button"].waitForExistence(timeout: 15) else {
-      capture("saved-session-seed-failure", app)
-      XCTFail("The real Keychain session must be established before testing restoration.")
-      throw APISetupFailure.couldNotSignIn
-    }
+    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 12))
+    waitForArrival(app.textFields["username-field"])
+    app.textFields["username-field"].tap()
+    app.textFields["username-field"].typeText("fixture\n")
+    app.secureTextFields["password-field"].typeText("fixture-only\n")
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
     dismissPasswordPrompt(app)
-    app.terminate()
-    return app
-  }
-
-  private enum APISetupFailure: Error { case couldNotSignIn }
-
-  private func assertCachedSync(_ app: XCUIApplication) {
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "launch-robot").firstMatch.exists)
-    XCTAssertFalse(app.buttons["launch-skip"].exists)
-    XCTAssertTrue(app.staticTexts["Syncing state"].exists)
-    XCTAssertFalse(app.staticTexts["Offline · messages will send when you reconnect"].exists)
-    XCTAssertFalse(app.buttons["new-button"].isEnabled)
-  }
-
-  private func verifySlowLaunch(_ appearance: String) async throws {
-    let app = try await savedSessionForColdLaunch(appearance: appearance, scene: "home")
-    try await control("/__qa/control", ["failures": [
-      "GET /api/auth/get-session": ["delayMs": 12000, "status": 0, "count": 10],
-      "GET /api/v0/client-bootstrap": ["delayMs": 12000, "status": 0, "count": 10],
-      "GET /api/v0/settings": ["delayMs": 12000, "status": 0, "count": 10],
-    ]])
-    app.launch()
-    assertCachedSync(app)
-    XCTAssertTrue(app.buttons["channel-visual-0"].exists)
-    capture("cached-sync-" + appearance, app)
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    XCTAssertTrue(app.buttons["re-auth"].waitForExistence(timeout: 3))
-    app.terminate()
-  }
-
-  func testSavedSessionShowsCachedChatsWhileServerIsSlow() async throws {
-    try await verifySlowLaunch("light")
-  }
-
-  func testDarkSavedSessionShowsCachedChatsWhileSyncing() async throws {
-    try await verifySlowLaunch("dark")
-  }
-
-  func testCreationWaitsForSettingsSyncAndThenEnables() async throws {
-    let app = try await savedSessionForColdLaunch()
-    try await control("/__qa/control", ["failures": [
-      "GET /api/v0/settings": ["delayMs": 8000, "status": 0, "count": 10],
-    ]])
-    app.launch()
-    assertCachedSync(app)
-    XCTAssertTrue(app.staticTexts["Syncing state"].waitForNonExistence(timeout: 15))
-    XCTAssertTrue(app.buttons["new-button"].isEnabled)
-    app.buttons["new-button"].tap()
-    XCTAssertTrue(app.buttons["New Bot"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.buttons["New Group Chat"].exists)
-    capture("creation-enabled-after-sync", app)
-    app.terminate()
-  }
-
-  func testOfflineSavedSessionReconnectsWithoutRelaunch() async throws {
-    let app = try await savedSessionForColdLaunch()
-    try await control("/__qa/control", ["offline": true])
-    app.launch()
-    let offline = app.staticTexts["Offline · messages will send when you reconnect"]
-    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 10))
-    XCTAssertFalse(offline.exists)
-    XCTAssertFalse(app.staticTexts["Syncing state"].exists)
-    XCTAssertFalse(app.alerts.firstMatch.exists)
-    capture("cache-offline", app)
-    // Recover the server without foregrounding or relaunching the app.
-    try await control("/__qa/control", ["offline": false, "failures": [
-      "GET /api/v0/settings": ["delayMs": 8000, "status": 0, "count": 10],
-    ]])
-    XCTAssertTrue(app.staticTexts["Syncing state"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.buttons["new-button"].isEnabled)
-    XCTAssertTrue(app.staticTexts["Syncing state"].waitForNonExistence(timeout: 15))
-    XCTAssertTrue(app.buttons["new-button"].isEnabled)
-    XCTAssertTrue(offline.waitForNonExistence(timeout: 20))
-    XCTAssertTrue(app.buttons["channel-channel-research"].exists)
-    XCTAssertFalse(app.buttons["get-started"].exists)
-    capture("restored-session-reconnected", app)
-    app.terminate()
-  }
-
-  func testExpiredSavedSessionStillReturnsToSignIn() async throws {
-    let app = try await savedSessionForColdLaunch()
-    try await control("/__qa/control", ["failures": [
-      "GET /api/auth/get-session": ["delayMs": 2000, "status": 401, "count": 10],
-    ]])
-    app.launch()
-    assertError("session expired", app)
-    XCTAssertTrue(app.textFields["username-field"].exists)
-    XCTAssertFalse(app.buttons["settings-button"].exists)
-    app.terminate()
-  }
-
-  func testReauthDuringSavedSessionRefreshCannotRestoreTheAccount() async throws {
-    let app = try await savedSessionForColdLaunch()
-    try await control("/__qa/control", ["failures": [
-      "GET /api/auth/get-session": ["delayMs": 12000, "status": 0, "count": 10],
-    ]])
-    app.launch()
-    assertCachedSync(app)
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    app.buttons["re-auth"].tap()
-    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
-    try await Task.sleep(for: .seconds(13))
-    app.terminate()
-    app.launch()
-    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.buttons["settings-button"].exists)
-    app.terminate()
+    // The list can still be settling when its rows first exist (iPhone Duo):
+    // wait until the row is tappable, then retry until the conversation opens.
+    let opened = app.buttons.matching(
+      NSPredicate(format: "identifier == 'conversation-details' AND label == 'Research'")).firstMatch
+    waitForArrival(row)
+    for _ in 0..<3 {
+      if row.isHittable { row.tap() }
+      if opened.waitForExistence(timeout: 5) { break }
+    }
+    XCTAssertTrue(opened.exists, "The Research conversation did not open")
+    XCTAssertTrue(app.buttons["Open Fixture image.png"].waitForExistence(timeout: 12))
+    let state = try await fixture.state()
+    XCTAssertTrue(
+      (state["contentReceipts"] as? [[String: Any]] ?? []).contains {
+        $0["authenticated"] as? Bool == true
+      })
+    app.buttons["Open Fixture image.png"].tap()
+    XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 12))
+    app.buttons["photo-close"].tap()
   }
 }

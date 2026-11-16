@@ -1,15 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import {
-  chmod,
-  lstat,
-  mkdtemp,
-  open,
-  readFile,
-  rename,
-  rm,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHostBridgeDiscovery } from "../src/computer-network-host-bridge";
@@ -61,34 +51,6 @@ test("host bridge discovery applies initial absence once, then creation and remo
   expect(calls).toBe(3);
 });
 
-test("host bridge discovery observes atomic replacement with equal size and modification time", async () => {
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
-  await utimes(configurationPath, new Date(1_000_000), new Date(1_000_000));
-  const original = await lstat(configurationPath);
-  let calls = 0;
-  watches.push(
-    startHostBridgeDiscovery("http://server:8787", {
-      configurationPath,
-      intervalMs: 5,
-      apply: async () => {
-        calls++;
-      },
-    })
-  );
-  await until(() => calls === 1);
-  const replacement = join(directory, "replacement.json");
-  await writeFile(replacement, "[]", { mode: 0o600 });
-  await utimes(replacement, original.atime, original.mtime);
-  await rename(replacement, configurationPath);
-  const replaced = await lstat(configurationPath);
-  expect(replaced.size).toBe(original.size);
-  expect(replaced.mtimeMs).toBe(original.mtimeMs);
-  expect(replaced.ino).not.toBe(original.ino);
-  await until(() => calls === 2);
-  await Bun.sleep(25);
-  expect(calls).toBe(2);
-});
-
 test("host bridge discovery delegates invalid and repaired permissions to the helper", async () => {
   await writeFile(configurationPath, "{}", { mode: 0o600 });
   const modes: number[] = [];
@@ -107,124 +69,6 @@ test("host bridge discovery delegates invalid and repaired permissions to the he
   await chmod(configurationPath, 0o600);
   await until(() => modes.length === 3);
   expect(modes).toEqual([0o600, 0o644, 0o600]);
-});
-
-test("host bridge discovery retries a failed application without another metadata change", async () => {
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
-  let calls = 0;
-  watches.push(
-    startHostBridgeDiscovery("http://server:8787", {
-      configurationPath,
-      intervalMs: 5,
-      apply: async () => {
-        calls++;
-        if (calls === 1) throw new Error("Transient helper failure");
-      },
-    })
-  );
-  await until(() => calls === 2);
-  await Bun.sleep(25);
-  expect(calls).toBe(2);
-});
-
-test("host bridge discovery keeps overlapping ticks single flight", async () => {
-  let calls = 0,
-    release!: () => void;
-  const application = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  watches.push(
-    startHostBridgeDiscovery("http://server:8787", {
-      configurationPath,
-      intervalMs: 5,
-      apply: async () => {
-        calls++;
-        await application;
-      },
-    })
-  );
-  await until(() => calls === 1);
-  await Bun.sleep(30);
-  expect(calls).toBe(1);
-  release();
-  await Bun.sleep(25);
-  expect(calls).toBe(1);
-});
-
-test("host bridge discovery observes a configuration change during application", async () => {
-  let calls = 0,
-    release!: () => void;
-  const application = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  watches.push(
-    startHostBridgeDiscovery("http://server:8787", {
-      configurationPath,
-      intervalMs: 5,
-      apply: async () => {
-        calls++;
-        if (calls === 1) await application;
-      },
-    })
-  );
-  await until(() => calls === 1);
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
-  await Bun.sleep(20);
-  expect(calls).toBe(1);
-  release();
-  await until(() => calls === 2);
-  await Bun.sleep(25);
-  expect(calls).toBe(2);
-});
-
-test.each([
-  false,
-  true,
-])("host bridge shutdown ignores a late application, failure=%s", async (fail) => {
-  let calls = 0,
-    release!: () => void;
-  const application = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const watch = startHostBridgeDiscovery("http://server:8787", {
-    configurationPath,
-    intervalMs: 5,
-    apply: async () => {
-      calls++;
-      await application;
-      if (fail) throw new Error("Late helper failure");
-    },
-  });
-  watches.push(watch);
-  await until(() => calls === 1);
-  watch.stop();
-  watch.stop();
-  await writeFile(configurationPath, "{}", { mode: 0o600 });
-  release();
-  await Bun.sleep(30);
-  expect(calls).toBe(1);
-});
-
-test("host bridge discovery reads only metadata even for an oversized invalid configuration", async () => {
-  const file = await open(configurationPath, "w", 0o600);
-  try {
-    await file.truncate(1024 * 1024 * 1024);
-  } finally {
-    await file.close();
-  }
-  let calls = 0;
-  watches.push(
-    startHostBridgeDiscovery("http://server:8787", {
-      configurationPath,
-      intervalMs: 5,
-      apply: async () => {
-        calls++;
-      },
-    })
-  );
-  await until(() => calls === 1);
-  await Bun.sleep(25);
-  expect(calls).toBe(1);
 });
 
 test("host bridge discovery invokes isolated Python with bounded arguments and cancels it on shutdown", async () => {

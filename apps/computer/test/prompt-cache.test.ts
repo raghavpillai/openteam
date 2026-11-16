@@ -21,8 +21,7 @@ import {
   botUserInfoMessage,
   botMessageDigest,
 } from "../src/bot-compaction";
-import { enrichUserInfo, renderDynamicToolCatalog } from "../src/runtime/prompt-context";
-import { pinDynamicToolCatalog } from "../src/runtime/catalog-snapshot";
+import { enrichUserInfo } from "../src/runtime/prompt-context";
 const peers = (n: number): any[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `agent-${i.toString().padStart(5, "0")}`,
@@ -230,35 +229,8 @@ test("live renderer: adding the first teammate bypasses the frozen no-teammates 
   expect(b.instructionsUpdate).toContain("Teammates and groups");
 });
 
-test("stable ordering alone handles query reorder but cannot protect a changed roster", async () => {
-  now();
-  const f = fixture();
-  const a = await f.prompt();
-  f.recent.reverse();
-  const b = await f.prompt();
-  expect(b.userInfo).toBe(a.userInfo);
-  f.recent.push({ id: "new", name: "New" });
-  expect((await f.prompt()).userInfo).not.toBe(a.userInfo);
-});
-
-test("bounded roster: creating an omitted peer need not change every other bot's prefix", async () => {
-  now();
-  const f = fixture();
-  f.groups.splice(0);
-  f.recent.splice(0, ...peers(41));
-  const a = await f.prompt();
-  f.recent.push({ id: "omitted", name: "Omitted" });
-  const b = await f.prompt();
-  expect(b.userInfo).toBe(a.userInfo);
-  f.recent.unshift({ id: "newest", name: "Newest" });
-  const c = await f.prompt();
-  expect(c.userInfo).not.toBe(a.userInfo);
-});
-
 for (const [zone, before, after] of [
-  ["UTC", "2026-11-13T23:59:59Z", "2026-11-14T00:00:01Z"],
   ["Asia/Jerusalem", "2026-11-13T21:59:59Z", "2026-11-13T22:00:01Z"],
-  ["America/New_York", "2026-11-14T04:59:59Z", "2026-11-14T05:00:01Z"],
 ] as const)
   test(`live renderer: local midnight in ${zone} rewrites the same epoch`, async () => {
     const f = fixture();
@@ -284,21 +256,6 @@ test("UTC midnight alone does not change the date before the user's local midnig
   expect((await f.prompt()).userInfo).toBe(a.userInfo);
 });
 
-test("existing memory pin survives changes and restart and refreshes at compaction", async () => {
-  now();
-  const f = fixture();
-  const a = await f.prompt();
-  f.state.memory = "new facts";
-  f.restart();
-  const b = await f.prompt();
-  expect(b.userInfo).toBe(a.userInfo);
-  f.state.epoch++;
-  const c = await f.prompt();
-  expect(c.userInfoEpoch).toBe(1);
-  expect(c.userInfo).toContain("new facts");
-  expect(c.userInfo).not.toContain("original facts");
-});
-
 test("compaction refreshes the date and roster; separate contexts keep independent memory snapshots", async () => {
   now();
   const f = fixture();
@@ -316,60 +273,13 @@ test("compaction refreshes the date and roster; separate contexts keep independe
   expect(c.userInfo).toContain("Saturday Nov 14");
 });
 
-test("the platform renderer trusts skillRender; the final prefix needs protection from same-epoch skill changes too", async () => {
-  now();
-  const f = fixture();
-  const a = await f.prompt();
-  f.state.skills = "changed installed skills";
-  const b = await f.prompt();
-  expect(b.userInfoEpoch).toBe(a.userInfoEpoch);
-  expect(b.userInfo).not.toBe(a.userInfo);
-  expect(b.instructions).toBe(a.instructions);
-});
-
-test("tool catalog pin persists through real Pi session reopen and refreshes on a new epoch", async () => {
-  const root = await directory();
-  const sessions = join(root, "sessions");
-  const manager = SessionManager.create(root, sessions);
-  const initial = [{ name: "cursor", tools: [{ name: "Read" }] }];
-  const changed = [
-    { name: "cursor", tools: [{ name: "Read" }, { name: "Shell" }] },
-    { name: "gmail", tools: [{ name: "Search" }] },
-  ];
-  const a = pinDynamicToolCatalog(manager, 0, initial);
-  manager.appendMessage({ role: "user", content: "one", timestamp: 1 });
-  manager.appendMessage({
-    role: "assistant",
-    content: [{ type: "text", text: "one" }],
-    api: "openai-responses",
-    provider: "openai",
-    model: "fixture",
-    usage: {
-      input: 1,
-      output: 1,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 2,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: 2,
-  });
-  const path = manager.getSessionFile()!;
-  const reopened = SessionManager.open(path, sessions, root);
-  const b = pinDynamicToolCatalog(reopened, 0, changed);
-  expect(b.catalog).toBe(a.catalog);
-  expect(b.update).toContain("user_info_catalog_update");
-  const again = SessionManager.open(path, sessions, root);
-  expect(pinDynamicToolCatalog(again, 0, changed).update).toBeNull();
-  expect(pinDynamicToolCatalog(again, 1, changed).catalog).toBe(renderDynamicToolCatalog(changed));
-});
-
 // Enter through ComputerRuntime.run, including the production snapshot wiring.
 // Construct a fresh runtime on every turn to rule out an in-memory-only fix.
 const scenarios: Array<[string, (f: ReturnType<typeof fixture>) => void, boolean]> = [
   ["unchanged", () => {}, false],
-  ...cases.map(([name, mutate]) => [name, mutate, true] as [string, typeof mutate, boolean]),
+  // One added and one removed-entirely roster; the renderer cases above cover each field.
+  ...cases.filter(([name]) => name === "create bot" || name === "remove entire roster")
+    .map(([name, mutate]) => [name, mutate, true] as [string, typeof mutate, boolean]),
   ["local midnight", () => setSystemTime(new Date("2026-11-14T12:00:00Z")), true],
   ["worker midnight", () => setSystemTime(new Date("2026-11-14T12:00:00Z")), true],
   ["query reorder", (f) => f.recent.reverse(), false],

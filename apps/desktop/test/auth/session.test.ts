@@ -199,7 +199,7 @@ describe("desktop authenticated session", () => {
       globalThis.fetch = openTeamFetch;
     }
   });
-  test("ScreenBot scopes survive same-account verification and rotate at sign-out/relogin", async () => {
+  test("the ScreenBot scope is opaque, survives same-account verification, and rotates at sign-out/relogin or a verified account change", async () => {
     await auth.signIn("owner", "synthetic");
     const scope = auth.getScreenBotAccountScope();
     expect(typeof scope).toBe("string");
@@ -211,27 +211,28 @@ describe("desktop authenticated session", () => {
     expect(auth.getScreenBotAccountScope()).toBeNull();
     expect(screenBotRosters.at(-1)).toEqual({ accountScope: null, bots: [], dictation: false });
     await auth.signIn("owner", "synthetic");
-    expect(auth.getScreenBotAccountScope()).not.toBe(scope);
-    await auth.signOut();
+    const relogin = auth.getScreenBotAccountScope();
+    expect(relogin).not.toBe(scope);
+    const originalId = user.id;
+    try {
+      // Same credentials and bot ids, different verified account.
+      user.id = "replacement-owner";
+      await auth.refreshAuthSession();
+      expect(auth.getScreenBotAccountScope()).not.toBe(relogin);
+    } finally { user.id = originalId; await auth.signOut(); }
   });
 
-  test("credential replacement invalidates ScreenBot before native storage finishes", async () => {
+  test("ScreenBot ownership ends before credential replacement, late verification or remote sign-out can finish", async () => {
     await auth.signIn("owner", "synthetic");
-    const scope = auth.getScreenBotAccountScope();
     const replacement = auth.signInToServer("https://owned.example.test", "owner", "synthetic");
-    // Native sign-in resolves, then persist invalidates before awaiting writeToken.
     await Promise.resolve();
     expect(auth.getScreenBotAccountScope()).toBeNull();
     await replacement;
     expect(auth.getScreenBotAccountScope()).toBeNull();
-    expect(scope).toBeTruthy();
     await auth.clearAuthCredentialsForServerChange();
-  });
 
-  test("late session verification cannot reauthorize ScreenBot after credential invalidation", async () => {
     await auth.signIn("owner", "synthetic");
-    let resolve!: (response: Response) => void;
-    let entered!: () => void;
+    let resolve!: (response: Response) => void, entered!: () => void;
     const pending = new Promise<Response>((done) => { resolve = done; });
     const started = new Promise<void>((done) => { entered = done; });
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -246,24 +247,10 @@ describe("desktop authenticated session", () => {
       expect(auth.getScreenBotAccountScope()).toBeNull();
       expect(auth.getAuthSnapshot().status).toBe("signed-out");
     } finally { globalThis.fetch = openTeamFetch; }
-  });
 
-  test("verified account replacement rotates scope even when credentials and bot ids are unchanged", async () => {
-    await auth.signIn("owner", "synthetic");
-    const scope = auth.getScreenBotAccountScope();
-    const originalId = user.id;
-    try {
-      user.id = "replacement-owner";
-      await auth.refreshAuthSession();
-      expect(auth.getScreenBotAccountScope()).not.toBe(scope);
-      expect(auth.getScreenBotAccountScope()).not.toContain("replacement-owner");
-    } finally { user.id = originalId; await auth.signOut(); }
-  });
-
-  test("local ScreenBot ownership ends before remote sign-out finishes", async () => {
     await auth.signIn("owner", "synthetic");
     let finish!: () => void;
-    signOutWork = () => new Promise<void>((resolve) => { finish = resolve; });
+    signOutWork = () => new Promise<void>((done) => { finish = done; });
     try {
       const signingOut = auth.signOut();
       expect(auth.getScreenBotAccountScope()).toBeNull();
@@ -271,5 +258,4 @@ describe("desktop authenticated session", () => {
       finish(); await signingOut;
     } finally { signOutWork = async () => {}; }
   });
-
 });

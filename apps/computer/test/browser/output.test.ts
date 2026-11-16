@@ -1,12 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { saveLargeBrowserOutput } from "../../src/browser/output";
 import { BrowserUseSession } from "../../src/browser/use";
-const directories: string[] = [];
-async function directory() { const p = await mkdtemp(join(tmpdir(), "browser-output-")); directories.push(p); return p; }
-afterEach(async () => { await Promise.all(directories.splice(0).map(p => rm(p, { recursive: true, force: true }))); });
+import { tempDirs } from "../temp";
+const tempDir = tempDirs();
+async function directory() { const p = await tempDir("browser-output-"); return p; }
 test("full Unicode results remain retrievable, small observations and images remain inline", async () => {
   const dir = await directory();
   const text = "prefix\n" + "🧭 café <track-list>\n".repeat(8000) + "TAIL-EVIDENCE";

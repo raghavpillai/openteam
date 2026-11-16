@@ -1,4 +1,4 @@
-export interface ContextGapEntry {
+interface ContextGapEntry {
   type: "context_gap";
   id: string;
   createdAt: string;

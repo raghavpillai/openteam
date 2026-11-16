@@ -1,87 +1,39 @@
-import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+// Memory controls through the portable client → product routes → a real AppService.
+import { expect } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenTeamClient } from "../../../packages/client-core/src/client";
-import { AgentDataStore } from "@openteam/messaging";
-import { memoryLogicalId } from "../../../packages/messaging/src/memory-facts";
 import { AppService } from "../src/app-service";
+import { errorResponse } from "../src/http";
 import { clientRoutes } from "../src/routes/client";
 import { eventRoutes } from "../src/routes/event";
-import { errorResponse } from "../src/http";
+import { databaseUrl, dbTest } from "./harness";
 
-const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
-const dbTest = databaseUrl ? test : test.skip;
+type Fixture = { app: AppService; store: AppService["agentData"]; botId: string; peerId: string; client: ReturnType<typeof createOpenTeamClient> };
 
-async function fixture(
-  run: (f: {
-    app: AppService;
-    store: AgentDataStore;
-    botId: string;
-    peerId: string;
-    root: string;
-    client: ReturnType<typeof createOpenTeamClient>;
-  }) => Promise<void>
-) {
+const withApp = (run: (f: Fixture) => Promise<void>) => async () => {
   const root = await mkdtemp(join(tmpdir(), "memory-controls-"));
-  const env = {
-    DATABASE_URL: databaseUrl!,
-    OPENTEAM_WORKSPACE_ROOT: root,
-    OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-  };
-  const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+  const env = { DATABASE_URL: databaseUrl!, OPENTEAM_WORKSPACE_ROOT: root, OPENTEAM_AGENT_DATA_ROOT: join(root, "data") };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   let app: AppService;
-  try {
-    app = new AppService("disabled");
-  } finally {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+  try { app = new AppService("disabled"); } finally {
+    for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : (process.env[key] = value);
   }
-  const store = app.agentData;
-  const botId = crypto.randomUUID();
-  const peerId = crypto.randomUUID();
-  const client = createOpenTeamClient({
-    baseUrl: "http://memory-test.invalid",
-    fetch: async (input, init) => {
-      const request = new Request(input, init);
-      const url = new URL(request.url);
-      const context = {
-        app,
-        request,
-        url,
-        path: url.pathname.replace("/api/v0/", "/api/"),
-        authMode: "disabled" as const,
-        authenticatedSessionId: null,
-      };
-      try {
-        return (
-          (await clientRoutes(context)) ??
-          (await eventRoutes(context)) ??
-          new Response("Not found", { status: 404 })
-        );
-      } catch (error) {
-        return errorResponse(error);
-      }
-    },
-  });
+  const store = app.agentData, botId = crypto.randomUUID(), peerId = crypto.randomUUID();
+  const client = createOpenTeamClient({ baseUrl: "http://memory-test.invalid", fetch: async (input, init) => {
+    const request = new Request(input, init), url = new URL(request.url);
+    const context = { app, request, url, path: url.pathname.replace("/api/v0/", "/api/"), authMode: "disabled" as const, authenticatedSessionId: null };
+    try { return (await clientRoutes(context)) ?? (await eventRoutes(context)) ?? new Response("Not found", { status: 404 }); }
+    catch (error) { return errorResponse(error); }
+  } });
   try {
     for (const id of [botId, peerId]) {
-      await app.prisma.bot.create({
-        data: {
-          id,
-          name: "Memory controls fixture",
-          status: "active",
-          defaultDirectory: root,
-          onboardingStatus: "completed",
-          conversation: { create: {} },
-        },
-      });
+      await app.prisma.bot.create({ data: { id, name: "Memory controls fixture", status: "active", defaultDirectory: root, onboardingStatus: "completed", conversation: { create: {} } } });
       await store.initializeBot(id);
     }
-    await run({ app, store, botId, peerId, root, client });
+    await run({ app, store, botId, peerId, client });
   } finally {
     await store.stopWatching();
     await app.eventWakeup.stop();
@@ -91,242 +43,54 @@ async function fixture(
     await app.prisma.$disconnect();
     await rm(root, { recursive: true, force: true });
   }
-}
+};
 
-dbTest(
-  "client → routes → real AppService uses the same memory as tool save and RecallMemory",
-  async () =>
-    fixture(async ({ app, store, botId, peerId, client }) => {
-      const fact = "CONTROL914 calibration is TOPAZ-6281.";
-      expect((await client.botMemories(botId)).memories).toEqual([]);
-      await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
-      const saved = await client.botMemories(botId);
-      expect(saved.total).toBe(1);
-      expect(saved.memories[0]?.content).toBe(fact);
-      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(`[profile] ${fact}`);
-      expect((await client.deleteBotMemory(peerId, saved.memories[0]!.id)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(1);
-      expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(0);
-      expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
-      await expect(client.botMemories("..%2F")).rejects.toMatchObject({ status: 404 });
-      await expect(client.deleteBotMemory(botId, "../profile.md")).rejects.toMatchObject({
-        status: 400,
-      });
-      await app.prisma.bot.update({ where: { id: peerId }, data: { status: "archived" } });
-      await expect(client.clearBotMemories(peerId)).rejects.toMatchObject({ status: 404 });
-    })
-);
+dbTest("the memory list, delete and clear routes share the store RecallMemory reads, and clear drops only this bot's own facts", withApp(async ({ app, store, botId, peerId, client }) => {
+  const fact = "CONTROL914 calibration is TOPAZ-6281.";
+  expect((await client.botMemories(botId)).memories).toEqual([]);
+  await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
+  const saved = await client.botMemories(botId);
+  expect(saved.total).toBe(1);
+  expect(saved.memories[0]?.content).toBe(fact);
+  expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(`[profile] ${fact}`);
+  // Another bot's id cannot delete it; a repeat delete is harmless.
+  expect((await client.deleteBotMemory(peerId, saved.memories[0]!.id)).total).toBe(0);
+  expect((await client.botMemories(botId)).total).toBe(1);
+  expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
+  expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
+  await expect(client.botMemories("..%2F")).rejects.toMatchObject({ status: 404 });
+  await expect(client.deleteBotMemory(botId, "../profile.md")).rejects.toMatchObject({ status: 400 });
 
-dbTest(
-  "clear invalidates populated main/fork caches, retains the conversation, excludes shared and peer stores",
-  async () =>
-    fixture(async ({ app, store, botId, peerId, client }) => {
-      const conversation = await app.prisma.conversation.findUniqueOrThrow({ where: { botId } });
-      await store.writeMemory(botId, {
-        scope: "agent",
-        tier: "profile",
-        fact: "CONTROL914 own saved fact.",
-      });
-      await store.writeMemory(botId, {
-        scope: "user",
-        tier: "profile",
-        fact: "CONTROL914 shared user fact.",
-      });
-      await store.writeMemory(peerId, {
-        scope: "agent",
-        tier: "profile",
-        fact: "CONTROL914 peer fact.",
-      });
-      const context = await app.prisma.contextSession.create({
-        data: { botId, scope: "fork", scopeId: crypto.randomUUID() },
-      });
-      const cached = {
-        profileSection: "preserve profile",
-        promptSections: {
-          memory: { render: "stale saved fact", compactionEpoch: 3 },
-          automations: { render: "preserve routines", compactionEpoch: 3 },
-        },
-      };
-      await app.prisma.contextPromptSnapshot.create({
-        data: { contextSessionId: context.id, ...cached },
-      });
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      // The pinned memory facts are dropped everywhere, so the next turn shows the deletion.
-      const unpinned = { profileSection: "preserve profile", promptSections: { automations: { render: "preserve routines", compactionEpoch: 3 } } };
-      expect(
-        await app.prisma.contextPromptSnapshot.findUnique({
-          where: { contextSessionId: context.id },
-        })
-      ).toMatchObject(unpinned);
-      expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
-      expect(await store.recallMemory(botId, { query: "CONTROL914" })).not.toContain("own saved fact");
-      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(
-        "[shared_profile via Memory controls fixture] CONTROL914 shared user fact."
-      );
-      expect((await client.botMemories(peerId)).total).toBe(1);
-    })
-);
+  const conversation = await app.prisma.conversation.findUniqueOrThrow({ where: { botId } });
+  await store.writeMemory(botId, { scope: "agent", tier: "profile", fact: "CONTROL914 own saved fact." });
+  await store.writeMemory(botId, { scope: "user", tier: "profile", fact: "CONTROL914 shared user fact." });
+  await store.writeMemory(peerId, { scope: "agent", tier: "profile", fact: "CONTROL914 peer fact." });
+  const context = await app.prisma.contextSession.create({ data: { botId, scope: "fork", scopeId: crypto.randomUUID() } });
+  const automations = { render: "preserve routines", compactionEpoch: 3 };
+  await app.prisma.contextPromptSnapshot.create({ data: { contextSessionId: context.id, profileSection: "preserve profile", promptSections: { memory: { render: "stale saved fact", compactionEpoch: 3 }, automations } } });
+  expect((await client.clearBotMemories(botId)).total).toBe(0);
+  // The pinned memory section is dropped from every cache, so the next turn shows the deletion.
+  expect(await app.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId: context.id } })).toMatchObject({ profileSection: "preserve profile", promptSections: { automations } });
+  expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
+  const recalled = await store.recallMemory(botId, { query: "CONTROL914" });
+  expect(recalled).not.toContain("own saved fact");
+  expect(recalled).toContain("[shared_profile via Memory controls fixture] CONTROL914 shared user fact.");
+  expect((await client.botMemories(peerId)).total).toBe(1);
+  await app.prisma.bot.update({ where: { id: peerId }, data: { status: "archived" } });
+  await expect(client.clearBotMemories(peerId)).rejects.toMatchObject({ status: 404 });
+}));
 
-dbTest(
-  "list shows one entry per fact, and deleting it removes every copy",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const fact = "CONTROL914 historical duplicate.";
-      await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
-      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
-      // Deleting a fact removes every row that records it.
-      const copy = await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact } });
-      const { id: _id, ...duplicate } = copy;
-      await app.prisma.memoryFact.create({ data: { ...duplicate, sourceOrdinal: duplicate.sourceOrdinal + 1, tier: "log" } });
-      const listed = await client.botMemories(botId);
-      expect(listed.total).toBe(2);
-      expect(listed.memories.find((memory) => memory.content === fact)?.kind).toBe("profile");
-      expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
-      expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact } })).toBe(0);
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(0);
-    })
-);
-
-dbTest(
-  "clear covers more than the visible list limit",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const contents = Array.from({ length: 1003 }, (_, i) => `CONTROL914 record ${i}.`);
-      await app.prisma.memoryFact.createMany({
-        data: contents.map((fact, sourceOrdinal) => ({
-          namespace: `agent:${botId}`, scope: "agent", tier: "profile", fact, factHash: fact,
-          logicalId: memoryLogicalId(fact), sourceOrdinal, origin: "tool", writtenByBotId: botId,
-          createdAt: new Date("2026-09-14"),
-        })),
-      });
-      const snapshot = await client.botMemories(botId);
-      expect(snapshot.total).toBe(1003);
-      expect(snapshot.memories.length).toBe(1000);
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(0);
-    }),
-  30_000
-);
-
-dbTest(
-  "changes produce content-free events across stores; no-op reads and empty clear stay silent",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const events = () =>
-        app.prisma.event.findMany({
-          where: { topic: "memory.changed", entityId: botId },
-          orderBy: { sequence: "asc" },
-        });
-      await store.reconcileBot(botId);
-      expect(await events()).toHaveLength(0);
-      const workerStore = new AgentDataStore(app.prisma, {
-        root: store.root,
-        workspaceRoot: store.workspaceRoot,
-      });
-      await workerStore.writeMemory(botId, {
-        scope: "agent",
-        tier: "log",
-        fact: "CONTROL914 background save.",
-      });
-      expect(await events()).toHaveLength(1);
-      expect((await events())[0]?.payload).toEqual({ botId });
-      await store.reconcileBot(botId);
-      await client.botMemories(botId);
-      expect(await events()).toHaveLength(1);
-      await client.clearBotMemories(botId);
-      expect(await events()).toHaveLength(2);
-      await client.clearBotMemories(botId);
-      expect(await events()).toHaveLength(2);
-    })
-);
-
-dbTest("automatic learning becomes visible only after inference and commit finish", async () =>
-  fixture(async ({ app, store, botId, client }) => {
-    let entered!: () => void;
-    let release!: (text: string) => void;
-    const started = new Promise<void>((resolve) => (entered = resolve));
-    const inference = new Promise<string>((resolve) => (release = resolve));
-    const learner = new AgentDataStore(app.prisma, {
-      root: store.root,
-      workspaceRoot: store.workspaceRoot,
-      memoryInference: async () => {
-        entered();
-        return inference;
-      },
-    });
-    const turn = learner.recordTurnMemory(botId, {
-      user: "CONTROL914 has a lasting calibration setting worth retaining.",
-      assistant: "ACK",
-    });
-    try {
-      await started;
-      expect((await client.botMemories(botId)).total).toBe(0);
-      release("log: CONTROL914 calibration is JADE-8241.");
-      await turn;
-      expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-        "CONTROL914 calibration is JADE-8241."
-      );
-      expect(await store.recallMemory(botId, { query: "JADE-8241" })).toContain("[journal]");
-    } finally {
-      release("NONE");
-      await turn;
-    }
-  })
-);
-
-dbTest(
-  "a real PostgreSQL commit reaches the portable client over the product SSE stream",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      await store.reconcileBot(botId);
-      await app.eventWakeup.start();
-      const cursor =
-        (
-          await app.prisma.event.findFirst({
-            orderBy: { sequence: "desc" },
-            select: { sequence: true },
-          })
-        )?.sequence.toString() ?? "0";
-      const controller = new AbortController();
-      let opened!: () => void;
-      let received!: (value: string | null) => void;
-      const open = new Promise<void>((resolve) => (opened = resolve));
-      const event = new Promise<string | null>((resolve) => (received = resolve));
-      const listen = client.listenForEvents(
-        cursor,
-        {
-          onOpen: opened,
-          onEvent: (event) => {
-            if (event.topic === "memory.changed") received(event.entityId);
-          },
-        },
-        controller.signal
-      );
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await open;
-        await store.writeMemory(botId, {
-          scope: "agent",
-          tier: "profile",
-          fact: "CONTROL914 streamed fact.",
-        });
-        expect(
-          await Promise.race([
-            event,
-            new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error("No live memory event")), 3000);
-            }),
-          ])
-        ).toBe(botId);
-        expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-          "CONTROL914 streamed fact."
-        );
-      } finally {
-        if (timer) clearTimeout(timer);
-        controller.abort();
-        await listen;
-      }
-    })
-);
+dbTest("a real PostgreSQL commit reaches the portable client over the product SSE stream", withApp(async ({ app, store, botId, client }) => {
+  await store.reconcileBot(botId);
+  await app.eventWakeup.start();
+  const cursor = (await app.prisma.event.findFirst({ orderBy: { sequence: "desc" }, select: { sequence: true } }))?.sequence.toString() ?? "0";
+  const controller = new AbortController(), opened = Promise.withResolvers<void>(), received = Promise.withResolvers<string | null>();
+  const listen = client.listenForEvents(cursor, { onOpen: opened.resolve, onEvent: event => { if (event.topic === "memory.changed") received.resolve(event.entityId); } }, controller.signal);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await opened.promise;
+    await store.writeMemory(botId, { scope: "agent", tier: "profile", fact: "CONTROL914 streamed fact." });
+    expect(await Promise.race([received.promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("No live memory event")), 3000); })])).toBe(botId);
+    expect((await client.botMemories(botId)).memories[0]?.content).toBe("CONTROL914 streamed fact.");
+  } finally { clearTimeout(timer); controller.abort(); await listen; }
+}));

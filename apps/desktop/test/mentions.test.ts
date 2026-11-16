@@ -3,8 +3,6 @@ import {
   mentionHandleFor,
   mentionPlainText,
   mentionRichText,
-  moveMentionSelection,
-  shouldRefreshMentionPickerOnKeyUp,
 } from "../src/renderer/lib/mentions";
 
 describe("OpenTeam-compatible mentions", () => {
@@ -36,19 +34,4 @@ describe("OpenTeam-compatible mentions", () => {
     });
   });
 
-  test("moves mention selection in both directions and wraps at the ends", () => {
-    expect(moveMentionSelection(0, 4, 1)).toBe(1);
-    expect(moveMentionSelection(3, 4, 1)).toBe(0);
-    expect(moveMentionSelection(0, 4, -1)).toBe(3);
-    expect(moveMentionSelection(2, 4, -1)).toBe(1);
-    expect(moveMentionSelection(0, 0, 1)).toBe(0);
-  });
-
-  test("keeps Escape dismissed across keyup without blocking ordinary caret navigation", () => {
-    expect(shouldRefreshMentionPickerOnKeyUp("Escape", true)).toBe(false);
-    expect(shouldRefreshMentionPickerOnKeyUp("Escape", false)).toBe(false);
-    expect(shouldRefreshMentionPickerOnKeyUp("ArrowDown", true)).toBe(false);
-    expect(shouldRefreshMentionPickerOnKeyUp("ArrowDown", false)).toBe(true);
-    expect(shouldRefreshMentionPickerOnKeyUp("a", true)).toBe(true);
-  });
 });

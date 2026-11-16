@@ -3,6 +3,7 @@ import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contr
 import {
   type DynamicNamespaceDefinition,
   DynamicLookupMiss,
+  decodeDynamicArguments,
   discoverDynamicTools,
   renderDynamicDiscovery,
   resolveDynamicTool,
@@ -19,21 +20,11 @@ const catalog = (
     kind: "first-party",
     namespaceStatus: "ready",
     tools: [
-      {
-        name: "SendToAgent",
-        description: "Send a message\n\nto another agent",
-        inputSchema: { type: "object" },
-        source: "first-party",
-        decodeArguments: (input) => input,
-      },
+      { name: "SendToAgent", description: "Send a message\n\nto another agent", inputSchema: { type: "object" }, source: "first-party", decodeArguments: (input) => input },
       {
         name: "Computer",
         description: longDescription,
-        inputSchema: {
-          type: "object",
-          properties: { action: { type: "string" } },
-          required: ["action"],
-        },
+        inputSchema: { type: "object", properties: { action: { type: "string" } }, required: ["action"] },
         source: "first-party",
         decodeArguments: (input) => {
           const action = (input as { action?: unknown }).action;
@@ -55,8 +46,6 @@ const catalog = (
   },
 ];
 
-const discover = (input: GetDynamicToolsInput = {}, options = {}) =>
-  discoverDynamicTools(catalog(), input, options);
 const render = (input: GetDynamicToolsInput, status?: DynamicNamespaceDefinition["namespaceStatus"]) =>
   renderDynamicDiscovery(discoverDynamicTools(catalog(status), input), input) as any;
 
@@ -94,18 +83,6 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(render({ namespace: "cursor", pattern: "browser_" })).toEqual({ mode: "search", pattern: "browser_", matches: [] });
   });
 
-  test("lookup errors use the reference texts", () => {
-    expect(() => discover({ toolName: "Computer" })).toThrow(new Error("toolName requires namespace to be set."));
-    expect(() => discover({ pattern: "x".repeat(257) })).toThrow(new Error("pattern cannot exceed 256 characters."));
-    expect(() => discover({ pattern: "(" })).toThrow(/^Invalid regex pattern: /);
-    expect(() => discover({ namespace: "slack" })).toThrow(new DynamicLookupMiss('namespace "slack" not found. Available namespaces: cursor, gmail'));
-    expect(() => discover({ namespace: "slack", pattern: "post" })).toThrow('namespace "slack" not found.');
-    expect(() => discover({ namespace: "gmail", toolName: "send" })).toThrow(new DynamicLookupMiss('Tool "send" not found in namespace "gmail".'));
-    expect(() => discover({ namespace: "cursor", toolName: "Shell" }, { directTools: ["Shell", "Read"] })).toThrow(
-      'Tool "Shell" is already available directly and is not part of dynamic namespace "cursor". Invoke "Shell" directly instead of using dynamic tool discovery or invocation.'
-    );
-  });
-
   test("a call runs without a prior lookup and still validates its arguments", () => {
     const input: CallDynamicToolInput = { namespace: "cursor", toolName: "Computer", arguments: {} };
     expect(() => resolveDynamicTool(catalog(), input)).toThrow("action is required");
@@ -140,12 +117,16 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(() => discoverDynamicTools(catalog("needsAuth"), { namespace: "gmail", toolName: "get_thread" })).toThrow(
       new Error("This MCP server requires authentication before its tools can be used.")
     );
-    const call = { namespace: "gmail", toolName: "get_thread", arguments: {} };
-    expect(() => resolveDynamicTool(catalog("needsAuth"), call, { unavailableGuidance: (n) => `Call AuthenticateMcpServer with server_id "${n.name}".` })).toThrow(
-      'This MCP server requires authentication before its tools can be used. Call AuthenticateMcpServer with server_id "gmail".'
-    );
     // A ready namespace never carries a stale reason.
     const ready = catalog().map((namespace) => ({ ...namespace, statusMessage: reason }));
     expect(JSON.stringify(renderDynamicDiscovery(discoverDynamicTools(ready, input), input))).not.toContain(reason);
+  });
+
+  test("repairs only a unique structural interpretation of malformed arguments", () => {
+    expect(decodeDynamicArguments('{"path":"file}name"}}')).toEqual({ path: "file}name" });
+    expect(decodeDynamicArguments('{"q":"hello"}<parameter name="description">Find the page</parameter>')).toEqual({ q: "hello" });
+    for (const malformed of ['{"q":"hello"}<parameter name="target">another account</parameter>', '{"q":', "[1,2]", null])
+      expect(() => decodeDynamicArguments(malformed)).toThrow();
+    expect(decodeDynamicArguments({ a: [1, 2] })).toEqual({ a: [1, 2] });
   });
 });

@@ -16,7 +16,7 @@ interface StoredSettings extends TranscriptionSettings {
 
 const invalid = (message: string) => new ApiError(400, "invalid_transcription_settings", message);
 
-export function parseTranscriptionSettings(input: unknown): TranscriptionSettingsInput {
+function parseTranscriptionSettings(input: unknown): TranscriptionSettingsInput {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw invalid("Transcription settings are required.");
   const value = input as Record<string, unknown>;

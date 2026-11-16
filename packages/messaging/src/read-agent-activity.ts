@@ -2,7 +2,7 @@ import { type AgentActivityBounds, parseReadAgentActivityInput } from "@openteam
 import type { PrismaClient } from "@openteam/db";
 import { redactSensitiveText } from "@openteam/product-core/redaction";
 
-export interface AgentActivitySummary {
+interface AgentActivitySummary {
   agentId: string;
   name: string;
   description: string;
@@ -13,7 +13,7 @@ export interface AgentActivitySummary {
   recentExcerpt: string;
 }
 
-export type AgentActivityResult =
+type AgentActivityResult =
   | { kind: "unavailable" }
   | { kind: "read"; agents: AgentActivitySummary[]; truncated: boolean };
 
@@ -25,7 +25,7 @@ const questionsIn = (text: string) =>
   text.split(/(?<=[.!?])\s+|\n+/).map((part) => part.trim()).filter((part) => part.endsWith("?"));
 
 /** What the user's other bots did lately, from each bot's main chat; nothing is marked read. */
-export async function readOwnedAgentActivity(db: PrismaClient, botId: string, bounds: AgentActivityBounds, now = new Date()): Promise<AgentActivityResult> {
+async function readOwnedAgentActivity(db: PrismaClient, botId: string, bounds: AgentActivityBounds, now = new Date()): Promise<AgentActivityResult> {
   const bots = await db.bot.findMany({
     where: { id: { not: botId }, status: "active", subagentIdentity: { is: null } },
     select: { id: true, name: true, description: true },
@@ -81,7 +81,7 @@ const age = (at: Date, now: Date) => {
   return `${text} ago`;
 };
 
-export function renderAgentActivity(result: AgentActivityResult, bounds: AgentActivityBounds, now = new Date()): string {
+function renderAgentActivity(result: AgentActivityResult, bounds: AgentActivityBounds, now = new Date()): string {
   if (result.kind === "unavailable") return "This user owns no other bots to read.";
   const scope = `last ${bounds.sinceHours}h, up to ${bounds.maxAgents} bots, ${bounds.excerptChars} excerpt chars each`;
   if (!result.agents.length) {

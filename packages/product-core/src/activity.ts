@@ -1,4 +1,4 @@
-import type { RunItemView, RunView, SubagentActivityView } from "@openteam/contracts";
+import type { SubagentActivityView } from "@openteam/contracts";
 
 /** Attempts that can currently execute; parked children still retain ownership. */
 export const EXECUTING_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
@@ -7,7 +7,7 @@ export const EXECUTING_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["statu
   "running",
 ]);
 
-export const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
+const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
   ...EXECUTING_ASYNC_TASK_STATUSES,
   "waiting",
 ]);
@@ -130,43 +130,4 @@ export const activityContentSummary = (value: unknown): string | null => {
   } catch {
     return null;
   }
-};
-
-export type ActivityRow =
-  | { key: string; type: "run"; run: RunView; itemCount: number }
-  | { key: string; type: "item"; item: RunItemView; last: boolean }
-  | { key: "tasks"; type: "tasks" }
-  | { key: string; type: "subagent"; subagent: SubagentActivityView };
-
-export const activityRows = (
-  runs: readonly RunView[],
-  items: readonly RunItemView[],
-  subagents: readonly SubagentActivityView[]
-): ActivityRow[] => {
-  const itemsByRun = new Map<string, RunItemView[]>();
-  for (const item of items) {
-    const current = itemsByRun.get(item.runId);
-    if (current) current.push(item);
-    else itemsByRun.set(item.runId, [item]);
-  }
-  const rows: ActivityRow[] = [];
-  for (const run of runs) {
-    const runItems = itemsByRun.get(run.id) ?? [];
-    rows.push({ key: `run:${run.id}`, type: "run", run, itemCount: runItems.length });
-    runItems.forEach((item, index) => {
-      rows.push({
-        key: `item:${item.id}`,
-        type: "item",
-        item,
-        last: index === runItems.length - 1,
-      });
-    });
-  }
-  if (subagents.length > 0) {
-    rows.push({ key: "tasks", type: "tasks" });
-    for (const subagent of subagents) {
-      rows.push({ key: `subagent:${subagent.id}`, type: "subagent", subagent });
-    }
-  }
-  return rows;
 };

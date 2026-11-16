@@ -53,7 +53,7 @@ const notifyGlide = (state: StickToBottomState) => {
 /** True while a glide owns the scroll position; bottom-follow must not snap. */
 export const isConversationGliding = (state: StickToBottomState) => activeGlides.has(state);
 
-export const useConversationGliding = () => {
+const useConversationGliding = () => {
   const { state } = useStickToBottomContext();
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -304,22 +304,6 @@ export const ConversationViewportAnchor = ({ active }: { active: boolean }) => {
   return null;
 };
 
-export const ConversationEmptyState = ({
-  title = "Start a conversation",
-  description = "This bot keeps one durable Pi session across restarts.",
-  icon,
-}: {
-  title?: string;
-  description?: string;
-  icon?: ReactNode;
-}) => (
-  <div className="flex h-full min-h-80 flex-col items-center justify-center gap-2 text-center">
-    {icon && <div className="mb-2 text-muted-foreground">{icon}</div>}
-    <div className="text-base font-medium">{title}</div>
-    <div className="max-w-sm text-sm text-muted-foreground">{description}</div>
-  </div>
-);
-
 const ScrollDownIcon = ({ className }: { className: string }) => (
   <svg
     aria-hidden="true"
@@ -352,7 +336,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-export const appendedTimelineEntryCount = ({
+const appendedTimelineEntryCount = ({
   previousCount,
   nextCount,
   previousLatestKey,
@@ -385,7 +369,7 @@ type ConversationNoticeSnapshot = {
   trackNewMessages: boolean;
 };
 
-export const conversationNoticeTransition = ({
+const conversationNoticeTransition = ({
   previous,
   next,
   trackNewMessages,
@@ -421,7 +405,7 @@ type ConversationViewportFocusTarget = {
   tabIndex: number;
 };
 
-export const focusConversationViewport = (
+const focusConversationViewport = (
   viewport: ConversationViewportFocusTarget | null
 ): boolean => {
   if (!viewport) return false;

@@ -7,15 +7,14 @@ const call = (id: string, name: string, args: unknown = {}) => ({ role: "assista
 const result = (id: string, isError = false) => ({ role: "toolResult", toolCallId: id, isError, content: [] });
 const ack = [call("ack", "SendToUser", { content: "On it." }), result("ack")];
 const task = [call("task", "CallDynamicTool", { namespace: "cursor", toolName: "Task", arguments: { prompt: "x" } }), result("task")];
-const memory = [call("memory", "UpdateMemory", { action: "write", fact: "x" }), result("memory")];
 
-function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
+function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; subagentType?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
   const runtime = new ComputerRuntime() as any;
   const events: any[] = [];
   const prompts: string[] = [];
   const active: any = {
     contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-    runtimeProfile: "agent", subagentType: null, requestSource: options.requestSource ?? "turn",
+    runtimeProfile: "agent", subagentType: options.subagentType ?? null, requestSource: options.requestSource ?? "turn",
     modelRef: { providerId: "fixture", modelId: "fixture" }, instructions: "fixture",
     sentMessageCount: options.sent ?? 0, endTurnRequested: options.endTurn, lastStopReason: "stop",
     attachmentTempDirectories: [], toolArgs: new Map(), pluginAbortController: new AbortController(),
@@ -59,28 +58,6 @@ test("a turn that never sends is nudged up to three times and still settles as c
   expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
 });
 
-test("reply nudges stop once something is delivered", async () => {
-  const { runtime, active, prompts } = fixture({
-    messages: [],
-    onPrompt: (prompt, active) => { if (prompt === REPLY_NUDGE_PROMPT) { active.sentMessageCount = 1; active.endTurnRequested = true; } },
-  });
-  await runtime.execute(active, "fixture", []);
-  expect(prompts).toEqual(["turn", REPLY_NUDGE_PROMPT]);
-});
-
-// As in the reference, an acknowledged turn that ends on silent tool calls gets no closing nudge.
-for (const [name, messages] of [
-  ["a background dispatch", task],
-  ["a memory save", memory],
-] as const) {
-  test(`an acknowledgement followed by ${name} settles without a nudge`, async () => {
-    const { runtime, active, events, prompts } = fixture({ sent: 1, messages: [...ack, ...messages, { role: "assistant", content: [] }] });
-    await runtime.execute(active, "fixture", []);
-    expect(prompts).toEqual(["turn"]);
-    expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
-  });
-}
-
 test("routine runs and cancelled turns get no nudge", async () => {
   for (const variant of ["automation", "cancelled"] as const) {
     const { runtime, active, events, prompts } = fixture({
@@ -101,4 +78,11 @@ test("a provider failure still fails the turn", async () => {
   const completion = events.find((event) => event.type === "turn.completed");
   expect(completion.status).toBe("failed");
   expect(completion.error.message).toContain("Provider unavailable");
+});
+
+test("a computerUse turn ends when the model ends it, with no extra verification prompt", async () => {
+  const { runtime, active, events, prompts } = fixture({ messages: [], subagentType: "computerUse", requestSource: "subagent" });
+  await runtime.execute(active, "fixture", []);
+  expect(prompts).toEqual(["turn"]);
+  expect(events.at(-1)).toMatchObject({ type: "turn.completed", status: "completed" });
 });

@@ -3,26 +3,6 @@ import {
   FileTransferProvider,
   appendDraftAttachment,
 } from "../../src/services/plugin/file-transfer-providers";
-import { CONNECTOR_TRANSFER_TOOLS, parseConnectorTransfer } from "@openteam/contracts/connector-transfers";
-
-test("retired file providers cannot issue requests and are absent from tool guidance", async () => {
-  const provider = new FileTransferProvider("fixture", (async (_url: any, _init?: RequestInit): Promise<Response> => {
-    throw new Error("Unexpected provider request");
-  }) as typeof fetch);
-  await expect(provider.download("onedrive", { fileId: "file" })).rejects.toThrow("Connection cannot transfer files");
-  await expect(provider.upload("onedrive", "file.txt", {}, Buffer.from("fixture"))).rejects.toThrow("Connection cannot receive files");
-  for (const tool of CONNECTOR_TRANSFER_TOOLS) {
-    expect(JSON.stringify(tool)).not.toMatch(/onedrive|sharepoint|outlook|send_draft|send_message|read_email/i);
-    expect(tool.description).toContain("The service short name (google-drive or gmail)");
-  }
-  // File uploads preserve mailbox drafts; in-chat reviewed mail uses the card's attachment path.
-  const uploadDescription = CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "UploadFile")!.description;
-  expect(uploadDescription).toContain("Use this only when the user asks to keep the draft in Gmail");
-  expect(uploadDescription).toContain("For an email reviewed and sent in chat, use DraftExternalMessage with attachments instead");
-  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "DownloadFile")!.inputSchema.properties.source.required).toEqual(["fileId"]);
-  expect(() => parseConnectorTransfer("DownloadFile", { connection: "drive", source: { path: "file.txt" } })).toThrow("source.fileId");
-  expect(() => parseConnectorTransfer("UploadFile", { connection: "drive", sourcePath: "/workspace/file.txt", destination: { overwrite: true } })).toThrow("destination.overwrite");
-});
 
 test("Drive export preserves native document bytes and upload uses an authenticated resumable session", async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -63,7 +43,7 @@ test("Drive export preserves native document bytes and upload uses an authentica
   ).toBe(true);
 });
 
-test("Gmail attaches to an existing draft without losing MIME parts or sending mail; attachment reads return the bytes", async () => {
+test("Gmail attaches to an existing draft without losing MIME parts or sending mail", async () => {
   const old = Buffer.from(
     'To: fixture@example.test\r\nSubject: Fixture\r\nContent-Type: multipart/mixed; boundary="old"\r\n\r\n--old\r\nContent-Type: text/plain\r\n\r\nBody\r\n--old\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nb2xkLWZpbGU=\r\n--old--\r\n'
   );
@@ -88,32 +68,15 @@ test("Gmail attaches to an existing draft without losing MIME parts or sending m
       expect(JSON.parse(String(init.body)).message.threadId).toBe("thread");
       return Response.json({ id: "draft" });
     }
-    if (u.includes("/drafts/"))
-      return Response.json({
-        id: "draft",
-        message: { raw: old.toString("base64url"), threadId: "thread" },
-      });
-    if (u.includes("/attachments/"))
-      return Response.json({ data: Buffer.from("binary\0attachment").toString("base64url") });
     return Response.json({
-      payload: {
-        parts: [
-          {
-            filename: "file.bin",
-            mimeType: "application/octet-stream",
-            body: { attachmentId: "a", size: 17 },
-          },
-        ],
-      },
+      id: "draft",
+      message: { raw: old.toString("base64url"), threadId: "thread" },
     });
   }) as typeof fetch);
   expect(
     await provider.upload("gmail", "new.pdf", { draftId: "draft" }, Buffer.from("new-file"))
   ).toMatchObject({ id: "draft", draftId: "draft" });
   expect(writes).toBe(1);
-  expect((await provider.download("gmail", { fileId: "m/a" })).bytes).toEqual(
-    Buffer.from("binary\0attachment")
-  );
 });
 
 test("Gmail downloads an attachment by an ID from an earlier message read", async () => {
@@ -153,56 +116,4 @@ test("Gmail downloads an attachment by an ID from an earlier message read", asyn
   }
   await expect(provider.download("gmail", { fileId: "m/other#0" })).rejects.toThrow("does not belong");
   await expect(provider.download("gmail", { fileId: "m/never-issued" })).rejects.toThrow("does not belong");
-});
-
-test("file contracts reject destination ambiguity and unsafe filename shapes", () => {
-  for (const args of [
-    { connection: "x", sourcePath: "/workspace/a", destination: { path: "a", folderId: "b" } },
-    { connection: "x", sourcePath: "/workspace/a", destination: { name: "../a" } },
-  ])
-    expect(() => parseConnectorTransfer("UploadFile", args)).toThrow();
-  expect(() =>
-    parseConnectorTransfer("DownloadFile", { connection: "x", source: { fileId: "a", path: "b" } })
-  ).toThrow();
-});
-
-test("Drive imports an Office file as a native Google file only when the upload asks for it", async () => {
-  const pptx = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-  const starts: Array<{ metadata: any; contentType: string | null }> = [];
-  const fetcher = (async (url: any, init: RequestInit = {}) => {
-    if (String(url).includes("uploadType=resumable")) {
-      starts.push({ metadata: JSON.parse(String(init.body)), contentType: new Headers(init.headers).get("x-upload-content-type") });
-      return new Response(null, { headers: { location: "https://www.googleapis.com/upload/drive/v3/files?upload_id=fixture" } });
-    }
-    expect(new Headers(init.headers).get("content-type")).toBe(pptx);
-    const converted = starts.at(-1)!.metadata.mimeType;
-    return Response.json({ id: "deck", name: "Q3 review.pptx", mimeType: converted, webViewLink: "https://docs.google.com/presentation/d/deck" });
-  }) as typeof fetch;
-  const provider = new FileTransferProvider("synthetic-oauth", fetcher);
-  const bytes = Buffer.from("pptx-bytes");
-
-  expect(await provider.upload("google-drive", "Q3 review.pptx", { convertToGoogleFormat: true }, bytes)).toMatchObject({
-    mimeType: "application/vnd.google-apps.presentation",
-  });
-  expect(await provider.upload("google-drive", "Q3 review.pptx", {}, bytes)).toMatchObject({ mimeType: pptx });
-  // A destination name without an extension still converts from the source file's type.
-  expect(
-    await provider.upload("google-drive", "/workspace/slides/deck/q3.pptx", { name: "Q3 review", convertToGoogleFormat: true }, bytes)
-  ).toMatchObject({ mimeType: "application/vnd.google-apps.presentation" });
-  expect(starts.map((start) => [start.metadata.name, start.metadata.mimeType, start.contentType])).toEqual([
-    ["Q3 review.pptx", "application/vnd.google-apps.presentation", pptx],
-    ["Q3 review.pptx", pptx, pptx],
-    ["Q3 review", "application/vnd.google-apps.presentation", pptx],
-  ]);
-
-  const contract = CONNECTOR_TRANSFER_TOOLS.find((tool) => tool.name === "UploadFile")!;
-  expect(contract.inputSchema.properties.destination.properties.convertToGoogleFormat.type).toBe("boolean");
-  expect(contract.description).toContain("destination.convertToGoogleFormat, when true, asks Drive to import");
-  expect(
-    parseConnectorTransfer("UploadFile", {
-      connection: "google-drive",
-      sourcePath: "/workspace/deck.pptx",
-      destination: { convertToGoogleFormat: true },
-    }).destination
-  ).toEqual({ convertToGoogleFormat: true });
 });

@@ -248,7 +248,9 @@ atMost("renderer bytes", result.renderer.bytes, 17_980_000);
 // Main at f17447de: 4,174,402; with this branch, 4,178,761.
 // Main at 02abba39 with the presentation/MapLibre payload and polish: 4,467,610.
 // Continuous voice-bar exit/reversal animations bring the v0.0.19 build to 4,490,661 B.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_506_000);
+// Main at 331378a9 with shared avatar life, location and the compact map credit:
+// 4,506,780 B gzip. Keep the startup and individual lazy-module ceilings unchanged.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_508_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -261,7 +263,8 @@ const electronFileBudget = (path: string, maximum: number) => {
   else atMost(`Electron ${path} bytes`, file.bytes, maximum);
 };
 // v0.0.18 scoped ScreenBot dictation and pinned public transport: 176,039 B.
-electronFileBudget("main.js", 177_000);
+// Main at 331378a9 with location sharing and notification focus/read fences: 178,901 B.
+electronFileBudget("main.js", 179_500);
 const updaterChunks = result.electron.files.filter(file => /^chunks\/main(?:-[^.]+)?\.js$/.test(file.path));
 if (updaterChunks.length !== 1) failures.push("Expected exactly one Electron updater chunk");
 else atMost("Electron updater chunk bytes", updaterChunks[0]!.bytes, 600_000);

@@ -433,10 +433,10 @@ private struct PresentationMapView: View {
                        // The expand button covers the top-right corner; keep pins clear of it.
                        obscuredBottom: hasCards ? 120 + Self.creditStrip + Self.creditDrop : 0,
                        // Clear of the map's rounded corner.
-                       creditSide: hasCards ? 3 : 0, obscuredTop: 56,
-                       panelTop: preview != nil ? 400 - panelHeight - (hasCards ? Self.creditStrip : 12) : nil,
+                       creditSide: 3, obscuredTop: 56,
+                       panelTop: preview != nil ? 400 - panelHeight - Self.creditStrip : nil,
                        onPin: { place in open(place, fromPin: true) })
-          .padding(.bottom, hasCards ? -Self.creditDrop : 0)
+          .padding(.bottom, -Self.creditDrop)
         if hasCards { carousel }
       }
       .frame(maxWidth: .infinity).frame(height: 400)
@@ -458,7 +458,8 @@ private struct PresentationMapView: View {
         if let preview {
           PlaceInlineDetail(place: preview, label: previewIndex.flatMap { stopLabel(block.route, $0) }, mode: block.route?.mode,
                             namespace: morph, morphs: morphFromCard, onHeight: { panelHeight = $0 }, onClose: close)
-            .padding([.horizontal, .top], 12).padding(.bottom, hasCards ? Self.creditStrip : 12)
+            // A map without cards keeps the same strip, so an open place never covers the logo.
+            .padding([.horizontal, .top], 12).padding(.bottom, Self.creditStrip)
             // Only the glass and photo travel back into the card; the panel's
             // text is gone at once so nothing is drawn twice, and it stops
             // taking touches the moment it starts leaving.
@@ -959,12 +960,17 @@ private struct NativePlaceMap: View {
       .environment(\.layoutDirection, .rightToLeft)
       .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
         let first = mapSize == .zero
+        guard size != mapSize else { return }
         mapSize = size
-        // The first layout gives the size the stops are framed for.
         if first {
+          // The first layout gives the size the stops are framed for.
           var transaction = Transaction()
           transaction.disablesAnimations = true
           withTransaction(transaction) { camera = .region(region) }
+        } else if !camera.positionedByUser {
+          // A rotation or a resized window changes what fits; a map the user has moved
+          // themselves is left where they put it.
+          focus(selected)
         }
       }
       .onMapCameraChange(frequency: .onEnd) { context in

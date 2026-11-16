@@ -70,6 +70,20 @@ describe("conversation Library", () => {
     expect(channels[0].where.archivedAt).toBeNull();
     expect(channels[0].where.members.some.bot.subagentIdentity).toEqual({ is: null });
   });
+  test("includes legacy singular attachments alongside attachment arrays", async () => {
+    const legacy = {
+      ...attachment,
+      fileName: "legacy.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    };
+    const { service, queries } = fixture([row(100), row(99, legacy)]);
+    const page = await Effect.runPromise(service.list("channel"));
+    expect(page.items.map((item) => item.attachment.fileName)).toEqual([
+      "empty.csv",
+      "legacy.docx",
+    ]);
+    expect(queries[0].strings.join("?")).toContain("message.metadata->'attachment'");
+  });
   test("advances across malformed legacy attachments and bounds each page", async () => {
     const rows = Array.from({ length: 51 }, (_, i) =>
       row(100 - i, i === 49 ? { broken: true } : attachment)

@@ -88,8 +88,8 @@ export function ModelConnections() {
           <h3>Your workers</h3>
           <div className="mc-workers">
             {team.map((worker) => (
-              <div className="mc-worker" key={worker.name}>
-                <BotAvatar shape={worker.shape} color={worker.color} size={30} mode="still" />
+              <div className="mc-worker" key={worker.name} data-avatar-gaze-scope="">
+                <BotAvatar shape={worker.shape} color={worker.color} size={30} gaze="hover" seed={worker.name} />
                 <span>{worker.name}</span>
                 <i className="mc-worker-port" />
               </div>

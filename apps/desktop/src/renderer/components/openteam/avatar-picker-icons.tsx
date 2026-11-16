@@ -35,7 +35,7 @@ import {
   loadRobotAvatarGazeWhenIdle,
   robotAvatarGazeScope,
   type RobotAvatarGaze,
-} from "../../lib/robot-avatar-gaze-scope";
+} from "@openteam/design-tokens/robot-avatar-gaze-scope";
 
 export function botAvatarSwatchBackground(color: string): string {
   return `linear-gradient(45deg, color-mix(in srgb, ${color}, black 9%), color-mix(in srgb, ${color}, white 11%))`;

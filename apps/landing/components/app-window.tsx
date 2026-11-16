@@ -50,7 +50,7 @@ function SidebarRow({
 }) {
   return (
     <div className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${active ? "bg-sunken" : ""}`}>
-      <BotAvatar shape={shape} color={color} size={30} blink blinkDelay={blinkDelay} />
+      <BotAvatar shape={shape} color={color} size={30} seed={`${blinkDelay}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[12.5px] font-medium text-ink">{name}</span>
@@ -210,7 +210,7 @@ export function AppWindow() {
         {/* chat */}
         <section className="flex min-w-0 flex-col bg-surface">
           <header className="flex h-12 items-center gap-2.5 border-b border-line px-4">
-            <BotAvatar shape="helmet" color="#ff7a1a" size={24} blink blinkDelay={700} />
+            <BotAvatar shape="helmet" color="#ff7a1a" size={24} />
             <div className="min-w-0">
               <div className="text-[13px] font-medium leading-4 text-ink">Research</div>
               <div className="flex items-center gap-1.5 text-[11px] leading-4 text-[#0b7a4b]">
@@ -240,7 +240,7 @@ export function AppWindow() {
                 className="rise mt-0.5 inline-flex"
                 style={{ "--d": "1250ms" } as React.CSSProperties}
               >
-                <BotAvatar shape="helmet" color="#ff7a1a" size={22} blink blinkDelay={700} />
+                <BotAvatar shape="helmet" color="#ff7a1a" size={22} />
               </span>
               <div className="min-w-0 max-w-[85%] space-y-2.5">
                 <div

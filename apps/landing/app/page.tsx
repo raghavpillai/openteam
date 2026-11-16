@@ -252,7 +252,7 @@ export default function Home() {
           <div className="ot-mobile-continuity">
             <div className="ot-desktop-receipt">
               <div>
-                <BotAvatar shape="helmet" color="#ff7a1a" size={23} mode="still" />
+                <BotAvatar shape="helmet" color="#ff7a1a" size={23} gaze="emphasis" />
                 <strong>Research</strong>
                 <span>Desktop</span>
               </div>

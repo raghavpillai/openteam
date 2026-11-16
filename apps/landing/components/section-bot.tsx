@@ -1,9 +1,9 @@
 import { BotAvatar } from "./bot-avatar";
 
 const bots = {
-  research: { shape: "helmet", color: "#ff7a1a", delay: 0 },
-  operations: { shape: "pod", color: "#925df2", delay: 900 },
-  engineering: { shape: "chip", color: "#27baae", delay: 1800 },
+  research: { shape: "helmet", color: "#ff7a1a" },
+  operations: { shape: "pod", color: "#925df2" },
+  engineering: { shape: "chip", color: "#27baae" },
 } as const;
 
 /** Section-relative decoration; stays beside its content as the layout reflows. */
@@ -26,8 +26,8 @@ export function SectionBot({
         shape={identity.shape}
         color={identity.color}
         size={64}
-        ambient
-        blinkDelay={identity.delay}
+        gaze="follow"
+        seed={bot}
       />
     </span>
   );

@@ -90,8 +90,8 @@ export function WorkerProfiles({ children }: { children?: ReactNode }) {
           {children}
           <div className="ws-roster" aria-label="Example workers">
             {workers.map((item, index) => (
-              <div key={item.name} className="ws-roster-item" data-selected={selected === index}>
-                <BotAvatar shape={item.shape} color={item.color} size={38} ambient />
+              <div key={item.name} className="ws-roster-item" data-selected={selected === index} data-avatar-gaze-scope="">
+                <BotAvatar shape={item.shape} color={item.color} size={38} gaze="hover" seed={item.name} />
                 <span>
                   {item.name}
                   <small>{item.role}</small>
@@ -119,7 +119,7 @@ export function WorkerProfiles({ children }: { children?: ReactNode }) {
             </div>
             <div className="ws-worker-identity">
               <span className="ws-worker-portrait">
-                <BotAvatar shape={worker.shape} color={worker.color} size={68} ambient />
+                <BotAvatar shape={worker.shape} color={worker.color} size={68} gaze="follow" seed={worker.name} />
                 <i />
               </span>
               <div>

@@ -15,6 +15,13 @@ import {
   robotAvatarLayers,
   type RobotAvatarLayerNode,
 } from "@openteam/design-tokens/robot-avatar-expressions";
+import {
+  loadedRobotAvatarGaze,
+  loadRobotAvatarGaze,
+  loadRobotAvatarGazeWhenIdle,
+  robotAvatarGazeScope,
+  type RobotAvatarGaze,
+} from "@openteam/design-tokens/robot-avatar-gaze-scope";
 import { createRobotAvatarMotion } from "@openteam/design-tokens/robot-avatar-motion";
 import {
   createElement,
@@ -25,16 +32,28 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import "./bot-avatar.css";
-
-type AmbientExpression = "idle" | "thinking" | "talking";
 
 function renderNode(node: RobotAvatarLayerNode, key: number): React.ReactElement {
-  return createElement(node.tag, { ...node.attributes, key }, node.children?.map(renderNode));
+  const style = node.attributes.style;
+  // The tilted face plate is what gaze turns, as in the desktop avatar.
+  const face =
+    typeof style === "object" && String((style as Record<string, string>).transform ?? "").includes("perspective");
+  return createElement(node.tag, { ...node.attributes, ...(face ? { "data-face": "" } : {}), key }, node.children?.map(renderNode));
 }
 
 const glyphs = ROBOT_AVATAR_GLYPHS.map(renderNode);
 
+/** One of four quarter-breaths, so neighbouring robots never breathe in lockstep. */
+const phaseOf = (seed: string) => {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index++) hash = Math.imul(hash ^ seed.charCodeAt(index), 16777619);
+  return ((hash >>> 0) % 4) * 1.15;
+};
+
+/**
+ * The desktop app's robot: idle loops, fidgets, pokes, neighbours glancing at each other and,
+ * with `gaze`, eyes that follow the pointer. Motion runs only while the avatar is on screen.
+ */
 export function BotAvatar({
   shape = "goggles",
   color = "#ff7a1a",
@@ -42,10 +61,10 @@ export function BotAvatar({
   eyeColor,
   className,
   title,
-  mode,
-  blink = false,
-  blinkDelay = 0,
-  ambient = false,
+  mode = "idle",
+  gaze = "off",
+  pokeable = true,
+  seed,
 }: {
   shape?: RobotAvatarShape;
   color?: string;
@@ -54,23 +73,19 @@ export function BotAvatar({
   className?: string;
   title?: string;
   mode?: BotAvatarMode;
-  /** Legacy idle animation shorthand. Explicit mode takes precedence. */
-  blink?: boolean;
-  /** Offset in ms so a group of bots does not blink in unison. */
-  blinkDelay?: number;
-  /** Decorative personality cycle. Leave off for avatars showing real task activity. */
-  ambient?: boolean;
+  /** hover: looks at the pointer over its row. follow: watches the pointer anywhere. */
+  gaze?: RobotAvatarGaze;
+  /** Pressing the robot plays a little reaction. */
+  pokeable?: boolean;
+  /** Offsets the idle loops, so a list of robots never moves in unison. */
+  seed?: string;
 }) {
   const robot = normalizeRobotAvatarShape(shape);
   const id = useId();
-  const offset = [...id].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 1700, 0);
-  const [expression, setExpression] = useState<AmbientExpression>("idle");
-  const decorative = ambient && mode === undefined;
-  const activity = decorative ? (expression === "thinking" ? "working" : "idle") : mode ?? (blink ? "idle" : "still");
-  const enabled = decorative || activity !== "still";
   const ref = useRef<SVGSVGElement>(null);
   const motion = useRef<ReturnType<typeof createRobotAvatarMotion> | null>(null);
   const [visible, setVisible] = useState(false);
+  const animated = mode !== "still";
 
   useLayoutEffect(() => {
     if (!ref.current) return;
@@ -83,19 +98,15 @@ export function BotAvatar({
   }, [robot]);
 
   useLayoutEffect(() => {
-    motion.current?.setMode(visible ? activity : "still", visible && !document.hidden);
-  }, [activity, visible, robot]);
+    motion.current?.setMode(visible ? mode : "still", visible && !document.hidden);
+  }, [mode, visible, robot]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!animated) return;
     const element = ref.current;
     if (!element) return;
     let inViewport = false;
-    const sync = () => {
-      const active = inViewport && !document.hidden;
-      setVisible(active);
-      if (!active) setExpression("idle");
-    };
+    const sync = () => setVisible(inViewport && !document.hidden);
     const observer = new IntersectionObserver(([entry]) => {
       inViewport = entry?.isIntersecting ?? false;
       sync();
@@ -106,36 +117,57 @@ export function BotAvatar({
       observer.disconnect();
       document.removeEventListener("visibilitychange", sync);
     };
-  }, [enabled]);
+  }, [animated]);
 
+  const interactive = visible && animated && (gaze !== "off" || pokeable);
   useEffect(() => {
-    if (!decorative || !visible) return;
-    const sequence: readonly [AmbientExpression, number][] = [
-      ["thinking", 2800 + offset % 600],
-      ["idle", 1800 + offset % 500],
-      // Four complete speech loops land back on the resting mouth pose.
-      ["talking", 3000],
-      ["idle", 3400 + offset],
-    ];
-    let step = 0;
-    let timer: ReturnType<typeof setTimeout>;
-    const advance = () => {
-      const [next, duration] = sequence[step];
-      setExpression(next);
-      step = (step + 1) % sequence.length;
-      timer = setTimeout(advance, duration);
+    const element = ref.current;
+    const controller = motion.current;
+    if (!interactive || !element || !controller) return;
+    const scope = robotAvatarGazeScope(element);
+    let detach: (() => void) | null = null;
+    let disposed = false;
+    const attach = (initial?: PointerEvent) => {
+      const gazeModule = loadedRobotAvatarGaze();
+      if (gazeModule && !detach)
+        detach = gazeModule.attachRobotAvatarGaze(element, controller, { gaze, pokeable, scope, initial });
     };
-    timer = setTimeout(advance, 2300 + offset + blinkDelay);
-    return () => clearTimeout(timer);
-  }, [decorative, visible, offset, blinkDelay]);
+    // The gaze module loads once the page settles, or as soon as something points at a robot.
+    const wake = (event?: Event) => {
+      scope.removeEventListener("pointerenter", wake);
+      scope.removeEventListener("pointerdown", wake);
+      void loadRobotAvatarGaze().then(
+        () => {
+          if (!disposed) attach(event as PointerEvent | undefined);
+        },
+        () => undefined
+      );
+    };
+    if (loadedRobotAvatarGaze() || gaze === "follow") wake();
+    else {
+      scope.addEventListener("pointerenter", wake);
+      scope.addEventListener("pointerdown", wake);
+      void loadRobotAvatarGazeWhenIdle().then(
+        () => {
+          if (!disposed) wake();
+        },
+        () => undefined
+      );
+    }
+    return () => {
+      disposed = true;
+      scope.removeEventListener("pointerenter", wake);
+      scope.removeEventListener("pointerdown", wake);
+      detach?.();
+    };
+  }, [interactive, gaze, pokeable, robot]);
+
   return (
     <svg
       aria-hidden={title ? undefined : "true"}
       role={title ? "img" : undefined}
       className={`robot-avatar ${className ?? ""}`}
       data-avatar-mode="still"
-      data-avatar-ambient={decorative ? "" : undefined}
-      data-avatar-expression={decorative && visible ? expression : undefined}
       ref={ref}
       focusable="false"
       data-avatar-shape={robot}
@@ -147,8 +179,8 @@ export function BotAvatar({
           flex: "0 0 auto",
           color,
           "--robot-face": eyeColor ?? robotAvatarFaceColor(color),
-          "--robot-tempo": `${robotAvatarTempo(robot) * (decorative ? 0.48 : 1)}s`,
-          "--robot-delay": `${blinkDelay + (visible ? offset : 0)}ms`,
+          "--robot-tempo": `${robotAvatarTempo(robot)}s`,
+          "--robot-delay": `${-phaseOf(seed ?? id)}s`,
         } as CSSProperties
       }
     >

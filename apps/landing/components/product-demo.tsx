@@ -305,7 +305,9 @@ export function ProductDemo() {
                       shape={item.shape}
                       color={item.color}
                       size={36}
-                      mode={i === selected ? avatarMode : "still"}
+                      mode={i === selected ? avatarMode : "idle"}
+                      gaze="hover"
+                      seed={item.id}
                     />
                     {working ? <span className="dt-working-dot" aria-hidden="true" /> : null}
                   </span>
@@ -329,7 +331,7 @@ export function ProductDemo() {
           <header className="dt-chat-header">
             <ConversationPill
               avatar={
-                <BotAvatar shape={scenario.shape} color={scenario.color} size={24} mode={avatarMode} />
+                <BotAvatar shape={scenario.shape} color={scenario.color} size={24} mode={avatarMode} gaze="emphasis" />
               }
               name={scenario.name}
             />
@@ -401,7 +403,7 @@ export function ProductDemo() {
             </span>
           </header>
           <section className="dt-profile" aria-label="Bot profile">
-            <BotAvatar shape={scenario.shape} color={scenario.color} size={56} mode={avatarMode} />
+            <BotAvatar shape={scenario.shape} color={scenario.color} size={56} mode={avatarMode} gaze="follow" />
             <strong>{scenario.name}</strong>
             <div className="dt-tabs" aria-hidden="true">
               <span className="is-selected">Activity</span>

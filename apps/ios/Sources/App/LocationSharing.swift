@@ -14,16 +14,26 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
   /// How long a send waits for a fresh fix before it goes with what it has.
   private static let sendWait: Duration = .milliseconds(1_500)
 
-  private(set) var enabled = UserDefaults.standard.bool(forKey: LocationSharing.enabledKey)
+  private(set) var enabled: Bool
   private(set) var authorization: CLAuthorizationStatus
   private(set) var changing = false
-  private let manager = CLLocationManager()
+  private let manager: CLLocationManager
+  private let defaults: UserDefaults
   private var latest: CLLocation?
   /// Counts finished location requests, fixes and failures alike.
   private var answers = 0
+  /// An opt-out or permission loss permanently invalidates sends already waiting for a fix.
+  private var generation = 0
   private var authorizationWaiters: [CheckedContinuation<Void, Never>] = []
 
-  override init() {
+  override convenience init() {
+    self.init(manager: CLLocationManager())
+  }
+
+  init(manager: CLLocationManager, defaults: UserDefaults = .standard) {
+    self.manager = manager
+    self.defaults = defaults
+    enabled = defaults.bool(forKey: Self.enabledKey)
     authorization = manager.authorizationStatus
     super.init()
     manager.delegate = self
@@ -64,20 +74,21 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
   func locationForSend() async -> DeviceLocation? {
     guard enabled, allowed, !Task.isCancelled else { return nil }
     if let latest, -latest.timestamp.timeIntervalSinceNow < Self.freshFor { return Self.fix(latest) }
+    let epoch = generation
     let asked = answers
     manager.requestLocation()
     let deadline = ContinuousClock.now + Self.sendWait
-    while answers == asked, ContinuousClock.now < deadline, !Task.isCancelled {
+    while answers == asked, generation == epoch, ContinuousClock.now < deadline, !Task.isCancelled {
       try? await Task.sleep(for: .milliseconds(50))
     }
-    // Sharing, authorization or the send itself may have ended while a fix was pending.
-    guard enabled, allowed, !Task.isCancelled else { return nil }
+    guard generation == epoch, enabled, allowed, !Task.isCancelled else { return nil }
     return latest.map(Self.fix)
   }
 
   private func store(_ value: Bool) {
+    if !value { generation += 1 }
     enabled = value
-    UserDefaults.standard.set(value, forKey: Self.enabledKey)
+    defaults.set(value, forKey: Self.enabledKey)
   }
 
   private static func fix(_ location: CLLocation) -> DeviceLocation {
@@ -89,6 +100,7 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
 
   nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
     MainActor.assumeIsolated {
+      guard enabled, allowed else { return }
       if let newest = locations.max(by: { $0.timestamp < $1.timestamp }) { latest = newest }
       answers += 1
     }
@@ -101,6 +113,10 @@ final class LocationSharing: NSObject, CLLocationManagerDelegate {
   nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
     MainActor.assumeIsolated {
       authorization = self.manager.authorizationStatus
+      if !allowed {
+        generation += 1
+        latest = nil
+      }
       guard authorization != .notDetermined else { return }
       let waiters = authorizationWaiters
       authorizationWaiters = []

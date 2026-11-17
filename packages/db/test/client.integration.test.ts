@@ -36,3 +36,27 @@ test("dropped Postgres connections fail one query at most and the client reconne
     await admin.end();
   }
 });
+
+test("chaos: a transaction on a busy host is not cut off at Prisma's 5 s default", async () => {
+  if (!url) return;
+  const prisma = createPrismaClient(url);
+  try {
+    // Slower than the 5 s default, as a stalled database or starved host makes it.
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1`;
+      await new Promise((resolve) => setTimeout(resolve, 7_000));
+      await tx.$queryRaw`SELECT 2`;
+    });
+    // More simultaneous transactions than pooled connections: the later ones wait
+    // for a connection for longer than the 2 s default.
+    const results = await Promise.allSettled(
+      Array.from({ length: 14 }, () => prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1`;
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      }))
+    );
+    expect(results.filter((result) => result.status === "rejected")).toEqual([]);
+  } finally {
+    await prisma.$disconnect();
+  }
+}, 40_000);

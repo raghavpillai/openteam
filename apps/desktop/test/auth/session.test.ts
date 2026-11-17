@@ -83,6 +83,10 @@ const openTeamFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 globalThis.fetch = openTeamFetch;
 
 const auth = await import("../../src/renderer/client/auth");
+const { API_BASE } = await import("../../src/renderer/client/http");
+// Renderer modules can be cached by an earlier fixture. Keep this fake page on
+// its transport's origin, just as one real renderer remains on its selected host.
+window.location.href = API_BASE;
 const { captureServerUpdateConsent } = await import("../../src/renderer/lib/update-ownership");
 
 afterAll(() => {

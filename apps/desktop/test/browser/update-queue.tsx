@@ -71,6 +71,11 @@ const demo = {
   downloadTargets: [] as Array<string | null>,
   installs: 0,
   posts: [] as string[],
+  holdBusy: false,
+  busyHeld: false,
+  releaseBusy: () => {},
+  signIn: async (_account: string) => {},
+  signOut: async () => {},
   events: [] as string[],
   emit(next: Partial<OpenTeamUpdateStatus>) {
     desktop = { ...desktop, ...next };
@@ -82,6 +87,8 @@ const demo = {
   },
   state: () => ({ desktop, server }),
 };
+if (parameters.get("resume") === "accepted")
+  server = { ...server, status: "updating", targetVersion: "0.0.19", phase: "verifying", jobId: "accepted-job" };
 (window as unknown as { updateDemo: typeof demo }).updateDemo = demo;
 const realNow = Date.now;
 Date.now = () => realNow() + demo.clockOffset;
@@ -91,15 +98,32 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     location.href
   );
   if (demo.offline) throw new Error("Server restarting");
+  if (url.pathname === "/api/auth/config") return Response.json({ mode: "required" });
+  if (url.pathname === "/api/auth/login") {
+    const { username } = JSON.parse(String(init?.body));
+    return Response.json({ user: { id: username, username, name: username, email: `${username}@example.invalid`, image: null } },
+      { headers: { "set-auth-token": `synthetic-${username}` } });
+  }
+  if (url.pathname === "/api/auth/get-session") {
+    const account = new Headers(init?.headers).get("authorization")?.slice("Bearer synthetic-".length) ?? "A";
+    return Response.json({ session: { id: account }, user: { id: account, username: account, name: account, email: `${account}@example.invalid`, image: null } });
+  }
+  if (url.pathname === "/api/auth/sign-out") return new Response(null, { status: 204 });
   if (url.pathname === "/api/v0/system/version")
     return Response.json({
       releaseVersion: server.currentVersion,
       apiProtocolVersion: OPENTEAM_API_PROTOCOL_VERSION,
     });
-  if (url.pathname === "/api/v0/system/busy-bots")
+  if (url.pathname === "/api/v0/system/busy-bots") {
+    if (demo.holdBusy) {
+      demo.holdBusy = false;
+      demo.busyHeld = true;
+      await new Promise<void>((resolve) => { demo.releaseBusy = resolve; });
+    }
     return Response.json({
       bots: demo.busy ? [{ botId: "scout", name: "Scout", runIds: ["demo"] }] : [],
     });
+  }
   if (url.pathname === "/api/v0/system/update") {
     if (init?.method === "POST") {
       const { targetVersion } = JSON.parse(String(init.body));
@@ -185,6 +209,9 @@ const [{ default: UpdatesSettings }, { DesktopUpdateDialog }] = await Promise.al
   import("../../src/renderer/components/openteam/settings/updates"),
   import("../../src/renderer/components/openteam/desktop-update-dialog"),
 ]);
+const auth = await import("../../src/renderer/client/auth");
+demo.signIn = async (account) => { await auth.signIn(account, "synthetic-test-password"); };
+demo.signOut = auth.signOut;
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <style>{`.update-demo-sidebar{display:none}.update-demo-main{max-width:960px;margin:auto;padding:40px 24px}@media(min-width:640px){.update-demo-sidebar{display:block;width:210px}.update-demo-main{margin-left:210px;padding:40px}}`}</style>

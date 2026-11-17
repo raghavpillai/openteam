@@ -156,6 +156,8 @@ services:
     depends_on:
       computer:
         condition: service_started
+        # The helper shares the computer's PID namespace and must follow its restart.
+        restart: true
     cap_drop: ["ALL"]
     cap_add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
     security_opt:

@@ -184,7 +184,9 @@ export class UpdateQueue {
               throw new Error("The server restarted on an older version. Desktop update paused.");
           }
         }
-        this.publish({ serverComplete: true, serverRequested: true });
+        // Observing a host already at the target is not acknowledgement of this
+        // plan. Preserve whether a request was actually accepted or adopted.
+        this.publish({ serverComplete: true });
       }
       this.publish({ step: "desktop", message: "Server updated. Preparing the desktop update…" });
       let desktop = await deps.desktop();

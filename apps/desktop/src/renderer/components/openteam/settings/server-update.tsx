@@ -9,6 +9,7 @@ import { API_BASE } from "../../../client/http";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
+import { captureServerUpdateConsent } from "../../../lib/update-ownership";
 import {
   SectionLabel,
   SettingsGroup,
@@ -142,11 +143,13 @@ export function ServerUpdateSettings({
   const stopTarget = busyInOrder[0];
 
   const update = async () => {
+    const assertConsent = captureServerUpdateConsent();
     setError(null);
     setStarting(true);
     try {
       // The card can lag the server by a poll; never start over a turn that just began.
       if ((await refreshBusy()).length > 0) return;
+      assertConsent();
       await updateServer();
     } catch (cause) {
       setError(clientErrorMessage(cause, FAILED));

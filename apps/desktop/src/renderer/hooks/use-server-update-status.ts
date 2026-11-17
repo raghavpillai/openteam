@@ -28,7 +28,7 @@ const unavailableStatus = (targetVersion: string | null): OpenTeamServerUpdateSt
   safeToCloseDesktop: false,
 });
 
-export function useServerUpdateStatus(targetVersion: string | null) {
+export function useServerUpdateStatus(targetVersion: string | null, queueRunning = false) {
   const windowActive = useWindowActive();
   const [view, setView] = useState(() => {
     const cached = readServerUpdateSnapshot(API_BASE, localStorage);
@@ -138,16 +138,20 @@ export function useServerUpdateStatus(targetVersion: string | null) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!windowActive && view.status?.status !== "updating") return;
+    if (!windowActive && view.status?.status !== "updating" && !queueRunning) return;
     const interval = window.setInterval(
       () => {
         // An update already in progress must remain observable in the background.
-        if (view.status?.status === "updating" || isWindowActive()) void refresh();
+        if (queueRunning || view.status?.status === "updating" || isWindowActive()) void refresh();
       },
-      view.status?.status === "updating" ? 1_500 : view.reconnecting ? 5_000 : 60_000
+      queueRunning || view.status?.status === "updating"
+        ? 1_500
+        : view.reconnecting
+          ? 5_000
+          : 60_000
     );
     return () => window.clearInterval(interval);
-  }, [refresh, view.status?.status, view.reconnecting, windowActive]);
+  }, [refresh, view.status?.status, view.reconnecting, windowActive, queueRunning]);
 
   return { ...view, refresh, updateServer };
 }

@@ -1,6 +1,7 @@
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useEffect, useRef, useState } from "react";
 import { DESKTOP_UPDATE_RESTART_EVENT } from "../../lib/desktop-update";
+import { useUpdateQueue } from "../../hooks/use-update-queue";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -13,6 +14,8 @@ import {
 import { Button } from "../ui/button";
 
 export function DesktopUpdateDialog() {
+  const { state: queue } = useUpdateQueue();
+  const waitingForServer = queue?.status === "running" && !queue.serverComplete;
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -60,7 +63,13 @@ export function DesktopUpdateDialog() {
   }, []);
 
   const install = async () => {
-    if (!window.openteam || update?.status !== "downloaded" || installingRef.current) return;
+    if (
+      !window.openteam ||
+      update?.status !== "downloaded" ||
+      installingRef.current ||
+      waitingForServer
+    )
+      return;
     installingRef.current = true;
     setInstalling(true);
     setError(null);
@@ -85,9 +94,15 @@ export function DesktopUpdateDialog() {
             Update ready
           </AlertDialogTitle>
           <AlertDialogDescription className="-translate-y-[0.5px] text-[14px] leading-[22px] tracking-[-0.12px]">
-            Restart to finish installing OpenTeam
-            {update?.latestVersion ? ` ${update.latestVersion}` : ""}. Your Bots and work will be
-            right where you left them.
+            {waitingForServer ? (
+              "The server is updating first. You can restart this app once the server reconnects."
+            ) : (
+              <>
+                Restart to finish installing OpenTeam
+                {update?.latestVersion ? ` ${update.latestVersion}` : ""}. Your Bots and work will
+                be right where you left them.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error ? (
@@ -104,7 +119,7 @@ export function DesktopUpdateDialog() {
           </AlertDialogCancel>
           <Button
             className="h-8 gap-1.5 rounded-[9px] bg-black text-[14px] font-normal text-white hover:bg-black/90 dark:bg-[#fafafa] dark:text-[#141414] dark:shadow-[inset_0_0_0_0.5px_#d7d7d7] dark:hover:bg-white/90"
-            disabled={installing || update?.status !== "downloaded"}
+            disabled={waitingForServer || installing || update?.status !== "downloaded"}
             onClick={() => void install()}
             loading={installing}
           >
@@ -122,7 +137,9 @@ export function DesktopUpdateDialog() {
                 <path d="M3.5 15v-2A4.5 4.5 0 0 1 8 8.5V7a4 4 0 0 1 8 0v1.5a4.5 4.5 0 0 1 4.5 4.5v2M12 10v11m-5-5 5 5 5-5" />
               </svg>
             )}
-            <span className="-translate-y-[0.5px]">{installing ? "Restarting…" : "Restart to update"}</span>
+            <span className="-translate-y-[0.5px]">
+              {installing ? "Restarting…" : "Restart to update"}
+            </span>
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

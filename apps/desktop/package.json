@@ -37,6 +37,7 @@
     "lucide-react": "1.34.0",
     "mammoth": "1.12.0",
     "maplibre-gl": "5.6.2",
+    "node-api-headers": "1.9.0",
     "pdfjs-dist": "5.4.296",
     "radix-ui": "1.4.3",
     "react": "19.2.8",
@@ -60,7 +61,8 @@
     "asar": true,
     "asarUnpack": [
       "dist-electron/openteam-cli.js",
-      "dist-electron/screenbot-keys"
+      "dist-electron/screenbot-keys",
+      "dist-electron/location.node"
     ],
     "npmRebuild": false,
     "directories": {
@@ -120,7 +122,7 @@
     "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron --minify",
     "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm --minify",
     "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron --minify --keep-names && bun build src/preload/screenbot.ts --outfile dist-electron/screenbot-preload.cjs --target node --format cjs --external electron --minify --keep-names",
-    "build:native": "bun run scripts/build-screenbot-keys.ts",
+    "build:native": "bun run scripts/build-screenbot-keys.ts && bun run scripts/build-location.ts",
     "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload && bun run build:native",
     "build": "bun run clean && vite build && bun run build:electron",
     "package": "bun run clean:release && bun run build && electron-builder --publish never && bun ../../scripts/performance/check-desktop-budgets.ts --release",

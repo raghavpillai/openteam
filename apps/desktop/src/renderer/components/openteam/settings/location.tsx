@@ -11,18 +11,18 @@ const DESCRIPTION =
 
 export function LocationSettings() {
   const enabled = useSyncExternalStore(subscribeLocationSharing, readLocationSharing);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"enable" | "disable" | null>(null);
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const change = async (value: boolean) => {
-    setBusy(true);
+    setBusy(value ? "enable" : "disable");
+    setDenied(false);
     setError(null);
     try {
       if (value) {
         // Asking for a fix is what shows the system's permission prompt.
         await readPosition();
-        setDenied(false);
         setLocationSharing(true);
       } else {
         setLocationSharing(false);
@@ -33,7 +33,7 @@ export function LocationSettings() {
       if (code === 1) setDenied(true);
       else setError(value ? "Couldn’t get this computer’s location. Try again." : "Couldn’t forget the shared location. Try again.");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -44,11 +44,11 @@ export function LocationSettings() {
         <SettingsRow
           title={TITLE}
           description={DESCRIPTION}
-          control={<InteractiveSwitch label={TITLE} checked={enabled} disabled={busy} onChange={(value) => void change(value)} />}
+          control={<InteractiveSwitch label={TITLE} checked={enabled} disabled={busy !== null} onChange={(value) => void change(value)} />}
         />
         {denied && (
           <div role="alert" className="flex flex-wrap items-center gap-2 pb-3 text-xs text-destructive">
-            <span>OpenTeam isn’t allowed to use your location. Allow it in System Settings, then turn this on again.</span>
+            <span>OpenTeam isn’t allowed to use your location. Turn on Location Services and allow OpenTeam in System Settings, then try again.</span>
             {window.openteam?.location ? (
               <Button size="xs" variant="secondary" className={settingsSecondaryButton} type="button" onClick={() => void window.openteam?.location?.openSettings()}>
                 Open System Settings
@@ -61,6 +61,7 @@ export function LocationSettings() {
             {error}
           </p>
         )}
+        {busy === "enable" && <p role="status" className="pb-3 text-xs text-muted-foreground">Getting your location… Allow access if your computer asks.</p>}
       </SettingsGroup>
     </>
   );

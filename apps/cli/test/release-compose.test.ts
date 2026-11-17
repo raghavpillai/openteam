@@ -52,7 +52,18 @@ describe("release Compose rendering", () => {
     expect(rendered).not.toMatch(
       /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m
     );
-    const yaml = Bun.YAML.parse(rendered) as { services: Record<string, { logging: unknown }> };
+    const yaml = Bun.YAML.parse(rendered) as { services: Record<string, {
+      logging: unknown;
+      pid?: string;
+      depends_on?: Record<string, { condition: string; restart?: boolean }>;
+    }> };
+    // The memory guard shares the computer's PID namespace. Compose must restart
+    // it with that namespace owner rather than leave it attached to a dead one.
+    expect(yaml.services["computer-memory-init"]?.pid).toBe("service:computer");
+    expect(yaml.services["computer-memory-init"]?.depends_on?.computer).toEqual({
+      condition: "service_started",
+      restart: true,
+    });
     for (const service of Object.values(yaml.services)) {
       expect(service.logging).toEqual({
         driver: "json-file",

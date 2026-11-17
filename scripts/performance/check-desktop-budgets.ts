@@ -144,7 +144,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // send-off brought the same-base build to 1,341,722 B; with the question work: 1,349,562 B.
 // Live bot avatars on that base (motion specs, expressions and
 // activity states for every avatar on screen; gaze and pokes stay lazy): 1,389,111.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_393_000);
+// v0.0.20: the persistent update queue shared with workspace update status measures
+// 1,399,867 B. The Updates and plugin detail panels remain dynamic entries.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_401_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -217,7 +219,8 @@ atMost("startup CSS bytes", startupCssBytes, 222_000);
 // 17,918,336 B / 4,488,047 gzip.
 // Live bot avatars on that base: 17,968,276 B / 4,502,509 gzip.
 // The map credit that folds into a button brings the renderer to 17,973,455 bytes.
-atMost("renderer bytes", result.renderer.bytes, 17_980_000);
+// v0.0.20 independent updates and plugin defaults: 17,990,164 B total renderer.
+atMost("renderer bytes", result.renderer.bytes, 18_000_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -250,7 +253,8 @@ atMost("renderer bytes", result.renderer.bytes, 17_980_000);
 // Continuous voice-bar exit/reversal animations bring the v0.0.19 build to 4,490,661 B.
 // Main at 331378a9 with shared avatar life, location and the compact map credit:
 // 4,506,780 B gzip. Keep the startup and individual lazy-module ceilings unchanged.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_508_000);
+// The same production build compresses to 4,511,856 B.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_513_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -264,7 +268,8 @@ const electronFileBudget = (path: string, maximum: number) => {
 };
 // v0.0.18 scoped ScreenBot dictation and pinned public transport: 176,039 B.
 // Main at 331378a9 with location sharing and notification focus/read fences: 178,901 B.
-electronFileBudget("main.js", 179_500);
+// Native location IPC and independent update downloads: 180,733 B.
+electronFileBudget("main.js", 182_000);
 const updaterChunks = result.electron.files.filter(file => /^chunks\/main(?:-[^.]+)?\.js$/.test(file.path));
 if (updaterChunks.length !== 1) failures.push("Expected exactly one Electron updater chunk");
 else atMost("Electron updater chunk bytes", updaterChunks[0]!.bytes, 600_000);
@@ -297,7 +302,8 @@ const lazyBudgets: Record<string, number> = {
   // 73,336, 46,419, 40,512 and 36,231.
   // The Library API method adds shared client code: measured 73,850 bytes.
   // Main at 2090e228 measures 75,627 (unchanged by ScreenBot).
-  pluginDetail: 76_500,
+  // Optional setup and default preferences: 77,950 B; keep this panel lazy.
+  pluginDetail: 79_000,
   pluginConnection: 46_800,
   pluginStudio: 40_900,
   privateSkills: 36_600,
@@ -435,7 +441,8 @@ const lazyBudgets: Record<string, number> = {
   // Unified server updates with stages, idle confirmation and restart recovery
   // (#201) measure 17,768; this UI remains lazy.
   // v0.0.13 compact shared buttons/styles: 18,677 bytes.
-  settingsUpdates: 21_000,
+  // Server-first queue review/progress/retry controls: 26,459 B, still lazy.
+  settingsUpdates: 27_500,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

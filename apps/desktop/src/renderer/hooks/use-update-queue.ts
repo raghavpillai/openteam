@@ -46,6 +46,10 @@ const queue = new UpdateQueue(
     },
     downloadDesktop: async (version) => {
       if (!window.openteam) throw new Error("Desktop updates are unavailable in this window.");
+      if (!queue.snapshot()?.serverRequested) {
+        if (!serverConsent) throw new Error("Review the update again before continuing.");
+        serverConsent();
+      }
       await window.openteam.updates.openDownload(version);
     },
     checkDesktop: async () => {

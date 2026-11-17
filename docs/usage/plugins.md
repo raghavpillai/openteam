@@ -42,6 +42,8 @@ Plaid adds skills only. After adding it, ask a bot to set up Plaid on the comput
 2. Under **Accounts**, follow the setup steps. Depending on the plugin, you sign in through your browser, paste a token, or enter the details of an app you registered with the service. See [connecting accounts](../integrations/accounts.md) for what each plugin needs, and the [Slack](../integrations/slack.md), [Google](../integrations/google.md) and [Email](../integrations/email.md) guides.
 3. Once the account connects, its tools and bundled instructions are available to all bots.
 
+On desktop, a plugin with only optional connection settings can connect with its defaults; you do not need to fill in optional fields first. Required credentials or provider setup still need to be completed. For optional settings that are not secrets, open the account's gear button (**Account settings**), expand **Preferences**, make your changes, and choose **Save preferences**. Saving reconnects an account that is already connected.
+
 On iPhone and iPad, plugins are under **Settings → Plugins**.
 
 Then try it in chat:

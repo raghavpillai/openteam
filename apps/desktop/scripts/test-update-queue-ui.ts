@@ -5,7 +5,11 @@ import { join, resolve } from "node:path";
 import { createServer } from "vite";
 
 const root = resolve(import.meta.dir, "..");
-const artifacts = resolve(root, "../../output/update-queue-ui");
+const stress = process.argv.includes("--stress");
+const artifacts = resolve(
+  root,
+  stress ? "../../output/update-queue-chaos/ui-stress" : "../../output/update-queue-ui"
+);
 const directory = await mkdtemp(join(tmpdir(), "openteam-queue-ui-"));
 const electron = createRequire(import.meta.url)("electron") as string;
 const server = await createServer({
@@ -19,7 +23,17 @@ try {
   if (!address || typeof address === "string") throw new Error("UI fixture did not start");
   await mkdir(artifacts, { recursive: true });
   const runner = join(directory, "main.cjs");
-  await writeFile(runner, await readFile(join(root, "test/browser/update-queue-driver.cjs")));
+  await writeFile(
+    runner,
+    await readFile(
+      join(
+        root,
+        stress
+          ? "test/browser/update-queue-stress-driver.cjs"
+          : "test/browser/update-queue-driver.cjs"
+      )
+    )
+  );
   const child = Bun.spawn(
     [
       electron,
@@ -29,7 +43,7 @@ try {
     ],
     { env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }, stdout: "inherit", stderr: "pipe" }
   );
-  const timeout = setTimeout(() => child.kill(), 90_000);
+  const timeout = setTimeout(() => child.kill(), stress ? 120_000 : 90_000);
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   clearTimeout(timeout);
   if (code) throw new Error(`Update queue UI checks failed: ${stderr}`);

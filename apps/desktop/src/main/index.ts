@@ -77,6 +77,7 @@ import {
   hasDesktopUpdateFeed,
   parseDesktopReleaseManifest,
 } from "./update-status";
+import { DesktopDownloadGate } from "./update-download";
 
 let mainWindow: BrowserWindow | null = null;
 const isMainWindowVisible = () => Boolean(mainWindow && windowIsVisible(mainWindow));
@@ -709,28 +710,35 @@ ipcMain.handle("openteam:updates:check", async (event) => {
   return checkForDesktopUpdate();
 });
 
+const desktopDownloadGate = new DesktopDownloadGate();
 ipcMain.handle("openteam:updates:open-download", async (event, expectedVersion: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
-  if (desktopSelfUpdates) {
-    const autoUpdater = await configureDesktopUpdater();
-    if (!autoUpdater) throw new Error("The desktop update service is unavailable");
-    if (desktopUpdateSnapshot.status !== "available") {
-      throw new Error("Check for a desktop update before downloading it");
+  return desktopDownloadGate.run(
+    expectedVersion,
+    desktopUpdateSnapshot.latestVersion,
+    async () => {
+      if (desktopSelfUpdates) {
+        const autoUpdater = await configureDesktopUpdater();
+        if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+        if (desktopUpdateSnapshot.status !== "available") {
+          throw new Error("Check for a desktop update before downloading it");
+        }
+        assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
+        publishDesktopUpdate({
+          status: "downloading",
+          progress: 0,
+          message: "Starting download",
+          failureKind: null,
+        });
+        await autoUpdater.downloadUpdate();
+        return;
+      }
+      assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
+      await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
     }
-    assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
-    publishDesktopUpdate({
-      status: "downloading",
-      progress: 0,
-      message: "Starting download",
-      failureKind: null,
-    });
-    await autoUpdater.downloadUpdate();
-    return;
-  }
-  assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
-  await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
+  );
 });
 
 ipcMain.handle("openteam:updates:install-client", async (event) => {

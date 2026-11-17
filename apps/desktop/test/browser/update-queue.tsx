@@ -15,6 +15,19 @@ import "../../src/renderer/styles.css";
 if (window.openteam) throw new Error("Update demo requires an isolated browser window");
 localStorage.setItem("openteam:server-url", "https://demo-server.example");
 const parameters = new URLSearchParams(location.search);
+if (parameters.has("stress")) {
+  // Accelerate observation only. The real queue, React events and native/API fakes are unchanged.
+  const timeout = window.setTimeout.bind(window);
+  const interval = window.setInterval.bind(window);
+  window.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]) =>
+    timeout(handler, ms === 1_500 ? 10 : ms, ...args)) as typeof window.setTimeout;
+  window.setInterval = ((handler: TimerHandler, ms?: number, ...args: unknown[]) =>
+    interval(
+      handler,
+      ms === 1_500 || ms === 2_000 ? 10 : ms,
+      ...args
+    )) as typeof window.setInterval;
+}
 if (!parameters.has("resume")) {
   for (const key of Object.keys(localStorage))
     if (key.startsWith("openteam:update-queue:") || key.startsWith("openteam:server-update:"))

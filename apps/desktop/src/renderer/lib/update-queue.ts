@@ -30,6 +30,12 @@ export interface UpdateQueueDependencies {
 export class UpdateQueue {
   private state: UpdateQueueState | null;
   private running = false;
+  private pendingDownload: {
+    targetVersion: string;
+    settled: boolean;
+    failed: boolean;
+    error?: unknown;
+  } | null = null;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -104,6 +110,14 @@ export class UpdateQueue {
     // A persisted checkpoint is history, not a fresh health check or permission to restart.
     this.publish({ status: "running", serverComplete: false, step: "server" });
     try {
+      if (
+        this.pendingDownload &&
+        !this.pendingDownload.settled &&
+        this.pendingDownload.targetVersion !== target
+      )
+        throw new Error(
+          "A desktop download is already starting for a different release. Wait for it to finish."
+        );
       {
         this.publish({ step: "server", message: "Checking the connected server…" });
         const reconnectDeadline = deps.now() + 15 * 60_000;
@@ -185,21 +199,29 @@ export class UpdateQueue {
           "The desktop release changed. Check for updates, then update the desktop separately."
         );
       const deadline = deps.now() + 30 * 60_000;
-      let download: { settled: boolean; failed: boolean; error?: unknown } | null = null;
-      if (desktop.status === "available") {
+      let download = this.pendingDownload;
+      if (desktop.status === "available" && !download) {
         this.publish({ message: "Server updated. Downloading the desktop update…" });
         // Electron's download IPC resolves only after the entire download finishes. Observe it
         // without blocking polling, so a hung request cannot bypass the deadline or progress UI.
-        const request = { settled: false, failed: false, error: undefined as unknown };
+        const request = {
+          targetVersion: target,
+          settled: false,
+          failed: false,
+          error: undefined as unknown,
+        };
         download = request;
+        this.pendingDownload = request;
         void deps.downloadDesktop(target).then(
           () => {
             request.settled = true;
+            if (this.pendingDownload === request) this.pendingDownload = null;
           },
           (error: unknown) => {
             request.settled = true;
             request.failed = true;
             request.error = error;
+            if (this.pendingDownload === request) this.pendingDownload = null;
           }
         );
         desktop = await deps.desktop();

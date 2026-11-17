@@ -26,6 +26,21 @@ app.whenReady().then(async () => {
   await click("Not now");
 
   await load("?manual");
+  await js("localStorage.setItem('openteam:update-queue:https://demo-server.example:0.0.18',JSON.stringify({targetVersion:'0.0.19',status:'running',step:'server',serverComplete:false,serverRequested:false,message:'Interrupted preflight'}))");
+  await load("?manual&resume");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='error'", "restored unaccepted plan requires fresh consent");
+  await assert("updateDemo.posts.length===0 && updateDemo.downloads===0", "a saved checkpoint cannot authorize a new server mutation");
+  await js("localStorage.setItem('openteam:update-queue:https://demo-server.example:0.0.18',JSON.stringify({targetVersion:'0.0.19',status:'running',step:'server',serverComplete:false,serverRequested:true,message:'Accepted host job'}))");
+  await load("?manual&resume=accepted");
+  await assert("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='running' && updateDemo.posts.length===0", "restored accepted job remains observation-only");
+  await js("updateDemo.server({status:'updated',phase:'complete',currentVersion:'0.0.19'})");
+  await wait("updateDemo.downloads===1", "accepted job can finish without new mutation consent");
+  await js("updateDemo.emit({status:'downloaded',progress:100})");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='complete'", "restored accepted queue completes");
+  await assert("updateDemo.posts.length===0 && updateDemo.installs===0", "restored progress never resubmits maintenance or installs");
+  await click("Not now");
+
+  await load("?manual");
   await click("Update both…");
   await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('No bots are working')", "confirmation checks bots");
   await assert("updateDemo.posts.length===0 && updateDemo.downloads===0", "review is read-only");
@@ -94,6 +109,25 @@ app.whenReady().then(async () => {
   await click("Not now");
 
   await load("?manual");
+  await js("updateDemo.signIn('A')");
+  await click("Update both…");
+  await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('No bots are working')", "account A review ready");
+  await js("updateDemo.holdBusy=true");
+  await click("Update both");
+  await wait("updateDemo.busyHeld", "account A preflight paused before submission");
+  await js("updateDemo.signOut().then(()=>updateDemo.signIn('B'))");
+  await js("updateDemo.releaseBusy()");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='error'", "account change pauses the old plan");
+  await assert("updateDemo.posts.length===0 && updateDemo.downloads===0 && document.body.innerText.includes('Review the update again')", "A plan cannot mutate the server using B credentials");
+  await click("Retry queue");
+  await wait("updateDemo.posts.length===1", "B can explicitly authorize a fresh retry");
+  await js("updateDemo.server({status:'updated',phase:'complete',currentVersion:'0.0.19'})");
+  await wait("updateDemo.downloads===1", "explicitly retried plan continues normally");
+  await js("updateDemo.emit({status:'downloaded',progress:100})");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='complete'", "authorized retry completes");
+  await click("Not now");
+
+  await load("?manual");
   await js("updateDemo.busy=true");
   await click("Update both…");
   await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('1 bot is still working')", "confirmation reports busy bots");
@@ -105,7 +139,7 @@ app.whenReady().then(async () => {
   await delay(200);
   await assert("document.documentElement.scrollWidth<=innerWidth", "narrow view fits");
   await shot("05-narrow");
-  fs.writeFileSync(path.join(process.argv[3], "results.json"), JSON.stringify({ passed, scenarios: ["independent server update", "independent desktop update", "read-only review and cancel", "server before desktop", "reconnect gate", "predownloaded restart gate", "explicit restart", "server failure blocks desktop", "retry preserves completed work", "hung native download deadline and retry", "busy bots", "dark and narrow layouts"] }, null, 2));
+  fs.writeFileSync(path.join(process.argv[3], "results.json"), JSON.stringify({ passed, scenarios: ["independent server update", "independent desktop update", "read-only review and cancel", "server before desktop", "reconnect gate", "predownloaded restart gate", "explicit restart", "server failure blocks desktop", "retry preserves completed work", "hung native download deadline and retry", "account change fences delayed mutation until explicit retry", "busy bots", "dark and narrow layouts"] }, null, 2));
   console.log(`${passed} update queue UI checks passed`);
   app.quit();
 }).catch((error) => { console.error(error); app.exit(1); });

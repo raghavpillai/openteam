@@ -83,6 +83,7 @@ const openTeamFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 globalThis.fetch = openTeamFetch;
 
 const auth = await import("../../src/renderer/client/auth");
+const { captureServerUpdateConsent } = await import("../../src/renderer/lib/update-ownership");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -93,6 +94,43 @@ afterAll(() => {
 });
 
 describe("desktop authenticated session", () => {
+  test("server update consent survives same-account verification but not a later login", async () => {
+    await auth.signIn("owner", "synthetic");
+    const assertConsent = captureServerUpdateConsent();
+    await auth.refreshAuthSession();
+    expect(assertConsent).not.toThrow();
+    let release!: () => void;
+    const preflight = new Promise<void>((resolve) => { release = resolve; });
+    let mutations = 0;
+    const updating = preflight.then(() => { assertConsent(); mutations++; });
+    await auth.signOut();
+    await auth.signIn("owner", "synthetic");
+    release();
+    await expect(updating).rejects.toThrow("Review the update again");
+    expect(mutations).toBe(0);
+    expect(captureServerUpdateConsent()).not.toThrow();
+  });
+
+  test("server update consent rejects a replaced account even without token rotation", async () => {
+    await auth.signIn("owner", "synthetic");
+    const assertConsent = captureServerUpdateConsent();
+    const originalId = user.id;
+    try {
+      user.id = "replacement-owner";
+      await auth.refreshAuthSession();
+      expect(assertConsent).toThrow("Review the update again");
+    } finally { user.id = originalId; await auth.signOut(); }
+  });
+
+  test("server update consent rejects a newly selected host before the window reloads", async () => {
+    await auth.signIn("owner", "synthetic");
+    const assertConsent = captureServerUpdateConsent();
+    try {
+      localStorage.setItem("openteam:server-url", "https://other-server.example");
+      expect(assertConsent).toThrow("Review the update again");
+    } finally { localStorage.removeItem("openteam:server-url"); await auth.signOut(); }
+  });
+
   test("failed secure persistence cannot publish a signed-in session", async () => {
     await auth.clearAuthCredentialsForServerChange();
     failTokenWrite = true;

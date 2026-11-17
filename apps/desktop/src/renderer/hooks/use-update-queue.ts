@@ -3,10 +3,15 @@ import type { BusyBotsView, ServerUpdateView, SystemVersionView } from "@opentea
 import { API_BASE, request } from "../client/http";
 import { UpdateQueue } from "../lib/update-queue";
 import { withDeadline } from "../lib/request-errors";
+import { captureServerUpdateConsent } from "../lib/update-ownership";
 
 // Bound each round trip as well as the overall queue. Aborting also cancels a stalled body read.
 const queueRequest = <T>(path: string, init?: RequestInit) =>
   withDeadline((signal) => request<T>(path, { ...init, signal }), 15_000);
+
+// Accepted jobs remain machine-scoped. A new mutation needs this session's explicit consent;
+// a restored plan that has not reached the server must be reviewed/retried first.
+let serverConsent: (() => void) | null = null;
 
 const key = `openteam:update-queue:${API_BASE}:${window.openteam?.versions.app ?? "web"}`;
 let restored: unknown = null;
@@ -27,11 +32,14 @@ const queue = new UpdateQueue(
     },
     busy: async () =>
       (await queueRequest<BusyBotsView>("/api/v0/system/busy-bots")).bots.length > 0,
-    startServer: (version) =>
-      queueRequest<ServerUpdateView>("/api/v0/system/update", {
+    startServer: (version) => {
+      if (!serverConsent) throw new Error("Review the update again before starting the server update.");
+      serverConsent();
+      return queueRequest<ServerUpdateView>("/api/v0/system/update", {
         method: "POST",
         body: JSON.stringify({ targetVersion: version }),
-      }),
+      });
+    },
     desktop: async () => {
       if (!window.openteam) throw new Error("Desktop updates are unavailable in this window.");
       return withDeadline(() => window.openteam!.updates.status(), 15_000);
@@ -57,10 +65,19 @@ const queue = new UpdateQueue(
   restored
 );
 
+const start = (version: string) => {
+  if (queue.snapshot()?.status !== "running") serverConsent = captureServerUpdateConsent();
+  return queue.start(version);
+};
+const retry = () => {
+  if (queue.snapshot()?.status === "error") serverConsent = captureServerUpdateConsent();
+  return queue.retry();
+};
+
 export function useUpdateQueue() {
   const state = useSyncExternalStore(queue.subscribe, queue.snapshot);
   useEffect(() => {
     void queue.resume();
   }, []);
-  return { state, start: queue.start, retry: queue.retry };
+  return { state, start, retry };
 }

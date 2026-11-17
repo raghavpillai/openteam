@@ -127,7 +127,7 @@ interface Window {
     updates: {
       status: () => Promise<OpenTeamUpdateStatus>;
       check: () => Promise<OpenTeamUpdateStatus>;
-      openDownload: () => Promise<void>;
+      openDownload: (expectedVersion?: string) => Promise<void>;
       installClient: () => Promise<void>;
       onClientProgress: (listener: (status: OpenTeamUpdateStatus) => void) => () => void;
 

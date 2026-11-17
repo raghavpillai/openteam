@@ -257,7 +257,7 @@ contextBridge.exposeInMainWorld("openteam", {
   updates: {
     status: () => ipcRenderer.invoke("openteam:updates:status"),
     check: () => ipcRenderer.invoke("openteam:updates:check"),
-    openDownload: () => ipcRenderer.invoke("openteam:updates:open-download"),
+    openDownload: (expectedVersion?: string) => ipcRenderer.invoke("openteam:updates:open-download", expectedVersion),
     installClient: () => ipcRenderer.invoke("openteam:updates:install-client"),
     onClientProgress: (listener: (status: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: unknown) => listener(status);

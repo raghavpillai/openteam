@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
 import { ServerUpdateSettings } from "./server-update";
+import { UpdateQueueSettings } from "./update-queue";
+import { useUpdateQueue } from "../../../hooks/use-update-queue";
 import {
   SectionLabel,
   SettingsGroup,
@@ -38,6 +40,8 @@ const clientUpdateFailure = (status: OpenTeamUpdateStatus): string => {
 
 export default function UpdatesSettings() {
   const update = useServerUpdate();
+  const queue = useUpdateQueue();
+  const queueRunning = queue.state?.status === "running";
   const {
     clientVersion,
     clientUpdate,
@@ -120,6 +124,22 @@ export default function UpdatesSettings() {
       ) : null}
 
       <SectionLabel>OpenTeam Updates</SectionLabel>
+      <UpdateQueueSettings
+        targetVersion={update.serverTarget}
+        clientVersion={clientVersion}
+        serverVersion={server?.currentVersion ?? null}
+        available={Boolean(
+          update.serverNeedsUpdate &&
+            clientNeedsUpdate &&
+            update.serverTarget === clientUpdate?.latestVersion
+        )}
+        disabled={Boolean(
+          update.serverUpdating ||
+            update.serverReconnecting ||
+            !server?.updaterAvailable ||
+            ["downloading", "installing", "checking"].includes(clientUpdate?.status ?? "")
+        )}
+      />
       <SettingsGroup>
         <SettingsRow
           anchors={["update-status", "automatic-updates"]}
@@ -128,7 +148,9 @@ export default function UpdatesSettings() {
               <Button
                 size="xs"
                 className={primaryButton}
-                disabled={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
+                disabled={
+                  queueRunning || ["downloading", "installing"].includes(clientUpdate?.status ?? "")
+                }
                 onClick={() => void updateClient()}
                 type="button"
                 loading={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
@@ -146,7 +168,7 @@ export default function UpdatesSettings() {
                 size="xs"
                 variant="secondary"
                 className={secondaryButton}
-                disabled={clientUpdate?.status === "checking"}
+                disabled={queueRunning || clientUpdate?.status === "checking"}
                 onClick={() => void check()}
                 type="button"
                 loading={clientUpdate?.status === "checking"}
@@ -177,7 +199,7 @@ export default function UpdatesSettings() {
           {actionError}
         </p>
       ) : null}
-      <ServerUpdateSettings update={update} />
+      <ServerUpdateSettings update={update} disabled={queueRunning} />
     </>
   );
 }

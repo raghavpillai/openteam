@@ -74,8 +74,10 @@ export function ConfirmButton({
 /** Updates the server, worker and computer together, once no bot is working. */
 export function ServerUpdateSettings({
   update: serverUpdate,
+  disabled = false,
 }: {
   update: ReturnType<typeof useServerUpdate>;
+  disabled?: boolean;
 }) {
   const {
     clientVersion,
@@ -190,7 +192,7 @@ export function ServerUpdateSettings({
 
   const updateButton = (
     <ConfirmButton
-      disabled={state !== "ready"}
+      disabled={disabled || state !== "ready"}
       label="Update"
       onConfirm={() => void update()}
       pending={state === "updating"}

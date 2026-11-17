@@ -71,11 +71,13 @@ import {
 import { readManagedInstallation } from "./local-installation";
 import { bindWindowActivity, windowIsActive, windowIsVisible } from "./window-activity";
 import {
+  assertDesktopUpdateTarget,
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
   hasDesktopUpdateFeed,
   parseDesktopReleaseManifest,
 } from "./update-status";
+import { DesktopDownloadGate } from "./update-download";
 
 let mainWindow: BrowserWindow | null = null;
 const isMainWindowVisible = () => Boolean(mainWindow && windowIsVisible(mainWindow));
@@ -145,7 +147,9 @@ const configureDesktopUpdater = async (): Promise<AppUpdater | null> => {
   if (desktopUpdaterConfigured) return autoUpdater;
   desktopUpdaterConfigured = true;
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Quitting during a server-first queue must not install a predownloaded desktop early.
+  // Installation belongs to the explicit "Restart to update" action.
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.disableWebInstaller = true;
   autoUpdater.on("checking-for-update", () =>
     publishDesktopUpdate({ status: "checking", progress: null, message: null, failureKind: null })
@@ -706,26 +710,35 @@ ipcMain.handle("openteam:updates:check", async (event) => {
   return checkForDesktopUpdate();
 });
 
-ipcMain.handle("openteam:updates:open-download", async (event) => {
+const desktopDownloadGate = new DesktopDownloadGate();
+ipcMain.handle("openteam:updates:open-download", async (event, expectedVersion: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
-  if (desktopSelfUpdates) {
-    const autoUpdater = await configureDesktopUpdater();
-    if (!autoUpdater) throw new Error("The desktop update service is unavailable");
-    if (desktopUpdateSnapshot.status !== "available") {
-      throw new Error("Check for a desktop update before downloading it");
+  return desktopDownloadGate.run(
+    expectedVersion,
+    desktopUpdateSnapshot.latestVersion,
+    async () => {
+      if (desktopSelfUpdates) {
+        const autoUpdater = await configureDesktopUpdater();
+        if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+        if (desktopUpdateSnapshot.status !== "available") {
+          throw new Error("Check for a desktop update before downloading it");
+        }
+        assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
+        publishDesktopUpdate({
+          status: "downloading",
+          progress: 0,
+          message: "Starting download",
+          failureKind: null,
+        });
+        await autoUpdater.downloadUpdate();
+        return;
+      }
+      assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
+      await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
     }
-    publishDesktopUpdate({
-      status: "downloading",
-      progress: 0,
-      message: "Starting download",
-      failureKind: null,
-    });
-    await autoUpdater.downloadUpdate();
-    return;
-  }
-  await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
+  );
 });
 
 ipcMain.handle("openteam:updates:install-client", async (event) => {

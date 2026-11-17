@@ -3,12 +3,22 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assertDesktopUpdateTarget,
   classifyDesktopUpdateError,
   hasDesktopUpdateFeed,
   parseDesktopReleaseManifest,
 } from "../src/main/update-status";
 
 describe("desktop update diagnostics", () => {
+  test("pins coordinated downloads to the reviewed release across a feed refresh", () => {
+    expect(() => assertDesktopUpdateTarget("0.0.19", "0.0.19")).not.toThrow();
+    expect(() => assertDesktopUpdateTarget("0.0.19", "v0.0.19")).not.toThrow();
+    expect(() => assertDesktopUpdateTarget("0.1.0", "0.0.19")).toThrow("release changed");
+    expect(() => assertDesktopUpdateTarget(null, "0.0.19")).toThrow("release changed");
+    expect(() => assertDesktopUpdateTarget("0.0.19", {})).toThrow("release changed");
+    expect(() => assertDesktopUpdateTarget("0.0.19", "bogus")).toThrow("release changed");
+    expect(() => assertDesktopUpdateTarget("0.0.19", undefined)).not.toThrow();
+  });
   test("only builds with an update feed can update themselves", async () => {
     const resources = await mkdtemp(join(tmpdir(), "openteam-update-feed-"));
     try {
@@ -63,8 +73,8 @@ describe("desktop update diagnostics", () => {
     const error = Object.assign(
       new Error(
         'Cannot parse releases feed: Error: Unable to find latest version on GitHub: HttpError: 504 "method: GET url: https://github.com/raghavpillai/openteam/releases/latest\\nData:\\n<html>504 Gateway Time-out</html>" Headers: {"set-cookie":["session=private"]}\n' +
-          '    at GitHubProvider.getLatestTagName (file:///Applications/OpenTeam.app/main.js:1:1)\n' +
-          'XML:\n<feed><entry><content>The binaries come with Sigstore signatures and SHA256SUMS checksums.</content></entry></feed>'
+          "    at GitHubProvider.getLatestTagName (file:///Applications/OpenTeam.app/main.js:1:1)\n" +
+          "XML:\n<feed><entry><content>The binaries come with Sigstore signatures and SHA256SUMS checksums.</content></entry></feed>"
       ),
       { code: "ERR_UPDATER_INVALID_RELEASE_FEED" }
     );
@@ -77,10 +87,13 @@ describe("desktop update diagnostics", () => {
 
   test("ignores signature references in malformed feed payloads", () => {
     for (const payload of [
-      '\nXML:\n<feed>Code signature validation failed in an older release</feed>',
+      "\nXML:\n<feed>Code signature validation failed in an older release</feed>",
       ' rawData: {"releaseNotes":"Fix signatures and SHA512 checksums"}',
     ]) {
-      const failure = classifyDesktopUpdateError(`Cannot parse releases feed${payload}`, "checking");
+      const failure = classifyDesktopUpdateError(
+        `Cannot parse releases feed${payload}`,
+        "checking"
+      );
       expect(failure.failureKind).toBe("feed-malformed");
       expect(failure.message).toBe(
         "The update service returned invalid release information. Try again later."
@@ -110,12 +123,12 @@ describe("desktop update diagnostics", () => {
         "downloading"
       ).failureKind
     ).toBe("signature-invalid");
-    expect(classifyDesktopUpdateError("HTTP 502", "downloading").failureKind).toBe("download-failed");
+    expect(classifyDesktopUpdateError("HTTP 502", "downloading").failureKind).toBe(
+      "download-failed"
+    );
     expect(
-      classifyDesktopUpdateError(
-        "Update info doesn't contain a sha512 checksum",
-        "downloading"
-      ).failureKind
+      classifyDesktopUpdateError("Update info doesn't contain a sha512 checksum", "downloading")
+        .failureKind
     ).toBe("feed-malformed");
   });
 
@@ -129,7 +142,8 @@ describe("desktop update diagnostics", () => {
     ]) {
       expect(classifyDesktopUpdateError(new Error(message), "checking")).toEqual({
         failureKind: "service-unavailable",
-        message: "The update service is currently unreachable. Check your connection and try again.",
+        message:
+          "The update service is currently unreachable. Check your connection and try again.",
       });
       expect(classifyDesktopUpdateError(new Error(message), "downloading").failureKind).toBe(
         "download-failed"

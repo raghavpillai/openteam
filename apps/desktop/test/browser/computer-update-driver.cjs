@@ -59,7 +59,7 @@ app
       throw new Error("The compatibility notice must link to server updates without starting one");
     passed++;
     await js(`fixture.desktop({latestVersion:'0.0.12',status:'available'})`);
-    await assert(v=>v.state==='ready' && v.text.includes('Update to 0.0.11'), "a newer desktop feed must not update the server ahead of this desktop");
+    await assert(v=>v.state==='ready' && v.text.includes('Update to 0.0.12'), "the published release can update the server independently of the desktop");
     await js(`fixture.desktop({latestVersion:null,status:'error',message:'Release feed unavailable'})`);
     await assert(v=>v.state==='ready', "a failed desktop update feed must not hide the server update");
     await js(`fixture.desktop({latestVersion:null,status:'up-to-date',message:null})`);
@@ -221,7 +221,7 @@ app
 
     fs.writeFileSync(
       path.join(process.argv[3], "results.json"),
-      JSON.stringify({ passed, scenarios: ["Updates contains desktop and server", "linked version notice", "older compatible server without feed", "feed failure", "server target stays on installed desktop", "up to date", "newer server", "busy + Stop first sidebar bot", "confirm arm and 3 s reset", "stopping", "next busy bot", "busy refusal", "updating", "Server summary links to Updates", "server-wide devices and display in Server", "Computer contains only the current machine", "unknown server"] }, null, 2)
+      JSON.stringify({ passed, scenarios: ["Updates contains desktop and server", "linked version notice", "older compatible server without feed", "feed failure", "server targets published release independently", "up to date", "newer server", "busy + Stop first sidebar bot", "confirm arm and 3 s reset", "stopping", "next busy bot", "busy refusal", "updating", "Server summary links to Updates", "server-wide devices and display in Server", "Computer contains only the current machine", "unknown server"] }, null, 2)
     );
     console.log(`${passed} computer update card checks passed`);
     app.quit();

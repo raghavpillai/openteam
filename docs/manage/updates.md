@@ -31,9 +31,11 @@ Each container keeps up to three log files of 10 MiB each; older log lines are d
 
 ## Update from the desktop app
 
-Open **Settings → Updates** to update the desktop app and the connected server. Under **Connected server**, the app shows the running server version. Choose **Update** and confirm to update that server to the installed desktop version. The version notice links directly to the relevant update. You can also open updates from **Settings → Server → Connected server → View updates**.
+Open **Settings → Updates** to update the desktop app and the connected server independently. Under **Connected server**, the app shows the running server version. Choose **Update** and confirm to update that server to the latest published stable release, even if you keep the current desktop version. If the desktop release feed is unavailable, a newer installed desktop version remains available as the server target. The version notice links directly to the relevant update. You can also open updates from **Settings → Server → Connected server → View updates**.
 
-The desktop sidebar also shows available app updates and download progress. Choose **Restart to update** once the download is ready.
+When both have an update, choose **Update both…** to review the versions and update order. The queue updates the connected server, waits for it to reconnect on the new version, then downloads the desktop update. The app offers **Restart to update** when it is ready; choose **Not now** to keep working. It never restarts the desktop automatically. The queue checks for working bots before starting and pauses on a failure, so a failed server update cannot advance to the desktop download. **Retry queue** continues from the unfinished step without reinstalling a server that has already updated. Settings navigation does not stop the queue; reopening the app resumes watching its saved server job.
+
+The desktop sidebar also shows available app updates and download progress. Choose **Restart to update** once the download is ready. Quitting the app leaves a downloaded update ready for that explicit restart action; it does not install the update on quit.
 
 Server updates use your existing signed-in connection. They update that server's stack, including the worker, database migrations, and computer. No SSH destination or additional sign-in is needed. The app compares the server with the installed desktop even when it cannot check the desktop release feed.
 

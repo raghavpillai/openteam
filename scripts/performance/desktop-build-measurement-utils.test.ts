@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import {
   expectedReleaseArtifactKinds,
   isReleaseArtifactLocation,
+  isSignedMacHelper,
+  isExpectedNativeModule,
   matchesResignedMacExecutable,
   releaseArtifactKind,
   validatePackagedPackageJson,
@@ -132,5 +134,47 @@ test.skipIf(process.platform !== "darwin")("universal helper permits compiler-un
     run(["codesign", "--force", "--sign", "-", resigned]);
     expect(await matchesResignedMacExecutable(source, await readFile(resigned))).toBe(false);
     expect(source.equals(await readFile(original))).toBe(true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("only the exact unpacked first-party macOS location addon is permitted", () => {
+  expect(isExpectedNativeModule("dist-electron/location.node", true, "darwin")).toBe(true);
+  expect(isExpectedNativeModule("dist-electron/location.node", false, "darwin")).toBe(false);
+  for (const platform of ["linux", "win32"] as const) {
+    expect(isExpectedNativeModule("dist-electron/location.node", true, platform)).toBe(false);
+    expect(isSignedMacHelper("dist-electron/location.node", platform)).toBe(false);
+  }
+  for (const path of ["location.node", "dist-electron/foreign.node", "dist-electron/nested/location.node", "node_modules/location.node", "dist/location.node", "dist-electron/location.node/extra", "dist-electron/../dist-electron/location.node"]) {
+    expect(isExpectedNativeModule(path, true, "darwin")).toBe(false);
+    expect(isSignedMacHelper(path, "darwin")).toBe(false);
+  }
+  expect(isSignedMacHelper("dist-electron/location.node", "darwin")).toBe(true);
+  expect(isSignedMacHelper("dist-electron/screenbot-keys", "darwin")).toBe(true);
+});
+
+test.skipIf(process.platform !== "darwin")("universal native bundles require signed unchanged code in both architectures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-native-bundle-test-"));
+  const run = (args: string[]) => expect(Bun.spawnSync(args).exitCode).toBe(0);
+  try {
+    const input = join(root, "bridge.c"), original = join(root, "location.node"), packaged = join(root, "packaged.node");
+    const parts = ["x86_64", "arm64"].map(arch => join(root, arch));
+    await writeFile(input, "int fixture_location_bridge(void) { return 7; }\n");
+    for (const [i, arch] of ["x86_64", "arm64"].entries()) run(["cc", "-arch", arch, "-mmacosx-version-min=12.0", "-bundle", "-undefined", "dynamic_lookup", input, "-o", parts[i]!]);
+    const x64Signature = Bun.spawnSync(["codesign", "--verify", "--strict", parts[0]!]);
+    if (x64Signature.exitCode === 0) run(["codesign", "--remove-signature", parts[0]!]);
+    run(["lipo", "-create", ...parts, "-output", original]);
+    await copyFile(original, packaged);
+    run(["codesign", "--force", "--sign", "-", "--options", "runtime", "--identifier", "signed.location.fixture", packaged]);
+    const before = await readFile(original), signed = await readFile(packaged);
+    expect(before.equals(signed)).toBe(false);
+    expect(await matchesResignedMacExecutable(before, signed)).toBe(true);
+    expect(await matchesResignedMacExecutable(before, before)).toBe(false);
+    expect(await matchesResignedMacExecutable(before, await readFile(parts[1]!))).toBe(false);
+    await writeFile(input, "int fixture_location_bridge(void) { return 8; }\n");
+    for (const [i, arch] of ["x86_64", "arm64"].entries()) run(["cc", "-arch", arch, "-mmacosx-version-min=12.0", "-bundle", "-undefined", "dynamic_lookup", input, "-o", parts[i]!]);
+    run(["lipo", "-create", ...parts, "-output", packaged]);
+    run(["codesign", "--force", "--sign", "-", packaged]);
+    expect(await matchesResignedMacExecutable(before, await readFile(packaged))).toBe(false);
+    expect((await readFile(original)).equals(before)).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

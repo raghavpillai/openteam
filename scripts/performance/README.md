@@ -132,7 +132,7 @@ or substitute for a long-duration memory profile.
 
 `bun desktop:performance` performs a clean renderer/main/preload/utility build, reads the generated Vite manifest, and enforces startup, CSS, complete-renderer, and lazy-feature closure budgets.
 
-`bun desktop:performance:release` additionally removes electron-builder's generated `release` tree, rebuilds and packages the app, and requires current ASAR/ZIP/DMG artifacts. The gate compares every `dist` and `dist-electron` file byte-for-byte with `app.asar`, so a missing, mixed-generation, or stale package cannot pass.
+`bun desktop:performance:release` additionally removes electron-builder's generated `release` tree, rebuilds and packages the app, and requires current ASAR/ZIP/DMG artifacts. The gate compares every `dist` and `dist-electron` file with `app.asar`, so a missing, mixed-generation, or stale package cannot pass. On macOS, the exact first-party `screenbot-keys` and unpacked `location.node` helpers must have valid signatures in every architecture and unchanged code; only signing metadata is normalized. Other native addons, and a packed location addon, remain prohibited.
 
 Safety properties:
 

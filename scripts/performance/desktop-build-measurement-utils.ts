@@ -79,6 +79,18 @@ export async function matchesResignedMacExecutable(source: Buffer, packaged: Buf
   finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+/** Only these first-party macOS helpers may change through distribution signing. */
+export const isSignedMacHelper = (path: string, platform: NodeJS.Platform = process.platform) =>
+  platform === "darwin" &&
+  (path === "dist-electron/screenbot-keys" || path === "dist-electron/location.node");
+
+/** The location bridge is the sole supported native Node addon, and must be unpacked. */
+export const isExpectedNativeModule = (
+  path: string,
+  unpacked: boolean,
+  platform: NodeJS.Platform = process.platform
+) => platform === "darwin" && unpacked && path === "dist-electron/location.node";
+
 export const PACKAGED_APP_TOP_LEVEL = ["dist", "dist-electron", "package.json"] as const;
 
 export type ReleaseArtifactKind = "appImage" | "asar" | "dmg" | "nsis" | "zip";

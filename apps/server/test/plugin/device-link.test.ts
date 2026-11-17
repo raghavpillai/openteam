@@ -135,6 +135,22 @@ function fixture() {
 }
 
 describe("generic device link host lifecycle (fake DB/computer)", () => {
+  test("Connect starts QR approval with optional defaults and no configuration save", async () => {
+    const f = fixture();
+    f.connection.installation.manifest.setup = {
+      kind: "none", connectionKey: "device", fields: [
+        { key: "READ_ONLY", label: "Read-only", type: "boolean", default: false, required: false, secret: false },
+        { key: "LIMIT", label: "Limit", type: "integer", default: 100000, required: false, secret: false },
+      ],
+    };
+    f.connection.configuration.args = ["--read-only=${READ_ONLY}", "--limit=${LIMIT}"];
+    await f.connect();
+    expect(f.toolCalls("start_link")).toHaveLength(1);
+    expect(publicDeviceLink(f.connection.credentials)?.qrCodeDataUrl).toStartWith("data:image/png;base64,");
+    const discovery = f.calls.find(call => call.path.endsWith("/discover"));
+    expect(discovery?.body.configuration.args).toEqual(["--read-only=false", "--limit=100000"]);
+  });
+
   test("public QR projection whitelists fields and rejects expired/non-PNG/oversized payloads", () => {
     const link = { ...qr(), instructions: "Scan privately", privateToken: "synthetic-private", deviceLinkUri: "synthetic-uri" };
     expect(publicDeviceLink({ deviceLink: link })).toEqual({

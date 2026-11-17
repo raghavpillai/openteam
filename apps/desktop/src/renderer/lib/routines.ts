@@ -38,6 +38,67 @@ export const routineSummaryProjectionEqual = (
     );
   });
 
+const triggerRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const triggerStrings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+/** Every non-cron listener of a trigger (email, Slack, GitHub, webhook, ...), flattening groups. */
+export const routineEventListeners = (trigger: unknown): Array<Record<string, unknown>> => {
+  const record = triggerRecord(trigger);
+  if (!record) return [];
+  if (record.type === "group") {
+    return (Array.isArray(record.listeners) ? record.listeners : []).flatMap(routineEventListeners);
+  }
+  return typeof record.type === "string" && record.type !== "cron" ? [record] : [];
+};
+
+/** Describes one event listener for list rows and the editor's trigger list. */
+export const describeRoutineEventListener = (listener: Record<string, unknown>): string => {
+  switch (listener.type) {
+    case "webhook":
+      return "When a webhook is called";
+    case "email": {
+      const inbox = typeof listener.inbox === "string" ? listener.inbox : "";
+      const senders = triggerStrings(listener.from);
+      if (!inbox) return "When an email arrives";
+      return senders.length > 0
+        ? `When email arrives at ${inbox} from ${senders.join(", ")}`
+        : `When email arrives at ${inbox}`;
+    }
+    case "slack": {
+      const match = triggerRecord(listener.match);
+      if (match?.kind === "mention") return "When mentioned on Slack";
+      if (match?.kind === "keyword" && typeof match.keyword === "string") {
+        return `When "${match.keyword}" is mentioned on Slack`;
+      }
+      return match?.kind === "reaction" ? "On a Slack reaction" : "On a Slack message";
+    }
+    case "github":
+    case "origin": {
+      const repo = typeof listener.repo === "string" ? listener.repo : "";
+      return repo ? `On GitHub activity in ${repo}` : "On GitHub activity";
+    }
+    case "microsoftTeams":
+      return "On a Microsoft Teams message";
+    case "linear":
+      return "On a Linear event";
+    case "sentry":
+      return "On a Sentry event";
+    case "pagerduty":
+      return "On a PagerDuty event";
+    default:
+      return "On an event";
+  }
+};
+
+/** One label per event trigger of a routine; cron schedules are described separately. */
+export const routineEventTriggerLabels = (trigger: unknown): string[] =>
+  routineEventListeners(trigger).map(describeRoutineEventListener);
+
 export type RoutineSchedulePreset =
   | "hourly"
   | "daily"

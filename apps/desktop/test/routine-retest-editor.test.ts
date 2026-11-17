@@ -22,6 +22,7 @@ const stubExports = [
   "LoaderCircle",
   "Pause",
   "X",
+  "Zap",
   "Button",
   "ButtonPrimitive",
   "DropdownMenu",

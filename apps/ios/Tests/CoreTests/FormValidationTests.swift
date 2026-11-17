@@ -80,4 +80,22 @@ final class FormValidationTests: XCTestCase {
     value["scheduleKind"] = .string("event")
     XCTAssertFalse(try value.decode(Routine.self).scheduleIsEditable)
   }
+  func testEventRoutinesDescribeTheirTriggers() throws {
+    let base =
+      #"{"id":"r","name":"Routine","prompt":"Test","schedule":"Event: email","scheduleKind":"event","timezone":"UTC","enabled":true,"revision":1}"#
+    var value = try json(base)
+    XCTAssertEqual(try value.decode(Routine.self).scheduleSummary, "On an event")
+    value["trigger"] = .object(["type": .string("email"), "inbox": .string("a@b.com")])
+    XCTAssertEqual(try value.decode(Routine.self).scheduleSummary, "When email arrives at a@b.com")
+    value["trigger"] = .object([
+      "type": .string("group"),
+      "listeners": .array([
+        .object(["type": .string("webhook")]),
+        .object(["type": .string("slack"), "match": .object(["kind": .string("mention")])]),
+      ]),
+    ])
+    XCTAssertEqual(
+      try value.decode(Routine.self).scheduleSummary,
+      "When a webhook is called or When mentioned on Slack")
+  }
 }

@@ -9,6 +9,7 @@ import {
   describeRoutineSchedules,
   type RoutineScheduleDraft,
   type RoutineView,
+  routineEventTriggerLabels,
   routineIsRunning,
   routineScheduleDrafts,
   routineSummaryProjectionEqual,
@@ -80,11 +81,11 @@ export function RoutinesSummary({
     };
   }, [active, ownerId, ownerKind, visible]);
 
+  // Every routine is listed, including event-triggered ones (email, Slack, GitHub, webhook, ...).
   const sorted = useMemo(
     () => [
-      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && routine.enabled) ?? []),
-      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && !routine.enabled) ??
-        []),
+      ...(routines?.filter((routine) => routine.enabled) ?? []),
+      ...(routines?.filter((routine) => !routine.enabled) ?? []),
     ],
     [routines]
   );
@@ -149,10 +150,16 @@ function RoutineRows({
       {routines.map((routine) => {
         const running = routineIsRunning(routine);
         const schedules = routineScheduleDrafts(routine);
+        const parts = [
+          ...(schedules.length > 0 ? [describeRoutineSchedules(schedules)] : []),
+          ...routineEventTriggerLabels(routine.trigger),
+        ];
         const detail = routine.enabled
-          ? schedules.length > 0
-            ? describeRoutineSchedules(schedules)
-            : describeRoutineSchedule(cloneDefaultSchedule())
+          ? parts.length > 0
+            ? parts.join(" · ")
+            : routine.scheduleKind === "event"
+              ? "On an event"
+              : describeRoutineSchedule(cloneDefaultSchedule())
           : "Paused";
         return (
           <li key={routine.id}>

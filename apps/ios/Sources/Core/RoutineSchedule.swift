@@ -182,13 +182,61 @@ public struct RoutineScheduleDraft: Equatable, Sendable {
 }
 
 extension Routine {
-  public var scheduleSummary: String {
-    if scheduleKind == "event" { return "On an event" }
-    if let schedules, schedules.count > 1 {
-      return schedules.map { RoutineScheduleDraft(schedule: $0).summary() }.joined(
-        separator: " or ")
+  /// Human-readable descriptions of the non-cron listeners (email, Slack, GitHub, webhook, …),
+  /// with trigger groups flattened.
+  public var eventTriggerSummaries: [String] {
+    func listeners(_ trigger: JSON) -> [JSON] {
+      switch trigger["type"].string {
+      case "group": return trigger["listeners"].array.flatMap(listeners)
+      case "", "cron": return []
+      default: return [trigger]
+      }
     }
-    if trigger?["type"].string == "group" { return "Multiple triggers" }
-    return RoutineScheduleDraft(schedule: schedule).summary()
+    return listeners(trigger ?? .null).map(Routine.describeEventListener)
+  }
+
+  static func describeEventListener(_ listener: JSON) -> String {
+    switch listener["type"].string {
+    case "webhook": return "When a webhook is called"
+    case "email":
+      let inbox = listener["inbox"].string
+      let senders = listener["from"].array.map(\.string).filter { !$0.isEmpty }
+      if inbox.isEmpty { return "When an email arrives" }
+      if senders.isEmpty { return "When email arrives at \(inbox)" }
+      return "When email arrives at \(inbox) from \(senders.joined(separator: ", "))"
+    case "slack":
+      let match = listener["match"]
+      switch match["kind"].string {
+      case "mention": return "When mentioned on Slack"
+      case "keyword": return "When \"\(match["keyword"].string)\" is mentioned on Slack"
+      case "reaction": return "On a Slack reaction"
+      default: return "On a Slack message"
+      }
+    case "github", "origin":
+      let repo = listener["repo"].string
+      return repo.isEmpty ? "On GitHub activity" : "On GitHub activity in \(repo)"
+    case "microsoftTeams": return "On a Microsoft Teams message"
+    case "linear": return "On a Linear event"
+    case "sentry": return "On a Sentry event"
+    case "pagerduty": return "On a PagerDuty event"
+    default: return "On an event"
+    }
+  }
+
+  public var scheduleSummary: String {
+    let events = eventTriggerSummaries
+    if scheduleKind == "event" {
+      return events.isEmpty ? "On an event" : events.joined(separator: " or ")
+    }
+    var parts: [String] = []
+    if let schedules, schedules.count > 1 {
+      parts.append(
+        schedules.map { RoutineScheduleDraft(schedule: $0).summary() }.joined(separator: " or "))
+    } else if events.isEmpty, trigger?["type"].string == "group" {
+      return "Multiple triggers"
+    } else {
+      parts.append(RoutineScheduleDraft(schedule: schedule).summary())
+    }
+    return (parts + events).joined(separator: " or ")
   }
 }

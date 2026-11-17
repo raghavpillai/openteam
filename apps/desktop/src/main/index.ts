@@ -78,6 +78,7 @@ import {
   parseDesktopReleaseManifest,
 } from "./update-status";
 import { DesktopDownloadGate } from "./update-download";
+import { readNativePosition } from "./location";
 
 let mainWindow: BrowserWindow | null = null;
 const isMainWindowVisible = () => Boolean(mainWindow && windowIsVisible(mainWindow));
@@ -890,8 +891,20 @@ ipcMain.handle("openteam:microphone:open-settings", async (event) => {
   }
 });
 
+const requireLocationWindow = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error("Location settings are unavailable");
+  }
+};
+
+ipcMain.handle("openteam:location:read-position", (event) => {
+  requireLocationWindow(event);
+  if (process.platform !== "darwin") throw new Error("Native location is only available on macOS.");
+  return readNativePosition(join(app.getAppPath(), "dist-electron", "location.node"));
+});
+
 ipcMain.handle("openteam:location:open-settings", async (event) => {
-  requireMicrophoneWindow(event);
+  requireLocationWindow(event);
   if (process.platform === "darwin") {
     await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices");
   } else if (process.platform === "win32") {

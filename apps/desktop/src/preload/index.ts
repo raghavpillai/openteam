@@ -267,6 +267,9 @@ contextBridge.exposeInMainWorld("openteam", {
 
   },
   location: {
+    ...(process.platform === "darwin" ? {
+      readPosition: () => ipcRenderer.invoke("openteam:location:read-position"),
+    } : {}),
     openSettings: () => ipcRenderer.invoke("openteam:location:open-settings"),
   },
   microphone: {

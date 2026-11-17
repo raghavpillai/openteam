@@ -46,18 +46,28 @@ const toLocation = (position: GeolocationPosition): DeviceLocation => ({
 export const readPosition = (timeoutMs = 20_000): Promise<DeviceLocation> => {
   if (pending) return pending;
   const owner = generation;
-  const request = new Promise<DeviceLocation>((resolve, reject) => {
-    if (!navigator.geolocation)
-      return reject(new Error("Location is not available on this computer."));
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const location = toLocation(position);
-        if (owner === generation) latest = location;
-        resolve(location);
-      },
-      (error) => reject(error),
-      { enableHighAccuracy: false, maximumAge: FRESH_MS, timeout: timeoutMs }
-    );
+  const read = async (): Promise<DeviceLocation> => {
+    // Electron's Chromium provider needs a Google API key. On macOS, ask
+    // Core Location in the main process instead, under the app's own identity.
+    const native = window.openteam?.location?.readPosition;
+    if (native) {
+      const result = await native();
+      if ("error" in result) throw Object.assign(new Error(result.error.message), { code: result.error.code });
+      return result.location;
+    }
+    return new Promise<DeviceLocation>((resolve, reject) => {
+      if (!navigator.geolocation)
+        return reject(new Error("Location is not available on this computer."));
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(toLocation(position)),
+        (error) => reject(error),
+        { enableHighAccuracy: false, maximumAge: FRESH_MS, timeout: timeoutMs }
+      );
+    });
+  };
+  const request = read().then((location) => {
+    if (owner === generation) latest = location;
+    return location;
   }).finally(() => {
     if (pending === request) pending = undefined;
   });

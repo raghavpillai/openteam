@@ -133,6 +133,7 @@ interface Window {
 
     };
     location?: {
+      readPosition?: () => Promise<import("./lib/location-types").NativeLocationResult>;
       openSettings: () => Promise<void>;
     };
     microphone: {

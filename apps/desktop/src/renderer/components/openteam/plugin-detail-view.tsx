@@ -5,10 +5,11 @@ PluginCatalogItemView,
 PluginConnectionView,
 PluginInstallView,
 PluginSettingsView,
+PluginConfigurationView,
 } from "@openteam/contracts";
 import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { validateValues } from "@openteam/plugin-sdk/configuration";
+import type { ConfigValue } from "@openteam/plugin-sdk";
 import {
 Check,
 ChevronDown,
@@ -24,6 +25,7 @@ import { Accordion } from "radix-ui";
 import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
+import { pluginSetupValues } from "../../lib/plugin-setup-values";
 import { AnimatedCollapse } from "../ui/animated-collapse";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
 const PluginAuthSelect = lazy(() =>
@@ -31,6 +33,8 @@ const PluginAuthSelect = lazy(() =>
 );
 
 import { AddPluginAccount,PluginAccountRow } from "./plugins/plugin-accounts";
+import { PluginPreferences } from "./plugins/plugin-preferences";
+import { PluginSetupFields } from "./plugins/plugin-setup-fields";
 import { PluginMark } from "./plugins/plugin-mark";
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
@@ -410,7 +414,7 @@ function PluginSetupCard({
   onAuthenticate: () => void;
   onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
   onConfigureToken: (token: string) => void;
-  onConfigureValues: (values: Record<string, string>) => void;
+  onConfigureValues: (values: Record<string, ConfigValue>) => void;
   onDismiss: () => void;
 }) {
   const setup = plugin.setup;
@@ -436,7 +440,7 @@ function PluginSetupCard({
   const ready = connection.status === "ready";
   const requiresHttps = connection.oauthCallbackMode === "manual" && connection.manualCallbackSupported === false;
   const missingRequired = setup.fields.some(
-    (field) => field.required && !values[field.key]?.trim()
+    (field) => field.required && !values[field.key]?.trim() && field.default === undefined
   );
   const copy = async (label: string, value: string) => {
     await navigator.clipboard.writeText(value);
@@ -459,15 +463,8 @@ function PluginSetupCard({
     }
     // Save account setup (including a remote URL) before OAuth discovery.
     if ((setup.kind === "none" || setup.kind === "oauth") && !connection.configured && setup.fields.length) {
-      const submitted = Object.fromEntries(
-          setup.fields
-            .filter((field) => values[field.key]?.trim())
-            .map((field) => [
-              field.key,
-              field.secret ? values[field.key]! : values[field.key]!.trim(),
-            ])
-        );
-      try { validateValues(setup.fields, submitted); } catch (error) {
+      let submitted: Record<string, ConfigValue>;
+      try { submitted = pluginSetupValues(setup.fields, values); } catch (error) {
         setValidationError(error instanceof Error ? error.message : "Check the connection details.");
         return;
       }
@@ -617,32 +614,10 @@ function PluginSetupCard({
           ) : null}
 
           {setup.fields.length && !connection.configured ? (
-            <div className="mt-3 grid grid-cols-2 gap-2 max-sm:grid-cols-1">
-              {setup.fields.map((field) => (
-                <label className={cn("space-y-1", field.format === "mcp-url" && "col-span-2 max-sm:col-span-1")} key={field.key}>
-                  <span className="block text-[10px] font-medium text-foreground-secondary">
-                    {field.label}
-                  </span>
-                  <input
-                    aria-label={field.label}
-                    required={field.required}
-                    className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[10.5px] outline-none placeholder:text-foreground-tertiary focus:border-black/20 dark:border-white/10 dark:bg-[#1d1d1d] dark:focus:border-white/20"
-                    onChange={(event) => {
-                      setValues((current) => ({ ...current, [field.key]: event.target.value }));
-                      setValidationError(null);
-                    }}
-                    placeholder={field.placeholder}
-                    type={field.secret ? "password" : field.format === "mcp-url" ? "url" : "text"}
-                    value={values[field.key] ?? ""}
-                  />
-                  {field.helpText ? (
-                    <span className="block text-[9.5px] leading-3.5 text-foreground-tertiary">
-                      {field.helpText}
-                    </span>
-                  ) : null}
-                </label>
-              ))}
-            </div>
+            <PluginSetupFields fields={setup.fields} values={values} onChange={(key, value) => {
+              setValues(current => ({ ...current, [key]: value }));
+              setValidationError(null);
+            }} />
           ) : connection.configured && setup.fields.length ? (
             <div className="mt-3 text-[10px] text-foreground-secondary">
               Settings saved. {connection.status === "ready" ? "Connection verified." : "A successful connection is required to verify access."}
@@ -655,17 +630,19 @@ function PluginSetupCard({
               {connection.statusMessage}
             </p>
           ) : null}
-          <ButtonPrimitive
-            data-setup-action
-            className={cn(primaryButton, "mt-3")}
-            disabled={busy || requiresHttps || (!connection.configured && missingRequired)}
-            onClick={submit}
-            type="button"
-            loading={busy}
-          >
-            {requiresHttps ? "HTTPS required" : actionLabel}
-          </ButtonPrimitive>
-          <ButtonPrimitive className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</ButtonPrimitive>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <ButtonPrimitive
+              data-setup-action
+              className={primaryButton}
+              disabled={busy || requiresHttps || (!connection.configured && missingRequired)}
+              onClick={submit}
+              type="button"
+              loading={busy}
+            >
+              {requiresHttps ? "HTTPS required" : actionLabel}
+            </ButtonPrimitive>
+            <ButtonPrimitive className={secondaryButton} type="button" disabled={busy} onClick={onDismiss}>Set up later</ButtonPrimitive>
+          </div>
         </div>
       ) : null}
     </section>
@@ -683,6 +660,7 @@ function ConnectionSettingsRow({
   onRemove,
   onRename,
   onRestart,
+  onSavePreferences,
 }: {
   busy: boolean;
   connection: PluginConnectionView;
@@ -694,6 +672,7 @@ function ConnectionSettingsRow({
   onRemove: () => void;
   onRename: (alias: string) => void;
   onRestart: () => void;
+  onSavePreferences: (values: Record<string, ConfigValue>) => Promise<boolean>;
 }) {
   const [alias, setAlias] = useState(connection.alias);
   const [instructions, setInstructions] = useState(connection.instructions);
@@ -703,7 +682,8 @@ function ConnectionSettingsRow({
   const [oauthScope, setOauthScope] = useState("");
   const [callbackMode, setCallbackMode] = useState<OAuthCallbackSettings["oauthCallbackMode"]>("auto");
   const [manualSupported, setManualSupported] = useState(true);
-  useEffect(() => { let active = true; void api.pluginConfiguration(connection.id).then(config => { if (active) { setCallbackMode(config.oauthCallbackMode ?? "auto"); setManualSupported(config.manualCallbackSupported !== false); } }).catch(() => {}); return () => { active = false; }; }, [connection.id]);
+  const [configuration, setConfiguration] = useState<PluginConfigurationView | null>(null);
+  useEffect(() => { let active = true; void api.pluginConfiguration(connection.id).then(config => { if (active) { setConfiguration(config); setCallbackMode(config.oauthCallbackMode ?? "auto"); setManualSupported(config.manualCallbackSupported !== false); } }).catch(() => {}); return () => { active = false; }; }, [connection.id]);
   const [callbackPort, setCallbackPort] = useState(connection.oauthLoopbackPort ?? 0);
   const field =
     "h-8 rounded-[7px] border border-black/[0.08] bg-background px-2 text-[10.5px] outline-none dark:border-white/10 dark:bg-[#1d1d1d]";
@@ -860,6 +840,11 @@ function ConnectionSettingsRow({
           </ButtonPrimitive>
         </div>
       ) : null}
+      <PluginPreferences config={configuration} busy={busy} onSave={async values => {
+        const saved = await onSavePreferences(values);
+        if (saved) setConfiguration(current => current ? { ...current, values: { ...current.values, ...values } } : current);
+        return saved;
+      }} />
       <ButtonPrimitive
         className="mt-3 text-[10.5px] text-red-600 hover:underline dark:text-red-400"
         disabled={busy}
@@ -884,6 +869,7 @@ export function PluginDetail({
   onConfigureOAuth,
   onConfigureCallback,
   onConfigureValues,
+  onSavePreferences,
   onInstructions,
   onInstall,
   onRemoveAccount,
@@ -905,7 +891,8 @@ export function PluginDetail({
     input: { clientId: string; clientSecret: string; scope: string }
   ) => void;
   onConfigureCallback?: (connection: PluginConnectionView, input: OAuthCallbackSettings) => void;
-  onConfigureValues: (connection: PluginConnectionView, values: Record<string, string>) => void;
+  onConfigureValues: (connection: PluginConnectionView, values: Record<string, ConfigValue>) => void;
+  onSavePreferences: (connection: PluginConnectionView, values: Record<string, ConfigValue>) => Promise<boolean>;
   onInstructions: (connection: PluginConnectionView, instructions: string) => void;
   onInstall: (plugin: PluginCatalogItemView, values?: Record<string, string>) => void;
   onRemoveAccount: (connection: PluginConnectionView) => void;
@@ -924,7 +911,7 @@ export function PluginDetail({
   const connections = install?.connections ?? [];
   const setupConnection =
     connections.find((c) => c.id === setupRequest?.accountId && c.status !== "ready") ??
-    connections.find((c) => !dismissedSetupIds.includes(c.id) && c.status !== "ready" && (!c.configured || plugin.setup?.kind === "none"));
+    connections.find((c) => !dismissedSetupIds.includes(c.id) && c.status !== "ready" && !c.configured);
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
@@ -1075,6 +1062,7 @@ export function PluginDetail({
                   onRemove={() => onRemoveAccount(connection)}
                   onRename={(alias) => onRename(connection, alias)}
                   onRestart={() => onRestart(connection)}
+                  onSavePreferences={(values) => onSavePreferences(connection, values)}
                 />
                 {connection.status === "ready" && (
                   <ButtonPrimitive

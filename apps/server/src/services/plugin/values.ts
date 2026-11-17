@@ -7,16 +7,31 @@ import type { Prisma } from "@openteam/db";
 import { toJson } from "../service-utils";
 import { pluginIconUrl, substituteConfiguration, fieldsForConnector, validateValues, type ConfigValue, type PluginDefinition, type PluginToolDefinition } from "@openteam/plugin-sdk";
 
-export function runtimeConfiguration(connection: {
+type ConfiguredConnection = {
   configuration: Prisma.JsonValue;
   credentials?: Prisma.JsonValue;
-}): JsonObject {
+  connectorKey?: string;
+  installation?: { manifest: unknown };
+};
+
+function connectionValues(connection: ConfiguredConnection, plugin?: PluginDefinition) {
+  const definition = plugin ?? definitionFromManifest(connection.installation?.manifest);
+  const defaults = definition && connection.connectorKey
+    ? Object.fromEntries(fieldsForConnector(definition, connection.connectorKey)
+        .filter(field => field.default !== undefined)
+        .map(field => [field.key, field.default]))
+    : {};
+  return {
+    ...defaults,
+    ...jsonObject(jsonObject(connection.configuration).values),
+    ...jsonObject(jsonObject(connection.credentials).values),
+  } as Record<string, ConfigValue>;
+}
+
+export function runtimeConfiguration(connection: ConfiguredConnection, plugin?: PluginDefinition): JsonObject {
   const config = jsonObject(connection.configuration);
   const credentials = jsonObject(connection.credentials);
-  const values = { ...jsonObject(config.values), ...jsonObject(credentials.values) } as Record<
-    string,
-    ConfigValue
-  >;
+  const values = connectionValues(connection, plugin);
   const resolved = jsonObject(
     substituteConfiguration(
       {
@@ -39,17 +54,10 @@ export function runtimeConfiguration(connection: {
   return resolved;
 }
 
-export function runtimeEndpoint(connection: {
+export function runtimeEndpoint(connection: ConfiguredConnection & {
   endpoint: string | null;
-  configuration: Prisma.JsonValue;
-  credentials?: Prisma.JsonValue;
 }): string | null {
-  const config = jsonObject(connection.configuration);
-  const credentials = jsonObject(connection.credentials);
-  const values = { ...jsonObject(config.values), ...jsonObject(credentials.values) } as Record<
-    string,
-    ConfigValue
-  >;
+  const values = connectionValues(connection);
   const endpoint = substituteConfiguration(connection.endpoint, values);
   return typeof endpoint === "string" ? endpoint : null;
 }
@@ -369,7 +377,7 @@ export function connectionConfigured(connection: {
   credentials: unknown;
   connectorKey?: string;
 }, plugin?: PluginDefinition): boolean {
-  const configuration = runtimeConfiguration({ configuration: connection.configuration as Prisma.JsonValue, credentials: connection.credentials as Prisma.JsonValue });
+  const configuration = runtimeConfiguration({ connectorKey: connection.connectorKey, configuration: connection.configuration as Prisma.JsonValue, credentials: connection.credentials as Prisma.JsonValue }, plugin);
   if (hasPlaceholder(configuration)) return false;
   if (plugin && connection.connectorKey) {
     const credentials = jsonObject(connection.credentials);

@@ -578,6 +578,12 @@ export function PluginDialog({
                   return api.connectPlugin(connection.id);
                 })
               }
+              onSavePreferences={(connection, values) =>
+                mutate(connection.id, async () => {
+                  await api.savePluginConfiguration(connection.id, { values });
+                  if (connection.status === "ready") await api.connectPlugin(connection.id);
+                })
+              }
               onInstructions={(connection, instructions) =>
                 void mutate(connection.id, () =>
                   api.setMcpInstructions(connection.id, instructions)

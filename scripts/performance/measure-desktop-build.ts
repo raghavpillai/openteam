@@ -4,6 +4,8 @@ import { extname, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   isReleaseArtifactLocation,
+  isSignedMacHelper,
+  isExpectedNativeModule,
   matchesResignedMacExecutable,
   releaseArtifactKind,
   validatePackagedPackageJson,
@@ -153,9 +155,9 @@ const readAsarInventory = async (path: string) => {
         if (packaged.unpacked) {
           try {
             const packagedBytes = await readFile(resolve(`${path}.unpacked`, current.packagePath));
-            if (sourceBytes.equals(packagedBytes) ||
-              (current.packagePath === "dist-electron/screenbot-keys" &&
-                await matchesResignedMacExecutable(sourceBytes, packagedBytes))) matched += 1;
+            if (isSignedMacHelper(current.packagePath)
+              ? await matchesResignedMacExecutable(sourceBytes, packagedBytes)
+              : sourceBytes.equals(packagedBytes)) matched += 1;
             else changed.push(current.packagePath);
           } catch {
             missing.push(current.packagePath);
@@ -226,7 +228,8 @@ const readAsarInventory = async (path: string) => {
           nodeModules: paths.filter((candidate) => candidate.includes("node_modules/")),
           sourceMaps: paths.filter((candidate) => candidate.endsWith(".map")),
           wasm: paths.filter((candidate) => candidate.endsWith(".wasm")),
-          nativeModules: paths.filter((candidate) => candidate.endsWith(".node")),
+          nativeModules: paths.filter((candidate) => candidate.endsWith(".node") &&
+            !isExpectedNativeModule(candidate, entries.get(candidate)?.unpacked === true)),
           stalePreload: paths.filter((candidate) => candidate.endsWith("/preload.js")),
           missingTopLevel: topLevelValidation.missing,
           unexpectedTopLevel: topLevelValidation.unexpected,

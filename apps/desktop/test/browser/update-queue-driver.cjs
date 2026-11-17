@@ -40,12 +40,20 @@ app.whenReady().then(async () => {
   await js("updateDemo.offline=true");
   await delay(1700);
   await assert("updateDemo.downloads===0 && document.querySelector('[data-update-queue]').dataset.updateQueue==='running'", "server restart does not advance the queue");
+  await js("updateDemo.emit({status:'downloaded',progress:100})");
+  await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('The server is updating first')", "predownloaded desktop still waits for server");
+  await assert("[...document.querySelectorAll('[role=alertdialog] button')].find(b=>b.textContent.trim()==='Restart to update').disabled && updateDemo.installs===0", "restart is blocked while server is unverified");
+  await click("Not now");
+  await js("updateDemo.emit({status:'available',progress:null})");
   await js("updateDemo.offline=false;updateDemo.events.push('server-verified');updateDemo.server({status:'updated',phase:'complete',currentVersion:'0.0.19'})");
   await wait("updateDemo.downloads===1", "desktop starts after verified server reconnect");
+  await assert("JSON.stringify(updateDemo.downloadTargets)==='[\"0.0.19\"]'", "queued download passes the reviewed version to the native bridge");
   await assert("JSON.stringify(updateDemo.events)==='[\"server-start\",\"server-verified\",\"desktop-download\"]'", "server and desktop execute in order");
   await js("updateDemo.emit({status:'downloaded',progress:100})");
   await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='complete'", "queue finishes at ready-to-restart");
   await assert("updateDemo.installs===0", "queue never auto restarts");
+  // The predownloaded-version prompt was already dismissed; the app notifies once per version.
+  if (!await js("document.querySelector('[role=alertdialog]')")) await click("Restart to update");
   await click("Not now");
   await shot("02-ready-to-restart");
 
@@ -68,6 +76,24 @@ app.whenReady().then(async () => {
   await click("Not now");
 
   await load("?manual");
+  await js("updateDemo.hangDownload=true");
+  await click("Update both…");
+  await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('No bots are working')", "stalled-download review ready");
+  await click("Update both");
+  await wait("updateDemo.posts.length===1", "stalled-download server started");
+  await js("updateDemo.server({status:'updated',phase:'complete',currentVersion:'0.0.19'})");
+  await wait("updateDemo.downloads===1 && updateDemo.state().desktop.status==='downloading'", "native download is in progress");
+  await js("updateDemo.clockOffset+=31*60*1000;updateDemo.server({updaterAvailable:false})");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='error'", "a hanging native download reaches its deadline");
+  await assert("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Retry queue')?.disabled===false", "retry is available while desktop download is stalled and the host updater is unavailable");
+  await click("Retry queue");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='running' && document.querySelector('[data-update-queue]')?.textContent.includes('Downloading')", "retry resumes watching the native download");
+  await assert("updateDemo.downloads===1 && updateDemo.posts.length===1", "retry does not submit duplicate server or desktop downloads");
+  await js("updateDemo.emit({status:'downloaded',progress:100})");
+  await wait("document.querySelector('[data-update-queue]')?.dataset.updateQueue==='complete'", "retried native download completes");
+  await click("Not now");
+
+  await load("?manual");
   await js("updateDemo.busy=true");
   await click("Update both…");
   await wait("document.querySelector('[role=alertdialog]')?.textContent.includes('1 bot is still working')", "confirmation reports busy bots");
@@ -79,7 +105,7 @@ app.whenReady().then(async () => {
   await delay(200);
   await assert("document.documentElement.scrollWidth<=innerWidth", "narrow view fits");
   await shot("05-narrow");
-  fs.writeFileSync(path.join(process.argv[3], "results.json"), JSON.stringify({ passed, scenarios: ["independent server update", "independent desktop update", "read-only review and cancel", "server before desktop", "reconnect gate", "explicit restart", "server failure blocks desktop", "retry preserves completed work", "busy bots", "dark and narrow layouts"] }, null, 2));
+  fs.writeFileSync(path.join(process.argv[3], "results.json"), JSON.stringify({ passed, scenarios: ["independent server update", "independent desktop update", "read-only review and cancel", "server before desktop", "reconnect gate", "predownloaded restart gate", "explicit restart", "server failure blocks desktop", "retry preserves completed work", "hung native download deadline and retry", "busy bots", "dark and narrow layouts"] }, null, 2));
   console.log(`${passed} update queue UI checks passed`);
   app.quit();
 }).catch((error) => { console.error(error); app.exit(1); });

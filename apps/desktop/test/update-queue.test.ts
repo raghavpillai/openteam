@@ -92,6 +92,113 @@ describe("independent update targets", () => {
 });
 
 describe("server-first update queue", () => {
+  test("a desktop release change during download does not complete the reviewed queue", async () => {
+    const f = fixture();
+    f.deps.downloadDesktop = async () => {
+      f.setDesktop({ status: "downloaded", latestVersion: "0.1.0" });
+    };
+    const queue = new UpdateQueue(f.deps);
+    await queue.start("0.0.19");
+    expect(queue.snapshot()?.status).toBe("error");
+  });
+  test("a native download that never resolves times out instead of locking the queue", async () => {
+    const f = fixture();
+    let time = 0;
+    f.deps.now = () => time;
+    f.deps.downloadDesktop = async () => {
+      f.calls.push("desktop-download");
+      f.setDesktop({ status: "downloading", progress: 10 });
+      return new Promise<void>(() => {});
+    };
+    f.deps.wait = async () => {
+      time += 31 * 60_000;
+      f.server.version = "0.0.19";
+      f.server.update.status = "updated";
+    };
+    const queue = new UpdateQueue(f.deps);
+    const result = await Promise.race([
+      queue.start("0.0.19").then(() => "settled"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 30)),
+    ]);
+    expect(result).toBe("settled");
+    expect(queue.snapshot()).toMatchObject({
+      status: "error",
+      serverComplete: true,
+      step: "desktop",
+    });
+  });
+  test("reopening a desktop step rechecks a previously verified server before downloading", async () => {
+    const f = fixture();
+    const queue = new UpdateQueue(f.deps, {
+      targetVersion: "0.0.19",
+      status: "running",
+      step: "desktop",
+      serverComplete: true,
+      serverRequested: true,
+      message: "Preparing desktop",
+    });
+    await queue.resume();
+    expect(queue.snapshot()?.status).toBe("error");
+    expect(f.calls).toContain("server-status");
+    expect(f.calls).not.toContain("desktop-download");
+    expect(f.calls.some((call) => call.startsWith("server-start"))).toBe(false);
+  });
+  test("retrying desktop preserves host acknowledgement while reconnecting", async () => {
+    const f = fixture();
+    const original = f.deps.server;
+    let online = false;
+    f.deps.server = async () => {
+      if (!online) throw new Error("Offline");
+      return original();
+    };
+    f.deps.wait = async () => {
+      // A renderer closed here must still reopen as an observer of the old host request.
+      expect(f.saved()).toMatchObject({ serverRequested: true, serverComplete: false });
+      online = true;
+      f.server.version = "0.0.19";
+      f.server.update.status = "updated";
+    };
+    const queue = new UpdateQueue(f.deps, {
+      targetVersion: "0.0.19",
+      status: "error",
+      step: "desktop",
+      serverComplete: true,
+      serverRequested: true,
+      message: "Download interrupted",
+    });
+    await queue.retry();
+    expect(queue.snapshot()?.status).toBe("complete");
+    expect(f.calls.some((call) => call.startsWith("server-start"))).toBe(false);
+  });
+  test("adopting an existing host job saves that it must not be automatically submitted again", async () => {
+    const f = fixture();
+    f.server.update = { ...f.server.update, status: "updating", targetVersion: "0.0.19" };
+    let checkpoint: UpdateQueueState | null = null;
+    f.deps.wait = async () => {
+      checkpoint = f.saved();
+      f.server.version = "0.0.19";
+      f.server.update.status = "updated";
+    };
+    await new UpdateQueue(f.deps).start("0.0.19");
+    expect(checkpoint).toMatchObject({
+      status: "running",
+      serverRequested: true,
+      serverComplete: false,
+    });
+    expect(f.calls.some((call) => call.startsWith("server-start"))).toBe(false);
+    f.calls.length = 0;
+    f.server.version = "0.0.18";
+    f.server.update.status = "error";
+    f.server.update.message = "The adopted update failed";
+    const resumed = new UpdateQueue(f.deps, checkpoint);
+    await resumed.resume();
+    expect(resumed.snapshot()).toMatchObject({
+      status: "error",
+      message: "The adopted update failed",
+    });
+    expect(f.calls.some((call) => call.startsWith("server-start"))).toBe(false);
+    expect(f.calls).not.toContain("desktop-download");
+  });
   test("verifies server before downloading desktop; never installs or restarts automatically", async () => {
     const f = fixture();
     const queue = new UpdateQueue(f.deps);

@@ -88,7 +88,6 @@ export function UpdateQueueSettings({
             {state.status === "error" ? (
               <Button
                 className={settingsSecondaryButton}
-                disabled={disabled}
                 size="xs"
                 onClick={() => void retry()}
               >

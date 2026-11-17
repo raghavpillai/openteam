@@ -20,7 +20,7 @@ export interface UpdateQueueDependencies {
   startServer: (version: string) => Promise<unknown>;
   desktop: () => Promise<OpenTeamUpdateStatus>;
   checkDesktop: () => Promise<OpenTeamUpdateStatus>;
-  downloadDesktop: () => Promise<void>;
+  downloadDesktop: (version: string) => Promise<void>;
   wait: () => Promise<void>;
   now: () => number;
   save: (state: UpdateQueueState | null) => void;
@@ -89,7 +89,7 @@ export class UpdateQueue {
     if (this.state?.status !== "error" || this.running) return;
     this.publish({
       status: "running",
-      serverRequested: false,
+      serverRequested: this.state.serverComplete ? this.state.serverRequested : false,
       message: "Checking update progress…",
     });
     await this.run();
@@ -100,9 +100,11 @@ export class UpdateQueue {
     this.running = true;
     const deps = this.dependencies;
     const target = this.state.targetVersion;
-    this.publish({ status: "running" });
+    const previouslyComplete = this.state.serverComplete;
+    // A persisted checkpoint is history, not a fresh health check or permission to restart.
+    this.publish({ status: "running", serverComplete: false, step: "server" });
     try {
-      if (!this.state.serverComplete) {
+      {
         this.publish({ step: "server", message: "Checking the connected server…" });
         const reconnectDeadline = deps.now() + 15 * 60_000;
         let current = await deps.server().catch(() => null);
@@ -113,8 +115,14 @@ export class UpdateQueue {
           await deps.wait();
           current = await deps.server().catch(() => null);
         }
-        if (this.state.serverRequested && current.update.status === "error")
+        if ((this.state.serverRequested || previouslyComplete) && current.update.status === "error")
           throw new Error(current.update.message || "The server update failed.");
+        if (previouslyComplete && (compareOpenTeamVersions(current.version, target) ?? -1) < 0)
+          throw new Error(
+            "The server is no longer on the queued release. Retry to update the server before continuing."
+          );
+        if (current.update.phase === "rolling-back")
+          throw new Error("The server is restoring its previous version. Desktop update paused.");
         if (
           (compareOpenTeamVersions(current.version, target) ?? -1) < 0 ||
           current.update.status === "updating"
@@ -124,6 +132,8 @@ export class UpdateQueue {
               throw new Error(
                 "A different server update is already running. Wait for it to finish."
               );
+            // An adopted host job must also remain observation-only after reopening.
+            this.publish({ serverRequested: true });
           } else {
             if (this.state.serverRequested)
               throw new Error(
@@ -160,7 +170,7 @@ export class UpdateQueue {
               throw new Error("The server restarted on an older version. Desktop update paused.");
           }
         }
-        this.publish({ serverComplete: true });
+        this.publish({ serverComplete: true, serverRequested: true });
       }
       this.publish({ step: "desktop", message: "Server updated. Preparing the desktop update…" });
       let desktop = await deps.desktop();
@@ -171,21 +181,38 @@ export class UpdateQueue {
         return;
       }
       if (desktop.latestVersion !== target)
-        throw new Error("The desktop release changed. Check for updates and start a new queue.");
+        throw new Error(
+          "The desktop release changed. Check for updates, then update the desktop separately."
+        );
+      const deadline = deps.now() + 30 * 60_000;
+      let download: { settled: boolean; failed: boolean; error?: unknown } | null = null;
       if (desktop.status === "available") {
         this.publish({ message: "Server updated. Downloading the desktop update…" });
-        await deps.downloadDesktop();
+        // Electron's download IPC resolves only after the entire download finishes. Observe it
+        // without blocking polling, so a hung request cannot bypass the deadline or progress UI.
+        const request = { settled: false, failed: false, error: undefined as unknown };
+        download = request;
+        void deps.downloadDesktop(target).then(
+          () => {
+            request.settled = true;
+          },
+          (error: unknown) => {
+            request.settled = true;
+            request.failed = true;
+            request.error = error;
+          }
+        );
         desktop = await deps.desktop();
-        if (desktop.status === "available") {
-          this.publish({
-            status: "complete",
-            message: "Server updated. Complete the desktop update from the download page.",
-          });
-          return;
-        }
       }
-      const deadline = deps.now() + 30 * 60_000;
-      while (desktop.status === "downloading") {
+      while (
+        desktop.status === "downloading" ||
+        (desktop.status === "available" && download && !download.settled)
+      ) {
+        if (download?.failed) throw download.error;
+        if (desktop.latestVersion !== target)
+          throw new Error(
+            "The desktop release changed. Check for updates, then update the desktop separately."
+          );
         this.publish({
           message: `Server updated. Downloading desktop ${Math.round(desktop.progress ?? 0)}%.`,
         });
@@ -195,6 +222,18 @@ export class UpdateQueue {
           );
         await deps.wait();
         desktop = await deps.desktop();
+      }
+      if (download?.failed) throw download.error;
+      if (desktop.latestVersion !== target)
+        throw new Error(
+          "The desktop release changed. Check for updates, then update the desktop separately."
+        );
+      if (desktop.status === "available" && download?.settled) {
+        this.publish({
+          status: "complete",
+          message: "Server updated. Complete the desktop update from the download page.",
+        });
+        return;
       }
       if (!["downloaded", "installing"].includes(desktop.status))
         throw new Error(

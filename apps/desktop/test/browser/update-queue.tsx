@@ -52,7 +52,10 @@ const demo = {
   offline: false,
   failServer: false,
   failDownload: false,
+  hangDownload: false,
+  clockOffset: 0,
   downloads: 0,
+  downloadTargets: [] as Array<string | null>,
   installs: 0,
   posts: [] as string[],
   events: [] as string[],
@@ -67,6 +70,8 @@ const demo = {
   state: () => ({ desktop, server }),
 };
 (window as unknown as { updateDemo: typeof demo }).updateDemo = demo;
+const realNow = Date.now;
+Date.now = () => realNow() + demo.clockOffset;
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(
     typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
@@ -139,11 +144,15 @@ window.openteam = {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async openDownload() {
+    async openDownload(expectedVersion?: string) {
+      if (expectedVersion && expectedVersion !== desktop.latestVersion)
+        throw new Error("The desktop release changed");
+      demo.downloadTargets.push(expectedVersion ?? null);
       demo.downloads++;
       demo.events.push("desktop-download");
       if (demo.failDownload) throw new Error("Desktop download interrupted");
       demo.emit({ status: "downloading", progress: 0, message: "Starting desktop download…" });
+      if (demo.hangDownload) return new Promise<void>(() => {});
       if (!demo.auto) return;
       for (const progress of [24, 53, 81, 100]) {
         await pause(demo.duration / 2);

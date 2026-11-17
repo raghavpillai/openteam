@@ -71,6 +71,7 @@ import {
 import { readManagedInstallation } from "./local-installation";
 import { bindWindowActivity, windowIsActive, windowIsVisible } from "./window-activity";
 import {
+  assertDesktopUpdateTarget,
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
   hasDesktopUpdateFeed,
@@ -145,7 +146,9 @@ const configureDesktopUpdater = async (): Promise<AppUpdater | null> => {
   if (desktopUpdaterConfigured) return autoUpdater;
   desktopUpdaterConfigured = true;
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Quitting during a server-first queue must not install a predownloaded desktop early.
+  // Installation belongs to the explicit "Restart to update" action.
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.disableWebInstaller = true;
   autoUpdater.on("checking-for-update", () =>
     publishDesktopUpdate({ status: "checking", progress: null, message: null, failureKind: null })
@@ -706,7 +709,7 @@ ipcMain.handle("openteam:updates:check", async (event) => {
   return checkForDesktopUpdate();
 });
 
-ipcMain.handle("openteam:updates:open-download", async (event) => {
+ipcMain.handle("openteam:updates:open-download", async (event, expectedVersion: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
@@ -716,6 +719,7 @@ ipcMain.handle("openteam:updates:open-download", async (event) => {
     if (desktopUpdateSnapshot.status !== "available") {
       throw new Error("Check for a desktop update before downloading it");
     }
+    assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
     publishDesktopUpdate({
       status: "downloading",
       progress: 0,
@@ -725,6 +729,7 @@ ipcMain.handle("openteam:updates:open-download", async (event) => {
     await autoUpdater.downloadUpdate();
     return;
   }
+  assertDesktopUpdateTarget(desktopUpdateSnapshot.latestVersion, expectedVersion);
   await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
 });
 

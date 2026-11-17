@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
+import {
+  isOpenTeamVersion,
+  normalizeOpenTeamVersion,
+} from "@openteam/contracts/version-compatibility";
 import { safeErrorMessage } from "@openteam/product-core/redaction";
 
 export type DesktopUpdateFailureKind =
@@ -35,6 +38,18 @@ export interface DesktopUpdateSnapshot {
 // Directory builds such as package:mac-local have no feed and can't update themselves.
 export const hasDesktopUpdateFeed = (resourcesPath: string): boolean =>
   existsSync(join(resourcesPath, "app-update.yml"));
+
+/** A coordinated update must still download the release the user reviewed. */
+export function assertDesktopUpdateTarget(latestVersion: string | null, expectedVersion: unknown) {
+  if (expectedVersion === undefined) return;
+  if (
+    typeof expectedVersion !== "string" ||
+    !isOpenTeamVersion(expectedVersion) ||
+    normalizeOpenTeamVersion(expectedVersion) !== normalizeOpenTeamVersion(latestVersion ?? "")
+  ) {
+    throw new Error("The desktop release changed. Check for updates before downloading.");
+  }
+}
 
 export const classifyDesktopUpdateError = (
   error: unknown,

@@ -35,7 +35,7 @@ Open **Settings → Updates** to update the desktop app and the connected server
 
 When both have an update, choose **Update both…** to review the versions and update order. The queue updates the connected server, waits for it to reconnect on the new version, then downloads the desktop update. The app offers **Restart to update** when it is ready; choose **Not now** to keep working. It never restarts the desktop automatically. The queue checks for working bots before starting and pauses on a failure, so a failed server update cannot advance to the desktop download. **Retry queue** continues from the unfinished step without reinstalling a server that has already updated. Settings navigation does not stop the queue; reopening the app resumes watching its saved server job.
 
-The desktop sidebar also shows available app updates and download progress. Choose **Restart to update** once the download is ready.
+The desktop sidebar also shows available app updates and download progress. Choose **Restart to update** once the download is ready. Quitting the app leaves a downloaded update ready for that explicit restart action; it does not install the update on quit.
 
 Server updates use your existing signed-in connection. They update that server's stack, including the worker, database migrations, and computer. No SSH destination or additional sign-in is needed. The app compares the server with the installed desktop even when it cannot check the desktop release feed.
 

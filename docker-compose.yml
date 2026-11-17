@@ -152,6 +152,10 @@ services:
     depends_on:
       computer:
         condition: service_started
+        # The helper lives in the computer's PID namespace and dies with it. Docker's own
+        # restart policy cannot bring it back (it tries while the computer is still down),
+        # so a computer restarted through Compose restarts the helper with it.
+        restart: true
     cap_drop: ["ALL"]
     cap_add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
     security_opt:

@@ -6,6 +6,8 @@ Add **OpenStreetMap** or **Google Maps** from **Marketplace** to let bots find r
 
 Turn on **Share location** (desktop: **Settings → General**; iPhone and iPad: **Settings**) to let bots answer questions such as "coffee near me". It is off until you turn it on, and each device has its own switch. The first time, the system asks for permission.
 
+On a Mac, OpenTeam uses macOS Location Services. If access is denied, choose **Open System Settings**, turn on Location Services and allow OpenTeam, then try **Share location** again. The switch stays off until OpenTeam gets a location. If it cannot get a location, try again later.
+
 While it is on, each message you send from that device includes the device's current location. The server keeps only the newest one, from whichever device sent the latest message, and a bot reads it when it needs to know where you are. It can then search for places near that point. The location is not added to the message text. A computer's location usually comes from Wi-Fi and is less precise than a phone's GPS, and the bot is told how old and how precise the location is. Turning the switch off on any device deletes the saved location.
 
 ## OpenStreetMap

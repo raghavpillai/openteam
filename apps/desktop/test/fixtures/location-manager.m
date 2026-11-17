@@ -9,6 +9,7 @@
 @property(nonatomic) CLAuthorizationStatus authorizationStatus;
 - (void)startUpdatingLocation;
 - (void)stopUpdatingLocation;
+- (void)requestWhenInUseAuthorization;
 @end
 
 @implementation OTTestLocationManager
@@ -20,6 +21,7 @@
   return self;
 }
 - (void)stopUpdatingLocation { self.delegate = nil; }
+- (void)requestWhenInUseAuthorization {}
 - (void)startUpdatingLocation {
   NSString *mode = @(getenv("OPENTEAM_LOCATION_TEST_MODE") ?: "success");
   dispatch_async(dispatch_get_main_queue(), ^{

@@ -38,7 +38,7 @@ typedef struct {
     [self finish:1];
     return;
   }
-  // On macOS starting the service prompts for authorization when undetermined.
+  if (status == kCLAuthorizationStatusNotDetermined) [self.manager requestWhenInUseAuthorization];
   [self.manager startUpdatingLocation];
 }
 

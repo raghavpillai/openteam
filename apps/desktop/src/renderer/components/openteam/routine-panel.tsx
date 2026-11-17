@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   Pause,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ClientError } from "../../client/http";
@@ -22,6 +23,7 @@ import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import {
   DEFAULT_ROUTINE_SCHEDULE,
+  describeRoutineEventListener,
   describeRoutineSchedule,
   formatRoutineExecutionTime,
   type RoutineExecutionView,
@@ -35,6 +37,7 @@ import {
   routineUpdateInput,
   routineDefinitionEqual,
   routineEditorResumeState,
+  routineEventListeners,
   type RoutineEditorSaveState,
   synchronizeRoutineEnabled,
   routineSchedulesError,
@@ -708,6 +711,20 @@ function ScheduleCard({
   );
 }
 
+/** Event triggers (email, Slack, GitHub, ...) are authored by the agent; the editor shows them read-only. */
+function EventTriggerCard({ label }: { label: string }) {
+  return (
+    <li className="border-b border-[#dedede] dark:border-[#343434]">
+      <div className="flex min-h-10 items-center gap-2 px-2">
+        <span className="grid size-3.5 shrink-0 place-items-center">
+          <Zap className="size-3.5 text-muted-foreground" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
+      </div>
+    </li>
+  );
+}
+
 const executionStatus = (execution: RoutineExecutionView): string =>
   routineExecutionStatusPresentation(execution.status, "activity").label;
 
@@ -1338,6 +1355,12 @@ export function RoutineEditor({
           <Label className="pl-2 text-[12px] font-normal text-muted-foreground">When to run</Label>
           <div className="rounded-[10px] border border-[#dedede] dark:border-[#343434]">
             <ul aria-label="Triggers">
+              {routineEventListeners(routine?.trigger).map((listener) => (
+                <EventTriggerCard
+                  key={JSON.stringify(listener)}
+                  label={describeRoutineEventListener(listener)}
+                />
+              ))}
               {draft.schedules.map((item, index) => (
                 <ScheduleCard
                   expanded={expandedSchedule === index}

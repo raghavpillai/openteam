@@ -2707,7 +2707,9 @@ export class AgentMessaging {
     const roomPost = target?.kind === "group" && input.to !== "dm";
     if (roomPost && input.type !== "text") throw new ApiError(400, "group_text_only", "Only plain text is delivered to a room. Use your private chat for attachments or cards.");
     const persistedInput = await this.persistedVisibleInput(roomPost ? { ...input, images: undefined } : input);
-    const standalone = persistedInput.attachment as AssetRef | undefined;
+    const standalone = Array.isArray(persistedInput.attachments)
+      ? (persistedInput.attachments[0] as AssetRef | undefined)
+      : undefined;
     let content = standalone?.fileName ?? this.visibleContent(input);
     let groupRoundId: string | null = null;
     const result = await this.prisma.$transaction(async (tx) => {
@@ -2928,7 +2930,7 @@ export class AgentMessaging {
       return {
         kind: "send-message",
         ...rest,
-        attachment: await this.assets.ingestSource({ url, alt: input.alt }),
+        attachments: [await this.assets.ingestSource({ url, alt: input.alt })],
       };
     }
     if (input.type === "text" && images?.length) {

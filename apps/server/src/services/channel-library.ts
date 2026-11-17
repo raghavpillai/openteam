@@ -51,8 +51,18 @@ export class ChannelLibraryService {
              asset.value AS attachment, message."createdAt"
       FROM "ChannelMessage" AS message
       CROSS JOIN LATERAL jsonb_array_elements(
-        CASE WHEN jsonb_typeof(message.metadata->'attachments') = 'array'
-             THEN message.metadata->'attachments' ELSE '[]'::jsonb END
+        (
+          CASE WHEN jsonb_typeof(message.metadata->'attachments') = 'array'
+               THEN message.metadata->'attachments' ELSE '[]'::jsonb END
+        ) ||
+        (
+          CASE
+            WHEN message.metadata->'attachment' IS NOT NULL
+              AND message.metadata->'attachment' <> 'null'::jsonb
+            THEN jsonb_build_array(message.metadata->'attachment')
+            ELSE '[]'::jsonb
+          END
+        )
       ) WITH ORDINALITY AS asset(value, ordinality)
       WHERE message."channelId" = ${channelId}::uuid AND message.sender = 'agent'
         ${before ? Prisma.sql`AND (message."sequence", asset.ordinality) < (${before.sequence}, ${before.ordinal})` : Prisma.empty}

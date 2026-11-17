@@ -27,6 +27,7 @@ test.if(process.platform === "darwin" && !!electron && existsSync(electron))(
       await writeFile(runner, `
 const { app } = require("electron");
 const assert = require("node:assert/strict");
+app.setPath("userData", ${JSON.stringify(resolve(directory, "profile"))});
 app.whenReady().then(async () => {
   const native = require(${JSON.stringify(modulePath)});
   for (const [mode, code] of [["success", 0], ["denied", 1], ["deny-prompt", 1], ["unavailable", 2], ["timeout", 3], ["stale", 3], ["success", 0]]) {
@@ -44,7 +45,7 @@ app.whenReady().then(async () => {
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });
 `);
-      const child = Bun.spawn([electron!, runner], {
+      const child = Bun.spawn([electron!, `--user-data-dir=${resolve(directory, "profile")}`, runner], {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }, stdout: "pipe", stderr: "pipe",
       });
       const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);

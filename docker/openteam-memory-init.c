@@ -11,6 +11,7 @@
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
+#include <sys/stat.h>
 #include <sys/statfs.h>
 #include <unistd.h>
 
@@ -29,13 +30,37 @@ static int contains_init(const char *path) {
   fclose(f); return found;
 }
 
+static unsigned long long init_starttime(void) {
+  FILE *f = fopen("/proc/1/stat", "r");
+  char line[4096];
+  if (!f || !fgets(line, sizeof line, f)) die("computer start time");
+  fclose(f);
+  // comm (field 2) may contain spaces or parentheses. Start after its final ')'.
+  char *field = strrchr(line, ')');
+  if (field && field[1] == ' ') {
+    field += 2;
+    for (int number = 3; number < 22 && field; number++) {
+      field = strchr(field, ' ');
+      if (field) field++;
+    }
+    if (field) {
+      char *end;
+      unsigned long long value = strtoull(field, &end, 10);
+      if (value && end != field && (*end == ' ' || *end == '\n')) return value;
+    }
+  }
+  fputs("Invalid computer start time\n", stderr); exit(1);
+}
+
 int main(void) {
   // This helper shares ONLY the computer's PID namespace. No host PID namespace,
   // Docker socket, host mounts, credentials, network or persistent privilege.
   if (getpid() == 1) { fputs("Expected the computer PID namespace\n", stderr); return 1; }
   int fd = open("/proc/1/ns/mnt", O_RDONLY | O_CLOEXEC);
-  if (fd < 0 || setns(fd, CLONE_NEWNS)) die("computer mount namespace");
+  struct stat namespace;
+  if (fd < 0 || fstat(fd, &namespace) || setns(fd, CLONE_NEWNS)) die("computer mount namespace");
   close(fd);
+  unsigned long long starttime = init_starttime();
   struct statfs fs;
   if (statfs("/sys/fs/cgroup", &fs) || fs.f_type != CGROUP2_SUPER_MAGIC ||
       (!contains_init("/sys/fs/cgroup/cgroup.procs") && !contains_init("/sys/fs/cgroup/supervisor/cgroup.procs"))) {
@@ -66,11 +91,13 @@ int main(void) {
   struct __user_cap_data_struct data[2] = {{0}, {0}};
   if (syscall(SYS_capset, &header, data)) die("drop capabilities");
   // Publish readiness only after both limits and privilege dropping succeed.
-  // /tmp is private to this computer and recreated on container restart.
+  // /tmp survives a normal Docker restart. Bind the marker to the mount
+  // namespace we entered and PID 1's start time. Namespace inodes can be reused
+  // immediately after shutdown; neither identity alone proves a fresh boot.
   char ready[] = "/tmp/openteam-memory-ready-XXXXXX";
   int ready_fd = mkstemp(ready);
   if (ready_fd < 0) die("memory readiness");
-  if (dprintf(ready_fd, "%llu\n", budget) < 0 || close(ready_fd) || rename(ready, "/tmp/openteam-memory-ready")) die("memory readiness");
+  if (dprintf(ready_fd, "%llu %llu %llu\n", budget, (unsigned long long)namespace.st_ino, starttime) < 0 || close(ready_fd) || rename(ready, "/tmp/openteam-memory-ready")) die("memory readiness");
   // The kernel kills namespace members when the computer's PID 1 exits.
   // Compose restarts this helper into the restarted computer's new namespace.
   for (;;) pause();

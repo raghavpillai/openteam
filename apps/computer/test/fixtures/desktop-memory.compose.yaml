@@ -14,7 +14,7 @@ services:
     security_opt: [seccomp:unconfined, apparmor:unconfined, label:disable, systempaths=unconfined]
     devices: [/dev/net/tun:/dev/net/tun]
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=512m
+      # Like production, /tmp must survive restart to exercise stale readiness.
       - /home/box:rw,nosuid,size=256m
       - /workspace:rw,nosuid,size=128m
     volumes:
@@ -28,6 +28,7 @@ services:
     depends_on:
       computer:
         condition: service_started
+        restart: true
     cap_drop: [ALL]
     cap_add: [SYS_ADMIN, SYS_CHROOT, SYS_PTRACE]
     security_opt: [no-new-privileges:true, apparmor:unconfined]
